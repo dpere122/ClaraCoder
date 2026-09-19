@@ -23,6 +23,9 @@ export interface AdlGpuStats {
 
 const ADL_SUCCESS = 0;
 const ADLPMACTIVITY_SIZE = 28; // 7 x int32; iActivityPercent at offset 12
+/** Out-param slots are GC-managed Buffers (``koffi.alloc`` is an unfreed ``calloc``). */
+const INT32_SIZE = 4;
+const POINTER_SIZE = 8;
 
 let initialized = false;
 let context: bigint | null = null;
@@ -67,7 +70,7 @@ function init(): boolean {
     ADL2_Adapter_Active_Get = lib.func('int32 ADL2_Adapter_Active_Get(void *context, int32 index, void *status)') as typeof ADL2_Adapter_Active_Get;
     ADL2_Overdrive5_CurrentActivity_Get = lib.func('int32 ADL2_Overdrive5_CurrentActivity_Get(void *context, int32 index, void *activity)') as typeof ADL2_Overdrive5_CurrentActivity_Get;
 
-    const ctxSlot = koffi.alloc('void *', 1);
+    const ctxSlot = Buffer.alloc(POINTER_SIZE);
     if (ADL2_Main_Control_Create(mallocCb as bigint, 0, ctxSlot) !== ADL_SUCCESS) {
       initialized = false;
       return false;
@@ -88,13 +91,13 @@ export function getAmdStats(): AdlGpuStats[] {
     if (!initialized && !init()) return [];
     if (context === null) return [];
 
-    const numSlot = koffi.alloc('int32', 1);
+    const numSlot = Buffer.alloc(INT32_SIZE);
     if (ADL2_Adapter_NumberOfAdapters_Get(context, numSlot) !== ADL_SUCCESS) return [];
     const count = koffi.decode(numSlot, 'int32') as number;
 
     const out: AdlGpuStats[] = [];
     for (let i = 0; i < count; i++) {
-      const activeSlot = koffi.alloc('int32', 1);
+      const activeSlot = Buffer.alloc(INT32_SIZE);
       if (ADL2_Adapter_Active_Get(context, i, activeSlot) !== ADL_SUCCESS) continue;
       if ((koffi.decode(activeSlot, 'int32') as number) === 0) continue; // inactive
 

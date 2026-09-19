@@ -6,7 +6,7 @@
       <div
         class="main-panel-empty__etch"
         aria-hidden="true"
-        style="--empty-etch-icon: url('app-icon.png')"
+        style="--empty-etch-icon: url('app-icon-etch.png')"
       >
         <span class="main-panel-empty__etch-layer main-panel-empty__etch-layer--shadow"></span>
         <span class="main-panel-empty__etch-layer main-panel-empty__etch-layer--fill"></span>
@@ -133,12 +133,16 @@
       </div>
     </div>
   } @else {
-    <div class="main-panel-empty__content main-panel-empty__content--select-file">
-      <lucide-icon name="file-search" [size]="40" class="main-panel-empty__icon" />
-      <h2 class="main-panel-empty__title">Select a file</h2>
-      <p class="main-panel-empty__hint">
-        Double-click a file in the workspace tree to open it here.
-      </p>
+    <div class="main-panel-empty__welcome main-panel-empty__welcome--workspace">
+      <div
+        class="main-panel-empty__etch"
+        aria-hidden="true"
+        style="--empty-etch-icon: url('app-icon-etch.png')"
+      >
+        <span class="main-panel-empty__etch-layer main-panel-empty__etch-layer--shadow"></span>
+        <span class="main-panel-empty__etch-layer main-panel-empty__etch-layer--fill"></span>
+        <span class="main-panel-empty__etch-layer main-panel-empty__etch-layer--highlight"></span>
+      </div>
     </div>
   }
 </div>

@@ -1,0 +1,168 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none" role="img" aria-labelledby="spinnerTitle">
+  <title id="spinnerTitle">Prefill</title>
+  <style>
+    .slot {
+      fill: #a8b89a;
+      fill-opacity: 0.12;
+    }
+    .tok {
+      fill: #a8b89a;
+      fill-opacity: 0;
+    }
+    .tok-1 { animation: tok-1 2.8s ease-in-out infinite; }
+    .tok-2 { animation: tok-2 2.8s ease-in-out infinite; }
+    .tok-3 { animation: tok-3 2.8s ease-in-out infinite; }
+    .tok-4 { animation: tok-4 2.8s ease-in-out infinite; }
+    .tok-5 { animation: tok-5 2.8s ease-in-out infinite; }
+    .tok-6 { animation: tok-6 2.8s ease-in-out infinite; }
+    .tok-7 { animation: tok-7 2.8s ease-in-out infinite; }
+    .tok-8 { animation: tok-8 2.8s ease-in-out infinite; }
+    .tok-9 { animation: tok-9 2.8s ease-in-out infinite; }
+    .tok-10 { animation: tok-10 2.8s ease-in-out infinite; }
+    .tok-11 { animation: tok-11 2.8s ease-in-out infinite; }
+    .tok-12 { animation: tok-12 2.8s ease-in-out infinite; }
+
+    .head {
+      animation: pack-head 2.8s ease-in-out infinite;
+    }
+    .meter {
+      transform-origin: 13px 48.2px;
+      animation: meter-fill 2.8s ease-in-out infinite;
+    }
+
+    @keyframes tok-1 {
+      0%, 1% { fill-opacity: 0; fill: #c9a96e; }
+      6%, 78% { fill-opacity: 1; fill: #a8b89a; }
+      90%, 100% { fill-opacity: 0; fill: #a8b89a; }
+    }
+    @keyframes tok-2 {
+      0%, 6% { fill-opacity: 0; fill: #c9a96e; }
+      12%, 78% { fill-opacity: 1; fill: #a8b89a; }
+      90%, 100% { fill-opacity: 0; fill: #a8b89a; }
+    }
+    @keyframes tok-3 {
+      0%, 12% { fill-opacity: 0; fill: #c9a96e; }
+      18%, 78% { fill-opacity: 1; fill: #a8b89a; }
+      90%, 100% { fill-opacity: 0; fill: #a8b89a; }
+    }
+    @keyframes tok-4 {
+      0%, 18% { fill-opacity: 0; fill: #c9a96e; }
+      24%, 78% { fill-opacity: 1; fill: #a8b89a; }
+      90%, 100% { fill-opacity: 0; fill: #a8b89a; }
+    }
+    @keyframes tok-5 {
+      0%, 25% { fill-opacity: 0; fill: #c9a96e; }
+      31%, 78% { fill-opacity: 1; fill: #a8b89a; }
+      90%, 100% { fill-opacity: 0; fill: #a8b89a; }
+    }
+    @keyframes tok-6 {
+      0%, 31% { fill-opacity: 0; fill: #c9a96e; }
+      37%, 78% { fill-opacity: 1; fill: #a8b89a; }
+      90%, 100% { fill-opacity: 0; fill: #a8b89a; }
+    }
+    @keyframes tok-7 {
+      0%, 37% { fill-opacity: 0; fill: #c9a96e; }
+      43%, 78% { fill-opacity: 1; fill: #a8b89a; }
+      90%, 100% { fill-opacity: 0; fill: #a8b89a; }
+    }
+    @keyframes tok-8 {
+      0%, 43% { fill-opacity: 0; fill: #c9a96e; }
+      49%, 78% { fill-opacity: 1; fill: #a8b89a; }
+      90%, 100% { fill-opacity: 0; fill: #a8b89a; }
+    }
+    @keyframes tok-9 {
+      0%, 50% { fill-opacity: 0; fill: #c9a96e; }
+      56%, 78% { fill-opacity: 1; fill: #a8b89a; }
+      90%, 100% { fill-opacity: 0; fill: #a8b89a; }
+    }
+    @keyframes tok-10 {
+      0%, 56% { fill-opacity: 0; fill: #c9a96e; }
+      62%, 78% { fill-opacity: 1; fill: #a8b89a; }
+      90%, 100% { fill-opacity: 0; fill: #a8b89a; }
+    }
+    @keyframes tok-11 {
+      0%, 62% { fill-opacity: 0; fill: #c9a96e; }
+      68%, 78% { fill-opacity: 1; fill: #a8b89a; }
+      90%, 100% { fill-opacity: 0; fill: #a8b89a; }
+    }
+    @keyframes tok-12 {
+      0%, 68% { fill-opacity: 0; fill: #c9a96e; }
+      74%, 78% { fill-opacity: 1; fill: #c9a96e; }
+      90%, 100% { fill-opacity: 0; fill: #a8b89a; }
+    }
+    @keyframes pack-head {
+      0%, 1% { transform: translate(13px, 16.5px); }
+      6% { transform: translate(23.5px, 16.5px); }
+      12% { transform: translate(34px, 16.5px); }
+      18% { transform: translate(44.5px, 16.5px); }
+      25% { transform: translate(13px, 27.5px); }
+      31% { transform: translate(23.5px, 27.5px); }
+      37% { transform: translate(34px, 27.5px); }
+      43% { transform: translate(44.5px, 27.5px); }
+      50% { transform: translate(13px, 38.5px); }
+      56% { transform: translate(23.5px, 38.5px); }
+      62% { transform: translate(34px, 38.5px); }
+      68%, 78% { transform: translate(44.5px, 38.5px); }
+      90%, 100% { transform: translate(13px, 16.5px); }
+    }
+    @keyframes meter-fill {
+      0% { transform: scaleX(0.04); }
+      74% { transform: scaleX(1); }
+      90%, 100% { transform: scaleX(0.04); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .tok-1, .tok-2, .tok-3, .tok-4, .tok-5, .tok-6,
+      .tok-7, .tok-8, .tok-9, .tok-10, .tok-11, .tok-12,
+      .head, .meter { animation: none; }
+      .tok { fill-opacity: 1; fill: #a8b89a; }
+      .tok-12 { fill: #c9a96e; }
+      .head { transform: translate(44.5px, 38.5px); }
+      .meter { transform: scaleX(1); }
+    }
+  </style>
+
+  <!-- Context window the prompt is packed into -->
+  <rect
+    x="8" y="11" width="48" height="42" rx="5.5"
+    fill="#a8b89a" fill-opacity="0.07"
+    stroke="#a8b89a" stroke-opacity="0.48" stroke-width="1.8"
+  />
+
+  <!-- Empty token slots -->
+  <rect class="slot" x="13" y="16.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="slot" x="23.5" y="16.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="slot" x="34" y="16.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="slot" x="44.5" y="16.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="slot" x="13" y="27.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="slot" x="23.5" y="27.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="slot" x="34" y="27.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="slot" x="44.5" y="27.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="slot" x="13" y="38.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="slot" x="23.5" y="38.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="slot" x="34" y="38.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="slot" x="44.5" y="38.5" width="8" height="5.6" rx="1.2"/>
+
+  <!-- Packed prompt tokens -->
+  <rect class="tok tok-1" x="13" y="16.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="tok tok-2" x="23.5" y="16.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="tok tok-3" x="34" y="16.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="tok tok-4" x="44.5" y="16.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="tok tok-5" x="13" y="27.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="tok tok-6" x="23.5" y="27.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="tok tok-7" x="34" y="27.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="tok tok-8" x="44.5" y="27.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="tok tok-9" x="13" y="38.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="tok tok-10" x="23.5" y="38.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="tok tok-11" x="34" y="38.5" width="8" height="5.6" rx="1.2"/>
+  <rect class="tok tok-12" x="44.5" y="38.5" width="8" height="5.6" rx="1.2"/>
+
+  <!-- Prefill head: current prompt token being ingested -->
+  <g class="head">
+    <rect x="0" y="-0.85" width="8" height="7.3" rx="1.35" fill="#c9a96e"/>
+  </g>
+
+  <!-- Prompt-eval meter -->
+  <rect x="13" y="47.4" width="38" height="1.7" rx="0.85" fill="#a8b89a" fill-opacity="0.16"/>
+  <rect class="meter" x="13" y="47.4" width="38" height="1.7" rx="0.85" fill="#c9a96e"/>
+</svg>

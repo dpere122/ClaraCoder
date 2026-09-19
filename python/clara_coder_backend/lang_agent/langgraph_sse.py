@@ -6,6 +6,8 @@ Extracted from :mod:`clara_coder_backend.lang_agent.graph` for readability and t
 from __future__ import annotations
 
 import asyncio
+import json
+import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -71,10 +73,33 @@ class GraphStreamState:
     gemma_resume_in_thought: bool = False
     #: True between ``on_chat_model_start`` and ``on_chat_model_end`` for the current LLM call.
     gemma_step_started: bool = False
-    #: Native tool-call rows shown while write arguments are still streaming.
+    #: Tool-call rows shown while arguments are still streaming (Gemma text tags and
+    #: OpenAI-style ``tool_call_chunks`` both register here; ``on_tool_start`` rebinds by name+path).
     gemma_native_previews: list[dict[str, Any]] = field(default_factory=list)
     gemma_run_id_alias: dict[str, str] = field(default_factory=dict)
     gemma_preview_seq: int = 0
+    #: OpenAI-style streamed tool calls for the current LLM step, keyed by ``tool_call_chunks[].index``.
+    native_tool_drafts: dict[int | str, NativeToolCallDraft] = field(default_factory=dict)
+    native_preview_seq: int = 0
+
+
+#: Re-announce a streaming native tool call each time its argument buffer grows by this many chars.
+NATIVE_TOOL_PREVIEW_STEP_CHARS = 1024
+
+#: Below this many streamed argument chars the size hint is omitted (path / query alone is enough).
+NATIVE_TOOL_PREVIEW_SIZE_MIN_CHARS = 512
+
+
+@dataclass
+class NativeToolCallDraft:
+    """One OpenAI-style tool call whose JSON arguments are still streaming."""
+
+    preview_id: str
+    name: str
+    args_text: str = ''
+    #: Partial args recovered from the JSON prefix (path / query keys only).
+    args: dict[str, Any] = field(default_factory=dict)
+    emitted_chars: int = 0
 
 
 def _token_usage_payload(msg: AIMessage) -> dict[str, Any] | None:
@@ -173,6 +198,7 @@ def _on_chat_model_start(
     state.deferred_agent_text = ''
     state.reasoning_emitted_this_step = False
     state.gemma_split_for_step = False
+    state.native_tool_drafts = {}
     resume_thought = _gemma_resume_in_thought_channel(data, state)
     state.gemma_splitter = GemmaStreamSplitter(start_in_channel=resume_thought)
     log_llm_chat_request_from_event_input(
@@ -329,6 +355,133 @@ def _emit_gemma_native_tool_previews(
     return lines
 
 
+_NATIVE_PREVIEW_ARG_KEYS = ('relative_path', 'path', 'file_path', 'query')
+_NATIVE_PREVIEW_ARG_RE = {
+    key: re.compile(r'"' + re.escape(key) + r'"\s*:\s*"((?:[^"\\]|\\.)*)"')
+    for key in _NATIVE_PREVIEW_ARG_KEYS
+}
+
+
+def _partial_json_string_args(args_text: str) -> dict[str, Any]:
+    """Recover completed string values for path / query keys from a streaming JSON prefix."""
+    out: dict[str, Any] = {}
+    for key, pattern in _NATIVE_PREVIEW_ARG_RE.items():
+        match = pattern.search(args_text)
+        if match is None:
+            continue
+        raw = match.group(1)
+        try:
+            value = json.loads(f'"{raw}"')
+        except ValueError:
+            value = raw
+        if isinstance(value, str) and value.strip():
+            out[key] = value
+    return out
+
+
+def _format_streamed_size(n_chars: int) -> str:
+    if n_chars < 1024:
+        return f'{n_chars} chars'
+    return f'{n_chars / 1024:.1f} KB'
+
+
+def native_tool_preview_detail(draft: NativeToolCallDraft) -> str:
+    """Status detail while a native tool call's arguments stream: path/query plus a size hint."""
+    head = tool_running_detail(draft.name, draft.args)
+    n = len(draft.args_text)
+    if n < NATIVE_TOOL_PREVIEW_SIZE_MIN_CHARS:
+        return head
+    size = f'drafting {_format_streamed_size(n)}'
+    return f'{head} · {size}' if head else size
+
+
+def _native_preview_line(
+    draft: NativeToolCallDraft,
+    *,
+    agent_role: str | None,
+    stream_tag: str | None,
+) -> str:
+    return sse_line(
+        status_event(
+            draft.preview_id,
+            draft.name,
+            detail=native_tool_preview_detail(draft),
+            state='running',
+            source='tool',
+            agent_role=agent_role,
+            stream_tag=stream_tag,
+        )
+    )
+
+
+def _emit_native_tool_call_previews(
+    chunk: AIMessageChunk,
+    state: GraphStreamState,
+    *,
+    agent_role: str | None,
+    stream_tag: str | None,
+) -> list[str]:
+    """Announce OpenAI-style tool calls while their arguments stream.
+
+    Write tools carry the whole file in ``new_content``; without this the UI shows "thinking"
+    until the model finishes drafting. The preview row reuses the Gemma preview registry so
+    ``on_tool_start`` rebinds to the same status id (no duplicate pill).
+    """
+    raw_chunks = getattr(chunk, 'tool_call_chunks', None) or []
+    if not raw_chunks:
+        return []
+    lines: list[str] = []
+    for tc in raw_chunks:
+        if not isinstance(tc, dict):
+            continue
+        idx = tc.get('index')
+        name = tc.get('name')
+        args_delta = tc.get('args')
+        key: int | str
+        if isinstance(idx, int):
+            key = idx
+        else:
+            key = str(tc.get('id') or '') or f'seq-{len(state.native_tool_drafts)}'
+        draft = state.native_tool_drafts.get(key)
+        if draft is None:
+            clean_name = str(name or '').strip()
+            if not clean_name:
+                continue
+            state.native_preview_seq += 1
+            preview_id = f'native-tool-preview-{state.native_preview_seq}'
+            draft = NativeToolCallDraft(preview_id=preview_id, name=clean_name)
+            if isinstance(args_delta, str):
+                draft.args_text = args_delta
+                draft.args = _partial_json_string_args(draft.args_text)
+            draft.emitted_chars = len(draft.args_text)
+            state.native_tool_drafts[key] = draft
+            state.gemma_native_previews.append(
+                {'id': preview_id, 'name': clean_name, 'args': dict(draft.args), 'consumed': False}
+            )
+            state.pending_tool_runs[preview_id] = (clean_name, dict(draft.args))
+            lines.append(_native_preview_line(draft, agent_role=agent_role, stream_tag=stream_tag))
+            continue
+        if not isinstance(args_delta, str) or not args_delta:
+            continue
+        draft.args_text += args_delta
+        prev_args = draft.args
+        draft.args = _partial_json_string_args(draft.args_text)
+        args_changed = draft.args != prev_args
+        grew = len(draft.args_text) - draft.emitted_chars >= NATIVE_TOOL_PREVIEW_STEP_CHARS
+        if not args_changed and not grew:
+            continue
+        draft.emitted_chars = len(draft.args_text)
+        if args_changed:
+            for item in state.gemma_native_previews:
+                if item.get('id') == draft.preview_id:
+                    item['args'] = dict(draft.args)
+                    break
+            if draft.preview_id in state.pending_tool_runs:
+                state.pending_tool_runs[draft.preview_id] = (draft.name, dict(draft.args))
+        lines.append(_native_preview_line(draft, agent_role=agent_role, stream_tag=stream_tag))
+    return lines
+
+
 def _gemma_preview_complete_line(
     item: dict[str, Any],
     *,
@@ -446,6 +599,68 @@ def _status_id_for_tool_run(state: GraphStreamState, run_id: str) -> str:
     return state.gemma_run_id_alias.get(run_id, run_id)
 
 
+def resolve_running_tool_status_id(
+    state: GraphStreamState,
+    *,
+    name: str,
+    relative_path: str = '',
+) -> str | None:
+    """Status id of the most recent in-flight tool run matching ``name`` (and path when given).
+
+    Used to fold out-of-band progress (write-job phases) into the existing tool pill instead of
+    adding a second row. Returns ``None`` when no such run is pending.
+    """
+    wanted = relative_path.strip().replace('\\', '/')
+    fallback: str | None = None
+    for run_id, (run_name, args) in reversed(list(state.pending_tool_runs.items())):
+        if run_name != name:
+            continue
+        status_id = _status_id_for_tool_run(state, run_id)
+        if not wanted:
+            return status_id
+        if _preview_path_value(args if isinstance(args, dict) else {}) == wanted:
+            return status_id
+        if fallback is None:
+            fallback = status_id
+    return fallback
+
+
+def tool_progress_sse_lines(
+    data: dict[str, Any],
+    *,
+    states: list[GraphStreamState],
+    agent_role: str | None,
+    stream_tag: str | None,
+) -> list[str]:
+    """Map a ``tool_progress`` nested event onto the matching running tool status row.
+
+    ``states`` is searched in order (outer graph first, then nested specialists).
+    """
+    name = str(data.get('tool_name') or '').strip()
+    detail = data.get('detail')
+    if not name or not isinstance(detail, str) or not detail.strip():
+        return []
+    rel = str(data.get('relative_path') or '')
+    for state in states:
+        status_id = resolve_running_tool_status_id(state, name=name, relative_path=rel)
+        if status_id is None:
+            continue
+        return [
+            sse_line(
+                status_event(
+                    status_id,
+                    name,
+                    detail=detail,
+                    state='running',
+                    source='tool',
+                    agent_role=agent_role,
+                    stream_tag=stream_tag,
+                )
+            )
+        ]
+    return []
+
+
 def _on_chat_model_stream(
     data: dict[str, Any],
     state: GraphStreamState,
@@ -464,8 +679,11 @@ def _on_chat_model_stream(
         delta = main_delta
         if split_reason:
             reason_delta = f'{reason_delta}{split_reason}'
-    preview_lines = _emit_gemma_native_tool_previews(
-        state, agent_role=agent_role, stream_tag=stream_tag
+    preview_lines = _emit_native_tool_call_previews(
+        raw, state, agent_role=agent_role, stream_tag=stream_tag
+    )
+    preview_lines.extend(
+        _emit_gemma_native_tool_previews(state, agent_role=agent_role, stream_tag=stream_tag)
     )
     if reason_delta and (
         state.gemma_split_for_step

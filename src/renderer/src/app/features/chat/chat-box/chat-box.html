@@ -1,4 +1,10 @@
-<div class="chat-box" #chatScroll (scroll)="onChatScroll()" (wheel)="onChatWheel($event)" appRunButton>
+<div
+  class="chat-box"
+  #chatScroll
+  (scroll)="onChatScroll()"
+  (wheel)="onChatWheel($event)"
+  appRunButton
+>
   <div class="chat-virtual-spacer" [style.height.px]="virtualWindow().topSpacer" aria-hidden="true"></div>
   @for (slot of virtualWindow().slots; track slot.index) {
     <div class="chat-row-mount" [attr.data-chat-row]="slot.index">
@@ -14,34 +20,18 @@
         [class.assistant-bubble]="slot.row.kind === 'assistant-turn'"
         [class.assistant-turn-bubble]="slot.row.kind === 'assistant-turn'"
       >
-        @if (slot.row.kind === 'user') {
-          <div
-            class="tui-frame-bar tui-frame-bar--bottom tui-frame-bar--user"
-            [class.tui-frame-bar--has-restore]="canRestoreUserRow(slot.row.msg)"
+        @if (slot.row.kind === 'user' && canRestoreUserRow(slot.row.msg)) {
+          <button
+            type="button"
+            class="msg-restore-btn"
+            (click)="onRestoreUserRow(slot.row.msg, $event)"
+            aria-label="Restore conversation to this message"
           >
-            <span class="tui-frame-bar__corner" aria-hidden="true">┌</span>
-            @if (canRestoreUserRow(slot.row.msg)) {
-              <button
-                type="button"
-                class="tui-frame-bar__label-group"
-                (click)="onRestoreUserRow(slot.row.msg, $event)"
-                aria-label="Restore conversation to this message"
-              >
-                <span class="tui-frame-bar__label">─ RESTORE</span>
-              </button>
-            }
-            <span class="tui-frame-bar__fill" aria-hidden="true"></span>
-            <span class="tui-frame-bar__corner" aria-hidden="true">┐</span>
-          </div>
-        } @else {
-          <div class="tui-frame-bar tui-frame-bar--top tui-frame-bar--clara">
-            <span class="tui-frame-bar__corner" aria-hidden="true">╔</span>
-            <span class="tui-frame-bar__label" aria-hidden="true">═ CLARA ═</span>
-            <span class="tui-frame-bar__fill" aria-hidden="true"></span>
-            <span class="tui-frame-bar__corner" aria-hidden="true">╗</span>
-          </div>
+            <lucide-icon name="undo-2" [size]="12" aria-hidden="true"></lucide-icon>
+            <span>Restore</span>
+          </button>
         }
-        <div class="tui-frame-bar__body">
+        <div class="msg-bubble__body">
         @if (slot.row.kind === 'user') {
           @let userImages = userImageUrls(slot.row.msg);
           @let userFiles = userAttachedFiles(slot.row.msg);
@@ -105,19 +95,6 @@
           }
         }
         </div>
-        @if (slot.row.kind === 'user') {
-          <div class="tui-frame-bar tui-frame-bar--bottom tui-frame-bar--user" aria-hidden="true">
-            <span class="tui-frame-bar__corner">└</span>
-            <span class="tui-frame-bar__fill"></span>
-            <span class="tui-frame-bar__corner">┘</span>
-          </div>
-        } @else {
-          <div class="tui-frame-bar tui-frame-bar--bottom tui-frame-bar--clara" aria-hidden="true">
-            <span class="tui-frame-bar__corner">╚</span>
-            <span class="tui-frame-bar__fill"></span>
-            <span class="tui-frame-bar__corner">╝</span>
-          </div>
-        }
       </div>
     </div>
     </div>
@@ -129,13 +106,7 @@
         class="msg-bubble assistant-bubble assistant-turn-bubble"
         [class.streaming-bubble]="!liveTurnPresentationSettled()"
       >
-        <div class="tui-frame-bar tui-frame-bar--top tui-frame-bar--clara">
-          <span class="tui-frame-bar__corner" aria-hidden="true">╔</span>
-          <span class="tui-frame-bar__label" aria-hidden="true">═ CLARA ═</span>
-          <span class="tui-frame-bar__fill" aria-hidden="true"></span>
-          <span class="tui-frame-bar__corner" aria-hidden="true">╗</span>
-        </div>
-        <div class="tui-frame-bar__body">
+        <div class="msg-bubble__body">
         @if (livePlanPanel(); as planCtx) {
           <app-planner-checklist
             [planner]="planCtx.planner"
@@ -158,28 +129,44 @@
             [live]="true"
             [showCursor]="showStreamingPrimaryCursor()"
             [planPanelVisible]="!!livePlanPanel()"
+            [spinnerActive]="liveSpinnerActive()"
+            (spinnerHostChange)="liveFeedSpinnerHost.set($event)"
           />
         }
-        @if (!liveAwaitingHitlReview() && liveTurnFeed().length === 0) {
-          <div class="processing-bubble" role="status" aria-live="polite">
-            <div class="processing-ngx-host" aria-hidden="true">
-              <ngx-spinner
-                name="chat-think"
-                type="ball-atom"
-                [fullScreen]="false"
-                bdColor="rgba(0,0,0,0)"
-                size="small"
-                color="var(--bs-secondary-color)"
-              ></ngx-spinner>
+        @if (liveSpinnerActive() && !liveFeedHostsSpinner()) {
+          <div
+            class="processing-bubble"
+            role="status"
+            aria-live="polite"
+          >
+            <div
+              class="processing-svg-host"
+              [class.processing-svg-host--jot]="processingToolsActive() && !livePrefillProcessing() && !liveReadToolsActive()"
+              [class.processing-svg-host--read]="processingToolsActive() && !livePrefillProcessing() && liveReadToolsActive()"
+              [class.processing-svg-host--prefill]="livePrefillProcessing()"
+              aria-hidden="true"
+            >
+              @if (livePrefillProcessing()) {
+                <img class="processing-svg-spinner" src="spinner-prefill.svg" alt="" />
+              } @else if (processingToolsActive() && liveReadToolsActive()) {
+                <img class="processing-svg-spinner" src="spinner-read.svg" alt="" />
+              } @else if (processingToolsActive()) {
+                <img class="processing-svg-spinner" src="spinner-jot.svg" alt="" />
+              } @else {
+                <img class="processing-svg-spinner" src="spinner.svg" alt="" />
+              }
             </div>
-            <span class="processing-text">{{ processingBubbleLabel() }}</span>
+            <span
+              class="processing-text processing-text--shimmer"
+              [class.processing-text--tools]="processingToolsActive() && !livePrefillProcessing()"
+              [attr.aria-label]="processingBubbleLabel()"
+            >
+              @for (ch of processingLabelChars(); track $index) {
+                <span class="processing-text__letter" [style.animation-delay]="($index * 0.08) + 's'" aria-hidden="true">{{ ch }}</span>
+              }
+            </span>
           </div>
         }
-        </div>
-        <div class="tui-frame-bar tui-frame-bar--bottom tui-frame-bar--clara" aria-hidden="true">
-          <span class="tui-frame-bar__corner">╚</span>
-          <span class="tui-frame-bar__fill"></span>
-          <span class="tui-frame-bar__corner">╝</span>
         </div>
       </div>
     </div>

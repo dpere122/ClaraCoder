@@ -12,13 +12,14 @@ import { ElectronService } from '../../../core/electron.service';
 import {
   computeStatusPollIntervalMs,
   embeddingsStatusDotState,
-  healthDotState,
+  modelStatusDotState,
   type LlamaStatusDotState,
 } from './llama-status-display';
 
 /**
  * Compact status-bar indicator with traffic-light dots:
  * - **Model** dot: managed llama.cpp chat server health (only for ``llamacpp`` provider).
+ *   Yellow while the managed server is starting or fetching weights.
  * - **Embeddings** dot: CPU FastEmbed load status (all providers).
  *
  * The embeddings dot polls the Python sidecar ``GET /embeddings/status`` endpoint, which reports
@@ -49,8 +50,8 @@ export class LlamaStatusIndicator {
 
   /** Managed llama.cpp server status (chat + embed probe). Only relevant for ``llamacpp`` provider. */
   protected readonly status = signal<LlamaServerStatusResult | null>(null);
-  /** Set from main-process lifecycle while HF / remote weights are being fetched. */
-  private readonly modelDownloadPhase = signal(false);
+  /** Managed start in flight: ``starting`` until health, or ``downloading`` while HF weights fetch. */
+  private readonly modelWarming = signal<'starting' | 'downloading' | null>(null);
 
   /** CPU FastEmbed embeddings status from the Python sidecar. */
   protected readonly embedStatus = signal<EmbeddingsLoadStatus | null>(null);
@@ -72,35 +73,29 @@ export class LlamaStatusIndicator {
   /** Show the Model dot only for managed llama.cpp. */
   protected readonly showModelDot = computed(() => this.activeProvider() === 'llamacpp');
 
-  /** True when the managed (or remote-probed) servers are considered live. */
-  private readonly live = computed(() => {
-    const st = this.status();
-    if (!st || st.ok === false) {
-      return false;
-    }
-    return st.running || st.remote === true;
-  });
-
-  protected readonly modelDot = computed((): LlamaStatusDotState => {
-    if (this.modelDownloadPhase()) {
-      return 'yellow';
-    }
-    const st = this.status();
-    if (!st || st.ok === false || !this.live()) {
-      return 'red';
-    }
-    return healthDotState(st.chat.health);
-  });
+  protected readonly modelDot = computed((): LlamaStatusDotState =>
+    modelStatusDotState(this.modelWarming(), this.status()),
+  );
 
   protected readonly embedDot = computed((): LlamaStatusDotState => {
     const es = this.embedStatus();
     if (es == null) {
-      return 'red';
+      return 'gray';
     }
     return embeddingsStatusDotState(es);
   });
 
-  protected readonly modelTitle = computed(() => `Model server — ${this.dotLabel(this.modelDot())}`);
+  protected readonly modelTitle = computed(() => {
+    const warm = this.modelWarming();
+    if (warm === 'downloading') {
+      return 'Model server — downloading';
+    }
+    const st = this.status();
+    if (warm === 'starting' || (st && st.ok === true && st.starting)) {
+      return 'Model server — starting';
+    }
+    return `Model server — ${this.dotLabel(this.modelDot())}`;
+  });
   protected readonly embedTitle = computed(() => {
     const es = this.embedStatus();
     const label = this.dotLabel(this.embedDot());
@@ -126,6 +121,9 @@ export class LlamaStatusIndicator {
     if (s === 'yellow') {
       return 'loading';
     }
+    if (s === 'red') {
+      return 'error';
+    }
     return 'offline';
   }
 
@@ -148,12 +146,14 @@ export class LlamaStatusIndicator {
       .subscribe((e) => {
         if ('phase' in e) {
           if (e.phase === 'downloading') {
-            this.modelDownloadPhase.set(true);
-          } else if (e.phase === 'running' || e.phase === 'stopped' || e.phase === 'starting') {
-            this.modelDownloadPhase.set(false);
+            this.modelWarming.set('downloading');
+          } else if (e.phase === 'starting') {
+            this.modelWarming.set('starting');
+          } else if (e.phase === 'running' || e.phase === 'stopped') {
+            this.modelWarming.set(null);
           }
         } else {
-          this.modelDownloadPhase.set(false);
+          this.modelWarming.set(null);
         }
         this.scheduleDebouncedRefresh();
       });
@@ -168,6 +168,7 @@ export class LlamaStatusIndicator {
         this.deferredRefreshCfg = null;
         this.status.set(null);
         this.embedStatus.set(null);
+        this.modelWarming.set(null);
         this.stopPolling();
         this.stopEmbedPolling();
         this.clearDebounceRefresh();
@@ -379,6 +380,7 @@ export class LlamaStatusIndicator {
     if (seq !== this.refreshSeq) {
       return;
     }
+    this.syncWarmingFromStatus(raw);
     if (!raw.ok) {
       this.chatOkExitStreak.n = 0;
       this.embedOkExitStreak.n = 0;
@@ -414,5 +416,23 @@ export class LlamaStatusIndicator {
       chat: { ...raw.chat, health: chatHealth },
       embed,
     });
+  }
+
+  /**
+   * Keep the Model dot in sync with polled status: yellow while ``starting``,
+   * clear warming once chat is actually running. Do not clear on a stopped
+   * probe — start can race the first poll before the slot exists.
+   */
+  private syncWarmingFromStatus(raw: LlamaServerStatusResult): void {
+    if (!raw.ok) {
+      return;
+    }
+    if (raw.running && !raw.starting) {
+      this.modelWarming.set(null);
+      return;
+    }
+    if (raw.starting && this.modelWarming() !== 'downloading') {
+      this.modelWarming.set('starting');
+    }
   }
 }

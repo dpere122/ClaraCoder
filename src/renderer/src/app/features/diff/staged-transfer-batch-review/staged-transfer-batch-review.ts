@@ -1,4 +1,4 @@
-import { CommonModule, DOCUMENT } from '@angular/common';
+import { DOCUMENT } from '@angular/common';
 import {
   Component,
   ElementRef,
@@ -30,7 +30,7 @@ import {
 @Component({
   selector: 'app-staged-transfer-batch-review',
   standalone: true,
-  imports: [CommonModule, FormsModule, LucideAngularModule, DiffApplyComponent],
+  imports: [FormsModule, LucideAngularModule, DiffApplyComponent],
   templateUrl: './staged-transfer-batch-review.html',
   styleUrl: './staged-transfer-batch-review.css',
   encapsulation: ViewEncapsulation.None,
@@ -62,13 +62,14 @@ export class StagedTransferBatchReviewComponent implements OnDestroy {
   private readonly pendingDiff = inject(PendingDiffReviewService);
 
   readonly reReviewFeedback = signal('');
-  /** Re-review notes textarea visibility — collapsed by default. */
+  /** Notes composer visibility — opens from “Request changes”, closes on send / keep reviewing. */
   readonly feedbackOpen = signal(false);
   readonly applyMessage = signal('');
   /** Full-window review for the whole batch (toolbar + diff panes). */
   readonly batchExpanded = signal(false);
 
   private readonly expandShellRef = viewChild<ElementRef<HTMLElement>>('expandShell');
+  private readonly feedbackInputRef = viewChild<ElementRef<HTMLTextAreaElement>>('feedbackInput');
   private portalRestoreParent: HTMLElement | null = null;
 
   private readonly session = computed(() => this.pendingDiff.batchSessionFor(this.payload()));
@@ -89,8 +90,83 @@ export class StagedTransferBatchReviewComponent implements OnDestroy {
   readonly fileProgressLabel = computed(() => {
     const total = this.payload().files.length;
     const idx = Math.min(Math.max(this.currentFileIndex(), 0), Math.max(total - 1, 0));
-    return `${idx + 1}/${total}`;
+    return `File ${idx + 1} of ${total}`;
   });
+
+  readonly batchTitle = computed(() =>
+    this.payload().untransferredFlush ? 'Left untransferred' : 'Staged batch',
+  );
+
+  readonly currentFileName = computed(() => {
+    const rel = this.currentFile().relativePath.replace(/\\/g, '/');
+    const slash = rel.lastIndexOf('/');
+    return slash >= 0 ? rel.slice(slash + 1) : rel;
+  });
+
+  readonly fileCountLabel = computed(() => {
+    const n = this.payload().files.length;
+    return n === 1 ? '1 file' : `${n} files`;
+  });
+
+  /** `2 approved · 1 sent back`, for the collapsed card and the file strip. */
+  readonly outcomeSummary = computed(() => {
+    const resolutions = this.mergedResolutions();
+    let approved = 0;
+    let sentBack = 0;
+    for (const file of this.payload().files) {
+      const res = resolutions[file.relativePath] ?? 'pending';
+      if (res === 'approved') {
+        approved += 1;
+      } else if (res === 're_review') {
+        sentBack += 1;
+      }
+    }
+    const parts: string[] = [];
+    if (approved > 0) {
+      parts.push(`${approved} approved`);
+    }
+    if (sentBack > 0) {
+      parts.push(`${sentBack} sent back`);
+    }
+    return parts.join(' · ');
+  });
+
+  readonly remainingLabel = computed(() => {
+    const resolutions = this.mergedResolutions();
+    const left = this.payload().files.filter(
+      (f) => (resolutions[f.relativePath] ?? 'pending') === 'pending',
+    ).length;
+    if (left === 0) {
+      return 'all files reviewed';
+    }
+    return left === 1 ? '1 file left' : `${left} files left`;
+  });
+
+  /** Notes this user already sent with the current file (empty when none were typed). */
+  readonly submittedFeedback = computed(
+    () => this.session().feedbackByPath()[this.currentFile().relativePath] ?? '',
+  );
+
+  readonly resolutionHeadline = computed(() =>
+    this.currentFileResolved() === 'approved' ? 'Saved to disk' : 'Sent back for changes',
+  );
+
+  readonly resolutionHint = computed(() =>
+    this.currentFileResolved() === 'approved'
+      ? 'The workspace file now holds this draft.'
+      : 'Nothing was written for this file.',
+  );
+
+  tabTitle(relativePath: string): string {
+    switch (this.fileResolution(relativePath)) {
+      case 'approved':
+        return `${relativePath} — saved to disk`;
+      case 're_review':
+        return `${relativePath} — sent back for changes`;
+      default:
+        return `${relativePath} — waiting for review`;
+    }
+  }
 
   constructor() {
     effect(() => {
@@ -199,9 +275,19 @@ export class StagedTransferBatchReviewComponent implements OnDestroy {
     }, { injector: this.inj });
   }
 
+  /** Escape unwinds one layer at a time: notes composer first, then the full-window view. */
   @HostListener('document:keydown', ['$event'])
   onDocumentKeydown(ev: KeyboardEvent): void {
-    if (ev.key !== 'Escape' || !this.batchExpanded()) {
+    if (ev.key !== 'Escape') {
+      return;
+    }
+    if (this.feedbackOpen()) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      this.closeFeedback();
+      return;
+    }
+    if (!this.batchExpanded()) {
       return;
     }
     ev.preventDefault();
@@ -209,9 +295,20 @@ export class StagedTransferBatchReviewComponent implements OnDestroy {
     this.collapseBatchExpanded();
   }
 
+  openFeedback(): void {
+    this.feedbackOpen.set(true);
+    afterNextRender(() => this.feedbackInputRef()?.nativeElement?.focus(), { injector: this.inj });
+  }
+
+  closeFeedback(): void {
+    this.feedbackOpen.set(false);
+    this.reReviewFeedback.set('');
+  }
+
   goPrev(): void {
     const idx = this.session().currentFileIndex();
     if (idx > 0) {
+      this.closeFeedback();
       this.session().currentFileIndex.set(idx - 1);
     }
   }
@@ -220,6 +317,7 @@ export class StagedTransferBatchReviewComponent implements OnDestroy {
     const files = this.payload().files;
     const idx = this.session().currentFileIndex();
     if (idx < files.length - 1) {
+      this.closeFeedback();
       this.session().currentFileIndex.set(idx + 1);
     }
   }
@@ -227,6 +325,7 @@ export class StagedTransferBatchReviewComponent implements OnDestroy {
   selectFile(index: number): void {
     const files = this.payload().files;
     if (index >= 0 && index < files.length) {
+      this.closeFeedback();
       this.session().currentFileIndex.set(index);
     }
   }
@@ -236,6 +335,7 @@ export class StagedTransferBatchReviewComponent implements OnDestroy {
     if (!file || this.currentFileResolved() !== 'pending') {
       return;
     }
+    this.closeFeedback();
     await this.pendingDiff.resolveStagedTransferBatchFile(
       this.payload(),
       file.relativePath,
@@ -263,7 +363,7 @@ export class StagedTransferBatchReviewComponent implements OnDestroy {
       this.onBatchFinished,
       this.onPartialResolved,
     );
-    this.reReviewFeedback.set('');
+    this.closeFeedback();
   }
 
   private readonly onBatchFinished: BatchFinishFn = (event) => {
@@ -273,15 +373,4 @@ export class StagedTransferBatchReviewComponent implements OnDestroy {
   private readonly onPartialResolved: BatchPartialFn = (event) => {
     this.batchFileResolved.emit(event);
   };
-
-  resolutionBadge(res: StagedTransferFileResolution): string {
-    switch (res) {
-      case 'approved':
-        return 'Approved';
-      case 're_review':
-        return 'Re-review';
-      default:
-        return 'Pending';
-    }
-  }
 }

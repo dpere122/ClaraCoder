@@ -182,6 +182,8 @@ class SessionStreamState:
     abort_event: asyncio.Event = field(default_factory=asyncio.Event)
     # Outer ``/chat/stream`` allocates this queue so subprocess tools (pytest, smoke, overlay, …) can emit ``tool_exec_*`` SSE.
     planning_nested_events_q: asyncio.Queue | None = None
+    # Event loop that owns ``planning_nested_events_q``; worker threads (write jobs) post via ``call_soon_threadsafe``.
+    planning_nested_events_loop: asyncio.AbstractEventLoop | None = None
     # While True, chat-model token deltas from the parent graph's ``astream_events`` queue are not sent as SSE
     # chunks. Nested subgraph LLM streams are still surfaced on that parent queue with the outer tag; the
     # dedicated ``planning_nested_events_q`` path already omits tokens—this prevents duplicate ``agent`` chunks.

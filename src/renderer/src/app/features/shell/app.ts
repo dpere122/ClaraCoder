@@ -2,7 +2,7 @@
  * Main chat shell: conversations, workspace chrome, IPC-driven streaming, and layout resize handles.
  * TTS playback lives in {@link TtsPlaybackService}; this component wires signals and `ElectronService` streams.
  */
-import { afterNextRender, Component, computed, effect, HostListener, inject, Injector, model, NgZone, OnDestroy, OnInit, signal, untracked, ViewChild } from '@angular/core';
+import { afterNextRender, Component, computed, effect, HostListener, inject, Injector, model, NgZone, OnDestroy, OnInit, QueryList, signal, untracked, ViewChild, ViewChildren } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import type {
   AppConfig,
@@ -76,17 +76,36 @@ import {
   findTabByModelKey,
   openEditorFileRefFromTab,
   openTabForRenamedFile,
-  removeBuildPlanTab,
   replaceFileTabAfterSaveAs,
-  reorderFileTabs,
   retargetFileTabPath,
-  serializeWorkspaceOpenTabs,
-  chatFileTabsFromPersistedState,
   type ChatFileTab,
   workspaceChatFileTab,
   buildPlanChatFileTab,
 } from './app-chat-file-tabs';
-import { relativePathFromModelKey } from '../workspace/open-editor-file-ref';
+import {
+  addTabToSlot,
+  allTabsFlat,
+  firstSlotId,
+  removeTabEverywhere,
+  removeTabFromSlot,
+  resolveFocusedSlotId,
+  setActiveTab,
+  singleSlotLayout,
+  slotById,
+  slotIdsContainingModelKey,
+  slotIdsContainingTabId,
+  splitSlotWithNewTab,
+  updateTabsEverywhere,
+  type EditorGridLayout,
+  type EditorGridSlot,
+} from './editor-grid/editor-grid-layout';
+import { editorGridLayoutFromPersistedState, serializeEditorGridOpenTabs } from './editor-grid/editor-grid-persistence';
+import { EditorGridComponent, type EditorGridFileDrop } from './editor-grid/editor-grid';
+import { relativePathFromModelKey, type OpenEditorFileRef } from '../workspace/open-editor-file-ref';
+import {
+  WorkspaceMonacoModelStore,
+  type WorkspaceMonacoSaveAsResult,
+} from '../workspace/workspace-monaco/workspace-monaco-model-store';
 import { applyAppFontOverrides, applyAppTheme, resolveAppThemeId } from './app-theme';
 import { SETTINGS_TABS, type SettingsTab } from '../settings/settings/settings-tabs';
 import {
@@ -122,7 +141,6 @@ import {
 import { normalizePathSlashes, workspaceRelativePathIfUnderRoot } from '../../utils/workspace-relative-path';
 import { LucideAngularModule } from 'lucide-angular';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
-import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList } from '@angular/cdk/drag-drop';
 
 const NEW_CONV_EXPANDED_SPINNER = {
   fullScreen: false as const,
@@ -136,6 +154,57 @@ function parentRelativePath(relativePath: string): string {
   const norm = normalizePathSlashes(relativePath);
   const slash = norm.lastIndexOf('/');
   return slash >= 0 ? norm.slice(0, slash) : '';
+}
+
+/** Editor bindings for one grid slot (what its Monaco / image viewer should show). */
+export interface EditorGridSlotView {
+  slotId: string;
+  activeTabId: string | null;
+  /** Active model key, or null when the slot has no tab. */
+  activeModelKey: string | null;
+  activeRelativePath: string | null;
+  /** True when the active tab is an image rendered by the image viewer. */
+  activeIsImage: boolean;
+  /** Monaco-only active key (null for image tabs). */
+  monacoActiveModelKey: string | null;
+  monacoActiveRelativePath: string | null;
+  imageRelativePath: string | null;
+  /** Text-file refs Monaco should hold models for. */
+  monacoOpenEditorFiles: OpenEditorFileRef[];
+  monacoOpenFileRelativePaths: string[];
+}
+
+export function editorGridSlotView(slot: EditorGridSlot): EditorGridSlotView {
+  const activeTabId = slot.activeTabId;
+  const activeModelKey = activeTabId?.startsWith('file:') ? activeTabId.slice(5) || null : null;
+  const activeRelativePath = activeModelKey ? relativePathFromModelKey(activeModelKey) : null;
+  const activeIsImage = !!activeRelativePath && isViewableImagePath(activeRelativePath);
+  const monacoOpenEditorFiles = slot.tabs
+    .map((t) => openEditorFileRefFromTab(t))
+    .filter((f): f is NonNullable<typeof f> => {
+      if (!f) {
+        return false;
+      }
+      if (f.outsideWorkspace) {
+        return true;
+      }
+      return !isViewableImagePath(f.relativePath ?? '');
+    });
+  const monacoOpenFileRelativePaths = slot.tabs
+    .map((t) => t.relativePath)
+    .filter((p): p is string => !!p?.trim() && !isViewableImagePath(p));
+  return {
+    slotId: slot.id,
+    activeTabId,
+    activeModelKey,
+    activeRelativePath,
+    activeIsImage,
+    monacoActiveModelKey: activeIsImage ? null : activeModelKey,
+    monacoActiveRelativePath: activeIsImage ? null : activeRelativePath,
+    imageRelativePath: activeIsImage ? activeRelativePath : null,
+    monacoOpenEditorFiles,
+    monacoOpenFileRelativePaths,
+  };
 }
 
 @Component({
@@ -153,18 +222,17 @@ function parentRelativePath(relativePath: string): string {
     WorkspaceTerminalDockComponent,
     ThemedConfirmDialogComponent,
     ThemedPromptDialogComponent,
-    CdkDropList,
-    CdkDrag,
-    CdkDragHandle,
+    EditorGridComponent,
     NgxSpinnerComponent,
   ],
   templateUrl: './app.html',
   styleUrl: './app.css'
 })
 export class App implements OnInit, OnDestroy {
-  @ViewChild(WorkspaceMonacoComponent) private workspaceMonaco?: WorkspaceMonacoComponent;
+  @ViewChildren(WorkspaceMonacoComponent) private workspaceMonacos?: QueryList<WorkspaceMonacoComponent>;
   @ViewChild(WorkspaceComponent) private workspacePanel?: WorkspaceComponent;
   @ViewChild(WorkspaceTerminalDockComponent) private workspaceTerminalDock?: WorkspaceTerminalDockComponent;
+  private readonly monacoStore = inject(WorkspaceMonacoModelStore);
   private readonly ngxSpinner = inject(NgxSpinnerService);
   private readonly inj = inject(Injector);
   private shellDestroyed = false;
@@ -254,8 +322,18 @@ export class App implements OnInit, OnDestroy {
     return this.workspaces().find(w => w.id === id) ?? null;
   });
   protected readonly currentWorkspacePath = computed(() => this.currentWorkspace()?.path?.trim() ?? '');
-  /** Open file tabs (paths relative to current workspace). */
-  protected readonly fileTabs = signal<ChatFileTab[]>([]);
+  /** Editor grid: up to 3 columns x 3 slots, each slot a tab group with its own Monaco instance. */
+  protected readonly editorGrid = signal<EditorGridLayout>(singleSlotLayout());
+  /** Slot that owns keyboard focus; shell-level editor bindings (outline, diff, reveal) follow it. */
+  protected readonly focusedSlotId = signal<string | null>(firstSlotId(this.editorGrid()));
+  protected readonly focusedSlot = computed<EditorGridSlot | null>(() => {
+    const layout = this.editorGrid();
+    return slotById(layout, this.focusedSlotId()) ?? layout.columns[0]?.slots[0] ?? null;
+  });
+  /** Open file tabs of the focused slot (paths relative to current workspace). */
+  protected readonly fileTabs = computed<ChatFileTab[]>(() => this.focusedSlot()?.tabs ?? []);
+  /** Every open tab across the grid, de-duplicated by model key. */
+  protected readonly allFileTabs = computed(() => allTabsFlat(this.editorGrid()));
   /** Files attached to the next chat turn (images sent inline; others referenced by path). */
   protected readonly chatContextFiles = signal<ChatContextFile[]>([]);
   /** Unpinned editor line-range chip (cleared on file switch). */
@@ -273,9 +351,9 @@ export class App implements OnInit, OnDestroy {
     return [...pinned, ephemeral];
   });
   protected readonly composerAttachmentCount = computed(() => this.composerContextFiles().length);
-  /** Model keys with unsaved Monaco buffers (mirrors main process for workspace-switch confirm). */
-  protected readonly monacoUnsavedPaths = signal<ReadonlySet<string>>(new Set());
-  protected readonly monacoDetachedPaths = signal<ReadonlySet<string>>(new Set());
+  /** Model keys with unsaved Monaco buffers (shared store; mirrored to main for workspace-switch confirm). */
+  protected readonly monacoUnsavedPaths = this.monacoStore.unsavedKeys;
+  protected readonly monacoDetachedPaths = this.monacoStore.detachedKeys;
   /** One-shot scroll target after cross-file go-to-definition from Monaco. */
   protected readonly monacoRevealPending = signal<{
     relativePath: string;
@@ -292,12 +370,16 @@ export class App implements OnInit, OnDestroy {
     relativePath: string | null;
     diagnostics: readonly LspEditorDiagnostic[];
   }>({ relativePath: null, diagnostics: [] });
-  /** Open file tab id (`file:<relativePath>`) or null when no editor tab is selected. */
-  protected readonly activeMainTabId = signal<string | null>(null);
+  /** Active tab id (`file:<modelKey>`) of the focused slot, or null when it has no tabs. */
+  protected readonly activeMainTabId = computed<string | null>(() => this.focusedSlot()?.activeTabId ?? null);
   protected readonly fileTabContextMenuVisible = signal(false);
   protected readonly fileTabContextMenuX = signal(0);
   protected readonly fileTabContextMenuY = signal(0);
   protected readonly fileTabContextMenuTabId = signal<string | null>(null);
+  protected readonly fileTabContextMenuSlotId = signal<string | null>(null);
+  private readonly fileTabContextMenuTabs = computed<ChatFileTab[]>(
+    () => slotById(this.editorGrid(), this.fileTabContextMenuSlotId())?.tabs ?? [],
+  );
   /** Titlebar File / Settings dropdown (`null` when closed). */
   protected readonly chromeMenu = signal<'settings' | 'file' | 'file-recent' | null>(null);
   protected readonly chromeMenuX = signal(0);
@@ -315,14 +397,14 @@ export class App implements OnInit, OnDestroy {
     if (!tabId) {
       return false;
     }
-    return fileTabIdsToLeft(this.fileTabs(), tabId).length > 0;
+    return fileTabIdsToLeft(this.fileTabContextMenuTabs(), tabId).length > 0;
   });
   protected readonly fileTabContextMenuCanCloseRight = computed(() => {
     const tabId = this.fileTabContextMenuTabId();
     if (!tabId) {
       return false;
     }
-    return fileTabIdsToRight(this.fileTabs(), tabId).length > 0;
+    return fileTabIdsToRight(this.fileTabContextMenuTabs(), tabId).length > 0;
   });
   /** When true, active chat stack overlays the main editor stage. */
   protected readonly chatExpanded = model(false);
@@ -343,25 +425,43 @@ export class App implements OnInit, OnDestroy {
     this.chatCollapsed() ? App.CHAT_COLLAPSED_WIDTH_PX : this.sidebarWidth(),
   );
 
+  /** Relative paths of every open tab across the grid (workspace tree highlighting). */
   protected readonly openFileRelativePaths = computed(() =>
-    this.fileTabs()
+    this.allFileTabs()
       .map((t) => t.relativePath)
       .filter((p): p is string => !!p?.trim()),
   );
 
-  protected readonly monacoOpenEditorFiles = computed(() =>
-    this.fileTabs()
-      .map((t) => openEditorFileRefFromTab(t))
-      .filter((f): f is NonNullable<typeof f> => {
-        if (!f) {
-          return false;
+  /**
+   * Per-slot editor bindings, memoised on the layout so `app-workspace-monaco` inputs keep
+   * stable references between change-detection passes.
+   */
+  protected readonly slotViews = computed(() => {
+    const views = new Map<string, EditorGridSlotView>();
+    for (const column of this.editorGrid().columns) {
+      for (const slot of column.slots) {
+        views.set(slot.id, editorGridSlotView(slot));
+      }
+    }
+    return views;
+  });
+
+  protected slotView(slot: EditorGridSlot): EditorGridSlotView {
+    return this.slotViews().get(slot.id) ?? editorGridSlotView(slot);
+  }
+
+  /** Every text-file ref open in any slot, de-duplicated by model key (for the store's grid claim). */
+  protected readonly gridOpenEditorFiles = computed<OpenEditorFileRef[]>(() => {
+    const byKey = new Map<string, OpenEditorFileRef>();
+    for (const view of this.slotViews().values()) {
+      for (const ref of view.monacoOpenEditorFiles) {
+        if (ref.modelKey && !byKey.has(ref.modelKey)) {
+          byKey.set(ref.modelKey, ref);
         }
-        if (f.outsideWorkspace) {
-          return true;
-        }
-        return !isViewableImagePath(f.relativePath ?? '');
-      }),
-  );
+      }
+    }
+    return [...byKey.values()];
+  });
 
   protected readonly activeModelKey = computed(() => {
     const tabId = this.activeMainTabId();
@@ -372,7 +472,7 @@ export class App implements OnInit, OnDestroy {
   });
 
   protected readonly mainStageShowsEmptyState = computed(
-    () => !this.hasOpenWorkspace() || (this.activeMainTabId() === null && !this.chatExpanded()),
+    () => !this.hasOpenWorkspace() || (this.allFileTabs().length === 0 && !this.chatExpanded()),
   );
 
   protected readonly activeFileRelativePath = computed(() => {
@@ -412,14 +512,10 @@ export class App implements OnInit, OnDestroy {
     this.activeFileIsImage() ? null : this.activeFileRelativePath(),
   );
 
-  protected readonly monacoOpenFileRelativePaths = computed(() =>
-    this.openFileRelativePaths().filter((p) => !isViewableImagePath(p)),
-  );
-
   /** Model keys for build-plan tabs that should open in preview-only mode. */
   protected readonly monacoForcePreviewKeys = computed(() => {
     const keys = new Set<string>();
-    for (const tab of this.fileTabs()) {
+    for (const tab of this.allFileTabs()) {
       if (tab.previewOnly) {
         const key = chatFileTabModelKey(tab);
         if (key) {
@@ -634,15 +730,47 @@ export class App implements OnInit, OnDestroy {
     });
 
     effect(() => {
-      const tabs = this.fileTabs();
-      const activeTabId = this.activeMainTabId();
+      const layout = this.editorGrid();
+      const focusedSlotId = this.focusedSlotId();
       untracked(() => {
         if (!this.openTabsHydrated || this.applyingRestoredOpenTabs) {
           return;
         }
-        void this.persistOpenTabsNow(this.openTabsOwnedWorkspaceId, tabs, activeTabId);
+        void this.persistOpenTabsNow(this.openTabsOwnedWorkspaceId, layout, focusedSlotId);
       });
     });
+
+    // Keep the focused slot id valid when splits collapse.
+    effect(() => {
+      const layout = this.editorGrid();
+      const focused = this.focusedSlotId();
+      untracked(() => {
+        const resolved = resolveFocusedSlotId(layout, focused);
+        if (resolved !== focused) {
+          this.focusedSlotId.set(resolved);
+        }
+      });
+    });
+
+    effect(() => {
+      const unsaved = this.monacoStore.unsavedKeys();
+      untracked(() => {
+        this.electron.reportWorkspaceMonacoUnsavedPaths(
+          [...unsaved].map((k) => relativePathFromModelKey(k) ?? k),
+        );
+      });
+    });
+
+    // Grid-wide model claim: keeps buffers (and their unsaved edits) alive while a tab moves
+    // between slots or into a new split, independent of per-slot editor instance lifetimes.
+    effect(() => {
+      const refs = this.gridOpenEditorFiles();
+      untracked(() => this.monacoStore.syncGridOpenFiles(refs));
+    });
+
+    this.monacoStore.saveAsCompleted$
+      .pipe(takeUntilDestroyed())
+      .subscribe((payload) => this.onMonacoSaveAsCompleted(payload));
 
     effect(() => {
       // Track both workspace and conversation changes to sync workspace context
@@ -853,7 +981,7 @@ export class App implements OnInit, OnDestroy {
     void this.tts.invalidateSpeechPipeline();
     window.removeEventListener('resize', this.boundOnWindowResize);
     this.flushSidebarWidthPersist();
-    void this.persistOpenTabsNow(this.openTabsOwnedWorkspaceId, this.fileTabs(), this.activeMainTabId());
+    void this.persistOpenTabsNow(this.openTabsOwnedWorkspaceId, this.editorGrid(), this.focusedSlotId());
     this.onResizeEnd();
   }
 
@@ -1010,10 +1138,16 @@ export class App implements OnInit, OnDestroy {
     this.chatLayoutHydrated = true;
   }
 
+  /** Replace the grid with a single empty slot. */
+  private resetEditorGrid(): void {
+    const layout = singleSlotLayout();
+    this.editorGrid.set(layout);
+    this.focusedSlotId.set(firstSlotId(layout));
+  }
+
   private onWorkspaceIdChangedForOpenTabs(workspaceId: string | null): void {
     if (!this.openTabsHydrated) {
-      this.fileTabs.set([]);
-      this.activeMainTabId.set(null);
+      this.resetEditorGrid();
       this.clearChatContextFiles();
       return;
     }
@@ -1022,7 +1156,7 @@ export class App implements OnInit, OnDestroy {
       return;
     }
     if (prev) {
-      void this.persistOpenTabsNow(prev, this.fileTabs(), this.activeMainTabId());
+      void this.persistOpenTabsNow(prev, this.editorGrid(), this.focusedSlotId());
     }
     this.restoreOpenTabsForWorkspace(workspaceId);
     this.clearChatContextFiles();
@@ -1075,18 +1209,17 @@ export class App implements OnInit, OnDestroy {
       this.openTabsOwnedWorkspaceId = workspaceId;
       const key = workspaceId?.trim() || '';
       if (!key) {
-        this.fileTabs.set([]);
-        this.activeMainTabId.set(null);
+        this.resetEditorGrid();
         this.lastPersistedOpenTabsJson = '';
         return;
       }
-      const restored = chatFileTabsFromPersistedState(
+      const restored = editorGridLayoutFromPersistedState(
         this.appConfig()?.workspaceOpenTabsByWorkspaceId?.[key],
       );
-      this.fileTabs.set(restored.tabs);
-      this.activeMainTabId.set(restored.activeTabId);
+      this.editorGrid.set(restored.layout);
+      this.focusedSlotId.set(restored.focusedSlotId);
       this.lastPersistedOpenTabsJson = JSON.stringify(
-        serializeWorkspaceOpenTabs(restored.tabs, restored.activeTabId),
+        serializeEditorGridOpenTabs(restored.layout, restored.focusedSlotId),
       );
     } finally {
       this.applyingRestoredOpenTabs = false;
@@ -1109,14 +1242,14 @@ export class App implements OnInit, OnDestroy {
 
   private async persistOpenTabsNow(
     workspaceId: string | null,
-    tabs: readonly ChatFileTab[],
-    activeTabId: string | null,
+    layout: EditorGridLayout,
+    focusedSlotId: string | null,
   ): Promise<void> {
     const key = workspaceId?.trim() || '';
     if (!key) {
       return;
     }
-    const state = serializeWorkspaceOpenTabs(tabs, activeTabId);
+    const state = serializeEditorGridOpenTabs(layout, focusedSlotId);
     const json = JSON.stringify(state);
     if (workspaceId === this.openTabsOwnedWorkspaceId && json === this.lastPersistedOpenTabsJson) {
       return;
@@ -1677,7 +1810,7 @@ export class App implements OnInit, OnDestroy {
       return;
     }
 
-    await this.persistOpenTabsNow(this.openTabsOwnedWorkspaceId, this.fileTabs(), this.activeMainTabId());
+    await this.persistOpenTabsNow(this.openTabsOwnedWorkspaceId, this.editorGrid(), this.focusedSlotId());
     await this.electron.setCurrentWorkspace(workspaceId);
     this.acknowledgeSessionWorkspace();
     this.currentWorkspaceId.set(workspaceId);
@@ -1735,19 +1868,20 @@ export class App implements OnInit, OnDestroy {
       return;
     }
 
+    const focusedId = this.ensureFocusedSlotId();
+
     // Same-folder images share one gallery tab (swap path) instead of stacking tabs.
     const imagePlan = planOpenWorkspaceImageTab(this.fileTabs(), norm, this.activeMainTabId());
     if (imagePlan?.action === 'focus') {
-      this.activeMainTabId.set(imagePlan.tabId);
+      this.editorGrid.update((layout) => setActiveTab(layout, focusedId, imagePlan.tabId));
       this.chatExpanded.set(false);
       return;
     }
     if (imagePlan?.action === 'retarget') {
-      this.fileTabs.update((tabs) =>
-        retargetFileTabPath(tabs, imagePlan.oldRelativePath, imagePlan.newRelativePath),
-      );
-      this.activeMainTabId.set(
-        chatFileTabId({ relativePath: imagePlan.newRelativePath, outsideWorkspace: false }),
+      const newTabId = chatFileTabId({ relativePath: imagePlan.newRelativePath, outsideWorkspace: false });
+      this.updateFocusedSlotTabs(
+        (tabs) => retargetFileTabPath(tabs, imagePlan.oldRelativePath, imagePlan.newRelativePath),
+        newTabId,
       );
       this.chatExpanded.set(false);
       return;
@@ -1755,14 +1889,126 @@ export class App implements OnInit, OnDestroy {
 
     const tab = workspaceChatFileTab(norm);
     const id = chatFileTabId(tab);
-    const tabs = this.fileTabs();
-    if (!tabs.some((t) => chatFileTabModelKey(t) === chatFileTabModelKey(tab))) {
-      this.fileTabs.update((ts) => [...ts, tab]);
+    const key = chatFileTabModelKey(tab);
+    const layout = this.editorGrid();
+    const focusedSlot = slotById(layout, focusedId);
+    if (focusedSlot?.tabs.some((t) => chatFileTabModelKey(t) === key)) {
+      this.editorGrid.set(setActiveTab(layout, focusedId, id));
+    } else {
+      // Already open elsewhere in the grid: focus that slot instead of duplicating.
+      const elsewhere = slotIdsContainingModelKey(layout, key)[0];
+      if (elsewhere) {
+        this.focusedSlotId.set(elsewhere);
+        this.editorGrid.set(setActiveTab(layout, elsewhere, id));
+      } else {
+        this.editorGrid.set(addTabToSlot(layout, focusedId, tab));
+      }
     }
-    this.activeMainTabId.set(id);
     // Opening a file in the workspace Monaco editor collapses the expanded chat
     // overlay so the editor is actually visible.
     this.chatExpanded.set(false);
+  }
+
+  /** Focused slot id, repaired to the first slot when stale. */
+  private ensureFocusedSlotId(): string {
+    const layout = this.editorGrid();
+    const resolved = resolveFocusedSlotId(layout, this.focusedSlotId()) ?? firstSlotId(layout)!;
+    if (resolved !== this.focusedSlotId()) {
+      this.focusedSlotId.set(resolved);
+    }
+    return resolved;
+  }
+
+  /** Rewrite the focused slot's tab list; `activeTabId` (when given) becomes active. */
+  private updateFocusedSlotTabs(
+    fn: (tabs: readonly ChatFileTab[]) => ChatFileTab[],
+    activeTabId?: string | null,
+  ): void {
+    const focusedId = this.ensureFocusedSlotId();
+    this.editorGrid.update((layout) => ({
+      ...layout,
+      columns: layout.columns.map((c) => ({
+        ...c,
+        slots: c.slots.map((s) => {
+          if (s.id !== focusedId) {
+            return s;
+          }
+          const tabs = fn(s.tabs);
+          const wanted = activeTabId === undefined ? s.activeTabId : activeTabId;
+          const active =
+            wanted && tabs.some((t) => chatFileTabId(t) === wanted)
+              ? wanted
+              : tabs.length > 0
+                ? chatFileTabId(tabs[tabs.length - 1]!)
+                : null;
+          return { ...s, tabs, activeTabId: active };
+        }),
+      })),
+    }));
+  }
+
+  /** Grid: pointer focus moved to another slot. */
+  protected onEditorGridSlotFocus(slotId: string): void {
+    if (this.focusedSlotId() !== slotId && slotById(this.editorGrid(), slotId)) {
+      this.focusedSlotId.set(slotId);
+    }
+  }
+
+  protected onEditorGridLayoutChange(layout: EditorGridLayout): void {
+    this.editorGrid.set(layout);
+  }
+
+  protected onEditorGridTabSelect(ev: { slotId: string; tabId: string }): void {
+    this.focusedSlotId.set(ev.slotId);
+    this.editorGrid.update((layout) => setActiveTab(layout, ev.slotId, ev.tabId));
+    if (ev.tabId.startsWith('file:')) {
+      this.chatExpanded.set(false);
+    }
+  }
+
+  protected async onEditorGridTabClose(ev: { slotId: string; tabId: string }): Promise<void> {
+    await this.tryCloseFileTabById(ev.tabId, ev.slotId);
+  }
+
+  /**
+   * Grid: a workspace file was dragged from the nav tree onto a slot. Edge drops split the
+   * slot and open the file in the new one; center drops open it in the target slot.
+   */
+  protected onEditorGridFileDrop(ev: EditorGridFileDrop): void {
+    const root = this.currentWorkspacePath().trim();
+    if (!root) {
+      return;
+    }
+    const rel = workspaceRelativePathIfUnderRoot(root, ev.absolutePath);
+    if (rel === null || rel === '') {
+      return;
+    }
+    const layout = this.editorGrid();
+    if (!slotById(layout, ev.slotId)) {
+      return;
+    }
+    const tab = workspaceChatFileTab(rel);
+    if (ev.side) {
+      const res = splitSlotWithNewTab(layout, ev.slotId, ev.side, tab);
+      if (res.newSlotId) {
+        this.editorGrid.set(res.layout);
+        this.focusedSlotId.set(res.newSlotId);
+        this.chatExpanded.set(false);
+        return;
+      }
+    }
+    this.focusedSlotId.set(ev.slotId);
+    this.editorGrid.set(addTabToSlot(layout, ev.slotId, tab));
+    this.chatExpanded.set(false);
+  }
+
+  protected onEditorGridTabContextMenu(ev: { slotId: string; tabId: string; x: number; y: number }): void {
+    this.closeChromeMenu();
+    this.fileTabContextMenuSlotId.set(ev.slotId);
+    this.fileTabContextMenuTabId.set(ev.tabId);
+    this.fileTabContextMenuX.set(ev.x);
+    this.fileTabContextMenuY.set(ev.y);
+    this.fileTabContextMenuVisible.set(true);
   }
 
   protected openOrFocusBuildPlanTab(relativePath: string, planId: string, active: boolean): void {
@@ -1774,38 +2020,50 @@ export class App implements OnInit, OnDestroy {
     if (!norm || !planId.trim()) {
       return;
     }
-    const tabs = this.fileTabs();
-    const byPlanIdx = tabs.findIndex((t) => t.buildPlanId === planId);
-    if (byPlanIdx >= 0) {
-      const updated = [...tabs];
-      updated[byPlanIdx] = {
-        ...updated[byPlanIdx]!,
-        relativePath: norm,
-        buildPlanActive: active,
-        previewOnly: true,
-      };
-      this.fileTabs.set(updated);
-      this.activeMainTabId.set(chatFileTabId(updated[byPlanIdx]!));
+    const layout = this.editorGrid();
+    const all = this.allFileTabs();
+    const byPlan = all.find((t) => t.buildPlanId === planId);
+    if (byPlan) {
+      const oldTabId = chatFileTabId(byPlan);
+      const updatedTab: ChatFileTab = { ...byPlan, relativePath: norm, buildPlanActive: active, previewOnly: true };
+      const newTabId = chatFileTabId(updatedTab);
+      const next = updateTabsEverywhere(
+        layout,
+        (tabs) => tabs.map((t) => (t.buildPlanId === planId ? { ...t, ...updatedTab } : t)),
+        { oldTabId, newTabId },
+      );
+      this.focusTabEverywhere(next, newTabId);
       return;
     }
-    const byPathIdx = tabs.findIndex(
-      (t) => !t.outsideWorkspace && normalizePathSlashes(t.relativePath ?? '') === norm,
-    );
-    if (byPathIdx >= 0) {
-      const updated = [...tabs];
-      updated[byPathIdx] = {
-        ...updated[byPathIdx]!,
-        buildPlanId: planId,
-        buildPlanActive: active,
-        previewOnly: true,
-      };
-      this.fileTabs.set(updated);
-      this.activeMainTabId.set(chatFileTabId(updated[byPathIdx]!));
+    const byPath = all.find((t) => !t.outsideWorkspace && normalizePathSlashes(t.relativePath ?? '') === norm);
+    if (byPath) {
+      const tabId = chatFileTabId(byPath);
+      const next = updateTabsEverywhere(layout, (tabs) =>
+        tabs.map((t) =>
+          !t.outsideWorkspace && normalizePathSlashes(t.relativePath ?? '') === norm
+            ? { ...t, buildPlanId: planId, buildPlanActive: active, previewOnly: true }
+            : t,
+        ),
+      );
+      this.focusTabEverywhere(next, tabId);
       return;
     }
     const tab = buildPlanChatFileTab(norm, planId, active);
-    this.fileTabs.update((ts) => [...ts, tab]);
-    this.activeMainTabId.set(chatFileTabId(tab));
+    const focusedId = this.ensureFocusedSlotId();
+    this.editorGrid.set(addTabToSlot(layout, focusedId, tab));
+  }
+
+  /** Commit `layout`, then activate `tabId` in the focused slot if it has it, else in the first slot that does. */
+  private focusTabEverywhere(layout: EditorGridLayout, tabId: string): void {
+    const focusedId = resolveFocusedSlotId(layout, this.focusedSlotId());
+    const holders = slotIdsContainingTabId(layout, tabId);
+    const target = focusedId && holders.includes(focusedId) ? focusedId : holders[0];
+    if (!target) {
+      this.editorGrid.set(layout);
+      return;
+    }
+    this.focusedSlotId.set(target);
+    this.editorGrid.set(setActiveTab(layout, target, tabId));
   }
 
   private setBuildPlanTabInactive(conversationId: string, planId?: string): void {
@@ -1817,7 +2075,7 @@ export class App implements OnInit, OnDestroy {
     if (tracked) {
       this.activeBuildPlanByConversation.set(conversationId, { ...tracked, active: false });
     }
-    this.fileTabs.update((tabs) => deactivateBuildPlanTab(tabs, id));
+    this.editorGrid.update((layout) => updateTabsEverywhere(layout, (tabs) => deactivateBuildPlanTab(tabs, id)));
   }
 
   private closeBuildPlanTab(conversationId: string | null, planId?: string): void {
@@ -1830,22 +2088,17 @@ export class App implements OnInit, OnDestroy {
       return;
     }
     this.activeBuildPlanByConversation.delete(conversationId);
-    const tabToClose = this.fileTabs().find((t) => t.buildPlanId === id);
-    const closingTabId = tabToClose ? chatFileTabId(tabToClose) : null;
-    const remaining = removeBuildPlanTab(this.fileTabs(), id);
-    if (closingTabId && this.activeMainTabId() === closingTabId) {
-      if (remaining.length > 0) {
-        this.activeMainTabId.set(chatFileTabId(remaining[remaining.length - 1]!));
-      } else {
-        this.activeMainTabId.set(null);
-      }
+    const tabToClose = this.allFileTabs().find((t) => t.buildPlanId === id);
+    if (!tabToClose) {
+      return;
     }
-    this.fileTabs.set(remaining);
+    this.editorGrid.update((layout) => removeTabEverywhere(layout, chatFileTabModelKey(tabToClose)));
   }
 
   private closeFileTabContextMenu(): void {
     this.fileTabContextMenuVisible.set(false);
     this.fileTabContextMenuTabId.set(null);
+    this.fileTabContextMenuSlotId.set(null);
   }
 
   private chromeRecentCloseTimer: ReturnType<typeof setTimeout> | null = null;
@@ -2047,16 +2300,25 @@ export class App implements OnInit, OnDestroy {
     this.electron.openHealthWindow();
   }
 
-  private async tryCloseFileTabById(tabId: string): Promise<boolean> {
+  /** @param slotId slot the close came from; defaults to the focused slot. */
+  private async tryCloseFileTabById(tabId: string, slotId?: string): Promise<boolean> {
     if (!tabId.startsWith('file:')) {
       return false;
     }
-    return this.tryCloseFileTabByModelKey(tabId.slice(5));
+    return this.tryCloseFileTabByModelKey(tabId.slice(5), slotId);
   }
 
-  private async tryCloseFileTabByModelKey(modelKey: string): Promise<boolean> {
+  private async tryCloseFileTabByModelKey(modelKey: string, slotId?: string): Promise<boolean> {
     let keyToClose = modelKey;
-    const tab = findTabByModelKey(this.fileTabs(), modelKey);
+    const layout = this.editorGrid();
+    const targetSlotId = slotId ?? this.ensureFocusedSlotId();
+    const holders = slotIdsContainingModelKey(layout, modelKey);
+    // The file stays open in another slot: just drop this slot's tab, no prompts.
+    if (holders.length > 1 && holders.includes(targetSlotId)) {
+      this.removeFileTabByModelKey(modelKey, targetSlotId);
+      return true;
+    }
+    const tab = findTabByModelKey(this.allFileTabs(), modelKey);
     const displayPath =
       relativePathFromModelKey(modelKey) ??
       (tab ? chatFileTabBasename(tab) : modelKey);
@@ -2074,7 +2336,7 @@ export class App implements OnInit, OnDestroy {
         void this.electron.abortMessage(convId);
         this.activeBuildPlanByConversation.delete(convId);
       }
-      this.removeFileTabByModelKey(keyToClose);
+      this.removeFileTabByModelKey(keyToClose, targetSlotId);
       return true;
     }
 
@@ -2084,13 +2346,13 @@ export class App implements OnInit, OnDestroy {
         return false;
       }
       if (choice === 'middle') {
-        const newKey = await this.workspaceMonaco?.saveAsForKey(modelKey);
+        const newKey = await this.monacoStore.promptSaveAs(modelKey);
         if (!newKey) {
           return false;
         }
         keyToClose = newKey;
       } else if (choice === 'confirm') {
-        await this.workspaceMonaco?.cleanupDetachedForKey(modelKey);
+        await this.monacoStore.cleanupDetachedForKey(modelKey);
       }
     } else if (unsaved) {
       const discard = await this.themedConfirm.open(unsavedCloseFileTabPrompt(displayPath));
@@ -2098,46 +2360,42 @@ export class App implements OnInit, OnDestroy {
         return false;
       }
     } else if (detached) {
-      await this.workspaceMonaco?.cleanupDetachedForKey(modelKey);
+      await this.monacoStore.cleanupDetachedForKey(modelKey);
     }
 
-    this.removeFileTabByModelKey(keyToClose);
+    this.removeFileTabByModelKey(keyToClose, targetSlotId);
     return true;
   }
 
-  private async closeFileTabsInOrder(tabIds: readonly string[]): Promise<void> {
+  private async closeFileTabsInOrder(tabIds: readonly string[], slotId?: string): Promise<void> {
     for (const tabId of tabIds) {
-      const closed = await this.tryCloseFileTabById(tabId);
+      const closed = await this.tryCloseFileTabById(tabId, slotId);
       if (!closed) {
         break;
       }
     }
   }
 
-  private removeFileTabByModelKey(keyToClose: string): void {
-    const remaining = this.fileTabs().filter((t) => chatFileTabModelKey(t) !== keyToClose);
-    const tabId = `file:${keyToClose}`;
-    if (this.activeMainTabId() === tabId) {
-      if (remaining.length > 0) {
-        const last = remaining[remaining.length - 1]!;
-        this.activeMainTabId.set(chatFileTabId(last));
-      } else {
-        this.activeMainTabId.set(null);
-      }
-    }
-    this.fileTabs.set(remaining);
+  /** Remove a tab from one slot (default: focused); collapses emptied slots / columns. */
+  private removeFileTabByModelKey(keyToClose: string, slotId?: string): void {
+    const targetSlotId = slotId ?? this.ensureFocusedSlotId();
+    this.editorGrid.update((layout) => removeTabFromSlot(layout, targetSlotId, keyToClose));
   }
 
   private applyFileRenamedTabs(oldRelativePath: string, newRelativePath: string): void {
-    const { tabs, focusTabId } = openTabForRenamedFile(
-      this.fileTabs(),
-      oldRelativePath,
-      newRelativePath,
-    );
-    if (focusTabId) {
-      this.fileTabs.set(tabs);
-      this.activeMainTabId.set(focusTabId);
+    const oldTabId = chatFileTabId({ relativePath: oldRelativePath, outsideWorkspace: false });
+    const newTabId = chatFileTabId({ relativePath: newRelativePath, outsideWorkspace: false });
+    const layout = this.editorGrid();
+    if (slotIdsContainingTabId(layout, oldTabId).length === 0) {
+      return;
     }
+    this.editorGrid.set(
+      updateTabsEverywhere(
+        layout,
+        (tabs) => openTabForRenamedFile(tabs, oldRelativePath, newRelativePath).tabs,
+        { oldTabId, newTabId },
+      ),
+    );
   }
 
   private async onWorkspaceFilesChangedForEditorTabs(event: WorkspaceFilesChangedMessage): Promise<void> {
@@ -2171,7 +2429,7 @@ export class App implements OnInit, OnDestroy {
     const newNorm = normalizePathSlashes(newRelativePath);
     const newParent = parentRelativePath(newNorm);
 
-    for (const tab of this.fileTabs()) {
+    for (const tab of this.allFileTabs()) {
       if (tab.outsideWorkspace || !tab.relativePath?.trim()) {
         continue;
       }
@@ -2188,39 +2446,20 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  protected onMonacoSaveAsCompleted(payload: {
-    oldModelKey: string;
-    relativePath?: string;
-    absolutePath?: string;
-    outsideWorkspace: boolean;
-  }): void {
+  private onMonacoSaveAsCompleted(payload: WorkspaceMonacoSaveAsResult): void {
     const oldKey = payload.oldModelKey;
-    this.fileTabs.update((tabs) =>
-      replaceFileTabAfterSaveAs(tabs, oldKey, {
-        relativePath: payload.relativePath,
-        absolutePath: payload.absolutePath,
-        outsideWorkspace: payload.outsideWorkspace,
-      }),
+    this.editorGrid.update((layout) =>
+      updateTabsEverywhere(
+        layout,
+        (tabs) =>
+          replaceFileTabAfterSaveAs(tabs, oldKey, {
+            relativePath: payload.relativePath,
+            absolutePath: payload.absolutePath,
+            outsideWorkspace: payload.outsideWorkspace,
+          }),
+        { oldTabId: `file:${oldKey}`, newTabId: `file:${payload.newModelKey}` },
+      ),
     );
-    const updated = this.fileTabs().find((t) => {
-      if (payload.outsideWorkspace && payload.absolutePath) {
-        return t.absolutePath === payload.absolutePath;
-      }
-      if (payload.relativePath) {
-        return (
-          !t.outsideWorkspace &&
-          normalizePathSlashes(t.relativePath ?? '') === normalizePathSlashes(payload.relativePath)
-        );
-      }
-      return false;
-    });
-    if (updated && this.activeMainTabId() === `file:${oldKey}`) {
-      this.activeMainTabId.set(chatFileTabId(updated));
-    }
-  }
-
-  protected onMonacoDetachedPathsChange(paths: readonly string[]): void {
-    this.monacoDetachedPaths.set(new Set(paths));
   }
 
   protected onWorkspaceMonacoNavigate(payload: { relativePath: string; line: number; column: number }): void {
@@ -2252,8 +2491,14 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
+  /** The `app-workspace-monaco` instance rendered in the focused grid slot. */
+  private focusedWorkspaceMonaco(): WorkspaceMonacoComponent | undefined {
+    const list = this.workspaceMonacos?.toArray() ?? [];
+    return list.find((m) => m.focused()) ?? list[0];
+  }
+
   protected onRevealEditorDiagnostic(d: LspEditorDiagnostic): void {
-    this.workspaceMonaco?.revealDiagnostic(d);
+    this.focusedWorkspaceMonaco()?.revealDiagnostic(d);
   }
 
   protected onImageViewerNavigate(payload: { relativePath: string }): void {
@@ -2269,44 +2514,25 @@ export class App implements OnInit, OnDestroy {
     if (!isViewableImagePath(oldPath)) {
       return;
     }
-    this.fileTabs.update((tabs) => retargetFileTabPath(tabs, oldPath, newPath));
-    this.activeMainTabId.set(chatFileTabId({ relativePath: newPath, outsideWorkspace: false }));
+    this.updateFocusedSlotTabs(
+      (tabs) => retargetFileTabPath(tabs, oldPath, newPath),
+      chatFileTabId({ relativePath: newPath, outsideWorkspace: false }),
+    );
   }
 
   protected onMonacoRevealHandled(): void {
     this.monacoRevealPending.set(null);
   }
 
+  /** Activate a tab in the focused slot (keyboard / programmatic selection). */
   protected selectMainTab(tabId: string): void {
-    this.activeMainTabId.set(tabId);
+    const focusedId = this.ensureFocusedSlotId();
+    this.editorGrid.update((layout) => setActiveTab(layout, focusedId, tabId));
     if (tabId.startsWith('file:')) {
       // Focusing an editor file tab collapses the expanded chat overlay so the
       // selected file is actually visible.
       this.chatExpanded.set(false);
     }
-  }
-
-  protected onFileTabDrop(event: CdkDragDrop<ChatFileTab[]>): void {
-    if (event.previousIndex === event.currentIndex) {
-      return;
-    }
-    this.fileTabs.update((tabs) => reorderFileTabs(tabs, event.previousIndex, event.currentIndex));
-  }
-
-  protected async closeMainFileTab(event: MouseEvent, tabId: string): Promise<void> {
-    event.preventDefault();
-    event.stopPropagation();
-    await this.tryCloseFileTabById(tabId);
-  }
-
-  protected onFileTabContextMenu(event: MouseEvent, tabId: string): void {
-    event.preventDefault();
-    event.stopPropagation();
-    this.closeChromeMenu();
-    this.fileTabContextMenuTabId.set(tabId);
-    this.fileTabContextMenuX.set(event.clientX);
-    this.fileTabContextMenuY.set(event.clientY);
-    this.fileTabContextMenuVisible.set(true);
   }
 
   protected onFileTabContextMenuItemMousedown(event: MouseEvent): void {
@@ -2316,40 +2542,47 @@ export class App implements OnInit, OnDestroy {
 
   protected async onFileTabContextMenuClose(): Promise<void> {
     const tabId = this.fileTabContextMenuTabId();
+    const slotId = this.fileTabContextMenuSlotId() ?? undefined;
     this.closeFileTabContextMenu();
     if (tabId) {
-      await this.tryCloseFileTabById(tabId);
+      await this.tryCloseFileTabById(tabId, slotId);
     }
   }
 
   protected async onFileTabContextMenuCloseAll(): Promise<void> {
     const tabId = this.fileTabContextMenuTabId();
+    const slotId = this.fileTabContextMenuSlotId() ?? undefined;
+    const tabs = this.fileTabContextMenuTabs();
     this.closeFileTabContextMenu();
     if (!tabId) {
       return;
     }
-    const tabIds = [...allFileTabIds(this.fileTabs())].reverse();
-    await this.closeFileTabsInOrder(tabIds);
+    const tabIds = [...allFileTabIds(tabs)].reverse();
+    await this.closeFileTabsInOrder(tabIds, slotId);
   }
 
   protected async onFileTabContextMenuCloseLeft(): Promise<void> {
     const tabId = this.fileTabContextMenuTabId();
+    const slotId = this.fileTabContextMenuSlotId() ?? undefined;
+    const tabs = this.fileTabContextMenuTabs();
     this.closeFileTabContextMenu();
     if (!tabId) {
       return;
     }
-    const tabIds = [...fileTabIdsToLeft(this.fileTabs(), tabId)].reverse();
-    await this.closeFileTabsInOrder(tabIds);
+    const tabIds = [...fileTabIdsToLeft(tabs, tabId)].reverse();
+    await this.closeFileTabsInOrder(tabIds, slotId);
   }
 
   protected async onFileTabContextMenuCloseRight(): Promise<void> {
     const tabId = this.fileTabContextMenuTabId();
+    const slotId = this.fileTabContextMenuSlotId() ?? undefined;
+    const tabs = this.fileTabContextMenuTabs();
     this.closeFileTabContextMenu();
     if (!tabId) {
       return;
     }
-    const tabIds = [...fileTabIdsToRight(this.fileTabs(), tabId)].reverse();
-    await this.closeFileTabsInOrder(tabIds);
+    const tabIds = [...fileTabIdsToRight(tabs, tabId)].reverse();
+    await this.closeFileTabsInOrder(tabIds, slotId);
   }
 
   @HostListener('document:click', ['$event'])
@@ -2391,7 +2624,7 @@ export class App implements OnInit, OnDestroy {
     if (!tabId?.startsWith('file:') || this.activeFileIsImage() || this.chatExpanded()) {
       return;
     }
-    this.workspaceMonaco?.openFindWidget();
+    this.focusedWorkspaceMonaco()?.openFindWidget();
   }
 
   protected onWorkspaceFileOpen(payload: { absolutePath: string }): void {
@@ -2515,43 +2748,12 @@ export class App implements OnInit, OnDestroy {
     this.editorSelectionChip.set(null);
   }
 
-  protected fileTabIdForTab(tab: ChatFileTab): string {
-    return chatFileTabId(tab);
-  }
-
-  protected chatFileTabModelKey(tab: ChatFileTab): string {
-    return chatFileTabModelKey(tab);
-  }
-
-  protected fileTabBasenameForTab(tab: ChatFileTab): string {
-    return chatFileTabBasename(tab);
-  }
-
   protected fileTabIsUnsaved(modelKey: string): boolean {
     return this.monacoUnsavedPaths().has(modelKey);
   }
 
   protected fileTabIsDetached(modelKey: string): boolean {
     return this.monacoDetachedPaths().has(modelKey);
-  }
-
-  protected fileTabTitle(tab: ChatFileTab): string | null {
-    const key = chatFileTabModelKey(tab);
-    if (tab.outsideWorkspace) {
-      return 'This file is outside of the workspace.';
-    }
-    if (this.fileTabIsDetached(key)) {
-      return 'This file no longer exists at this path — save to choose a location.';
-    }
-    return null;
-  }
-
-  protected onMonacoUnsavedPathsChange(paths: readonly string[]): void {
-    const next = new Set(paths);
-    this.monacoUnsavedPaths.set(next);
-    this.electron.reportWorkspaceMonacoUnsavedPaths(
-      [...next].map((k) => relativePathFromModelKey(k) ?? k),
-    );
   }
 
   private async syncWorkspaceContext(workspacePath: string): Promise<void> {
@@ -2651,7 +2853,7 @@ export class App implements OnInit, OnDestroy {
       if (!canLeave) {
         return;
       }
-      await this.persistOpenTabsNow(this.openTabsOwnedWorkspaceId, this.fileTabs(), this.activeMainTabId());
+      await this.persistOpenTabsNow(this.openTabsOwnedWorkspaceId, this.editorGrid(), this.focusedSlotId());
       await this.electron.setCurrentWorkspace(conv.workspaceId);
       const config = await this.electron.loadConfig();
       this.workspaces.set(config.workspaces);

@@ -1,0 +1,72 @@
+<div class='editor-grid' cdkDropListGroup [class.is-dragging]='dragging()'>
+  @for (column of layout().columns; track column.id; let ci = $index; let lastCol = $last) {
+    <div class='editor-grid__column' [style.flex]='columnStyle(ci)'>
+      @for (slot of column.slots; track slot.id; let ri = $index; let lastRow = $last) {
+        <section
+          class='editor-grid__slot'
+          [class.is-focused]='isFocused(slot)'
+          [style.flex]='rowStyle(column, ri)'
+          [attr.data-slot-id]='slot.id'
+          (pointerdown)='onSlotPointerDown(slot.id)'
+        >
+          <app-editor-grid-tab-strip
+            [slotId]='slot.id'
+            [tabs]='slot.tabs'
+            [activeTabId]='slot.activeTabId'
+            [focused]='isFocused(slot)'
+            [unsavedKeys]='unsavedKeys()'
+            [detachedKeys]='detachedKeys()'
+            (tabSelect)='onTabSelect(slot.id, $event)'
+            (tabClose)='onTabClose(slot.id, $event)'
+            (tabContextMenu)='onTabContextMenu(slot.id, $event)'
+            (reorder)='onReorder(slot.id, $event)'
+            (moveIn)='onMoveIn(slot.id, $event)'
+            (dragStarted)='onDragStarted($event)'
+            (dragMoved)='onDragMoved($event)'
+            (dragDropped)='onDragDropped($event)'
+            (dragEnded)='onDragEnded()'
+          />
+          <div class='editor-grid__slot-body' [attr.data-editor-grid-slot-body]='slot.id'>
+            <ng-container *ngTemplateOutlet='slotBody(); context: slotContext(slot)' />
+            @if (dragPreview(); as preview) {
+              @if (preview.slotId === slot.id) {
+                <div class='editor-grid__drop-overlay' aria-hidden='true'>
+                  <div
+                    class='editor-grid__drop-band'
+                    [class.is-noop]='preview.action.kind === "noop"'
+                    [class.is-limit]='preview.action.limitReached'
+                    [ngStyle]='bandStyle(preview)'
+                  ></div>
+                  <div class='editor-grid__drop-card' [class.is-noop]='preview.action.kind === "noop"'>
+                    <div class='editor-grid__drop-diagram'>
+                      @for (i of cellIndices; track i) {
+                        <span class='editor-grid__drop-cell' [class.is-lit]='previewCells().has(i)'></span>
+                      }
+                    </div>
+                    <span class='editor-grid__drop-label'>{{ preview.action.label || 'No change' }}</span>
+                  </div>
+                </div>
+              }
+            }
+          </div>
+        </section>
+        @if (!lastRow) {
+          <div
+            class='editor-grid__gutter editor-grid__gutter--row'
+            role='separator'
+            aria-orientation='horizontal'
+            (pointerdown)='onRowGutterPointerDown($event, column, ri)'
+          ></div>
+        }
+      }
+    </div>
+    @if (!lastCol) {
+      <div
+        class='editor-grid__gutter editor-grid__gutter--column'
+        role='separator'
+        aria-orientation='vertical'
+        (pointerdown)='onColumnGutterPointerDown($event, ci)'
+      ></div>
+    }
+  }
+</div>

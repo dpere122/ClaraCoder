@@ -68,6 +68,26 @@ app-stream-tool-pill .stream-tool-pill--error {
   );
 }
 
+/* Tool spinner hosted in the live preview pill; negative margins keep the pill height unchanged. */
+app-stream-tool-pill .stream-tool-pill__spinner {
+  flex-shrink: 0;
+  width: 1.3rem;
+  height: 1.3rem;
+  margin: -0.24rem 0.02rem -0.24rem -0.24rem;
+}
+
+app-stream-tool-pill .stream-tool-pill__spinner--read {
+  width: 1.42rem;
+  height: 1.42rem;
+}
+
+app-stream-tool-pill .stream-tool-pill__spinner-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
 app-stream-tool-pill .stream-tool-pill__name {
   flex-shrink: 0;
   max-width: 12rem;

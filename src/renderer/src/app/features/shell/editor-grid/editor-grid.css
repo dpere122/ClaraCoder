@@ -1,0 +1,148 @@
+:host {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.editor-grid {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.editor-grid__column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.editor-grid__slot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--t-bg);
+}
+
+.editor-grid__slot.is-focused {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--t-primary) 22%, transparent);
+}
+
+.editor-grid__slot-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.editor-grid__gutter {
+  flex: 0 0 4px;
+  background: color-mix(in srgb, var(--t-primary) 22%, var(--t-border-subtle, #333));
+  transition: background-color 0.12s ease;
+  touch-action: none;
+  user-select: none;
+}
+
+.editor-grid__gutter:hover,
+.editor-grid__gutter:active {
+  background: color-mix(in srgb, var(--t-primary) 55%, var(--t-border-subtle, #333));
+}
+
+.editor-grid__gutter--column {
+  cursor: col-resize;
+}
+
+.editor-grid__gutter--row {
+  cursor: row-resize;
+}
+
+/* While a tab (or a workspace-tree file) is being dragged, Monaco must not swallow the pointer
+   so elementFromPoint / native drag events resolve to the slot body. */
+.editor-grid.is-dragging .editor-grid__slot-body > :not(.editor-grid__drop-overlay) {
+  pointer-events: none;
+}
+
+.editor-grid__drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.editor-grid__drop-band {
+  position: absolute;
+  background: color-mix(in srgb, var(--t-primary) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--t-primary) 60%, transparent);
+  transition: all 0.1s ease;
+}
+
+.editor-grid__drop-band.is-limit {
+  background: color-mix(in srgb, var(--t-warn, #e8b931) 18%, transparent);
+  border-color: color-mix(in srgb, var(--t-warn, #e8b931) 60%, transparent);
+}
+
+.editor-grid__drop-band.is-noop {
+  background: color-mix(in srgb, var(--t-fg, #fff) 6%, transparent);
+  border-color: color-mix(in srgb, var(--t-fg, #fff) 20%, transparent);
+}
+
+.editor-grid__drop-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--t-primary) 55%, var(--t-border, #444));
+  background: color-mix(in srgb, var(--t-bg, #1e1e1e) 88%, transparent);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  color: var(--t-primary, #0f0);
+  font-family: var(--t-font-mono, monospace);
+  font-size: 0.78rem;
+  backdrop-filter: blur(2px);
+}
+
+.editor-grid__drop-card.is-noop {
+  color: var(--t-text-muted, #888);
+  border-color: var(--t-border, #444);
+}
+
+.editor-grid__drop-diagram {
+  display: grid;
+  grid-template-columns: repeat(3, 14px);
+  grid-template-rows: repeat(3, 14px);
+  gap: 2px;
+}
+
+.editor-grid__drop-cell {
+  display: block;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--t-fg, #fff) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--t-fg, #fff) 16%, transparent);
+}
+
+.editor-grid__drop-cell.is-lit {
+  background: color-mix(in srgb, var(--t-primary) 55%, transparent);
+  border-color: var(--t-primary, #0f0);
+}
+
+.editor-grid__drop-label {
+  white-space: nowrap;
+}

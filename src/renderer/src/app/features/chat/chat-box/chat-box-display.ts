@@ -5,8 +5,15 @@ import type {
   AgentQuestionPayload,
   PlannerProgress,
   StreamPart,
+  TurnFeedItem,
 } from '@shared/index';
-import { CLARA_OUTER_BRIEF_STREAM_TAG, isClaraOuterBriefStreamTag, isPrimaryAssistantStreamTag, PLANNER_STREAM_TAG } from '@shared/index';
+import {
+  CLARA_OUTER_BRIEF_STREAM_TAG,
+  isClaraOuterBriefStreamTag,
+  isHitlTrailStreamTag,
+  isPrimaryAssistantStreamTag,
+  PLANNER_STREAM_TAG,
+} from '@shared/index';
 
 export const DEFAULT_AUXILIARY_STREAM_PANEL_TITLE = 'Model reasoning & tools';
 import {
@@ -27,7 +34,6 @@ export const TOOL_BUILDING_SYNONYMS = [
   'producing',
   'shaping',
   'structuring',
-  'erecting',
   'forming',
 ] as const;
 
@@ -207,6 +213,43 @@ export function userMessageAttachedFileRefs(msg: UserMessage): string[] {
 /** Pixels from the bottom of `#chatScroll` to treat as stick mode. */
 export const SCROLL_BOTTOM_PIN_THRESHOLD_PX = 48;
 
+/**
+ * Fraction of the scrollport height kept empty below the last message — the buffer zone
+ * above the composer. At stick, the latest message therefore rests around mid-viewport.
+ */
+export const CHAT_BOTTOM_BUFFER_RATIO = 0.5;
+
+/**
+ * Bottom buffer in px for a given scrollport height (0 until the viewport is measured).
+ *
+ * `insetPx` is chrome docked directly below the scrollport (HITL cards in the composer dock)
+ * that should occupy the buffer zone instead of pushing the transcript up: the buffer is sized
+ * as if the inset were part of the viewport, then the inset is subtracted one-for-one, so the
+ * last message stays put and the card slots into the space beneath it.
+ */
+export function chatBottomBufferPx(
+  viewportHeightPx: number,
+  insetPx = 0,
+  ratio = CHAT_BOTTOM_BUFFER_RATIO,
+): number {
+  if (!Number.isFinite(viewportHeightPx) || viewportHeightPx <= 0) {
+    return 0;
+  }
+  const inset = Number.isFinite(insetPx) && insetPx > 0 ? insetPx : 0;
+  return Math.max(0, Math.round((viewportHeightPx + inset) * ratio - inset));
+}
+
+/**
+ * Stick threshold: the whole buffer zone counts as "at the bottom", so scrolling back into
+ * the buffer re-locks auto-follow. Never smaller than the legacy pixel pin.
+ */
+export function stickThresholdPx(
+  bottomBufferPx: number,
+  minPx = SCROLL_BOTTOM_PIN_THRESHOLD_PX,
+): number {
+  return Math.max(minPx, bottomBufferPx);
+}
+
 export function isScrollWorthyAppendMessage(m: ChatMessage): boolean {
   return (
     m.role === 'user' ||
@@ -281,6 +324,17 @@ export function decideChatScrollOnAppend(input: {
   return none;
 }
 
+/**
+ * True when a `scrollTop` decrease came from the user (wheel, scrollbar drag, keyboard) rather
+ * than a layout clamp. When the scrollport grows or its content shrinks (HITL dock or terminal
+ * collapsing, live bubble swapped for the persisted row) the browser clamps `scrollTop` to the new
+ * maximum and fires a `scroll` event: `scrollTop` drops, but slack lands at zero — a position a
+ * real scroll-up can never reach. Treating that as intent would knock the reader out of stick.
+ */
+export function isUserScrollUp(scrollTop: number, lastScrollTop: number, slackPx: number): boolean {
+  return scrollTop + 1 < lastScrollTop && slackPx > 1;
+}
+
 /** Outcome of a scroll event for stick/roam. `keep` leaves the current mode unchanged. */
 export type ChatStickScrollIntent = 'stick' | 'roam' | 'keep';
 
@@ -315,6 +369,19 @@ export function decideStickAfterUserScroll(input: {
 
 /** Stream completion should re-bottom only while stick is on. */
 export function shouldFollowStreamComplete(stickMode: boolean): boolean {
+  return stickMode;
+}
+
+/** Backend `final_text` (or persisted clean reply) just became available. */
+export function didFinalResponseAppear(
+  finalText: string | undefined,
+  prevHadFinalText: boolean,
+): boolean {
+  return (finalText ?? '').trim().length > 0 && !prevHadFinalText;
+}
+
+/** Final-response autoscroll follows the same stick rule as stream completion. */
+export function shouldFollowFinalResponse(stickMode: boolean): boolean {
   return stickMode;
 }
 
@@ -434,6 +501,37 @@ export function resolveLiveAssistantTurn(
   return null;
 }
 
+/**
+ * True when prose (reply or Clara brief) is the latest live feed event.
+ * HITL change rows are display-time and always merge to the end of the live timeline, so
+ * they are skipped — otherwise a single edit review would keep the spinner on for the rest
+ * of the turn and hide the streaming cursor.
+ */
+export function isProseLatestLiveFeedEvent(items: readonly TurnFeedItem[]): boolean {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i]!;
+    if (item.kind === 'tool' && isHitlTrailStreamTag(item.part.streamTag)) {
+      continue;
+    }
+    return item.kind === 'markdown';
+  }
+  return false;
+}
+
+/**
+ * True while the reply (or a Clara brief) is being generated, so no spinner should show.
+ * Primary (`agent`) prose present in the live parts is the authoritative signal: tool calls
+ * and nudges retag it away (`clear_primary_stream` / `promote_primary_to_nudge`), so the
+ * spinner returns exactly when tools take over. Falls back to "prose is the latest event"
+ * for backend-emitted briefs that land as complete `clara` rows.
+ */
+export function isLiveReplyStreaming(
+  items: readonly TurnFeedItem[],
+  primaryLiveText: string,
+): boolean {
+  return primaryLiveText.trim().length > 0 || isProseLatestLiveFeedEvent(items);
+}
+
 /** Small stable hash for synonym index (FNV-1a 32-bit). */
 export function hashChatToolPhaseKey(str: string): number {
   let h = 0x811c9dc5;
@@ -493,7 +591,7 @@ export function extractLatestBriefLine(text: string): string {
 /**
  * Live markdown zone: prefer backend `final_text`, else stream the latest primary agent segment.
  * Pre-tool planning prose is promoted to a Clara brief via SSE ``clear_primary_stream``, so
- * post-tool primary can stream even while the tools phase stays engaged for the spinner.
+ * post-tool primary can stream after tools finish (comet / thinking spinner again).
  */
 export function resolvePrimaryStreamLiveText(
   streamingFinalText: string | undefined,

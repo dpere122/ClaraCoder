@@ -48,7 +48,7 @@ export function registerLlamaServerIpc(): void {
     }
     const modelId = normalizeLlamaModelId(payload.modelId);
     if (modelId) {
-      stopManagedLlamaServers(modelId);
+      await stopManagedLlamaServers(modelId);
     }
     await syncWithManagedLlamaOverrides(payload.config);
     return { ok: true as const };

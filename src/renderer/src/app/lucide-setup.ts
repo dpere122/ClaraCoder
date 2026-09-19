@@ -2,6 +2,7 @@ import { EnvironmentProviders, importProvidersFrom, Provider } from '@angular/co
 import {
   ArrowDown,
   Brain,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -33,6 +34,7 @@ import {
   Star,
   Trash,
   TriangleAlert,
+  Undo2,
   X,
   ZoomIn,
   ZoomOut,
@@ -51,6 +53,7 @@ export const lucideAppProviders: Array<Provider | EnvironmentProviders> = [
     LucideAngularModule.pick({
       ArrowDown,
       Brain,
+      Check,
       ChevronDown,
       ChevronLeft,
       ChevronRight,
@@ -80,6 +83,7 @@ export const lucideAppProviders: Array<Provider | EnvironmentProviders> = [
       Star,
       Trash,
       TriangleAlert,
+      Undo2,
       X,
       ZoomIn,
       ZoomOut,

@@ -63,8 +63,12 @@
   --t-hljs-selector: #9bb88e;
   --t-log-level-error: #e07a7a;
   --t-log-level-warning: #d4a84b;
+  /* Decision colors for HITL action buttons — saturated on purpose so approve/reject pop. */
+  --t-confirm: #5fd39b;
+  --t-caution: #e8b455;
   --t-elev-shadow: 0 10px 28px color-mix(in srgb, var(--t-edge-darkest) 42%, transparent);
   --t-font-mono: var(--t-font);
+  --t-chat-bg: color-mix(in srgb, var(--t-bg-surface) 62%, var(--t-bg));
 }
 
 /* Lucide (lucide-angular): align with text and inherit theme color */
@@ -136,6 +140,9 @@ lucide-icon svg {
   --t-hljs-selector: #2e6b2e;
   --t-log-level-error: #b3261e;
   --t-log-level-warning: #b45309;
+  /* Light theme: filled buttons carry light ink, so decision fills stay deep. */
+  --t-confirm: #1f7a4f;
+  --t-caution: #bd640b;
   --t-tui-frame: #8a7a68;
   --t-tui-user-frame: #5c3d2e;
   --t-tui-clara-frame: #5c4030;
@@ -204,6 +211,8 @@ lucide-icon svg {
   --t-hljs-selector: #a9cf95;
   --t-log-level-error: #ff8a7a;
   --t-log-level-warning: #f0c674;
+  --t-confirm: #74cfa0;
+  --t-caution: #f0b45c;
   --t-tui-frame: #d7b98d;
   --t-tui-user-frame: #ffe8c8;
   --t-tui-clara-frame: #c8b090;
@@ -279,6 +288,8 @@ html.theme-classical .interactive-output .terminal-shell {
   --t-hljs-selector: #9bb88e;
   --t-log-level-error: #e07a7a;
   --t-log-level-warning: #d4a84b;
+  --t-confirm: #5fd39b;
+  --t-caution: #e8b455;
   --t-tui-frame: #c9a96e;
   --t-tui-user-frame: #d8c8a0;
   --t-tui-clara-frame: #a8b89a;
@@ -325,6 +336,10 @@ app-stream-tool-pill .stream-tool-pill,
 .chat-context-chip-remove,
 .chat-context-chip-thumb,
 .user-attachment-file,
+.composer-prompt,
+.tcd-btn,
+app-message-box .composer-prompt,
+app-message-box .btn-abort,
 .main-panel-empty__cta,
 .main-panel-empty__recents-scroll::-webkit-scrollbar-thumb,
 .main-panel-empty__recents-scroll::-webkit-scrollbar-track {
@@ -333,8 +348,23 @@ app-stream-tool-pill .stream-tool-pill,
 
 app-stream-thought-pill .stream-thought-preview__inner,
 app-stream-nudge-pill .stream-nudge-preview__inner,
-.main-panel-empty__recents-frame {
+.main-panel-empty__recents-frame,
+app-chat-box .msg-bubble,
+app-chat-box .llm-reasoning-panel,
+app-chat-box .streaming-delegated-block,
+app-planner-checklist .plan-panel,
+app-conversation-manager .conv-context-menu {
   border-radius: 0.85rem !important;
+}
+
+/* Chat transcript panel matches the composer card. */
+html app-chat-box,
+html app-chat-box .chat-box {
+  border-radius: 1.5rem !important;
+}
+
+app-chat-box .msg-restore-btn {
+  border-radius: 999px !important;
 }
 
 .main-panel-empty__recent {
@@ -363,7 +393,10 @@ app-chat-conversation-hub .chat-hub__expand,
 app-chat-conversation-hub .chat-hub__new-conv,
 app-chat-conversation-hub .chat-hub__conv-toggle,
 app-chat-conversation-hub .chat-hub__collapse,
-app-chat-conversation-hub .chat-hub__uncollapse {
+app-chat-conversation-hub .chat-hub__uncollapse,
+app-conversation-manager .conv-item,
+app-conversation-manager .delete-btn,
+app-conversation-manager .conv-context-menu-item {
   border-radius: 999px !important;
 }
 
@@ -385,6 +418,11 @@ app-workspace-monaco .workspace-monaco-md-toggle__btn {
 .chat-main-tab.cdk-drag-preview,
 .chat-main-tab-close {
   border-radius: 999px !important;
+}
+
+/* Status-bar Model / Embeddings traffic-light orbs stay circular. */
+app-llama-status-indicator .llama-status__dot {
+  border-radius: 50% !important;
 }
 
 html, body {
@@ -828,18 +866,18 @@ html.theme-woodland .form-section + .settings-divider {
 }
 html.theme-woodland .chat-box {
   border: none;
+  background-color: var(--t-chat-bg, color-mix(in srgb, var(--t-bg-surface) 62%, var(--t-bg)));
 }
-html.theme-woodland .msg-bubble {
-  border: none;
-  border-bottom: 1px solid var(--t-border-subtle);
+html.theme-woodland .msg-bubble,
+html.theme-woodland .user-bubble,
+html.theme-woodland .assistant-bubble {
+  border: 1px solid var(--t-border) !important;
 }
 html.theme-woodland .user-bubble {
-  border: none;
-  border-bottom: 1px solid var(--t-border-subtle);
+  border-color: color-mix(in srgb, var(--t-secondary) 42%, var(--t-border)) !important;
 }
 html.theme-woodland .assistant-bubble {
-  border: none;
-  border-bottom: 1px solid var(--t-border-subtle);
+  border-color: color-mix(in srgb, var(--t-assistant-border) 70%, var(--t-border)) !important;
 }
 html.theme-woodland .assistant-bubble h1,
 html.theme-woodland .assistant-bubble h2,
@@ -850,12 +888,10 @@ html.theme-woodland .assistant-bubble h6 {
   text-shadow: none;
 }
 html.theme-woodland .assistant-bubble code {
-  border: none;
+  border: 1px solid var(--t-border-subtle);
 }
 html.theme-woodland .assistant-bubble pre {
-  border: none;
-  border-top: 1px solid var(--t-border-subtle);
-  border-bottom: 1px solid var(--t-border-subtle);
+  border: 1px solid var(--t-border-subtle);
 }
 html.theme-woodland .assistant-bubble a:hover {
   text-shadow: none;
@@ -923,7 +959,7 @@ html.theme-woodland app-message-box .composer-mode-select option {
   color: var(--t-input-fg);
 }
 
-/* ── ASCII-framed chat ── */
+/* ── Rounded chat transcript ── */
 html app-chat-box,
 html app-chat-box.chat-layout-sidebar {
   --chat-bubble-width: 100%;
@@ -937,14 +973,15 @@ html app-chat-box .chat-row-mount {
 
 html app-chat-box .chat-box {
   border: none;
-  background-color: var(--t-bg);
-  padding: 0;
+  background-color: var(--t-chat-bg, color-mix(in srgb, var(--t-bg-surface) 62%, var(--t-bg)));
+  padding: 0.55rem 0.7rem;
   width: 100%;
   max-width: 100%;
+  border-radius: 1.5rem !important;
 }
 
 html app-chat-box .chat-row {
-  margin-bottom: 0 !important;
+  margin-bottom: 0.55rem !important;
   width: 100%;
 }
 
@@ -960,14 +997,14 @@ html app-chat-box .assistant-bubble {
 }
 
 html app-chat-box .assistant-turn-bubble {
-  gap: 0.1rem;
+  gap: 0.45rem;
 }
 
 html app-chat-box .msg-bubble {
-  border: none;
-  border-radius: 0;
-  margin: 0.05rem 0;
-  padding: 0;
+  border: 1px solid var(--t-border) !important;
+  border-radius: 0.9rem !important;
+  margin: 0;
+  padding: 0.7rem 0.85rem 0.75rem;
   width: 100%;
   max-width: 100%;
   box-shadow: none;
@@ -976,143 +1013,14 @@ html app-chat-box .msg-bubble {
 html app-chat-box .user-bubble {
   background-color: var(--t-user-bg);
   color: var(--t-user-fg);
-  border: none;
+  border-color: color-mix(in srgb, var(--t-secondary) 42%, var(--t-border)) !important;
 }
 
 html app-chat-box .assistant-bubble {
   background-color: var(--t-assistant-bg);
   color: var(--t-assistant-fg);
-  border: none;
-}
-
-html .tui-frame-bar {
-  display: grid;
-  width: 100%;
-  min-width: 0;
-  align-items: center;
-  font-family: var(--t-font);
-  font-size: 0.72rem;
-  line-height: 1;
-  letter-spacing: 0;
-  white-space: nowrap;
-}
-
-html .tui-frame-bar--top {
-  grid-template-columns: auto auto minmax(0, 1fr) auto;
-}
-
-html .tui-frame-bar--bottom {
-  grid-template-columns: auto minmax(0, 1fr) auto;
-}
-
-html .tui-frame-bar--user {
-  color: var(--t-tui-user-frame);
-}
-
-html .tui-frame-bar--clara {
-  color: var(--t-tui-clara-frame);
-}
-
-html .tui-frame-bar--input {
-  color: var(--t-tui-input-frame);
-}
-
-html .tui-frame-bar__corner,
-html .tui-frame-bar__fill,
-html .tui-frame-bar__fill::before {
-  opacity: 0.42;
-}
-
-html app-chat-box .tui-frame-bar {
-  font-size: 0.78rem;
-}
-
-html app-chat-box .tui-frame-bar--user .tui-frame-bar__corner,
-html app-chat-box .tui-frame-bar--user .tui-frame-bar__fill,
-html app-chat-box .tui-frame-bar--user .tui-frame-bar__fill::before,
-html app-chat-box .tui-frame-bar--clara .tui-frame-bar__corner,
-html app-chat-box .tui-frame-bar--clara .tui-frame-bar__fill,
-html app-chat-box .tui-frame-bar--clara .tui-frame-bar__fill::before,
-html app-chat-box .tui-frame-bar--input .tui-frame-bar__corner,
-html app-chat-box .tui-frame-bar--input .tui-frame-bar__fill,
-html app-chat-box .tui-frame-bar--input .tui-frame-bar__fill::before {
-  opacity: 0.92;
-}
-
-html .tui-frame-bar__corner,
-html .tui-frame-bar__label {
-  flex: 0 0 auto;
-}
-
-html .tui-frame-bar__label {
-  letter-spacing: 0.06em;
-  opacity: 1;
-}
-
-html .tui-frame-bar--user .tui-frame-bar__label {
-  color: var(--t-tui-frame);
-}
-
-html app-chat-box .tui-frame-bar--user .tui-frame-bar__label {
-  color: var(--t-tui-user-frame);
-  font-weight: 600;
-  text-shadow: 0 0 8px color-mix(in srgb, var(--t-tui-user-frame) 45%, transparent);
-}
-
-html .tui-frame-bar--clara .tui-frame-bar__label {
-  color: var(--t-tui-clara-frame);
-}
-
-html app-chat-box .tui-frame-bar--clara .tui-frame-bar__label {
-  color: var(--t-tui-clara-frame);
-  font-weight: 600;
-  text-shadow: 0 0 8px color-mix(in srgb, var(--t-tui-clara-frame) 45%, transparent);
-}
-
-html .tui-frame-bar--input .tui-frame-bar__label {
-  color: var(--t-tui-user-frame);
-  font-weight: 600;
-  text-shadow: 0 0 8px color-mix(in srgb, var(--t-tui-input-frame) 35%, transparent);
-}
-
-html .tui-frame-bar--input .tui-frame-bar__corner,
-html .tui-frame-bar--input .tui-frame-bar__fill,
-html .tui-frame-bar--input .tui-frame-bar__fill::before {
-  opacity: 0.82;
-}
-
-html .tui-frame-bar__fill {
-  min-width: 0;
-  min-height: 1em;
-  overflow: hidden;
-  color: inherit;
-  pointer-events: none;
-}
-
-html .tui-frame-bar__fill::before {
-  content: "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────";
-  display: inline-block;
-  min-width: 100%;
-  overflow: hidden;
-  white-space: nowrap;
-  vertical-align: top;
-  line-height: 1;
-  font-family: inherit;
-  font-size: inherit;
-  color: inherit;
-}
-
-html app-chat-box .tui-frame-bar__fill::before {
-  content: "════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════";
-}
-
-html app-chat-box .tui-frame-bar--user .tui-frame-bar__fill::before {
-  content: "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────";
-}
-
-html app-chat-box .tui-frame-bar__body {
-  padding: 0.05rem 0.35rem;
-  min-width: 0;
+  border-color: color-mix(in srgb, var(--t-assistant-border) 70%, var(--t-border)) !important;
+  padding: 0.8rem 1rem 0.9rem;
 }
 
 html app-chat-box .user-bubble::before,
@@ -1122,19 +1030,23 @@ html app-chat-box .msg-bubble::after {
   display: none;
 }
 
-html app-chat-box .user-attachment-image,
+html app-chat-box .user-attachment-image {
+  border-radius: 0.55rem !important;
+  border: 1px solid var(--t-border-subtle);
+}
+
 html app-chat-box .user-attachment-file {
-  border-radius: 0;
-  border: none;
+  border-radius: 999px !important;
+  border: 1px solid var(--t-border-subtle);
 }
 
 html app-chat-box .user-attachments {
-  gap: 0.15rem;
-  margin-bottom: 0.1rem;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
 }
 
 html app-chat-box .user-attachment-file {
-  padding: 0.05rem 0.15rem;
+  padding: 0.12rem 0.45rem;
 }
 
 html app-chat-box .assistant-bubble h1,
@@ -1153,23 +1065,24 @@ html app-chat-box .assistant-bubble p {
 
 html app-chat-box .assistant-bubble code {
   border: none;
-  border-radius: 0;
+  border-radius: 0.35rem !important;
   padding: 0.05em 0.2em;
 }
 
 html app-chat-box .assistant-bubble pre {
-  border: none;
-  border-radius: 0;
-  margin: 0.15em 0;
+  border: 1px solid var(--t-border-subtle);
+  border-radius: 0.6rem !important;
+  margin: 0.35em 0;
   padding: 0.15rem 0.25rem;
 }
 
 html app-chat-box .assistant-bubble blockquote {
   border: none;
-  border-radius: 0;
-  background: transparent;
-  margin: 0.15em 0;
-  padding: 0 0 0 0.35rem;
+  border-left: 3px solid var(--t-assistant-border, var(--t-border));
+  border-radius: 0.4rem !important;
+  background: color-mix(in srgb, var(--t-hover-bg) 70%, transparent);
+  margin: 0.25em 0;
+  padding: 0.2rem 0.55rem;
 }
 
 html app-chat-box .assistant-bubble hr {
@@ -1194,6 +1107,10 @@ html .chat-active-stack__composer {
   background: var(--t-composer-bg);
 }
 
+html app-chat-active-stack.chat-active-stack--empty .chat-active-stack__composer {
+  background: transparent;
+}
+
 html .chat-active-stack__composer::before {
   content: none;
   display: none;
@@ -1204,63 +1121,11 @@ html .chat-active-stack__composer-input {
   gap: 0.1rem;
 }
 
-html .tui-frame-bar--top.tui-frame-bar--clara.tui-frame-bar--has-details,
-html .tui-frame-bar--bottom.tui-frame-bar--user.tui-frame-bar--has-restore {
-  grid-template-columns: auto auto minmax(0, 1fr) auto;
-}
-
-html .tui-frame-bar__label-group {
-  display: inline-flex;
-  align-items: center;
-  flex: 0 0 auto;
-  gap: 0.2em;
-  margin: 0;
-  margin-right: 0.2em;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font-family: inherit;
-  font-size: inherit;
-  line-height: 1;
-  cursor: pointer;
-  opacity: 0.88;
-}
-
-html app-chat-box .tui-frame-bar--clara .tui-frame-bar__label-group {
-  color: var(--t-tui-clara-frame);
-  font-weight: 600;
-  text-shadow: 0 0 8px color-mix(in srgb, var(--t-tui-clara-frame) 45%, transparent);
-}
-
-html app-chat-box .tui-frame-bar--user .tui-frame-bar__label-group {
-  color: var(--t-tui-user-frame);
-  font-weight: 600;
-  text-shadow: 0 0 8px color-mix(in srgb, var(--t-tui-user-frame) 45%, transparent);
-}
-
-html app-chat-box .tui-frame-bar--user .tui-frame-bar__label-group .tui-frame-bar__label {
-  letter-spacing: 0.06em;
-}
-
-html app-chat-box .tui-frame-bar--clara .tui-frame-bar__label-group .tui-frame-bar__label {
-  letter-spacing: 0.06em;
-}
-
-html .tui-frame-bar__label-group:hover {
-  opacity: 1;
-}
-
-html .tui-frame-bar__chevron-icon {
-  flex: 0 0 auto;
-  letter-spacing: 0;
-}
-
 html app-chat-box .llm-reasoning-panel {
-  border: none;
-  border-radius: 0;
-  margin-top: 0.05rem;
-  padding: 0.1rem 0.15rem;
+  border: 1px solid var(--t-border-subtle);
+  border-radius: 0.7rem !important;
+  margin-top: 0.2rem;
+  padding: 0.35rem 0.5rem;
   background-color: color-mix(in srgb, var(--t-tui-clara-frame) 6%, transparent);
 }
 
@@ -1280,8 +1145,12 @@ html app-message-box .talk-status {
 html app-message-box .composer-prompt {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  padding: 0 0.15rem 0 0.05rem;
+  padding: 0.2rem 0.45rem;
+  min-width: 1.5rem;
+  min-height: 1.5rem;
+  border-radius: 999px !important;
   color: var(--t-tui-user-frame);
   font-family: var(--t-font);
   font-size: 0.95rem;
@@ -1365,8 +1234,18 @@ html app-message-box .composer-entry-row .btn-abort {
   padding: 0.1rem 0.25rem;
 }
 
-html app-message-box .composer-options-row .composer-mode-select {
-  padding: 0.1rem 0.85rem 0.1rem 0.2rem;
+html app-message-box .composer-entry-row .composer-prompt {
+  padding: 0.2rem 0.45rem;
+  min-width: 1.5rem;
+  min-height: 1.5rem;
+  border-radius: 999px !important;
+}
+
+html app-message-box .composer-entry-row .btn-abort {
+  padding: 0.2rem 0.6rem;
+  min-width: 2.15rem;
+  min-height: 1.6rem;
+  border-radius: 999px !important;
 }
 
 html app-message-box .composer-entry-row .btn-voice:hover:not(:disabled),
@@ -1420,29 +1299,37 @@ html app-message-box .composer-status-cluster .context-capacity {
   gap: 0.35rem;
 }
 
-html app-message-box .composer-status-cluster .context-capacity__circle-button {
-  width: 1.85rem;
-  height: 1.85rem;
-}
-
 html app-chat-conversation-hub .chat-hub__expand,
-html app-chat-conversation-hub .chat-hub__conv-toggle {
-  border: none;
+html app-chat-conversation-hub .chat-hub__conv-toggle,
+html app-chat-conversation-hub .chat-hub__collapse,
+html app-chat-conversation-hub .chat-hub__uncollapse,
+html app-chat-conversation-hub .chat-hub__new-conv {
+  border: 1px solid var(--t-border) !important;
 }
 
 html app-chat-conversation-hub .chat-hub__expand:hover:not(:disabled),
-html app-chat-conversation-hub .chat-hub__conv-toggle:hover {
-  border: none;
+html app-chat-conversation-hub .chat-hub__conv-toggle:hover,
+html app-chat-conversation-hub .chat-hub__collapse:hover,
+html app-chat-conversation-hub .chat-hub__uncollapse:hover,
+html app-chat-conversation-hub .chat-hub__new-conv:hover:not(:disabled) {
+  background: var(--t-hover-bg);
+  border-color: var(--t-primary) !important;
+  color: var(--t-primary);
 }
 
-/* ASCII pseudo-elements provide frame lines; strip all other CSS borders in chat + composer. */
+/*
+ * ASCII pseudo-elements provide frame lines; strip all other CSS borders in chat + composer.
+ * Limited to the composer input subtree — the HITL dock is a sibling in the same section and
+ * needs its review-card borders and button bevels.
+ */
 html app-chat-box *,
 html app-chat-box *::before,
 html app-chat-box *::after,
 html .chat-active-stack__composer,
-html .chat-active-stack__composer *,
-html .chat-active-stack__composer *::before,
-html .chat-active-stack__composer *::after,
+html .chat-active-stack__composer-input,
+html .chat-active-stack__composer-input *,
+html .chat-active-stack__composer-input *::before,
+html .chat-active-stack__composer-input *::after,
 html .chat-active-stack__status,
 html .chat-active-stack__status * {
   border: none !important;
@@ -1467,16 +1354,24 @@ html app-message-box .composer-entry-row .btn-send {
   border-radius: 1rem !important;
 }
 
+html app-message-box .composer-entry-row .btn-abort {
+  border: none !important;
+  border-radius: 999px !important;
+}
+
+html app-message-box .composer-entry-row .composer-prompt,
+html app-message-box .composer-entry-row .composer-prompt:hover,
+html app-message-box .composer-entry-row .composer-prompt--active {
+  border-radius: 999px !important;
+}
+
 html app-chat-box app-stream-thought-pill .stream-thought-preview__inner,
 html app-chat-box app-stream-nudge-pill .stream-nudge-preview__inner {
   border: 1px solid var(--t-border) !important;
 }
 
-/* Light Classical: skip glow on ASCII labels; native light dropdowns in composer. */
-html.theme-classical app-chat-box .tui-frame-bar--user .tui-frame-bar__label,
-html.theme-classical app-chat-box .tui-frame-bar--user .tui-frame-bar__label-group,
-html.theme-classical app-chat-box .tui-frame-bar--clara .tui-frame-bar__label,
-html.theme-classical app-chat-box .tui-frame-bar--clara .tui-frame-bar__label-group,
+/* Light Classical: skip glow on restore / composer labels; native light dropdowns in composer. */
+html.theme-classical app-chat-box .msg-restore-btn,
 html.theme-classical app-message-box .composer-prompt {
   text-shadow: none;
 }

@@ -1,6 +1,6 @@
 /**
  * Scrollable chat transcript: persisted turns, live streaming bubble, virtualized long history,
- * auto-scroll policy, and inline spinners (thinking / tools / TTS).
+ * auto-scroll policy, and inline spinners (prefill / thinking / read tools / write tools / TTS).
  *
  * **Data flow**
  * - Parent passes raw {@link ChatMessage}[] plus live SSE fields (`streamingParts`, `streamingFinalText`, …).
@@ -37,6 +37,9 @@ import type { PlannerProgress, StreamPart } from '@shared/index';
 import { canRestoreToUserMessage } from '@shared/index';
 import {
   buildTurnFeed,
+  isInFlightToolPart,
+  isReadToolPreviewStreamTag,
+  isWorkspaceReadToolLabel,
   joinPrimaryAssistantStreamText,
   mergeHitlTrailIntoAuxiliaryTimeline,
   persistedAuxiliaryStreamTimeline,
@@ -46,6 +49,7 @@ import {
 import { PlannerChecklistComponent } from './planner-checklist/planner-checklist';
 import { RunButtonDirective } from './run-button.directive';
 import { StreamTurnFeedComponent } from './stream-turn-feed/stream-turn-feed';
+import type { PreviewSpinnerHost } from './stream-turn-feed/stream-preview-queue';
 import {
   CHAT_MIN_FALLBACK_ROW,
   CHAT_VIRTUAL_PIXEL_BUFFER,
@@ -56,19 +60,25 @@ import {
 } from './chat-box-virtual';
 import {
   buildChatDisplayRows,
+  chatBottomBufferPx,
   decideChatScrollOnAppend,
   decideInstantScrollOnStreamingUpdate,
   decideStickAfterUserScroll,
   hashChatToolPhaseKey,
   hitlArtifactsExcludingPlanConfirm,
   isChatTranscriptScrollable,
+  isLiveReplyStreaming,
+  isProseLatestLiveFeedEvent,
   isStickFromSlack,
+  isUserScrollUp,
   planPanelContext,
-  SCROLL_BOTTOM_PIN_THRESHOLD_PX,
   scrollSlackPx,
+  didFinalResponseAppear,
+  shouldFollowFinalResponse,
   shouldFollowStreamComplete,
   shouldFollowStreamToken,
   shouldShowJumpToBottom,
+  stickThresholdPx as computeStickThresholdPx,
   resolveLiveAssistantTurn,
   resolvePrimaryStreamLiveText,
   liveTurnPresentationSettled as computeLiveTurnPresentationSettled,
@@ -84,6 +94,8 @@ import {
 export {
   auxiliaryPanelTitleFromChainGroups,
   buildChatDisplayRows,
+  CHAT_BOTTOM_BUFFER_RATIO,
+  chatBottomBufferPx,
   decideChatScrollOnAppend,
   decideInstantScrollOnStreamingUpdate,
   decideStickAfterUserScroll,
@@ -92,14 +104,20 @@ export {
   hitlArtifactsExcludingPlanConfirm,
   isChatTranscriptScrollable,
   isHitlActivationMessage,
+  isLiveReplyStreaming,
   isPendingHitlArtifact,
+  isProseLatestLiveFeedEvent,
   isScrollWorthyAppendMessage,
   isStickFromSlack,
+  isUserScrollUp,
   SCROLL_BOTTOM_PIN_THRESHOLD_PX,
   scrollSlackPx,
+  didFinalResponseAppear,
+  shouldFollowFinalResponse,
   shouldFollowStreamComplete,
   shouldFollowStreamToken,
   shouldShowJumpToBottom,
+  stickThresholdPx,
   pendingHitlArtifactsForDock,
   planPanelContext,
   resolveLiveAssistantTurn,
@@ -120,7 +138,6 @@ export {
 export type ChatLayoutMode = 'sidebar' | 'expanded';
 
 /** ngx-spinner names scoped to this component (hidden in `ngOnDestroy`). */
-const SPINNER_CHAT_THINK = 'chat-think';
 const SPINNER_CHAT_TTS = 'chat-tts';
 
 const INLINE_SPINNER = {
@@ -129,6 +146,9 @@ const INLINE_SPINNER = {
   size: 'small' as const,
   color: 'var(--bs-secondary-color)',
 };
+
+const PREFILL_PROCESSING_LABEL = 'comprehending';
+const THINKING_PROCESSING_LABEL = 'thinking';
 
 @Component({
   selector: 'app-chat-box',
@@ -177,6 +197,32 @@ export class ChatBox implements OnDestroy {
 
   /** Scrollport element (`#chatScroll` in template); drives virtual window + stick/roam detection. */
   readonly chatScroll = viewChild<ElementRef<HTMLElement>>('chatScroll');
+  /** Latest `spinnerHostChange` from the live feed (`null` = spinner stays in the processing row). */
+  readonly liveFeedSpinnerHost = signal<PreviewSpinnerHost | null>(null);
+
+  /**
+   * True while the live feed's open preview (thought header / running tool pill) hosts the turn
+   * spinner — the processing row below then stays hidden so the spinner is not shown twice.
+   * Gated on the feed being mounted so a stale value from a finished turn cannot leak through.
+   */
+  readonly liveFeedHostsSpinner = computed(
+    () => this.loading() && this.liveTurnFeed().length > 0 && this.liveFeedSpinnerHost() != null,
+  );
+
+  /**
+   * True while the reply or a Clara brief is being generated: primary prose is present in the
+   * live parts (or `final_text` landed before `[DONE]`), or prose is the latest feed event.
+   * No spinner anywhere in that state — the streamed prose is the only progress indicator.
+   * Reasoning chunks interleaved with the reply do not bring the spinner back.
+   */
+  readonly liveReplyStreaming = computed(
+    () => this.loading() && isLiveReplyStreaming(this.liveTurnFeed(), this.primaryStreamLiveText()),
+  );
+
+  /** Turn spinner allowed (processing row or hosted in the feed preview). */
+  readonly liveSpinnerActive = computed(
+    () => this.loading() && !this.liveAwaitingHitlReview() && !this.liveReplyStreaming(),
+  );
 
   /**
    * Stick: auto-follow the bottom as the transcript grows.
@@ -203,6 +249,22 @@ export class ChatBox implements OnDestroy {
   private readonly scrollTopSig = signal(0);
   /** Client height of `#chatScroll` (updated on scroll + ResizeObserver). */
   private readonly viewportHeightSig = signal(0);
+  /** Measured height of `bottomInsetElement` (HITL dock); consumes the buffer zone one-for-one. */
+  private readonly bottomInsetPx = signal(0);
+  /**
+   * Buffer zone below the last message (inline `padding-bottom` on `#chatScroll`, written by
+   * `syncScrollMetrics`). At stick the latest message rests around mid-viewport instead of flush
+   * against the composer; HITL cards docked below the scrollport take up that space.
+   */
+  readonly bottomBufferPx = computed(() =>
+    chatBottomBufferPx(this.viewportHeightSig(), this.bottomInsetPx()),
+  );
+  /** Last `padding-bottom` written to `#chatScroll` (skip redundant style writes on scroll). */
+  private appliedBottomBufferPx = -1;
+  /** Inset element currently registered with the scrollport `ResizeObserver`. */
+  private observedBottomInset: HTMLElement | null = null;
+  /** Slack within this distance of the bottom counts as "at the bottom" (re-locks stick). */
+  private readonly stickThresholdPx = computed(() => computeStickThresholdPx(this.bottomBufferPx()));
   /** Last conversation id seen by the row-height reset effect. */
   private lastConversationId: string | null = null;
 
@@ -222,6 +284,10 @@ export class ChatBox implements OnDestroy {
   /** Last `#chatScroll` scrollTop; a decrease is treated as user scroll-up → roam. */
   private lastScrollTop = 0;
   private prevLoadingForCompletionScroll = false;
+  /** Last `streamingFinalText` occupancy seen by the final-response scroll effect. */
+  private prevHadStreamingFinalText = false;
+  /** After `[DONE]`, follow the persisted markdown layout pass once it takes height. */
+  private followFinalResponseAfterMdPass = false;
   /** Last `liveAwaitingHitlReview` seen by the HITL layout-follow effect. */
   private prevLiveAwaitingHitl = false;
   /** Fingerprint tail for streaming scroll dedupe (unified turn feed). */
@@ -263,6 +329,13 @@ export class ChatBox implements OnDestroy {
   readonly fontSize = input(0.9);
   /** Sidebar hub vs main-panel expanded overlay (reserved for layout-specific chrome). */
   readonly layout = input<ChatLayoutMode>('expanded');
+  /**
+   * Chrome docked directly below the scrollport (the HITL composer dock wrapper). Its height is
+   * observed alongside the scrollport and subtracted from the bottom buffer so cards occupy the
+   * buffer zone rather than pushing the last message up. Measured in the same `ResizeObserver`
+   * callback as the scrollport so the buffer, the pin, and the dock transition stay in lockstep.
+   */
+  readonly bottomInsetElement = input<HTMLElement | null>(null);
 
   // --- Outputs (HITL completion + composer send) ---
 
@@ -402,6 +475,27 @@ export class ChatBox implements OnDestroy {
     ),
   );
 
+  /** True while the live turn is waiting for the first stream item (prompt prefill). */
+  readonly livePrefillProcessing = computed(
+    () => this.loading() && this.liveTurnFeed().length === 0,
+  );
+
+  /** True while the in-flight tool is a workspace read (book spinner instead of jot). */
+  readonly liveReadToolsActive = computed(() => {
+    if (!this.processingToolsActive()) {
+      return false;
+    }
+    const parts = this.streamingParts();
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const part = parts[i]!;
+      if (!isInFlightToolPart(part)) {
+        continue;
+      }
+      return isWorkspaceReadToolLabel(part.label) || isReadToolPreviewStreamTag(part.streamTag);
+    }
+    return false;
+  });
+
   /** Persisted turn feed (timeline + final assistant markdown). */
   turnFeedForRow(row: Extract<ChatDisplayRow, { kind: 'assistant-turn' }>): TurnFeedItem[] {
     return buildTurnFeed(
@@ -445,7 +539,7 @@ export class ChatBox implements OnDestroy {
     () =>
       this.loading() &&
       !(this.streamingFinalText() ?? '').trim() &&
-      this.liveTurnFeed().at(-1)?.kind === 'markdown',
+      isProseLatestLiveFeedEvent(this.liveTurnFeed()),
   );
 
   /**
@@ -485,20 +579,29 @@ export class ChatBox implements OnDestroy {
 
   /** Short status word beside the think/tool spinner in the live processing row. */
   readonly processingBubbleLabel = computed(() => {
+    if (this.livePrefillProcessing()) {
+      return PREFILL_PROCESSING_LABEL;
+    }
     if (!this.loading()) {
-      return 'thinking';
+      return THINKING_PROCESSING_LABEL;
     }
     if (this.processingToolsActive()) {
       return TOOL_BUILDING_SYNONYMS[this.toolPhaseSynonymIndex() % TOOL_BUILDING_SYNONYMS.length]!;
     }
-    return 'thinking';
+    return THINKING_PROCESSING_LABEL;
   });
+
+  readonly processingLabelChars = computed(() => Array.from(this.processingBubbleLabel()));
 
   constructor(private el: ElementRef<HTMLElement>) {
     // Observe scrollport size so virtual window math stays correct when the pane is resized.
-    // When the viewport shrinks while stick is on (HITL dock slides up or the
-    // terminal auto-expands below, covering the chat), re-bottom so the latest content
-    // stays visible instead of getting hidden under the newly revealed chrome.
+    // The HITL dock (grid-rows transition) and the terminal dock (height transition) resize the
+    // scrollport a little every frame while they animate — in either direction, and possibly
+    // both at once with opposite signs. While stick is on, pin to the bottom synchronously on
+    // every notification (no RAF lag → no visible drift during the animation) and schedule the
+    // regular follow so the bottom buffer, which tracks the new height on the next change
+    // detection pass, is included. Shrinks would otherwise hide the latest content under the
+    // revealed chrome; grows clamp `scrollTop`, which `isUserScrollUp` keeps from reading as roam.
     afterNextRender(
       () => {
         const elScroll = this.chatScroll()?.nativeElement;
@@ -507,23 +610,32 @@ export class ChatBox implements OnDestroy {
         this.lastScrollTop = elScroll.scrollTop;
         this.chatScrollResizeObserver?.disconnect();
         this.chatScrollResizeObserver = new ResizeObserver(() => {
-          const prevHeight = this.viewportHeightSig();
+          if (this.chatDestroyed) {
+            return;
+          }
           const wasStick = this.stickMode();
-          const nextHeight = elScroll.clientHeight;
           this.syncScrollMetrics(elScroll);
-          if (nextHeight < prevHeight && wasStick) {
+          if (wasStick) {
+            this.pinScrollToBottomNow(elScroll);
             this.scrollToBottom('instant');
           } else {
             requestAnimationFrame(() => this.applyStickFromViewport(elScroll));
           }
         });
         this.chatScrollResizeObserver.observe(elScroll);
+        this.observeBottomInset(this.bottomInsetElement());
         this.chatScrollEndBound?.removeEventListener('scrollend', this.onChatScrollEnd);
         this.chatScrollEndBound = elScroll;
         elScroll.addEventListener('scrollend', this.onChatScrollEnd);
       },
       { injector: this.inj },
     );
+
+    // Track the docked inset element (HITL dock) with the scrollport observer.
+    effect(() => {
+      const inset = this.bottomInsetElement();
+      untracked(() => this.observeBottomInset(inset));
+    });
 
     // Reset or extend row height estimates when conversation changes or rows are appended.
     effect(() => {
@@ -652,8 +764,10 @@ export class ChatBox implements OnDestroy {
         if (loading && !this.prevLoadingForCompletionScroll) {
           this.prevLivePlanPanelVisible = false;
           this.prevStreamFeedKey = '';
+          this.prevHadStreamingFinalText = false;
         }
         if (this.prevLoadingForCompletionScroll && !loading) {
+          this.followFinalResponseAfterMdPass = this.stickMode();
           afterNextRender(
             () => {
               if (this.chatDestroyed || !shouldFollowStreamComplete(this.stickMode())) {
@@ -665,6 +779,27 @@ export class ChatBox implements OnDestroy {
           );
         }
         this.prevLoadingForCompletionScroll = loading;
+      });
+    });
+
+    // Clean `final_text` can land before `[DONE]` and grow the live markdown after the last token follow.
+    effect(() => {
+      const finalText = this.streamingFinalText();
+      untracked(() => {
+        const appeared = didFinalResponseAppear(finalText, this.prevHadStreamingFinalText);
+        this.prevHadStreamingFinalText = (finalText ?? '').trim().length > 0;
+        if (!appeared || !shouldFollowFinalResponse(this.stickMode())) {
+          return;
+        }
+        afterNextRender(
+          () => {
+            if (this.chatDestroyed || !shouldFollowFinalResponse(this.stickMode())) {
+              return;
+            }
+            this.scrollToBottom('smooth');
+          },
+          { injector: this.inj },
+        );
       });
     });
 
@@ -712,6 +847,19 @@ export class ChatBox implements OnDestroy {
         afterNextRender(
           () => {
             this.assistantMdLayoutPass.update((n) => n + 1);
+            if (!this.followFinalResponseAfterMdPass) {
+              return;
+            }
+            this.followFinalResponseAfterMdPass = false;
+            afterNextRender(
+              () => {
+                if (this.chatDestroyed || !shouldFollowFinalResponse(this.stickMode())) {
+                  return;
+                }
+                this.scrollToBottom('smooth');
+              },
+              { injector: this.inj },
+            );
           },
           { injector: this.inj },
         );
@@ -720,14 +868,10 @@ export class ChatBox implements OnDestroy {
 
     this.el.nativeElement.addEventListener('send-response', this.onSendResponseDom);
 
-    // Think vs tool spinner in the live row; suppressed while HITL blocks the turn.
+    // Tool-phase synonym: pick a new word when a tool batch starts on this turn.
     effect(() => {
       const loading = this.loading();
       const tools = this.processingToolsActive();
-      const awaitingHitl = this.liveAwaitingHitlReview();
-      // Re-run when the live-turn host (ngx-spinner targets) mounts — e.g. sidebar → expanded swap mid-stream.
-      this.liveTurn();
-      this.liveTurnFeed();
       untracked(() => {
         if (loading && tools && !this.wasProcessingToolsActive) {
           const chainN = this.messages().filter((m) => m.role === 'chain').length;
@@ -735,7 +879,6 @@ export class ChatBox implements OnDestroy {
           this.toolPhaseSynonymIndex.set(hashChatToolPhaseKey(key) % TOOL_BUILDING_SYNONYMS.length);
         }
         this.wasProcessingToolsActive = tools;
-        this.scheduleProcessingSpinnerSync();
       });
     });
 
@@ -745,29 +888,6 @@ export class ChatBox implements OnDestroy {
       untracked(() => this.scheduleTtsSpinnerSync());
     });
 
-  }
-
-  /**
-   * ngx-spinner registers named hosts on child init. Defer show/hide until after render so a
-   * freshly mounted chat box (sidebar ↔ expanded) still picks up an in-flight `loading` turn.
-   */
-  private scheduleProcessingSpinnerSync(): void {
-    afterNextRender(
-      () => {
-        if (this.chatDestroyed) {
-          return;
-        }
-        const loading = this.loading();
-        const awaitingHitl = this.liveAwaitingHitlReview();
-        const feedEmpty = this.liveTurnFeed().length === 0;
-        if (!loading || awaitingHitl || !feedEmpty) {
-          void this.ngxSpinner.hide(SPINNER_CHAT_THINK);
-          return;
-        }
-        void this.ngxSpinner.show(SPINNER_CHAT_THINK, { ...INLINE_SPINNER, type: 'ball-atom' });
-      },
-      { injector: this.inj },
-    );
   }
 
   private scheduleTtsSpinnerSync(): void {
@@ -792,6 +912,7 @@ export class ChatBox implements OnDestroy {
     this.el.nativeElement.removeEventListener('send-response', this.onSendResponseDom);
     this.chatScrollResizeObserver?.disconnect();
     this.chatScrollResizeObserver = null;
+    this.observedBottomInset = null;
     this.chatScrollEndBound?.removeEventListener('scrollend', this.onChatScrollEnd);
     this.chatScrollEndBound = null;
     this.releaseProgrammaticScrollLock();
@@ -803,7 +924,6 @@ export class ChatBox implements OnDestroy {
       clearTimeout(this.scrollSmoothDebounceTimer);
       this.scrollSmoothDebounceTimer = null;
     }
-    void this.ngxSpinner.hide(SPINNER_CHAT_THINK);
     void this.ngxSpinner.hide(SPINNER_CHAT_TTS);
   }
 
@@ -893,10 +1013,42 @@ export class ChatBox implements OnDestroy {
     }
   }
 
+  /**
+   * Refresh scroll signals from the live DOM. Measures the docked inset and writes the bottom
+   * buffer padding first so `scrollHeight` (and any slack / pin decision made by the caller)
+   * already reflects the new buffer — no frame where the padding lags the dock height.
+   */
   private syncScrollMetrics(box: HTMLElement): void {
+    const inset = this.bottomInsetElement()?.offsetHeight ?? 0;
+    this.bottomInsetPx.set(inset);
+    this.applyBottomBuffer(box, chatBottomBufferPx(box.clientHeight, inset));
     this.scrollTopSig.set(box.scrollTop);
     this.viewportHeightSig.set(box.clientHeight);
     this.scrollHeightSig.set(box.scrollHeight);
+  }
+
+  /** Single writer for the scrollport's `padding-bottom` (the buffer zone). */
+  private applyBottomBuffer(box: HTMLElement, px: number): void {
+    if (px === this.appliedBottomBufferPx) {
+      return;
+    }
+    this.appliedBottomBufferPx = px;
+    box.style.paddingBottom = `${px}px`;
+  }
+
+  /** Swap the inset element registered with the scrollport `ResizeObserver`. */
+  private observeBottomInset(next: HTMLElement | null): void {
+    const observer = this.chatScrollResizeObserver;
+    if (!observer) {
+      return;
+    }
+    if (this.observedBottomInset && this.observedBottomInset !== next) {
+      observer.unobserve(this.observedBottomInset);
+    }
+    this.observedBottomInset = next;
+    if (next) {
+      observer.observe(next);
+    }
   }
 
   /**
@@ -908,9 +1060,9 @@ export class ChatBox implements OnDestroy {
     this.syncScrollMetrics(box);
     const slack = scrollSlackPx(box.scrollHeight, top, box.clientHeight);
     const intent = decideStickAfterUserScroll({
-      scrolledUp: top + 1 < this.lastScrollTop,
+      scrolledUp: isUserScrollUp(top, this.lastScrollTop, slack),
       scrolledDown: top > this.lastScrollTop + 1,
-      nearBottom: isStickFromSlack(slack, SCROLL_BOTTOM_PIN_THRESHOLD_PX),
+      nearBottom: isStickFromSlack(slack, this.stickThresholdPx()),
       programmatic: this.programmaticScroll,
       stickMode: this.stickMode(),
       scrollable: isChatTranscriptScrollable(box.scrollHeight, box.clientHeight),
@@ -948,6 +1100,7 @@ export class ChatBox implements OnDestroy {
             this.enterStickMode();
           }
           const rowsLen = this.persistedRows().length;
+          let heightChanged = false;
           for (const wrap of root.querySelectorAll<HTMLElement>('[data-chat-row]')) {
             const idx = Number(wrap.dataset['chatRow']);
             if (!Number.isFinite(idx) || idx < 0 || idx >= rowsLen) continue;
@@ -956,10 +1109,14 @@ export class ChatBox implements OnDestroy {
             this.rowHeights.update((arr) => {
               if (idx >= arr.length) return arr;
               if (Math.abs((arr[idx] ?? 0) - measured) < 2) return arr;
+              heightChanged = true;
               const next = [...arr];
               next[idx] = measured;
               return next;
             });
+          }
+          if (heightChanged && this.stickMode()) {
+            this.pinScrollToBottomNow(root);
           }
         },
       },
@@ -979,6 +1136,23 @@ export class ChatBox implements OnDestroy {
       }
       this.scrollToBottom('smooth');
     }, 80);
+  }
+
+  /**
+   * Synchronous instant pin used from the `ResizeObserver` while stick is on. Runs inside the
+   * observer callback (after layout, before paint) so a scrollport that is mid-transition never
+   * paints a frame with the latest content hidden. Holds the programmatic lock so the resulting
+   * `scroll` event cannot be mistaken for user intent, and records the new `scrollTop` so the
+   * next event compares against the pinned position rather than the pre-resize one.
+   */
+  private pinScrollToBottomNow(box: HTMLElement): void {
+    if (this.chatDestroyed || !this.stickMode()) {
+      return;
+    }
+    this.beginProgrammaticScrollLock('instant');
+    box.scrollTop = box.scrollHeight;
+    this.lastScrollTop = box.scrollTop;
+    this.syncScrollMetrics(box);
   }
 
   /** Scroll `#chatScroll` (or `.chat-box` fallback) to `scrollHeight` and refresh measurements. */

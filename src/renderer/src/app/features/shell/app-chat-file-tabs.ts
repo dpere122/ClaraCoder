@@ -1,5 +1,5 @@
 import { normalizePathSlashes } from '../../utils/workspace-relative-path';
-import type { WorkspaceOpenTabsState, WorkspacePersistedOpenTab } from '@shared/index';
+import type { WorkspacePersistedOpenTab } from '@shared/index';
 import {
   editorModelKeyForAbsolutePath,
   editorModelKeyForRelativePath,
@@ -267,58 +267,90 @@ export function chatFileTabFromPersisted(tab: WorkspacePersistedOpenTab): ChatFi
   return { relativePath: normalizePathSlashes(rel), outsideWorkspace: false };
 }
 
-/** Ordered file tabs plus focused id, omitting ephemeral build-plan tabs. */
-export function serializeWorkspaceOpenTabs(
-  tabs: readonly ChatFileTab[],
-  activeTabId: string | null,
-): WorkspaceOpenTabsState {
-  const persisted: WorkspacePersistedOpenTab[] = [];
-  const seen = new Set<string>();
-  for (const tab of tabs) {
-    const slim = toPersistedOpenTab(tab);
-    if (!slim) {
-      continue;
-    }
-    const id = chatFileTabId(slim);
-    if (!id || id === 'file:' || seen.has(id)) {
-      continue;
-    }
-    seen.add(id);
-    persisted.push(slim);
+// Grid-aware open-tab (de)serialization lives in `editor-grid/editor-grid-persistence.ts`.
+
+const WHEEL_LINE_PX = 16;
+
+/** Map mouse-wheel / trackpad input onto a horizontally overflowing file-tab strip. */
+export function applyFileTabStripWheelScroll(el: HTMLElement, event: WheelEvent): boolean {
+  if (el.scrollWidth <= el.clientWidth) {
+    return false;
   }
-  const active = activeTabId?.trim() || null;
-  const activeTabIdOut =
-    active && seen.has(active)
-      ? active
-      : persisted.length > 0
-        ? chatFileTabId(persisted[persisted.length - 1]!)
-        : null;
-  return { tabs: persisted, activeTabId: activeTabIdOut };
+  const raw = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+  if (raw === 0) {
+    return false;
+  }
+  const delta = event.deltaMode === 1 ? raw * WHEEL_LINE_PX : event.deltaMode === 2 ? raw * el.clientWidth : raw;
+  const max = el.scrollWidth - el.clientWidth;
+  const next = Math.min(max, Math.max(0, el.scrollLeft + delta));
+  if (next === el.scrollLeft) {
+    return false;
+  }
+  event.preventDefault();
+  el.scrollLeft = next;
+  return true;
 }
 
-export function chatFileTabsFromPersistedState(
-  state: WorkspaceOpenTabsState | null | undefined,
-): { tabs: ChatFileTab[]; activeTabId: string | null } {
-  if (!state) {
-    return { tabs: [], activeTabId: null };
+export interface FileTabStripOverlayMetrics {
+  overflowing: boolean;
+  thumbOffsetPx: number;
+  thumbSizePx: number;
+}
+
+const FILE_TAB_STRIP_MIN_THUMB_PX = 24;
+
+/** Overlay thumb size/offset for a hidden native scrollbar. */
+export function fileTabStripOverlayMetrics(
+  scrollLeft: number,
+  scrollWidth: number,
+  clientWidth: number,
+  trackWidth: number,
+): FileTabStripOverlayMetrics {
+  const overflow = scrollWidth - clientWidth;
+  if (overflow <= 0 || clientWidth <= 0 || trackWidth <= 0 || scrollWidth <= 0) {
+    return { overflowing: false, thumbOffsetPx: 0, thumbSizePx: 0 };
   }
-  const tabs: ChatFileTab[] = [];
-  const seen = new Set<string>();
-  for (const raw of state.tabs) {
-    const tab = chatFileTabFromPersisted(raw);
-    if (!tab) {
-      continue;
-    }
-    const id = chatFileTabId(tab);
-    if (!id || id === 'file:' || seen.has(id)) {
-      continue;
-    }
-    seen.add(id);
-    tabs.push(tab);
-  }
-  const active = state.activeTabId?.trim() || null;
+  const thumbSizePx = Math.min(
+    trackWidth,
+    Math.max(FILE_TAB_STRIP_MIN_THUMB_PX, (clientWidth / scrollWidth) * trackWidth),
+  );
+  const maxOffset = Math.max(0, trackWidth - thumbSizePx);
+  const ratio = Math.min(1, Math.max(0, scrollLeft / overflow));
   return {
-    tabs,
-    activeTabId: active && seen.has(active) ? active : tabs.length > 0 ? chatFileTabId(tabs[tabs.length - 1]!) : null,
+    overflowing: true,
+    thumbOffsetPx: ratio * maxOffset,
+    thumbSizePx,
   };
+}
+
+export function fileTabStripScrollLeftFromOverlay(
+  thumbOffsetPx: number,
+  thumbSizePx: number,
+  trackWidth: number,
+  scrollWidth: number,
+  clientWidth: number,
+): number {
+  const overflow = Math.max(0, scrollWidth - clientWidth);
+  const maxOffset = Math.max(0, trackWidth - thumbSizePx);
+  if (overflow <= 0 || maxOffset <= 0) {
+    return 0;
+  }
+  const ratio = Math.min(1, Math.max(0, thumbOffsetPx / maxOffset));
+  return ratio * overflow;
+}
+
+export function fileTabStripScrollLeftFromTrackClick(
+  clickX: number,
+  thumbSizePx: number,
+  trackWidth: number,
+  scrollWidth: number,
+  clientWidth: number,
+): number {
+  return fileTabStripScrollLeftFromOverlay(
+    clickX - thumbSizePx / 2,
+    thumbSizePx,
+    trackWidth,
+    scrollWidth,
+    clientWidth,
+  );
 }

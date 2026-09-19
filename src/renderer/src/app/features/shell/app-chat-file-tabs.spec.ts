@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   allFileTabIds,
+  applyFileTabStripWheelScroll,
+  fileTabStripOverlayMetrics,
+  fileTabStripScrollLeftFromOverlay,
+  fileTabStripScrollLeftFromTrackClick,
   buildPlanChatFileTab,
   chatFileTabBasename,
   chatFileTabId,
@@ -15,8 +19,6 @@ import {
   replaceFileTabAfterSaveAs,
   reorderFileTabs,
   retargetFileTabPath,
-  serializeWorkspaceOpenTabs,
-  chatFileTabsFromPersistedState,
   toPersistedOpenTab,
   workspaceChatFileTab,
 } from './app-chat-file-tabs';
@@ -130,41 +132,46 @@ describe('app-chat-file-tabs', () => {
     expect(remaining[0]?.relativePath).toBe('src/foo.ts');
   });
 
-  it('omits build-plan tabs when serializing open tabs for a workspace', () => {
-    const tabs = [
-      workspaceChatFileTab('src/foo.ts'),
-      buildPlanChatFileTab('.clara/build-plans/p1.md', 'p1', true),
-      { absolutePath: 'C:/tmp/out.ts', outsideWorkspace: true },
-    ];
-    const state = serializeWorkspaceOpenTabs(tabs, 'file:rel:src/foo.ts');
-    expect(state.tabs).toEqual([
-      { relativePath: 'src/foo.ts', outsideWorkspace: false },
-      { absolutePath: 'C:/tmp/out.ts', outsideWorkspace: true },
-    ]);
-    expect(state.activeTabId).toBe('file:rel:src/foo.ts');
-    expect(toPersistedOpenTab(tabs[1]!)).toBeNull();
-  });
-
-  it('falls back to the last file tab when the active tab is ephemeral', () => {
-    const tabs = [
-      workspaceChatFileTab('a.ts'),
-      buildPlanChatFileTab('.clara/build-plans/p1.md', 'p1', true),
-    ];
-    const state = serializeWorkspaceOpenTabs(tabs, chatFileTabId(tabs[1]!));
-    expect(state.activeTabId).toBe('file:rel:a.ts');
-  });
-
-  it('restores persisted tabs and the focused id', () => {
-    const restored = chatFileTabsFromPersistedState({
-      tabs: [
-        { relativePath: 'src/foo.ts', outsideWorkspace: false },
-        { absolutePath: 'C:/tmp/out.ts', outsideWorkspace: true },
-      ],
-      activeTabId: 'file:abs:C:/tmp/out.ts',
+  it('omits build-plan tabs from the persisted tab shape', () => {
+    expect(toPersistedOpenTab(buildPlanChatFileTab('.clara/build-plans/p1.md', 'p1', true))).toBeNull();
+    expect(toPersistedOpenTab(workspaceChatFileTab('src/foo.ts'))).toEqual({
+      relativePath: 'src/foo.ts',
+      outsideWorkspace: false,
     });
-    expect(restored.tabs).toHaveLength(2);
-    expect(restored.activeTabId).toBe('file:abs:C:/tmp/out.ts');
-    expect(restored.tabs[0]?.relativePath).toBe('src/foo.ts');
-    expect(restored.tabs[1]?.outsideWorkspace).toBe(true);
+  });
+
+  it('maps vertical mouse wheel to horizontal tab-strip scroll', () => {
+    const el = document.createElement('div');
+    Object.defineProperty(el, 'scrollWidth', { configurable: true, get: () => 400 });
+    Object.defineProperty(el, 'clientWidth', { configurable: true, get: () => 100 });
+    el.scrollLeft = 0;
+    const event = new WheelEvent('wheel', { deltaX: 0, deltaY: 40, cancelable: true });
+    expect(applyFileTabStripWheelScroll(el, event)).toBe(true);
+    expect(el.scrollLeft).toBe(40);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('ignores wheel when the tab strip does not overflow', () => {
+    const el = document.createElement('div');
+    Object.defineProperty(el, 'scrollWidth', { configurable: true, get: () => 80 });
+    Object.defineProperty(el, 'clientWidth', { configurable: true, get: () => 100 });
+    el.scrollLeft = 0;
+    const event = new WheelEvent('wheel', { deltaY: 40, cancelable: true });
+    expect(applyFileTabStripWheelScroll(el, event)).toBe(false);
+    expect(el.scrollLeft).toBe(0);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('sizes the overlay thumb from the visible ratio', () => {
+    const metrics = fileTabStripOverlayMetrics(50, 400, 100, 100);
+    expect(metrics.overflowing).toBe(true);
+    expect(metrics.thumbSizePx).toBe(25);
+    expect(metrics.thumbOffsetPx).toBeCloseTo(12.5);
+    expect(fileTabStripOverlayMetrics(0, 80, 100, 100).overflowing).toBe(false);
+  });
+
+  it('maps overlay thumb and track clicks back to scrollLeft', () => {
+    expect(fileTabStripScrollLeftFromOverlay(12.5, 25, 100, 400, 100)).toBeCloseTo(50);
+    expect(fileTabStripScrollLeftFromTrackClick(25, 25, 100, 400, 100)).toBeCloseTo(50);
   });
 });

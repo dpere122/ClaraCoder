@@ -48,7 +48,53 @@ STATUS_DONE = 'done'
 STATUS_FAILED = 'failed'
 STATUS_CANCELLED = 'cancelled'
 
+#: Short UI wording per in-flight phase (shown as the tool pill detail while the job runs).
+PHASE_UI_LABELS: dict[str, str] = {
+    PHASE_WRITING: 'writing to disk',
+    PHASE_FORMATTING: 'formatting',
+    PHASE_LSP: 'checking diagnostics',
+}
+
 WriteJobRunner = Callable[['WriteJob'], str]
+
+
+def write_job_phase_detail(rel_display: str, phase: str) -> str:
+    """Tool pill detail for a running write job, e.g. ``src/app.ts · formatting``."""
+    label = PHASE_UI_LABELS.get(phase, phase)
+    return f'{rel_display} · {label}' if rel_display else label
+
+
+def publish_write_job_phase(job: 'WriteJob') -> None:
+    """Post the job's current phase to the outer SSE stream (safe to call from the worker thread).
+
+    Uses the session's ``planning_nested_events_q`` via ``call_soon_threadsafe``; the outer
+    graph loop folds it into the running tool pill (see ``tool_progress`` in ``langgraph_sse``).
+    No-op when no stream is attached (tests, sync fallback).
+    """
+    try:
+        session = get_session(job.session_id)
+    except Exception:
+        return
+    queue = getattr(session, 'planning_nested_events_q', None)
+    loop = getattr(session, 'planning_nested_events_loop', None)
+    if queue is None or loop is None or loop.is_closed():
+        return
+    item = (
+        'tool-progress',
+        {
+            'event': 'tool_progress',
+            'data': {
+                'tool_name': job.tool_name,
+                'relative_path': job.rel_display,
+                'detail': write_job_phase_detail(job.rel_display, job.phase),
+            },
+        },
+    )
+    try:
+        loop.call_soon_threadsafe(queue.put_nowait, item)
+    except RuntimeError:
+        # Loop shut down between the check and the call; progress is best-effort.
+        pass
 
 
 @dataclass
@@ -78,6 +124,12 @@ class WriteJob:
 
     def elapsed_sec(self) -> int:
         return max(0, int(time.monotonic() - self.started_at))
+
+    def set_phase(self, phase: str) -> None:
+        """Advance the in-flight phase and surface it on the tool pill."""
+        self.phase = phase
+        if self.status == STATUS_RUNNING:
+            publish_write_job_phase(self)
 
 
 _JOBS: dict[str, WriteJob] = {}
@@ -532,12 +584,14 @@ __all__ = [
     'cancel_write_job',
     'format_write_job_report',
     'list_write_jobs',
+    'publish_write_job_phase',
     'running_write_for_path',
     'start_or_reuse_write_job',
     'start_write_job',
     'wait_for_write',
     'wait_write_job',
     'wait_write_job_sync',
+    'write_job_phase_detail',
     'write_job_tools',
     'write_jobs',
 ]

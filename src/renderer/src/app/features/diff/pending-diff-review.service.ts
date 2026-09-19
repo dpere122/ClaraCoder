@@ -38,6 +38,8 @@ export interface PendingDiffReviewSession {
 export interface PendingStagedTransferBatchSession {
   readonly currentFileIndex: ReturnType<typeof signal<number>>;
   readonly resolutions: ReturnType<typeof signal<Record<string, StagedTransferFileResolution>>>;
+  /** Notes sent with a `re_review`, kept per file so the card can show what the agent was told. */
+  readonly feedbackByPath: ReturnType<typeof signal<Record<string, string>>>;
   readonly applyingPath: ReturnType<typeof signal<string | null>>;
   readonly agentContinueSent: ReturnType<typeof signal<boolean>>;
 }
@@ -60,6 +62,7 @@ export class PendingDiffReviewService {
       s = {
         currentFileIndex: signal(0),
         resolutions: signal({}),
+        feedbackByPath: signal({}),
         applyingPath: signal(null),
         agentContinueSent: signal(false),
       };
@@ -496,6 +499,9 @@ export class PendingDiffReviewService {
         [relativePath]: action === 'confirm' ? 'approved' : 're_review',
       };
       session.resolutions.set(nextRes);
+      if (action === 're_review') {
+        session.feedbackByPath.update((prev) => ({ ...prev, [relativePath]: feedback.trim() }));
+      }
       if (res.batchComplete) {
         session.agentContinueSent.set(true);
         flashMessage('Batch transfer review complete. Resuming assistant…', 3500);

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Clara spinners</title>
+    <style>
+      html, body {
+        margin: 0;
+        min-height: 100%;
+        background: #191c17;
+      }
+      body {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: center;
+        gap: 3.5rem;
+        padding: 2.5rem;
+        font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, monospace;
+        color: #a8b89a;
+      }
+      figure {
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1.25rem;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+      }
+      img {
+        display: block;
+      }
+      figcaption {
+        font-size: 0.78rem;
+        letter-spacing: 0.04em;
+        opacity: 0.72;
+      }
+    </style>
+  </head>
+  <body>
+    <figure>
+      <div class="row">
+        <img src="spinner-prefill.svg?v=1" width="220" height="220" alt="Prefill spinner" />
+        <img src="spinner-prefill.svg?v=1" width="38" height="38" alt="Prefill spinner at chat size" />
+      </div>
+      <figcaption>prefill</figcaption>
+    </figure>
+    <figure>
+      <div class="row">
+        <img src="spinner.svg?v=5" width="220" height="220" alt="Thinking spinner" />
+        <img src="spinner.svg?v=5" width="38" height="38" alt="Thinking spinner at chat size" />
+      </div>
+      <figcaption>thinking</figcaption>
+    </figure>
+    <figure>
+      <div class="row">
+        <img src="spinner-read.svg?v=1" width="220" height="220" alt="Reading spinner" />
+        <img src="spinner-read.svg?v=1" width="38" height="38" alt="Reading spinner at chat size" />
+      </div>
+      <figcaption>reading</figcaption>
+    </figure>
+    <figure>
+      <div class="row">
+        <img src="spinner-jot.svg?v=1" width="220" height="220" alt="Writing spinner" />
+        <img src="spinner-jot.svg?v=1" width="38" height="38" alt="Writing spinner at chat size" />
+      </div>
+      <figcaption>jotting</figcaption>
+    </figure>
+  </body>
+</html>

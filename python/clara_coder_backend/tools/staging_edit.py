@@ -256,13 +256,13 @@ def _execute_staging_write_job(job: WriteJob) -> str:
     if job.cancel_requested:
         return f'Tool error: write job `{job.job_id}` was cancelled.'
 
-    job.phase = PHASE_FORMATTING
+    job.set_phase(PHASE_FORMATTING)
     merged_out, formatter_lines = _format_merged_in_memory(rel_display, merged, disk_encoding)
 
     if job.cancel_requested:
         return f'Tool error: write job `{job.job_id}` was cancelled.'
 
-    job.phase = PHASE_WRITING
+    job.set_phase(PHASE_WRITING)
     with job.commit_lock:
         if job.cancel_requested:
             return f'Tool error: write job `{job.job_id}` was cancelled.'
@@ -302,7 +302,7 @@ def _execute_staging_write_job(job: WriteJob) -> str:
         )
         job.committed = True
 
-    job.phase = PHASE_LSP
+    job.set_phase(PHASE_LSP)
     diagnostics_note = _run_staging_lsp(
         job.session_id,
         rel_display,

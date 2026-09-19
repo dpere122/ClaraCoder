@@ -1,7 +1,7 @@
 import type { LlamaServerStatusResult, ManagedServerHealthState } from '@shared/index';
 
 /** Traffic-light state for a single managed server dot (model / embeddings). */
-export type LlamaStatusDotState = 'green' | 'yellow' | 'red';
+export type LlamaStatusDotState = 'green' | 'yellow' | 'gray' | 'red';
 
 const STABLE_OK_MS = 15_000;
 const UNSTABLE_MS = 2_500;
@@ -34,10 +34,36 @@ export function healthDotState(health: ManagedServerHealthState | 'off'): LlamaS
       return 'green';
     case 'loading':
       return 'yellow';
-    default:
-      // 'stopped' | 'error' | 'off'
+    case 'error':
       return 'red';
+    default:
+      // 'stopped' | 'off'
+      return 'gray';
   }
+}
+
+/**
+ * Model-dot color for managed llama.cpp: yellow while the server is starting or
+ * fetching weights, even before ``/health`` succeeds and ``running`` is true.
+ */
+export function modelStatusDotState(
+  warming: 'starting' | 'downloading' | null,
+  status: LlamaServerStatusResult | null,
+): LlamaStatusDotState {
+  if (warming === 'starting' || warming === 'downloading') {
+    return 'yellow';
+  }
+  if (!status || status.ok === false) {
+    return 'gray';
+  }
+  if (status.starting) {
+    return 'yellow';
+  }
+  const live = status.running || status.remote === true;
+  if (!live) {
+    return 'gray';
+  }
+  return healthDotState(status.chat.health);
 }
 
 /** Map a CPU embeddings load status (from Python ``GET /embeddings/status``) to a dot. */
@@ -47,8 +73,10 @@ export function embeddingsStatusDotState(status: string): LlamaStatusDotState {
       return 'green';
     case 'loading':
       return 'yellow';
-    default:
-      // 'idle' | 'error' | 'disabled'
+    case 'error':
       return 'red';
+    default:
+      // 'idle' | 'disabled'
+      return 'gray';
   }
 }

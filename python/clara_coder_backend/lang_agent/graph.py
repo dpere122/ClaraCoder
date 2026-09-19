@@ -52,6 +52,7 @@ from clara_coder_backend.lang_agent.langgraph_sse import (
     GraphStreamState,
     finalize_unconsumed_gemma_previews,
     sse_lines_for_graph_event,
+    tool_progress_sse_lines,
 )
 from clara_coder_backend.llm.factory import build_llm
 from clara_coder_backend.llm.http_transport import abort_in_flight_llm_requests
@@ -306,6 +307,8 @@ def _nested_sse_lines(
     *,
     nested_states: dict[str, GraphStreamState],
     cfg: AgentGraphConfig,
+    main_state: GraphStreamState,
+    main_stream_tag: str,
 ) -> list[str]:
     """Translate nested subprocess/tool queue items into outer SSE lines."""
 
@@ -313,6 +316,18 @@ def _nested_sse_lines(
     if unpacked is None:
         return []
     tag, ev = unpacked
+    if ev.get('event') == 'tool_progress':
+        # Out-of-band phase updates (write jobs) fold into the running tool pill: outer graph first,
+        # then nested specialists (they own their own ``pending_tool_runs``).
+        data = ev.get('data')
+        if not isinstance(data, dict):
+            return []
+        return tool_progress_sse_lines(
+            data,
+            states=[main_state, *nested_states.values()],
+            agent_role=cfg.agent_role,
+            stream_tag=main_stream_tag,
+        )
     if ev.get('event') == 'planner_progress':
         data = ev.get('data')
         if isinstance(data, dict):
@@ -480,6 +495,7 @@ async def _stream_langgraph_tool_agent(
     # Assign before ``pump_events`` so diff/copy/delete middleware can queue HITL on the first tool turn.
     session.hitl_sse_queue = hitl_q
     session.planning_nested_events_q = nested_stream_q
+    session.planning_nested_events_loop = asyncio.get_running_loop()
 
     pump_task = asyncio.create_task(pump_events())
 
@@ -548,6 +564,8 @@ async def _stream_langgraph_tool_agent(
                         item,
                         nested_states=nested_states,
                         cfg=cfg,
+                        main_state=main_state,
+                        main_stream_tag=main_stream_tag,
                     ):
                         yield line
                     continue
@@ -628,6 +646,7 @@ async def _stream_langgraph_tool_agent(
             _cleanup_nested_edit_staging(session, cfg.session_id)
             session.hitl_sse_queue = None
             session.planning_nested_events_q = None
+            session.planning_nested_events_loop = None
         if not pump_task.done():
             await _stop_llm_pump(pump_task, cfg.session_id)
 

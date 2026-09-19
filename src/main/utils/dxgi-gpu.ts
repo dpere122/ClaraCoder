@@ -38,6 +38,8 @@ const DESC_SIZE = 304;
 const DESC_DESCRIPTION_BYTES = 256;
 const DESC_VENDOR_ID_OFFSET = 256;
 const DESC_DEDICATED_OFFSET = 272;
+/** Out-param slots are GC-managed Buffers (``koffi.alloc`` is an unfreed ``calloc``). */
+const POINTER_SIZE = 8;
 
 function init(): void {
   lib = koffi.load('dxgi.dll');
@@ -72,7 +74,7 @@ export function enumerateGpus(): DxgiGpuInfo[] {
   try {
     if (!initialized) init();
 
-    const factorySlot = koffi.alloc('void *', 1);
+    const factorySlot = Buffer.alloc(POINTER_SIZE);
     const hr = CreateDXGIFactory1(iidFactory1, factorySlot);
     if (hr < 0) return [];
     const factory = koffi.decode(factorySlot, 'void *') as bigint;
@@ -83,7 +85,7 @@ export function enumerateGpus(): DxgiGpuInfo[] {
     const out: DxgiGpuInfo[] = [];
 
     for (let i = 0; i < 8; i++) {
-      const adapterSlot = koffi.alloc('void *', 1);
+      const adapterSlot = Buffer.alloc(POINTER_SIZE);
       const r = koffi.call(enumAdapters1Ptr, EnumAdapters1Type, factory, i, adapterSlot);
       if (r < 0) break; // DXGI_ERROR_NOT_FOUND when enumeration is done
       const adapter = koffi.decode(adapterSlot, 'void *') as bigint;

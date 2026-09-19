@@ -44,6 +44,7 @@ export type ChatLayoutMode = 'sidebar' | 'expanded';
     '[class.chat-active-stack--container-full-width]':
       'layout() === "expanded" && resolvedContainerSize() === "full-width"',
     '[class.chat-active-stack--ready]': 'emptyStateReady()',
+    '[class.chat-active-stack--empty]': 'showBrandEtch()',
   },
 })
 export class ChatActiveStackComponent implements OnDestroy {
@@ -148,12 +149,13 @@ export class ChatActiveStackComponent implements OnDestroy {
   // --- Empty-state composer centering (expanded layout only) ---
   //
   // With no messages the transcript is empty, so in the expanded main-panel layout the composer
-  // (the message box) is lifted to the vertical center of the stack. In the sidebar layout the
-  // composer always rests at the bottom edge. The first send (loading, then the user message)
-  // flips `isTranscriptEmpty()` to false, the transform resets to `translateY(0)`, and the CSS
-  // `transform` transition eases the composer down to the bottom edge. The lift distance is measured live so it tracks pane
-  // resizes. The `ready` flag is set one frame after the first measurement so the initial
-  // centering does not animate in.
+  // is taken out of flow (absolute, bottom-anchored) so the rounded panel fills the stack, then
+  // lifted to the vertical center. In the sidebar layout the composer always rests at the bottom
+  // edge. The first send (loading, then the user message) flips `isTranscriptEmpty()` to false,
+  // the transform resets to `translateY(0)`, and the CSS `transform` transition eases the composer
+  // down to the bottom edge. The lift distance is measured live so it tracks pane resizes. The
+  // `ready` flag is set one frame after the first measurement so the initial centering does not
+  // animate in.
 
   /** Composer region; its height (and the host's) drives the centering lift. */
   private readonly composerRef = viewChild<ElementRef<HTMLElement>>('composer');
@@ -174,6 +176,11 @@ export class ChatActiveStackComponent implements OnDestroy {
    */
   private readonly isTranscriptEmpty = computed(
     () => this.messages().length === 0 && !this.loading(),
+  );
+
+  /** Etched mark in the expanded main-panel chat when the transcript is empty. */
+  protected readonly showBrandEtch = computed(
+    () => this.layout() === 'expanded' && this.isTranscriptEmpty(),
   );
 
   /**

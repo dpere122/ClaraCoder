@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none" role="img" aria-labelledby="spinnerTitle">
+  <title id="spinnerTitle">Loading</title>
+  <style>
+    .sweep {
+      transform-origin: 32px 32px;
+      animation: spin 0.9s linear infinite;
+    }
+    .orbit {
+      transform-origin: 32px 32px;
+      animation: spin-rev 1.85s linear infinite;
+    }
+    .comet {
+      transform-origin: 55px 32px;
+      animation: pulse 0.9s ease-in-out infinite;
+    }
+    .lead {
+      animation: pulse-fill 1.85s ease-in-out infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes spin-rev {
+      to { transform: rotate(-360deg); }
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(0.82); }
+      50% { transform: scale(1.1); }
+    }
+    @keyframes pulse-fill {
+      0%, 100% { opacity: 0.35; }
+      50% { opacity: 1; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .sweep, .orbit, .comet, .lead { animation: none; }
+      .lead { opacity: 1; }
+    }
+  </style>
+  <defs>
+    <linearGradient id="ccSweep" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#c9a96e" stop-opacity="0"/>
+      <stop offset="42%" stop-color="#a8b89a"/>
+      <stop offset="100%" stop-color="#c9a96e"/>
+    </linearGradient>
+    <filter id="ccGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="1.35" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <circle cx="32" cy="32" r="23" stroke="#a8b89a" stroke-opacity="0.16" stroke-width="2.25"/>
+
+  <g class="sweep" filter="url(#ccGlow)">
+    <circle cx="32" cy="32" r="23" stroke="url(#ccSweep)" stroke-width="3.15" stroke-linecap="round" stroke-dasharray="34 110.5"/>
+    <circle class="comet" cx="55" cy="32" r="2.85" fill="#c9a96e"/>
+  </g>
+
+  <g class="orbit">
+    <circle class="lead" cx="32" cy="21.5" r="2.05" fill="#7eb5a6"/>
+    <circle cx="41.1" cy="37.25" r="2.05" fill="#7eb5a6" opacity="0.72"/>
+    <circle cx="22.9" cy="37.25" r="2.05" fill="#7eb5a6" opacity="0.42"/>
+  </g>
+</svg>

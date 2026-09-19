@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import threading
 import time
 from pathlib import Path
@@ -231,6 +232,60 @@ def _extract_semantic_tokens_legend(init_result: Any) -> dict[str, list[str]] | 
     }
 
 
+# LSP line breaks are exactly ``\r\n``, ``\r`` and ``\n`` (``str.splitlines`` also splits on
+# ``\v``/``\f``/``\u2028``… which language servers treat as ordinary characters).
+_LSP_LINE_BREAK_RE = re.compile(r'\r\n|\r|\n')
+_TEXT_DOCUMENT_SYNC_INCREMENTAL = 2
+
+
+def _lsp_document_end_position(text: str) -> dict[str, int]:
+    """``Position`` just past the last character of ``text`` (UTF-16 ``character`` units)."""
+
+    last_break_end = 0
+    line = 0
+    for match in _LSP_LINE_BREAK_RE.finditer(text):
+        line += 1
+        last_break_end = match.end()
+    last_line = text[last_break_end:]
+    return {'line': line, 'character': len(last_line.encode('utf-16-le')) // 2}
+
+
+def _server_uses_incremental_sync(server_capabilities: dict[str, Any]) -> bool:
+    """True when ``initialize`` advertised ``textDocumentSync.change == Incremental``."""
+
+    sync = server_capabilities.get('textDocumentSync')
+    if isinstance(sync, dict):
+        sync = sync.get('change')
+    return sync == _TEXT_DOCUMENT_SYNC_INCREMENTAL
+
+
+def _full_replace_content_changes(
+    text: str,
+    *,
+    previous_end: dict[str, int] | None,
+    incremental: bool,
+) -> list[dict[str, Any]]:
+    """Build ``didChange.contentChanges`` that replace the whole buffer with ``text``.
+
+    Servers that advertise *incremental* sync are sent one ranged edit spanning the
+    previously synced document. vtsls (TypeScript) needs this: given a range-less
+    ``{text}`` change it fabricates ``Range(0, 0, newLineCount, 0)`` against the buffer
+    tsserver still holds, so tsserver either aborts with ``Debug Failure. Bad line
+    number`` (crashing and restarting the whole server tree) or, when the new text has
+    fewer lines, silently keeps stale trailing lines and reports phantom diagnostics.
+    Full-sync servers get the plain ``{text}`` form the spec prescribes for them.
+    """
+
+    if incremental and previous_end is not None:
+        return [
+            {
+                'range': {'start': {'line': 0, 'character': 0}, 'end': dict(previous_end)},
+                'text': text,
+            }
+        ]
+    return [{'text': text}]
+
+
 class SessionWorkspaceLspManager:
     """Owns one language-server subprocess for a session/workspace/scope/server tuple."""
 
@@ -260,6 +315,9 @@ class SessionWorkspaceLspManager:
         self._doc_versions: dict[str, int] = {}
         self._diag_generation: dict[str, int] = {}
         self._last_synced_digest: dict[str, bytes] = {}
+        # End ``Position`` of the text the server currently holds per document; lets the
+        # next didChange replace the exact previous range (see ``_full_replace_content_changes``).
+        self._last_synced_end: dict[str, dict[str, int]] = {}
         self._diag_ready_digest: dict[str, bytes] = {}
         self._path_locks: dict[str, threading.Lock] = {}
         self._sync_epoch: int = 0
@@ -306,6 +364,7 @@ class SessionWorkspaceLspManager:
         self._doc_versions.clear()
         self._diag_generation.clear()
         self._last_synced_digest.clear()
+        self._last_synced_end.clear()
         self._diag_ready_digest.clear()
         self._bump_sync_epoch_locked()
         cache = self._diag_cache()
@@ -495,6 +554,7 @@ class SessionWorkspaceLspManager:
             self._doc_versions.clear()
             self._diag_generation.clear()
             self._last_synced_digest.clear()
+            self._last_synced_end.clear()
             self._diag_ready_digest.clear()
             self._bump_sync_epoch_locked()
             cache = self._diag_cache()
@@ -617,7 +677,11 @@ class SessionWorkspaceLspManager:
                     'textDocument/didChange',
                     {
                         'textDocument': {'uri': uri, 'version': version},
-                        'contentChanges': [{'text': text}],
+                        'contentChanges': _full_replace_content_changes(
+                            text,
+                            previous_end=self._last_synced_end.get(rel),
+                            incremental=_server_uses_incremental_sync(self._server_capabilities),
+                        ),
                     },
                 )
                 logger.info(
@@ -629,6 +693,7 @@ class SessionWorkspaceLspManager:
                     version,
                 )
             self._last_synced_digest[rel] = digest
+            self._last_synced_end[rel] = _lsp_document_end_position(text)
             self._diag_ready_digest.pop(rel, None)
             wait_ok = True
             if wait_for_diagnostics:
@@ -680,6 +745,7 @@ class SessionWorkspaceLspManager:
             client.notify('textDocument/didClose', {'textDocument': {'uri': _path_to_uri(target)}})
             self._doc_versions.pop(rel, None)
             self._last_synced_digest.pop(rel, None)
+            self._last_synced_end.pop(rel, None)
             self._diag_ready_digest.pop(rel, None)
             cache.pop(rel, None)
             self._diag_generation.pop(rel, None)

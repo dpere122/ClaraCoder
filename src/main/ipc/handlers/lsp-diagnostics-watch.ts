@@ -10,29 +10,41 @@ let watchSessionId = '';
 let watchRelativePath = '';
 let lastGeneration = -1;
 let lastEpoch = -1;
+/** Invalidates diagnostics requests that were started for a previously focused editor tab. */
+let watchRevision = 0;
 
 async function pollDiagnosticsGeneration(): Promise<void> {
-  if (!watchSessionId || !watchRelativePath) {
+  const sessionId = watchSessionId;
+  const relativePath = watchRelativePath;
+  const revision = watchRevision;
+  if (!sessionId || !relativePath) {
     return;
   }
   try {
     const params = new URLSearchParams({
-      session_id: watchSessionId,
-      relative_path: watchRelativePath,
+      session_id: sessionId,
+      relative_path: relativePath,
     });
     const res = await pythonControlFetch(`/lsp/diagnostics-generation?${params.toString()}`);
     if (!res.ok) {
       return;
     }
     const data = (await res.json()) as { generation?: number; epoch?: number };
+    if (
+      revision !== watchRevision
+      || sessionId !== watchSessionId
+      || relativePath !== watchRelativePath
+    ) {
+      return;
+    }
     const gen = data.generation ?? 0;
     const epoch = data.epoch ?? 0;
     if (gen !== lastGeneration || epoch !== lastEpoch) {
       lastGeneration = gen;
       lastEpoch = epoch;
       mainState.mainWindow?.webContents.send('lsp-diagnostics-updated', {
-        sessionId: watchSessionId,
-        relativePath: watchRelativePath,
+        sessionId,
+        relativePath,
         generation: gen,
         epoch,
       });
@@ -58,6 +70,7 @@ export function registerLspDiagnosticsWatchIpc(): void {
     }
     watchSessionId = sid;
     watchRelativePath = rel;
+    watchRevision += 1;
     lastGeneration = -1;
     lastEpoch = -1;
     if (watchTimer !== null) {
@@ -79,6 +92,7 @@ export function registerLspDiagnosticsWatchIpc(): void {
     }
     watchSessionId = '';
     watchRelativePath = '';
+    watchRevision += 1;
     lastGeneration = -1;
     lastEpoch = -1;
     if (watchTimer !== null) {

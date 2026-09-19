@@ -1,4 +1,4 @@
-/* Compact ASCII-framed plan panel — borders visible on every theme */
+/* Compact rounded plan panel */
 
 app-planner-checklist .plan-panel {
   --plan-frame: var(--t-tui-clara-frame, var(--t-secondary));
@@ -6,6 +6,9 @@ app-planner-checklist .plan-panel {
   margin: 0.45rem 0 0.65rem;
   padding: 0;
   background: color-mix(in srgb, var(--plan-accent) 6%, var(--t-bg-surface));
+  border: 1px solid color-mix(in srgb, var(--plan-frame) 42%, transparent);
+  border-radius: 0.85rem !important;
+  overflow: hidden;
   font-family: var(--t-font-mono, var(--t-font), monospace);
 }
 
@@ -54,69 +57,38 @@ app-planner-checklist .plan-panel--error {
   background: color-mix(in srgb, var(--t-log-level-error) 6%, var(--t-bg-surface));
 }
 
-/* ── ASCII frame bars (all themes) ── */
+/* ── Header strip ── */
 
 app-planner-checklist .plan-panel__frame {
-  display: grid;
+  display: flex;
   width: 100%;
   min-width: 0;
   align-items: center;
-  font-size: 0.72rem;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.38rem 0.7rem 0.32rem;
+  font-size: 0.68rem;
   line-height: 1;
-  letter-spacing: 0;
-  white-space: nowrap;
+  letter-spacing: 0.04em;
   color: var(--plan-frame);
   user-select: none;
-}
-
-app-planner-checklist .plan-panel__frame--top {
-  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
-}
-
-app-planner-checklist .plan-panel__frame--bottom {
-  grid-template-columns: auto minmax(0, 1fr) auto;
-}
-
-app-planner-checklist .plan-panel__frame-corner {
-  flex: 0 0 auto;
-  opacity: 0.85;
+  border-bottom: 1px solid color-mix(in srgb, var(--plan-frame) 28%, transparent);
+  background: color-mix(in srgb, var(--plan-frame) 8%, transparent);
 }
 
 app-planner-checklist .plan-panel__frame-label {
-  flex: 0 0 auto;
-  letter-spacing: 0.04em;
+  flex: 0 1 auto;
+  min-width: 0;
   font-weight: 600;
+  text-transform: uppercase;
   opacity: 1;
-  text-shadow: 0 0 8px color-mix(in srgb, var(--plan-frame) 35%, transparent);
 }
 
 app-planner-checklist .plan-panel__frame-count {
   flex: 0 0 auto;
-  margin-right: 0.15rem;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   opacity: 0.9;
-}
-
-app-planner-checklist .plan-panel__frame-fill {
-  min-width: 0;
-  min-height: 1em;
-  overflow: hidden;
-  color: inherit;
-  opacity: 0.55;
-}
-
-app-planner-checklist .plan-panel__frame-fill::before {
-  content: "════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════";
-  display: inline-block;
-  min-width: 100%;
-  overflow: hidden;
-  white-space: nowrap;
-  vertical-align: top;
-  line-height: 1;
-  font-family: inherit;
-  font-size: inherit;
-  color: inherit;
 }
 
 app-planner-checklist .plan-panel__inner {
@@ -170,6 +142,7 @@ app-planner-checklist .plan-panel__phase {
   color: var(--t-text-muted);
   padding: 0.1rem 0.35rem;
   background: color-mix(in srgb, var(--t-text-muted) 10%, transparent);
+  border-radius: 999px !important;
 }
 
 app-planner-checklist .plan-panel__phase--discovering,
@@ -196,6 +169,7 @@ app-planner-checklist .plan-panel__message {
   line-height: 1.4;
   color: var(--t-text-muted);
   background: color-mix(in srgb, var(--t-text-muted) 6%, transparent);
+  border-radius: 0.5rem !important;
 }
 
 /* ── Steps + vertical loading rail ── */
@@ -295,6 +269,7 @@ app-planner-checklist .plan-panel__node {
   flex-shrink: 0;
   background: var(--t-bg-surface);
   border: 1px solid color-mix(in srgb, var(--plan-accent) 40%, transparent);
+  border-radius: 999px !important;
   font-size: 0.62rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -357,7 +332,7 @@ app-planner-checklist .plan-panel__seg--active::after {
   top: 15%;
   width: 4px;
   height: 4px;
-  border-radius: 0;
+  border-radius: 50% !important;
   background: var(--plan-accent);
   transform: translateX(-50%);
   box-shadow: 0 0 6px color-mix(in srgb, var(--plan-accent) 55%, transparent);
@@ -392,6 +367,7 @@ app-planner-checklist .plan-panel__step-badge {
   color: var(--plan-accent);
   padding: 0.05rem 0.3rem;
   background: color-mix(in srgb, var(--plan-accent) 14%, transparent);
+  border-radius: 999px !important;
   animation: plan-panel-new-badge 0.45s ease;
 }
 
@@ -441,6 +417,7 @@ app-planner-checklist .plan-panel__resolved {
   padding: 0.3rem 0.4rem;
   font-size: 0.7rem;
   background: color-mix(in srgb, var(--t-text-muted) 6%, transparent);
+  border-radius: 0.5rem !important;
 }
 
 app-planner-checklist .plan-panel__resolved-mark {
@@ -533,6 +510,7 @@ app-planner-checklist .plan-panel__file-op {
   text-transform: uppercase;
   padding: 0.05rem 0.28rem;
   border: 1px solid color-mix(in srgb, var(--plan-accent) 35%, transparent);
+  border-radius: 999px !important;
   color: color-mix(in srgb, var(--plan-accent) 85%, var(--t-text-muted));
   background: color-mix(in srgb, var(--plan-accent) 10%, transparent);
 }

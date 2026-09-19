@@ -1,7 +1,7 @@
 /**
  * Managed ``llama-server`` subprocesses: dynamic ports, shell commands from settings, health probes.
  */
-import { spawn, type ChildProcess } from 'child_process';
+import { spawn, type ChildProcess, type SpawnOptions } from 'child_process';
 import { existsSync, promises as fs, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import * as net from 'net';
 import path = require('path');
@@ -36,7 +36,13 @@ import { SecretValue, unwrapSecret } from '../shared/types/app-config';
 import { openAiV1BaseToServerRoot } from './openai-compatible-models';
 import { mainState } from './state';
 import { getAppDataDir, getManagedLlamaServerPath, getRuntimeBinDir } from './paths';
-import { childHasExited, killPidTree, killProcessTree, processImageName } from './utils/kill-process-tree';
+import { childHasExited, killPidTree, processImageName } from './utils/kill-process-tree';
+import {
+  hideWindowsConsoleWindow,
+  stopLlamaServerChild,
+  stopLlamaServerChildAsync,
+  stopLlamaServerPidAsync,
+} from './utils/stop-llama-server';
 import { ingestElectronLog } from './log-ingest';
 import { rewriteManagedLlamaCommand } from './runtime/dependency-manager';
 import { syncRuntimeConfigToPython } from './python/workspace-sync';
@@ -128,6 +134,15 @@ interface ManagedLlamaSlot {
 const running = new Map<string, ManagedLlamaSlot>();
 let nextManagedLlamaGeneration = 1;
 
+/**
+ * Slots detached from ``running`` whose processes are still winding down.
+ * Their PIDs stay in the pidfile until the stop settles so a crash during the
+ * grace period still lets the next session reap them, and a restart of the same
+ * preset waits for the old pair to release VRAM first.
+ */
+const pendingStops = new Map<string, Promise<void>>();
+const stoppingPids = new Set<number>();
+
 /** Short TTL so burst IPC status calls (renderer debounce + poll) reuse one /health probe round. */
 const STATUS_CACHE_TTL_MS = 450;
 let statusCache: { modelId: string; at: number; result: LlamaServerStatusPayload } | null = null;
@@ -171,7 +186,7 @@ function managedLlamaPidFile(): string {
 }
 
 function persistManagedLlamaPids(): void {
-  const pids: number[] = [];
+  const pids: number[] = [...stoppingPids];
   for (const st of running.values()) {
     if (st.chatProc?.pid) {
       pids.push(st.chatProc.pid);
@@ -200,7 +215,7 @@ function persistManagedLlamaPids(): void {
  * executable under it. The previous session may have exited long ago and the
  * number may now belong to an unrelated process.
  */
-export function reapOrphanManagedLlamaServers(): void {
+export async function reapOrphanManagedLlamaServers(): Promise<void> {
   let pids: number[] = [];
   try {
     const raw = readFileSync(managedLlamaPidFile(), 'utf8');
@@ -210,6 +225,14 @@ export function reapOrphanManagedLlamaServers(): void {
     }
   } catch {
     return;
+  }
+  // Drop the file before the (now asynchronous) kills: a pair started while an
+  // orphan is still winding down rewrites the pidfile, and deleting it afterwards
+  // would throw away those fresh PIDs.
+  try {
+    rmSync(managedLlamaPidFile(), { force: true });
+  } catch {
+    /* ignore */
   }
   for (const pid of pids) {
     const image = processImageName(pid);
@@ -221,12 +244,8 @@ export function reapOrphanManagedLlamaServers(): void {
       continue;
     }
     logLlamaLifecycle('INFO', `reaping orphan llama-server pid=${pid} image=${image}`);
-    killPidTree(pid);
-  }
-  try {
-    rmSync(managedLlamaPidFile(), { force: true });
-  } catch {
-    /* ignore */
+    const stopped = await stopLlamaServerPidAsync(pid);
+    logLlamaLifecycle('INFO', `orphan llama-server stop pid=${pid} result=${stopped}`);
   }
 }
 
@@ -464,6 +483,22 @@ export function buildManagedLlamaSpawnEnv(config: AppConfig): NodeJS.ProcessEnv 
   return env;
 }
 
+/**
+ * Spawn options for managed llama-server.
+ *
+ * The process must own a console on Windows. ``windowsHide: true`` sets
+ * CREATE_NO_WINDOW, and then stop cannot deliver CTRL_C, so CUDA memory is
+ * not released. The console window is hidden after spawn instead.
+ */
+function managedLlamaSpawnOptions(env: NodeJS.ProcessEnv): SpawnOptions {
+  return {
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: false,
+    env,
+  };
+}
+
 /** Disallowed shell metacharacters (unquoted tokens; newlines are rejected on the full string). */
 export const MANAGED_LLAMA_SHELL_METACHAR_RE = /[;|&<>`$(){}!*\n\r~#]/;
 const UNQUOTED_TOKEN_METACHAR_RE = /[;|&<>`$(){}!*~#]/;
@@ -698,7 +733,7 @@ function attachLlamaStreams(
     // so this path only runs on unexpected exit (or a race after stop).
     if (which === 'chat') {
       if (unexpected) {
-        stopManagedLlamaServers(modelId);
+        void stopManagedLlamaServers(modelId);
       }
       return;
     }
@@ -744,11 +779,11 @@ function reserveManagedLlamaSlot(modelId: string): ManagedLlamaSlot {
   return slot;
 }
 
-function failStart(modelId: string, generation: number, error: string): { ok: false; error: string } {
+async function failStart(modelId: string, generation: number, error: string): Promise<{ ok: false; error: string }> {
   logLlamaLifecycle('ERROR', `start failed modelId=${modelId}: ${error}`);
   const st = running.get(modelId);
   if (st && st.generation === generation) {
-    stopManagedLlamaServers(modelId);
+    await stopManagedLlamaServers(modelId);
   }
   return { ok: false, error };
 }
@@ -758,6 +793,15 @@ const STOPPED_DURING_START = 'Managed servers were stopped.';
 export async function startManagedLlamaServers(modelId: string, config: AppConfig): Promise<{ ok: true } | { ok: false; error: string }> {
   if (running.has(modelId)) {
     return { ok: false, error: 'Managed servers already running for this model preset.' };
+  }
+  // A stop for this preset may still be draining (CTRL_C grace). Let the old
+  // pair release its VRAM before a new one loads the weights again.
+  const draining = pendingStops.get(modelId);
+  if (draining) {
+    await draining;
+    if (running.has(modelId)) {
+      return { ok: false, error: 'Managed servers already running for this model preset.' };
+    }
   }
   invalidateManagedStatusCache();
   const loc = findLlmModelLocation(config.llmProviders, modelId);
@@ -877,14 +921,9 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
      * If chat fails (e.g. wrong ``-hf`` / 404), we must not have started embed yet—otherwise
      * ``stopManagedLlamaServers`` would kill a long embed download that was never going to be used.
      */
-    const chatProc = spawn(chatArgv.bin, chatArgv.args, {
-      /** POSIX: new process group so ``kill(-pid)`` stops ``llama-server`` (no shell). */
-      detached: process.platform !== 'win32',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-      env: spawnEnv,
-    });
+    const chatProc = spawn(chatArgv.bin, chatArgv.args, managedLlamaSpawnOptions(spawnEnv));
     st.chatProc = chatProc;
+    hideWindowsConsoleWindow(chatProc.pid);
     persistManagedLlamaPids();
     attachLlamaStreams(modelId, 'chat', chatProc, st.logBuf, hfToken);
     logLlamaLifecycle(
@@ -947,13 +986,9 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
       stEmbed.embedPort = embedPort;
       stEmbed.embedHost = embedBuilt.host;
       stEmbed.embedHealthHost = managedLlamaHealthHost(embedBuilt.host);
-      const embedProc = spawn(embedArgv.bin, embedArgv.args, {
-        detached: process.platform !== 'win32',
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-        env: spawnEnv,
-      });
+      const embedProc = spawn(embedArgv.bin, embedArgv.args, managedLlamaSpawnOptions(spawnEnv));
       stEmbed.embedProc = embedProc;
+      hideWindowsConsoleWindow(embedProc.pid);
       persistManagedLlamaPids();
       attachLlamaStreams(modelId, 'embed', embedProc, stEmbed.logBuf, hfToken);
       logLlamaLifecycle(
@@ -1256,10 +1291,15 @@ async function waitForHealth(
   return 'timeout';
 }
 
-export function stopManagedLlamaServers(modelId: string): void {
+/**
+ * Synchronous half of a stop: forget the slot, tell the renderer, retract the
+ * runtime overrides. Returns the detached slot whose processes still need killing,
+ * or ``undefined`` when nothing was running.
+ */
+function detachManagedLlamaSlot(modelId: string): ManagedLlamaSlot | undefined {
   const st = running.get(modelId);
   if (!st) {
-    return;
+    return undefined;
   }
   st.abort = true;
   invalidateManagedStatusCache(modelId);
@@ -1272,8 +1312,11 @@ export function stopManagedLlamaServers(modelId: string): void {
     'INFO',
     `stopped managed llama-server modelId=${modelId} chatPid=${st.chatProc?.pid ?? ''} embedPid=${st.embedProc?.pid ?? ''}`,
   );
-  killProcessTree(st.embedProc);
-  killProcessTree(st.chatProc);
+  for (const proc of [st.chatProc, st.embedProc]) {
+    if (proc?.pid && !childHasExited(proc)) {
+      stoppingPids.add(proc.pid);
+    }
+  }
   persistManagedLlamaPids();
   // Retract the published runtime overrides so Python stops targeting a dead URL.
   // Every teardown path (manual stop, chat crash, prune, embed-fail) must sync.
@@ -1282,6 +1325,63 @@ export function stopManagedLlamaServers(modelId: string): void {
   } catch {
     /* config unavailable */
   }
+  return st;
+}
+
+function finishManagedLlamaStop(modelId: string, st: ManagedLlamaSlot, chatStop: string, embedStop: string): void {
+  for (const proc of [st.chatProc, st.embedProc]) {
+    if (proc?.pid) {
+      stoppingPids.delete(proc.pid);
+    }
+  }
+  persistManagedLlamaPids();
+  logLlamaLifecycle('INFO', `llama-server shutdown modelId=${modelId} chat=${chatStop} embed=${embedStop}`);
+}
+
+/**
+ * Stop the managed pair for ``modelId``. State is torn down synchronously (the
+ * preset reads as stopped as soon as this returns its promise); the CTRL_C /
+ * SIGTERM grace wait and any force-kill run off the event loop so the main
+ * thread never freezes while llama-server unloads its weights.
+ */
+export function stopManagedLlamaServers(modelId: string): Promise<void> {
+  const st = detachManagedLlamaSlot(modelId);
+  if (!st) {
+    return pendingStops.get(modelId) ?? Promise.resolve();
+  }
+  const drain = (async (): Promise<void> => {
+    try {
+      const [embedStop, chatStop] = await Promise.all([
+        stopLlamaServerChildAsync(st.embedProc),
+        stopLlamaServerChildAsync(st.chatProc),
+      ]);
+      finishManagedLlamaStop(modelId, st, chatStop, embedStop);
+    } catch (err) {
+      finishManagedLlamaStop(modelId, st, 'error', 'error');
+      logLlamaLifecycle('WARNING', `llama-server shutdown threw modelId=${modelId}: ${String(err)}`);
+    }
+  })();
+  const tracked = drain.finally(() => {
+    if (pendingStops.get(modelId) === tracked) {
+      pendingStops.delete(modelId);
+    }
+  });
+  pendingStops.set(modelId, tracked);
+  return tracked;
+}
+
+/**
+ * Blocking stop for ``will-quit`` only. Electron does not wait for promises
+ * there, and a llama-server that outlives the app keeps its CUDA context.
+ */
+function stopManagedLlamaServersSync(modelId: string): void {
+  const st = detachManagedLlamaSlot(modelId);
+  if (!st) {
+    return;
+  }
+  const embedStop = stopLlamaServerChild(st.embedProc);
+  const chatStop = stopLlamaServerChild(st.chatProc);
+  finishManagedLlamaStop(modelId, st, chatStop, embedStop);
 }
 
 /** Drop map entries whose chat process has already exited (belt-and-suspenders). */
@@ -1291,7 +1391,7 @@ function pruneDeadManagedLlamaEntries(): void {
       continue;
     }
     logLlamaLifecycle('WARNING', `pruned dead managed llama-server modelId=${modelId}`);
-    stopManagedLlamaServers(modelId);
+    void stopManagedLlamaServers(modelId);
   }
 }
 
@@ -1353,10 +1453,24 @@ export async function summarizeManagedLlamaRuntime(): Promise<ManagedLlamaRuntim
   return { binaryInstalled, runningCount: modelIds.length, health: worst, modelIds };
 }
 
+/**
+ * Quit-time teardown. Blocks on purpose: ``will-quit`` cannot await, and every
+ * managed pair must be gone before Electron exits or the CUDA context leaks.
+ */
 export function stopAllManagedLlamaServers(): void {
   for (const id of [...running.keys()]) {
-    stopManagedLlamaServers(id);
+    stopManagedLlamaServersSync(id);
   }
+  // Pairs mid-way through an async stop already got their one CTRL_C; the
+  // process is exiting so the grace timer will never fire. Force them now.
+  for (const pid of [...stoppingPids]) {
+    const image = processImageName(pid);
+    if (image && image.includes('llama-server')) {
+      killPidTree(pid);
+    }
+    stoppingPids.delete(pid);
+  }
+  persistManagedLlamaPids();
 }
 
 async function probeOnce(host: string, port: number): Promise<ManagedServerHealthState> {

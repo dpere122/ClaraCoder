@@ -34,11 +34,12 @@ class AcceptCommandReviewAfterToolMiddleware(AgentMiddleware):
         sess = get_session(session_id)
         # Require an active SSE pump (``hitl_sse_queue``), not ``worker_apply_mode``: nested npm/pip
         # tools run during streamed agent work but ``worker_apply_mode`` is editor-only and could skip HITL.
+        # Do not skip on ``auto_apply_mode``: ordinary deferred tools never stage a pending request
+        # when auto-apply is on, but agent-requested Admin elevation still must pause the composer chip.
         if (
             sess.hitl_sse_queue is None
             or name not in hitl_accept_command_pause_tools()
             or not sess.pending_accept_command_request
-            or sess.auto_apply_mode
         ):
             return result
 

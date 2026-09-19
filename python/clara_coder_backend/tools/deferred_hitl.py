@@ -99,7 +99,11 @@ def maybe_await_hitl_for_admin_elevation(
     tool_name: str,
     tool_input: dict[str, Any] | None = None,
 ) -> str:
-    """Stage the composer Admin grant card and pause until the user allows or cancels."""
+    """Stage the composer Admin grant card and pause until the user allows or cancels.
+
+    Auto-apply does not skip this path: elevated ``run_command`` still asks the user
+    to turn on the composer Admin chip before the helper starts.
+    """
 
     inp = dict(tool_input or {})
     pending: dict[str, Any] = {

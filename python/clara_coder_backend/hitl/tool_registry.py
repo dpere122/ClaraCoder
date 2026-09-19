@@ -17,6 +17,8 @@ the user confirms in chat (or returns for re-review) unless auto-apply is on.
 Workspace **execute** tools (staging overlay commands and generic ``run_command`` background jobs with
 ``wait_for_command`` / ``kill_background_command`` / ``list_background_commands``) use the same
 accept-command pause when auto-apply is off (see :mod:`clara_coder_backend.hitl.deferred_tool_hitl`).
+``run_command`` with ``elevate`` / a leading ``sudo`` still stages the composer Admin grant card
+even when auto-apply is on, until the user allows administrator access for that conversation.
 """
 
 from __future__ import annotations

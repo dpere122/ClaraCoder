@@ -19,7 +19,10 @@ import {
   previewItemLabel,
   previewItemText,
   previewQueueHeader,
+  previewQueueIsReadTool,
+  previewQueueMeta,
   previewShowsBody,
+  previewSpinnerHost,
   pressureInbound,
   queueableFeedIdentity,
   splitQueuedFeed,
@@ -102,6 +105,86 @@ describe('previewQueueHeader', () => {
   });
 });
 
+describe('previewQueueMeta', () => {
+  const runningWrite: TurnFeedItem = {
+    kind: 'tool',
+    part: {
+      streamTag: toolTrailStatusStreamTag('run-w'),
+      label: 'stage_create_file',
+      text: 'src/app.ts · drafting 3.2 KB',
+      toolChainState: 'running',
+    },
+  };
+  const runningPhase: TurnFeedItem = {
+    kind: 'tool',
+    part: {
+      streamTag: toolTrailStatusStreamTag('run-p'),
+      label: 'stage_snippet_edit',
+      text: 'src/b.ts · formatting',
+      toolChainState: 'running',
+    },
+  };
+
+  it('is empty for thought / nudge / undefined previews', () => {
+    expect(previewQueueMeta(thought, [])).toBe('');
+    expect(previewQueueMeta(nudge, [])).toBe('');
+    expect(previewQueueMeta(undefined, [])).toBe('');
+  });
+
+  it('shows the running tool status detail (path, drafting size, write phase)', () => {
+    expect(previewQueueMeta(runningWrite, [])).toBe('src/app.ts · drafting 3.2 KB');
+    expect(previewQueueMeta(runningPhase, [])).toBe('src/b.ts · formatting');
+  });
+
+  it('prefers the most recent in-flight tool in the batch', () => {
+    expect(previewQueueMeta(runningWrite, [runningPhase])).toBe('src/b.ts · formatting');
+  });
+
+  it('ignores HITL rows and tools without running state or detail', () => {
+    expect(previewQueueMeta(runningWrite, [hitl])).toBe('src/app.ts · drafting 3.2 KB');
+    expect(previewQueueMeta(tool, [])).toBe('');
+    const blank: TurnFeedItem = {
+      kind: 'tool',
+      part: { streamTag: toolTrailStatusStreamTag('run-x'), label: 'stage_create_file', text: '', toolChainState: 'running' },
+    };
+    expect(previewQueueMeta(blank, [])).toBe('');
+  });
+});
+
+describe('previewQueueIsReadTool', () => {
+  const runningRead: TurnFeedItem = {
+    kind: 'tool',
+    part: {
+      streamTag: toolTrailStatusStreamTag('run-r'),
+      label: 'read_workspace_file',
+      text: 'src/a.py',
+      toolChainState: 'running',
+    },
+  };
+  const runningWrite: TurnFeedItem = {
+    kind: 'tool',
+    part: {
+      streamTag: toolTrailStatusStreamTag('run-w'),
+      label: 'stage_create_file',
+      text: 'src/app.ts · drafting 3.2 KB',
+      toolChainState: 'running',
+    },
+  };
+
+  it('is true for a workspace read preview, false for thoughts and writes', () => {
+    expect(previewQueueIsReadTool(tool, [])).toBe(true);
+    expect(previewQueueIsReadTool(runningRead, [])).toBe(true);
+    expect(previewQueueIsReadTool(thought, [])).toBe(false);
+    expect(previewQueueIsReadTool(runningWrite, [])).toBe(false);
+    expect(previewQueueIsReadTool(undefined, [])).toBe(false);
+  });
+
+  it('follows the latest running tool in a mixed batch', () => {
+    expect(previewQueueIsReadTool(runningRead, [runningWrite])).toBe(false);
+    expect(previewQueueIsReadTool(runningWrite, [runningRead])).toBe(true);
+  });
+});
+
 describe('previewShowsBody', () => {
   it('is true for thought/nudge and false for tools and markdown', () => {
     expect(previewShowsBody(thought)).toBe(true);
@@ -109,6 +192,26 @@ describe('previewShowsBody', () => {
     expect(previewShowsBody(tool)).toBe(false);
     expect(previewShowsBody(brief)).toBe(false);
     expect(previewShowsBody(undefined)).toBe(false);
+  });
+});
+
+describe('previewSpinnerHost', () => {
+  it('moves the spinner beside the header for thought / nudge previews', () => {
+    expect(previewSpinnerHost(true, true, thought)).toBe('header');
+    expect(previewSpinnerHost(true, true, nudge)).toBe('header');
+  });
+
+  it('moves the spinner into the pill for tool previews', () => {
+    expect(previewSpinnerHost(true, true, tool)).toBe('pill');
+  });
+
+  it('leaves the spinner in the processing row when no preview is open', () => {
+    expect(previewSpinnerHost(true, true, undefined)).toBeNull();
+  });
+
+  it('never hosts the spinner for persisted feeds or while the turn is blocked on HITL', () => {
+    expect(previewSpinnerHost(false, true, thought)).toBeNull();
+    expect(previewSpinnerHost(true, false, tool)).toBeNull();
   });
 });
 

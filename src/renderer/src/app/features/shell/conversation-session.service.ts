@@ -22,6 +22,7 @@ import {
   promotePrimaryToNudgeParts,
   findManagedLocalLlamaLocation,
   isClaraOuterBriefStreamTag,
+  isInFlightToolPart,
   mergeHitlTrailIntoAuxiliaryTimeline,
   primaryAssistantTextFromParts,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
@@ -98,9 +99,9 @@ export class ConversationSessionService {
   readonly creatingConversation = signal(false);
 
   private readonly toolRunIds = signal<Set<string>>(new Set());
-  private readonly toolPhaseEngaged = signal(false);
+  /** True while a tool status is running or a shell/overlay stream has not completed. */
   readonly processingToolsActive = computed(
-    () => this.toolRunIds().size > 0 || this.toolPhaseEngaged(),
+    () => this.toolRunIds().size > 0 || this.streamingParts().some(isInFlightToolPart),
   );
 
   private activeConversation: Conversation | null = null;
@@ -258,7 +259,7 @@ export class ConversationSessionService {
       if (conversationId !== this.activeConversationId()) return;
       const src = (status.source ?? 'agent').toLowerCase();
       if (src === 'tool') {
-        this.toolPhaseEngaged.set(true);
+        this.syncToolRunId(status);
         queueMicrotask(() => {
           if (conversationId !== this.activeConversationId()) return;
           this.applyToolLlmStatus(status);
@@ -320,7 +321,6 @@ export class ConversationSessionService {
 
       if (conversationId === this.activeConversationId()) {
         this.toolRunIds.set(new Set());
-        this.toolPhaseEngaged.set(false);
         this.streamingParts.set([]);
         this.streamingPlanner.set(null);
         this.streamingFinalText.set(undefined);
@@ -456,7 +456,6 @@ export class ConversationSessionService {
       this.activeConversationId.set(conv.id);
       this.messages.set([]);
       this.toolRunIds.set(new Set());
-      this.toolPhaseEngaged.set(false);
       this.streamingParts.set([]);
       this.streamingPlanner.set(null);
       this.streamingFinalText.set(undefined);
@@ -494,7 +493,6 @@ export class ConversationSessionService {
     this.activeConversationId.set(conv.id);
     this.messages.set(conv.messages);
     this.toolRunIds.set(new Set());
-    this.toolPhaseEngaged.set(false);
     const stillStreaming = this.pendingIds().has(conv.id);
     if (stillStreaming) {
       const bgParts = this.backgroundStreamParts.get(conv.id) ?? [];
@@ -568,7 +566,6 @@ export class ConversationSessionService {
     this.streamingPlanner.set(null);
     this.streamingFinalText.set(undefined);
     this.toolRunIds.set(new Set());
-    this.toolPhaseEngaged.set(false);
   }
 
   markMessagesDirtyAndAutoSave(): void {
@@ -601,7 +598,7 @@ export class ConversationSessionService {
 
   prepareForSend(conversationId: string): void {
     this.addPending(conversationId);
-    this.toolPhaseEngaged.set(false);
+    this.toolRunIds.set(new Set());
     this.streamingParts.set([]);
     this.streamingPlanner.set(null);
     this.streamingFinalText.set(undefined);
@@ -651,7 +648,6 @@ export class ConversationSessionService {
     this.backgroundStreamParts.delete(conversationId);
     if (conversationId === this.activeConversationId()) {
       this.toolRunIds.set(new Set());
-      this.toolPhaseEngaged.set(false);
       this.streamingParts.set([]);
       this.streamingPlanner.set(null);
       this.streamingFinalText.set(undefined);
@@ -836,9 +832,10 @@ export class ConversationSessionService {
     }
   }
 
-  private applyToolLlmStatus(status: LlmStatus): void {
+  private syncToolRunId(status: LlmStatus): void {
     if (status.state === 'running') {
       this.toolRunIds.update((s) => new Set(s).add(status.id));
+      return;
     }
     if (status.state === 'complete' || status.state === 'error') {
       this.toolRunIds.update((s) => {
@@ -847,6 +844,10 @@ export class ConversationSessionService {
         return next;
       });
     }
+  }
+
+  private applyToolLlmStatus(status: LlmStatus): void {
+    this.syncToolRunId(status);
     this.streamingParts.update((prev) => {
       const next = upsertToolTrailStatusStreamPart(prev, status);
       this.upsertChainMessage(status, this.chainTextForToolStatus(next, status));

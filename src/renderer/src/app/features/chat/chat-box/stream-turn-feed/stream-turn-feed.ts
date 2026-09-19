@@ -7,6 +7,7 @@ import {
   effect,
   inject,
   input,
+  output,
   signal,
   untracked,
   viewChild,
@@ -26,12 +27,16 @@ import {
   previewCommitCount,
   previewItemText,
   previewQueueHeader,
+  previewQueueIsReadTool,
+  previewQueueMeta,
   previewShowsBody as previewItemShowsBody,
+  previewSpinnerHost,
   pressureInbound,
   queueableFeedIdentity,
   queueableItems,
   splitQueuedFeed,
   type FeedDisplayRole,
+  type PreviewSpinnerHost,
 } from './stream-preview-queue';
 
 @Component({
@@ -57,6 +62,15 @@ export class StreamTurnFeedComponent {
   readonly showCursor = input(false);
   /** Compact tool details when the plan checklist is visible. */
   readonly planPanelVisible = input(false);
+  /** Live turn is streaming (not blocked on HITL): host the turn spinner in the open preview slot. */
+  readonly spinnerActive = input(false);
+
+  /**
+   * Emits whenever {@link spinnerHost} changes so the chat box can hide its own processing row.
+   * Pushed from an effect (after inputs bind) — the parent must not read child state directly,
+   * as its template runs before this view's `items` input is set (NG0950).
+   */
+  readonly spinnerHostChange = output<PreviewSpinnerHost | null>();
 
   private readonly destroyRef = inject(DestroyRef);
   private readonly previewBody = viewChild<ElementRef<HTMLElement>>('previewBody');
@@ -79,10 +93,34 @@ export class StreamTurnFeedComponent {
     return split.current ? previewQueueHeader(split.current, split.inbound) : '';
   });
 
+  /** Path / drafting size / write-job phase beside the live tool pill (empty when not a tool preview). */
+  readonly previewMeta = computed(() => {
+    const split = splitQueuedFeed(this.items(), this.displayCommitted());
+    return previewQueueMeta(split.current, split.inbound);
+  });
+
+  /** Read vs write spinner while the live preview is a tool pill. */
+  readonly previewReadSpinner = computed(() => {
+    const split = splitQueuedFeed(this.items(), this.displayCommitted());
+    return previewQueueIsReadTool(split.current, split.inbound);
+  });
+
   readonly previewShowsBody = computed(() => {
     const split = splitQueuedFeed(this.items(), this.displayCommitted());
     return previewItemShowsBody(split.current);
   });
+
+  /**
+   * Where the turn spinner lives right now: thought header, running tool pill, or `null`
+   * (parent keeps it in the processing row). Mirrored to the parent via {@link spinnerHostChange}.
+   */
+  readonly spinnerHost = computed(() => {
+    const split = splitQueuedFeed(this.items(), this.displayCommitted());
+    return previewSpinnerHost(this.live(), this.spinnerActive(), split.current);
+  });
+
+  /** Header label letters for the shimmer animation while the spinner sits in the preview. */
+  readonly previewHeaderChars = computed(() => Array.from(this.previewHeader()));
 
   constructor() {
     this.destroyRef.onDestroy(() => this.clearTimer());
@@ -100,6 +138,11 @@ export class StreamTurnFeedComponent {
       untracked(() => {
         queueMicrotask(() => this.scrollPreviewToBottom());
       });
+    });
+
+    effect(() => {
+      const host = this.spinnerHost();
+      untracked(() => this.spinnerHostChange.emit(host));
     });
   }
 

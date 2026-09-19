@@ -1,4 +1,11 @@
-import { isHitlTrailStreamTag, type TurnFeedItem } from '@shared/index';
+import {
+  isHitlTrailStreamTag,
+  isReadToolPreviewStreamTag,
+  isToolTrailStatusStreamTag,
+  isWorkspaceReadToolLabel,
+  toolStatusStreamPartMeta,
+  type TurnFeedItem,
+} from '@shared/index';
 
 /** Min time the live preview pane stays open before a contending event can become a chip. */
 export const PREVIEW_OPEN_DWELL_MS = 450;
@@ -59,6 +66,26 @@ export function previewShowsBody(item: TurnFeedItem | undefined): boolean {
   return item?.kind === 'thought' || item?.kind === 'nudge';
 }
 
+/** Where the live turn spinner renders while the preview slot is open. */
+export type PreviewSpinnerHost = 'header' | 'pill';
+
+/**
+ * While a live preview is open the turn spinner leaves the processing row and moves into
+ * it: beside the thought / nudge header, or inside the running tool pill (read or write spinner).
+ * `null` when there is no open preview (spinner stays beside the processing label) or the
+ * turn is not actively streaming (persisted feed, HITL wait).
+ */
+export function previewSpinnerHost(
+  live: boolean,
+  spinnerActive: boolean,
+  current: TurnFeedItem | undefined,
+): PreviewSpinnerHost | null {
+  if (!live || !spinnerActive || !current) {
+    return null;
+  }
+  return previewShowsBody(current) ? 'header' : 'pill';
+}
+
 /** Live preview header label (no ellipsis — dash form appends inbound events). */
 export function previewItemLabel(item: TurnFeedItem): string {
   switch (item.kind) {
@@ -78,6 +105,65 @@ export function previewQueueHeader(current: TurnFeedItem, inbound: readonly Turn
     (label) => label.length > 0,
   );
   return labels.join(' — ');
+}
+
+/**
+ * Live detail beside the preview tool pill: the most recent in-flight tool-status row in the
+ * batch (path while arguments stream, write-job phase while the tool runs). Empty for
+ * thought / nudge previews and for tool rows without status detail.
+ */
+export function previewQueueMeta(
+  current: TurnFeedItem | undefined,
+  inbound: readonly TurnFeedItem[],
+): string {
+  if (!current || current.kind !== 'tool') {
+    return '';
+  }
+  const batch = [current, ...inbound.filter(isToolBatchMember)];
+  for (let i = batch.length - 1; i >= 0; i--) {
+    const item = batch[i]!;
+    if (item.kind !== 'tool' || !isToolTrailStatusStreamTag(item.part.streamTag)) {
+      continue;
+    }
+    if (item.part.toolChainState !== 'running') {
+      continue;
+    }
+    const text = item.part.text.trim();
+    if (!text) {
+      continue;
+    }
+    return toolStatusStreamPartMeta(item.part);
+  }
+  return '';
+}
+
+function isReadToolFeedItem(item: TurnFeedItem): boolean {
+  return (
+    item.kind === 'tool' &&
+    (isWorkspaceReadToolLabel(item.part.label) || isReadToolPreviewStreamTag(item.part.streamTag))
+  );
+}
+
+/**
+ * True when the live tool preview should use the read (book) spinner.
+ * Follows the latest running tool in the batch; falls back to the current preview item.
+ */
+export function previewQueueIsReadTool(
+  current: TurnFeedItem | undefined,
+  inbound: readonly TurnFeedItem[],
+): boolean {
+  if (!current || current.kind !== 'tool') {
+    return false;
+  }
+  const batch = [current, ...inbound.filter(isToolBatchMember)];
+  for (let i = batch.length - 1; i >= 0; i--) {
+    const item = batch[i]!;
+    if (item.kind !== 'tool' || item.part.toolChainState !== 'running') {
+      continue;
+    }
+    return isReadToolFeedItem(item);
+  }
+  return isReadToolFeedItem(current);
 }
 
 export function clampCommittedCount(items: readonly TurnFeedItem[], committedCount: number): number {

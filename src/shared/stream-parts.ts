@@ -390,6 +390,28 @@ export function isToolLikeStreamTag(streamTag: string): boolean {
   );
 }
 
+/** True while a multiplex tool row is still executing (status running, or shell/overlay not complete). */
+export function isInFlightToolPart(part: StreamPart): boolean {
+  if (isHitlTrailStreamTag(part.streamTag)) {
+    return false;
+  }
+  if (part.toolChainState === 'running') {
+    return true;
+  }
+  if (part.toolChainState === 'complete' || part.toolChainState === 'error') {
+    return false;
+  }
+  if (part.runComplete) {
+    return false;
+  }
+  const tag = part.streamTag.trim();
+  return (
+    isShellStyleToolStreamTag(tag) ||
+    isRunCommandStreamTag(tag) ||
+    tag === TOOL_OVERLAY_STREAM_TAG
+  );
+}
+
 function asReasoningStreamPart(part: StreamPart): StreamPart {
   return {
     ...part,

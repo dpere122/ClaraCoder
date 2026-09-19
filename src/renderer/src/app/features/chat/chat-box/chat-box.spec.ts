@@ -1,17 +1,22 @@
-import type { PlannerProgress, StreamPart } from '@shared/index';
-import { persistedAuxiliaryStreamTimeline } from '@shared/index';
+import type { PlannerProgress, StreamPart, TurnFeedItem } from '@shared/index';
+import { hitlTrailStreamTag, persistedAuxiliaryStreamTimeline, toolTrailStatusStreamTag } from '@shared/index';
 import {
   auxiliaryPanelTitleFromChainGroups,
   buildChatDisplayRows,
+  CHAT_BOTTOM_BUFFER_RATIO,
+  chatBottomBufferPx,
   decideChatScrollOnAppend,
   decideInstantScrollOnStreamingUpdate,
   decideStickAfterUserScroll,
   extractLatestBriefLine,
   filterLiveToolChainGroups,
   isChatTranscriptScrollable,
+  isLiveReplyStreaming,
   isPendingHitlArtifact,
+  isProseLatestLiveFeedEvent,
   isScrollWorthyAppendMessage,
   isStickFromSlack,
+  isUserScrollUp,
   liveTurnPresentationSettled,
   mergeClaraBriefsFromChainIntoTimeline,
   pendingHitlArtifactsForDock,
@@ -20,9 +25,12 @@ import {
   latestPrimaryStreamSegmentText,
   SCROLL_BOTTOM_PIN_THRESHOLD_PX,
   scrollSlackPx,
+  didFinalResponseAppear,
+  shouldFollowFinalResponse,
   shouldFollowStreamComplete,
   shouldFollowStreamToken,
   shouldShowJumpToBottom,
+  stickThresholdPx,
   turnHasPendingHitlArtifacts,
   TOOL_BUILDING_SYNONYMS,
   unseenBelowAfterScroll,
@@ -390,9 +398,58 @@ describe('pendingHitlArtifactsForDock', () => {
   });
 });
 
+describe('isProseLatestLiveFeedEvent', () => {
+  const thought: TurnFeedItem = {
+    kind: 'thought',
+    part: { streamTag: 'reasoning', label: 'Model reasoning', text: 'hmm' },
+  };
+  const tool: TurnFeedItem = {
+    kind: 'tool',
+    part: { streamTag: toolTrailStatusStreamTag('run-1'), label: 'stage_create_file', text: 'src/a.ts' },
+  };
+  const hitl: TurnFeedItem = {
+    kind: 'tool',
+    part: { streamTag: hitlTrailStreamTag('change-1'), label: 'edit src/a.ts', text: 'edit ok' },
+  };
+  const prose: TurnFeedItem = { kind: 'markdown', text: 'Here is the answer.' };
+
+  it('is true when the reply or brief is the last feed item', () => {
+    expect(isProseLatestLiveFeedEvent([thought, tool, prose])).toBe(true);
+  });
+
+  it('skips trailing HITL change rows (display-time, always merged at the end)', () => {
+    expect(isProseLatestLiveFeedEvent([tool, prose, hitl])).toBe(true);
+    expect(isProseLatestLiveFeedEvent([tool, prose, hitl, hitl])).toBe(true);
+  });
+
+  it('is false while a thought or tool is the latest event', () => {
+    expect(isProseLatestLiveFeedEvent([prose, tool])).toBe(false);
+    expect(isProseLatestLiveFeedEvent([prose, thought, hitl])).toBe(false);
+    expect(isProseLatestLiveFeedEvent([hitl])).toBe(false);
+    expect(isProseLatestLiveFeedEvent([])).toBe(false);
+  });
+
+  describe('isLiveReplyStreaming', () => {
+    it('is true whenever primary prose exists, even with reasoning interleaved after it', () => {
+      expect(isLiveReplyStreaming([prose, thought], 'Here is the answer.')).toBe(true);
+      expect(isLiveReplyStreaming([tool, prose, thought, hitl], 'partial reply')).toBe(true);
+    });
+
+    it('falls back to prose-latest for backend-emitted briefs (no primary text)', () => {
+      expect(isLiveReplyStreaming([tool, prose], '')).toBe(true);
+    });
+
+    it('is false during thinking / tool phases once primary prose was retagged away', () => {
+      expect(isLiveReplyStreaming([thought], '')).toBe(false);
+      expect(isLiveReplyStreaming([prose, tool], '   ')).toBe(false);
+    });
+  });
+});
+
 describe('TOOL_BUILDING_SYNONYMS', () => {
-  it('lists twelve lowercase tool-phase labels', () => {
-    expect(TOOL_BUILDING_SYNONYMS).toHaveLength(12);
+  it('lists lowercase tool-phase labels', () => {
+    expect(TOOL_BUILDING_SYNONYMS).toHaveLength(11);
+    expect(TOOL_BUILDING_SYNONYMS).not.toContain('erecting');
     for (const w of TOOL_BUILDING_SYNONYMS) {
       expect(w).toBe(w.toLowerCase());
       expect(w).toMatch(/^[a-z]+$/);
@@ -516,6 +573,81 @@ describe('stick/roam scroll policy', () => {
     expect(isStickFromSlack(0)).toBe(true);
     expect(isStickFromSlack(SCROLL_BOTTOM_PIN_THRESHOLD_PX)).toBe(true);
     expect(isStickFromSlack(SCROLL_BOTTOM_PIN_THRESHOLD_PX + 1)).toBe(false);
+  });
+
+  it('sizes the bottom buffer to half the viewport and zero before measurement', () => {
+    expect(CHAT_BOTTOM_BUFFER_RATIO).toBe(0.5);
+    expect(chatBottomBufferPx(600)).toBe(300);
+    expect(chatBottomBufferPx(0)).toBe(0);
+    expect(chatBottomBufferPx(-10)).toBe(0);
+    expect(chatBottomBufferPx(Number.NaN)).toBe(0);
+    expect(chatBottomBufferPx(600, 0, 0.25)).toBe(150);
+  });
+
+  it('lets docked HITL chrome consume the buffer zone one-for-one', () => {
+    // No dock: 600px stack → 300px buffer, last message ends at 300 from the top.
+    expect(chatBottomBufferPx(600)).toBe(300);
+    // 100px dock shrinks the scrollport to 500; buffer gives up exactly 100 → the last message
+    // still ends at 500 - 200 = 300 from the top, and the card sits in the freed space.
+    expect(chatBottomBufferPx(500, 100)).toBe(200);
+    expect(chatBottomBufferPx(400, 200)).toBe(100);
+    // A dock taller than the buffer removes it entirely, never negative.
+    expect(chatBottomBufferPx(300, 300)).toBe(0);
+    expect(chatBottomBufferPx(200, 400)).toBe(0);
+    // Invalid inset values are ignored.
+    expect(chatBottomBufferPx(600, -50)).toBe(300);
+    expect(chatBottomBufferPx(600, Number.NaN)).toBe(300);
+  });
+
+  it('uses the whole buffer zone as the stick threshold with the legacy 48px floor', () => {
+    expect(stickThresholdPx(300)).toBe(300);
+    expect(stickThresholdPx(10)).toBe(SCROLL_BOTTOM_PIN_THRESHOLD_PX);
+    expect(stickThresholdPx(0)).toBe(SCROLL_BOTTOM_PIN_THRESHOLD_PX);
+  });
+
+  it('counts slack inside the buffer zone as at-the-bottom', () => {
+    const threshold = stickThresholdPx(chatBottomBufferPx(600));
+    expect(isStickFromSlack(299, threshold)).toBe(true);
+    expect(isStickFromSlack(300, threshold)).toBe(true);
+    expect(isStickFromSlack(301, threshold)).toBe(false);
+  });
+
+  it('reads a scrollTop decrease as user scroll-up only when it does not land at the bottom', () => {
+    // Wheel / scrollbar / keyboard: scrollTop drops and there is slack below → roam intent.
+    expect(isUserScrollUp(700, 800, 100)).toBe(true);
+    expect(isUserScrollUp(798, 800, 2)).toBe(true);
+    // Layout clamp (HITL dock or terminal collapsed, viewport grew): scrollTop drops but the
+    // viewport is pinned at the new maximum → not user intent.
+    expect(isUserScrollUp(700, 800, 0)).toBe(false);
+    expect(isUserScrollUp(700, 800, 1)).toBe(false);
+    // Sub-pixel jitter and scroll-down are never scroll-up.
+    expect(isUserScrollUp(799.5, 800, 40)).toBe(false);
+    expect(isUserScrollUp(820, 800, 40)).toBe(false);
+  });
+
+  it('keeps stick when a dock collapse clamps scrollTop to the new bottom', () => {
+    const slack = 0;
+    expect(
+      decideStickAfterUserScroll({
+        scrolledUp: isUserScrollUp(700, 800, slack),
+        scrolledDown: false,
+        nearBottom: isStickFromSlack(slack, stickThresholdPx(chatBottomBufferPx(600))),
+        programmatic: false,
+        stickMode: true,
+        scrollable: true,
+      }),
+    ).toBe('stick');
+    // A roaming reader is not yanked back into stick by the same clamp.
+    expect(
+      decideStickAfterUserScroll({
+        scrolledUp: isUserScrollUp(700, 800, slack),
+        scrolledDown: false,
+        nearBottom: isStickFromSlack(slack, stickThresholdPx(chatBottomBufferPx(600))),
+        programmatic: false,
+        stickMode: false,
+        scrollable: true,
+      }),
+    ).toBe('keep');
   });
 
   it('treats a short transcript as not scrollable', () => {
@@ -664,6 +796,17 @@ describe('stick/roam scroll policy', () => {
     expect(shouldFollowStreamToken(true, false)).toBe(false);
     expect(shouldFollowStreamComplete(true)).toBe(true);
     expect(shouldFollowStreamComplete(false)).toBe(false);
+  });
+
+  it('follows the final response only when it first appears while stick', () => {
+    expect(didFinalResponseAppear('Here is the answer.', false)).toBe(true);
+    expect(didFinalResponseAppear('  Here is the answer.  ', false)).toBe(true);
+    expect(didFinalResponseAppear('Here is the answer.', true)).toBe(false);
+    expect(didFinalResponseAppear('', false)).toBe(false);
+    expect(didFinalResponseAppear('   ', false)).toBe(false);
+    expect(didFinalResponseAppear(undefined, false)).toBe(false);
+    expect(shouldFollowFinalResponse(true)).toBe(true);
+    expect(shouldFollowFinalResponse(false)).toBe(false);
   });
 
   it('clears the unseen badge when returning to stick', () => {

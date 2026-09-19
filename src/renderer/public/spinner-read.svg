@@ -1,0 +1,182 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none" role="img" aria-labelledby="spinnerTitle">
+  <title id="spinnerTitle">Reading</title>
+  <style>
+    .page-line {
+      fill: none;
+      stroke: #a8b89a;
+      stroke-opacity: 0.2;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+    }
+    .hl {
+      fill: none;
+      stroke: #c9a96e;
+      stroke-width: 3.35;
+      stroke-linecap: round;
+      stroke-dasharray: 100;
+      stroke-dashoffset: 100;
+    }
+    .hl-1 { animation: read-1 3.2s ease-in-out infinite; }
+    .hl-2 { animation: read-2 3.2s ease-in-out infinite; }
+    .hl-3 { animation: read-3 3.2s ease-in-out infinite; }
+    .hl-4 { animation: read-4 3.2s ease-in-out infinite; }
+    .hl-5 { animation: read-5 3.2s ease-in-out infinite; }
+    .hl-6 { animation: read-6 3.2s ease-in-out infinite; }
+
+    .marker {
+      animation: marker-read 3.2s ease-in-out infinite;
+    }
+    .ribbon {
+      transform-origin: 32px 17px;
+      animation: ribbon-sway 3.2s ease-in-out infinite;
+    }
+    .idea {
+      fill: none;
+      stroke: #7eb5a6;
+      stroke-width: 2.05;
+      stroke-linecap: round;
+      stroke-dasharray: 28;
+      stroke-dashoffset: 28;
+      animation: idea-circle 3.2s ease-in-out infinite;
+    }
+
+    @keyframes read-1 {
+      0%, 2% { stroke-dashoffset: 100; }
+      14%, 82% { stroke-dashoffset: 0; }
+      94%, 100% { stroke-dashoffset: 100; }
+    }
+    @keyframes read-2 {
+      0%, 14% { stroke-dashoffset: 100; }
+      26%, 82% { stroke-dashoffset: 0; }
+      94%, 100% { stroke-dashoffset: 100; }
+    }
+    @keyframes read-3 {
+      0%, 26% { stroke-dashoffset: 100; }
+      38%, 82% { stroke-dashoffset: 0; }
+      94%, 100% { stroke-dashoffset: 100; }
+    }
+    @keyframes read-4 {
+      0%, 40% { stroke-dashoffset: 100; }
+      52%, 82% { stroke-dashoffset: 0; }
+      94%, 100% { stroke-dashoffset: 100; }
+    }
+    @keyframes read-5 {
+      0%, 52% { stroke-dashoffset: 100; }
+      64%, 82% { stroke-dashoffset: 0; }
+      94%, 100% { stroke-dashoffset: 100; }
+    }
+    @keyframes read-6 {
+      0%, 64% { stroke-dashoffset: 100; }
+      76%, 82% { stroke-dashoffset: 0; }
+      94%, 100% { stroke-dashoffset: 100; }
+    }
+    @keyframes idea-circle {
+      0%, 74% { stroke-dashoffset: 28; opacity: 0; }
+      86%, 90% { stroke-dashoffset: 0; opacity: 1; }
+      100% { stroke-dashoffset: 0; opacity: 0; }
+    }
+    @keyframes marker-read {
+      0%, 2% { transform: translate(16.2px, 24.6px) rotate(-8deg); }
+      14% { transform: translate(28.8px, 26.1px) rotate(-6deg); }
+      16% { transform: translate(16.2px, 32.6px) rotate(-8deg); }
+      26% { transform: translate(28.8px, 34px) rotate(-6deg); }
+      28% { transform: translate(16.2px, 40.6px) rotate(-8deg); }
+      38% { transform: translate(27.6px, 41.7px) rotate(-6deg); }
+      42% { transform: translate(41.4px, 26.1px) rotate(8deg); }
+      52% { transform: translate(53.6px, 24.6px) rotate(6deg); }
+      54% { transform: translate(41.4px, 34px) rotate(8deg); }
+      64% { transform: translate(53.6px, 32.6px) rotate(6deg); }
+      66% { transform: translate(41.4px, 41.7px) rotate(8deg); }
+      76% { transform: translate(49.4px, 40.7px) rotate(6deg); }
+      86% { transform: translate(49.4px, 40.7px) rotate(10deg); }
+      100% { transform: translate(16.2px, 24.6px) rotate(-8deg); }
+    }
+    @keyframes ribbon-sway {
+      0%, 100% { transform: rotate(-7deg); }
+      50% { transform: rotate(8deg); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .hl-1, .hl-2, .hl-3, .hl-4, .hl-5, .hl-6, .marker, .ribbon, .idea { animation: none; }
+      .hl { stroke-dashoffset: 0; }
+      .idea { stroke-dashoffset: 0; opacity: 1; }
+      .marker { transform: translate(49.4px, 40.7px) rotate(6deg); }
+      .ribbon { transform: rotate(0deg); }
+    }
+  </style>
+
+  <defs>
+    <linearGradient id="ccPageLeft" x1="8" y1="18" x2="32" y2="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#a8b89a" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#a8b89a" stop-opacity="0.04"/>
+    </linearGradient>
+    <linearGradient id="ccPageRight" x1="56" y1="18" x2="32" y2="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#a8b89a" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#a8b89a" stop-opacity="0.04"/>
+    </linearGradient>
+    <clipPath id="ccPages">
+      <path d="M8.2 17.4 C7.4 17.5 6.8 18.2 6.8 19 L6.6 49.2 C6.6 50.4 7.6 51.2 8.8 51 L31.2 47.6 L31.2 16.6 C31.2 15.6 30.2 15 29.2 15.2 Z"/>
+      <path d="M32.8 16.6 L32.8 47.6 L55.2 51 C56.4 51.2 57.4 50.4 57.4 49.2 L57.2 19 C57.2 18.2 56.6 17.5 55.8 17.4 L34.8 15.2 C33.8 15 32.8 15.6 32.8 16.6 Z"/>
+    </clipPath>
+  </defs>
+
+  <path
+    fill="url(#ccPageLeft)"
+    stroke="#a8b89a"
+    stroke-opacity="0.45"
+    stroke-width="1.75"
+    stroke-linejoin="round"
+    d="M8.2 17.4 C7.4 17.5 6.8 18.2 6.8 19 L6.6 49.2 C6.6 50.4 7.6 51.2 8.8 51 L31.2 47.6 L31.2 16.6 C31.2 15.6 30.2 15 29.2 15.2 Z"
+  />
+  <path
+    fill="url(#ccPageRight)"
+    stroke="#a8b89a"
+    stroke-opacity="0.45"
+    stroke-width="1.75"
+    stroke-linejoin="round"
+    d="M32.8 16.6 L32.8 47.6 L55.2 51 C56.4 51.2 57.4 50.4 57.4 49.2 L57.2 19 C57.2 18.2 56.6 17.5 55.8 17.4 L34.8 15.2 C33.8 15 32.8 15.6 32.8 16.6 Z"
+  />
+  <path
+    stroke="#a8b89a"
+    stroke-opacity="0.58"
+    stroke-width="2.05"
+    stroke-linecap="round"
+    d="M32 16.4 L32 48.2"
+  />
+  <path
+    stroke="#c9a96e"
+    stroke-opacity="0.38"
+    stroke-width="1.15"
+    stroke-linecap="round"
+    d="M12.2 19.2 L12.05 47.4"
+  />
+
+  <g class="ribbon">
+    <path d="M32 16.6 L32 25.2 L33.2 23.4 L34.4 25.2 L34.4 16.6 Z" fill="#c9a96e"/>
+    <path d="M32 16.6 L32 25.2 L32.75 24.1 L32.75 16.6 Z" fill="#d8c8a0" opacity="0.7"/>
+  </g>
+
+  <g clip-path="url(#ccPages)">
+    <path class="page-line" d="M14.4 24.6 L28.8 26.1"/>
+    <path class="page-line" d="M14.4 32.6 L28.8 34"/>
+    <path class="page-line" d="M14.4 40.6 L27.6 41.7"/>
+    <path class="page-line" d="M35.2 26.1 L53.6 24.6"/>
+    <path class="page-line" d="M35.2 34 L53.6 32.6"/>
+    <path class="page-line" d="M35.2 41.7 L51.2 40.6"/>
+
+    <path class="hl hl-1" pathLength="100" d="M14.4 24.6 L28.8 26.1"/>
+    <path class="hl hl-2" pathLength="100" d="M14.4 32.6 L28.8 34"/>
+    <path class="hl hl-3" pathLength="100" d="M14.4 40.6 L27.6 41.7"/>
+    <path class="hl hl-4" pathLength="100" d="M35.2 26.1 L53.6 24.6"/>
+    <path class="hl hl-5" pathLength="100" d="M35.2 34 L53.6 32.6"/>
+    <path class="hl hl-6" pathLength="100" d="M35.2 41.7 L49.4 40.7"/>
+
+    <g class="marker">
+      <rect x="-8.6" y="-2.15" width="8.6" height="4.3" rx="1.05" fill="#c9a96e"/>
+      <rect x="-8.6" y="-2.15" width="2.15" height="4.3" rx="0.7" fill="#7eb5a6"/>
+      <rect x="-0.15" y="-2.15" width="2.05" height="4.3" rx="0.45" fill="#d8c8a0"/>
+    </g>
+  </g>
+
+  <ellipse class="idea" cx="51.6" cy="40.4" rx="5.1" ry="4.35"/>
+</svg>

@@ -304,6 +304,7 @@ export {
   isHitlTrailStreamTag,
   isToolTrailStatusStreamTag,
   isToolLikeStreamTag,
+  isInFlightToolPart,
   joinAllStreamPartTexts,
   joinPrimaryAssistantStreamText,
   normalizeReasoningStreamPart,

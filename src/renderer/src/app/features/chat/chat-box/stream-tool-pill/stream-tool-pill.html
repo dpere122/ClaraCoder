@@ -11,6 +11,19 @@
   [disabled]="!expandable()"
   (click)="onClick()"
 >
+  @if (spinner()) {
+    <span
+      class="stream-tool-pill__spinner"
+      [class.stream-tool-pill__spinner--read]="spinnerKind() === 'read'"
+      aria-hidden="true"
+    >
+      <img
+        class="stream-tool-pill__spinner-img"
+        [src]="spinnerKind() === 'read' ? 'spinner-read.svg' : 'spinner-jot.svg'"
+        alt=""
+      />
+    </span>
+  }
   <span class="stream-tool-pill__name" [attr.title]="name()">{{ name() }}</span>
   @if (meta()) {
     <span class="stream-tool-pill__sep" aria-hidden="true">·</span>

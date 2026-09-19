@@ -23,6 +23,7 @@ import {
   primaryAssistantTextFromParts,
   clearPrimaryStreamParts,
   isToolLikeStreamTag,
+  isInFlightToolPart,
   promotePrimaryAheadOfToolToReasoning,
   promotePrimaryToNudgeParts,
   primaryStreamPartsForDisplay,
@@ -135,6 +136,56 @@ describe('promotePrimaryAheadOfToolToReasoning', () => {
     const feed = buildTurnFeed(parts);
     expect(feed.some((item) => item.kind === 'thought')).toBe(false);
     expect(feed.some((item) => item.kind === 'markdown' && item.text.includes('live reply'))).toBe(true);
+  });
+});
+
+describe('isInFlightToolPart', () => {
+  it('treats running tool-trail rows as in flight', () => {
+    expect(
+      isInFlightToolPart({
+        streamTag: toolTrailStatusStreamTag('read-1'),
+        label: 'read_workspace_file',
+        text: 'src/app.ts',
+        toolChainState: 'running',
+      }),
+    ).toBe(true);
+  });
+
+  it('does not treat completed or HITL rows as in flight', () => {
+    expect(
+      isInFlightToolPart({
+        streamTag: toolTrailStatusStreamTag('read-1'),
+        label: 'read_workspace_file',
+        text: 'done',
+        toolChainState: 'complete',
+      }),
+    ).toBe(false);
+    expect(
+      isInFlightToolPart({
+        streamTag: hitlTrailStreamTag('diff-1'),
+        label: 'diff',
+        text: 'pending',
+        toolChainState: 'running',
+      }),
+    ).toBe(false);
+  });
+
+  it('treats incomplete shell and run-command streams as in flight', () => {
+    expect(
+      isInFlightToolPart({
+        streamTag: TOOL_PYTEST_STREAM_TAG,
+        label: 'pytest',
+        text: 'running tests',
+      }),
+    ).toBe(true);
+    expect(
+      isInFlightToolPart({
+        streamTag: 'run-command:abc',
+        label: 'run_command',
+        text: 'npm test',
+        runComplete: true,
+      }),
+    ).toBe(false);
   });
 });
 

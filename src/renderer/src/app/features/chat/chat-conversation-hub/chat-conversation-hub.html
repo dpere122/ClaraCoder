@@ -124,6 +124,9 @@
           [remainingTokens]="remainingTokens()"
           [usedPercentage]="usedPercentage()"
           [(autoApplyMode)]="autoApplyMode"
+          [(adminElevationGranted)]="adminElevationGranted"
+          [adminElevationPending]="adminElevationPending()"
+          (adminGrantRequested)="adminGrantRequested.emit()"
           (reasoningEffortChange)="reasoningEffortChange.emit($event)"
         />
       }

@@ -163,6 +163,41 @@ describe('MessageBox', () => {
     expect(send.disabled).toBe(false);
   });
 
+  it('renders Auto Run and Admin as toggle chips in agent mode', async () => {
+    const fixture = TestBed.createComponent(MessageBox);
+    fixture.componentRef.setInput('appConfig', openaiConfig());
+    fixture.componentInstance.composerMode.set('agent');
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const auto = root.querySelector('.composer-chip--auto') as HTMLButtonElement;
+    const admin = root.querySelector('.composer-chip--admin') as HTMLButtonElement;
+    expect(auto).toBeTruthy();
+    expect(admin).toBeTruthy();
+    expect(auto.getAttribute('aria-pressed')).toBe('false');
+    expect(admin.getAttribute('aria-pressed')).toBe('false');
+
+    const grantSpy = vi.fn();
+    fixture.componentInstance.adminGrantRequested.subscribe(grantSpy);
+    auto.click();
+    admin.click();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.autoApplyMode()).toBe(true);
+    expect(fixture.componentInstance.adminElevationGranted()).toBe(false);
+    expect(grantSpy).toHaveBeenCalledTimes(1);
+    expect(auto.getAttribute('aria-pressed')).toBe('true');
+    expect(admin.getAttribute('aria-pressed')).toBe('false');
+
+    fixture.componentInstance.adminElevationGranted.set(true);
+    fixture.detectChanges();
+    expect(admin.getAttribute('aria-pressed')).toBe('true');
+    admin.click();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.adminElevationGranted()).toBe(false);
+  });
+
   it('disables Send when no LLM source is selected', async () => {
     const fixture = TestBed.createComponent(MessageBox);
     fixture.componentRef.setInput('appConfig', { activeLlmModelId: '', llmProviders: [] } as unknown as AppConfig);

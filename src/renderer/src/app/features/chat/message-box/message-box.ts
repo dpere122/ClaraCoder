@@ -76,6 +76,12 @@ export class MessageBox {
   readonly contextPathsDropped = output<ChatContextDroppedPath[]>();
   /** When true (Agent/Plan), tool calls and edits run automatically. Hidden in Ask mode. */
   readonly autoApplyMode = model(false);
+  /** When true, this conversation may run elevated ``run_command``. */
+  readonly adminElevationGranted = model(false);
+  /** True while the Admin-chip confirmation HITL is pending. */
+  readonly adminElevationPending = input(false);
+  /** User clicked Admin while it was off; parent opens the grant HITL. */
+  readonly adminGrantRequested = output<void>();
   /** Active app config — drives model/embeddings status beside the context meter. */
   readonly appConfig = input<AppConfig | null>(null);
   /** User changed Reasoning/Thinking; parent persists onto the active model profile. */
@@ -200,6 +206,21 @@ export class MessageBox {
   /** Forwards the voice button click to {@link voiceToggle}. */
   onVoiceButtonClick(): void {
     this.voiceToggle.emit();
+  }
+
+  /**
+   * Admin chip: revoke immediately when on; request a grant HITL when off.
+   * Does not turn the chip on until the parent confirms the card.
+   */
+  onAdminChipClick(): void {
+    if (this.adminElevationGranted()) {
+      this.adminElevationGranted.set(false);
+      return;
+    }
+    if (this.adminElevationPending()) {
+      return;
+    }
+    this.adminGrantRequested.emit();
   }
 
   /** Brain button: toggle thinking on/off; on unlocks the effort dropdown. */

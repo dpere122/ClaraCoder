@@ -51,6 +51,7 @@ export class HitlComposerDockComponent {
     requestId: string;
     status: 'complete' | 'cancelled';
     summary?: string;
+    action?: 'confirm' | 'confirm_session' | 'cancel';
   }>();
   readonly stagedTransferBatchFinished = output<{
     requestId: string;

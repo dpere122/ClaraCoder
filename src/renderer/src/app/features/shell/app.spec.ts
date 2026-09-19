@@ -217,6 +217,7 @@ function stubElectronApi(
       relativePath: '.clara/system-prompt.md',
     }),
     syncAutoApplyMode: async () => ({ ok: true }),
+    syncAdminElevation: async () => ({ ok: true }),
     startTtsStream: async () => ({ ok: true }),
     registerTtsStreamUrl: async () => ({ url: '' }),
     onTtsStreamPacket: noop,

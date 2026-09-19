@@ -124,16 +124,36 @@
       <lucide-icon name="chevron-down" [size]="14" class="composer-mode-chevron" aria-hidden="true"></lucide-icon>
     </div>
     @if (composerMode() !== 'ask') {
-      <label class="composer-auto-run">
-        <input
-          type="checkbox"
-          class="composer-auto-run-checkbox"
-          [ngModel]="autoApplyMode()"
-          (ngModelChange)="autoApplyMode.set($event)"
+      <div class="composer-toggle-chips">
+        <button
+          type="button"
+          class="composer-chip composer-chip--auto"
+          [class.composer-chip--active]="autoApplyMode()"
+          [attr.aria-pressed]="autoApplyMode()"
           title="Run tool calls and apply edits automatically without side-by-side review in chat"
-        />
-        <span class="composer-auto-run-label">Auto Run</span>
-      </label>
+          (click)="autoApplyMode.set(!autoApplyMode())"
+        >
+          Auto Run
+        </button>
+        <button
+          type="button"
+          class="composer-chip composer-chip--admin"
+          [class.composer-chip--active]="adminElevationGranted()"
+          [class.composer-chip--pending]="adminElevationPending()"
+          [attr.aria-pressed]="adminElevationGranted()"
+          [title]="
+            adminElevationGranted()
+              ? 'This agent has administrator/root shell access for this conversation. Click to revoke.'
+              : adminElevationPending()
+                ? 'Waiting for confirmation to grant this agent administrator access.'
+                : 'Grant this agent administrator/root shell access for this conversation.'
+          "
+          (click)="onAdminChipClick()"
+        >
+          <lucide-icon name="shield" [size]="12" class="composer-chip-icon" aria-hidden="true"></lucide-icon>
+          Admin
+        </button>
+      </div>
     }
     <div class="composer-status-cluster">
       <app-context-capacity

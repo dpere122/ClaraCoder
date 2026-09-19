@@ -1,7 +1,30 @@
 import { CommonModule } from '@angular/common';
-import { Component, computed, inject, input, output, signal } from '@angular/core';
-import type { AcceptCommandPayload, DiffReviewStatus } from '@shared/index';
+import {
+  Component,
+  computed,
+  effect,
+  inject,
+  Injector,
+  input,
+  OnDestroy,
+  output,
+  signal,
+  untracked,
+} from '@angular/core';
+import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
+import {
+  ACCEPT_COMMAND_KIND_ADMIN_ELEVATION,
+  ACCEPT_COMMAND_KIND_ADMIN_ELEVATION_TOOL,
+  type AcceptCommandFinishedEvent,
+  type AcceptCommandPayload,
+  type DiffReviewStatus,
+} from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
+import {
+  HITL_BTN_SPINNER_TYPE,
+  newHitlBtnSpinnerName,
+  scheduleHitlBtnSpinner,
+} from '../../chat/hitl-btn-spinner';
 
 export interface AcceptCommandContextHint {
   kind: string;
@@ -12,6 +35,9 @@ function indicativeDetailKind(label: string): string {
   const normalized = label.trim().toLowerCase();
   if (normalized.includes('working directory')) {
     return 'cwd';
+  }
+  if (normalized.includes('elevation')) {
+    return 'elevation';
   }
   if (normalized.includes('entry script')) {
     return 'script';
@@ -41,26 +67,37 @@ function parseDetailItem(item: string): AcceptCommandContextHint {
 @Component({
   selector: 'app-accept-command',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, NgxSpinnerComponent],
   templateUrl: './accept-command.html',
   styleUrl: './accept-command.css',
 })
-export class AcceptCommandComponent {
+export class AcceptCommandComponent implements OnDestroy {
   private readonly electron = inject(ElectronService);
+  private readonly ngxSpinner = inject(NgxSpinnerService);
+  private readonly inj = inject(Injector);
 
   readonly payload = input.required<AcceptCommandPayload>();
   readonly conversationId = input<string | null>(null);
   readonly reviewStatus = input<DiffReviewStatus>('pending');
   readonly reviewSummary = input<string | undefined>(undefined);
 
-  readonly acceptCommandFinished = output<{
-    requestId: string;
-    status: 'complete' | 'cancelled';
-    summary?: string;
-  }>();
+  readonly acceptCommandFinished = output<AcceptCommandFinishedEvent>();
 
   readonly busy = signal(false);
+  readonly busySpinnerName = newHitlBtnSpinnerName('accept');
+  readonly busySpinnerType = HITL_BTN_SPINNER_TYPE;
   private continueSent = false;
+
+  constructor() {
+    effect(() => {
+      const loading = this.busy();
+      untracked(() => scheduleHitlBtnSpinner(this.ngxSpinner, this.busySpinnerName, loading, this.inj));
+    });
+  }
+
+  ngOnDestroy(): void {
+    void this.ngxSpinner.hide(this.busySpinnerName);
+  }
 
   readonly summaryText = computed(() => {
     const p = this.payload();
@@ -89,6 +126,16 @@ export class AcceptCommandComponent {
       .filter((hint) => hint.value.length > 0),
   );
 
+  readonly confirmSessionLabel = computed(() => this.payload().confirmSessionLabel?.trim() || '');
+
+  private isLocalAdminGrant(): boolean {
+    return this.payload().kind === ACCEPT_COMMAND_KIND_ADMIN_ELEVATION;
+  }
+
+  private isAgentAdminGrant(): boolean {
+    return this.payload().kind === ACCEPT_COMMAND_KIND_ADMIN_ELEVATION_TOOL;
+  }
+
   /** Maps the payload's risk assessment fields to a Bootstrap badge class + label, or null if none applies. */
   readonly riskBadge = computed<{ badgeClass: string; label: string } | null>(() => {
     const p = this.payload();
@@ -111,46 +158,33 @@ export class AcceptCommandComponent {
   });
 
   async onConfirm(): Promise<void> {
-    if (this.continueSent || this.busy() || this.reviewStatus() !== 'pending') return;
-    const id = this.conversationId();
-    if (!id) return;
-    this.busy.set(true);
-    this.continueSent = true;
-    const req = this.payload().requestId;
-    const res = await this.electron.notifyAgentContinue(
-      id,
-      '',
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      'confirm',
-      req,
-    );
-    this.busy.set(false);
-    if (!res.ok) {
-      this.continueSent = false;
-      this.acceptCommandFinished.emit({
-        requestId: req,
-        status: 'cancelled',
-        summary: res.error ?? 'Request failed',
-      });
-      return;
-    }
-    this.acceptCommandFinished.emit({
-      requestId: req,
-      status: 'complete',
-      summary: `${this.payload().confirmLabel} sent; assistant resuming.`,
-    });
+    await this.submitAcceptAction('confirm', this.payload().confirmLabel);
+  }
+
+  async onConfirmSession(): Promise<void> {
+    const label = this.confirmSessionLabel() || 'Allow for this session';
+    await this.submitAcceptAction('confirm_session', label);
   }
 
   async onCancel(): Promise<void> {
     if (this.continueSent || this.busy() || this.reviewStatus() !== 'pending') return;
+    const req = this.payload().requestId;
+    const kind = this.payload().kind;
+    if (this.isLocalAdminGrant()) {
+      this.continueSent = true;
+      this.acceptCommandFinished.emit({
+        requestId: req,
+        status: 'cancelled',
+        summary: 'Cancelled.',
+        action: 'cancel',
+        kind,
+      });
+      return;
+    }
     const id = this.conversationId();
     if (!id) return;
     this.busy.set(true);
     this.continueSent = true;
-    const req = this.payload().requestId;
     await this.electron.notifyAgentContinue(
       id,
       '',
@@ -162,6 +196,106 @@ export class AcceptCommandComponent {
       req,
     );
     this.busy.set(false);
-    this.acceptCommandFinished.emit({ requestId: req, status: 'cancelled', summary: 'Cancelled.' });
+    this.acceptCommandFinished.emit({
+      requestId: req,
+      status: 'cancelled',
+      summary: 'Cancelled.',
+      action: 'cancel',
+      kind,
+    });
+  }
+
+  private async submitAcceptAction(
+    action: 'confirm' | 'confirm_session',
+    summaryLabel: string,
+  ): Promise<void> {
+    if (this.continueSent || this.busy() || this.reviewStatus() !== 'pending') return;
+    const req = this.payload().requestId;
+    const kind = this.payload().kind;
+    if (this.isLocalAdminGrant()) {
+      const conversationId = this.conversationId();
+      if (!conversationId) return;
+      this.busy.set(true);
+      this.continueSent = true;
+      const res = await this.electron.syncAdminElevation(conversationId, true);
+      this.busy.set(false);
+      if (!res.ok) {
+        this.continueSent = false;
+        this.acceptCommandFinished.emit({
+          requestId: req,
+          status: 'cancelled',
+          summary: res.error ?? 'Administrator prompt was cancelled or failed.',
+          action,
+          kind,
+        });
+        return;
+      }
+      this.acceptCommandFinished.emit({
+        requestId: req,
+        status: 'complete',
+        summary: `${summaryLabel} granted for this agent.`,
+        action,
+        kind,
+      });
+      return;
+    }
+    const id = this.conversationId();
+    if (!id) return;
+    this.busy.set(true);
+    this.continueSent = true;
+    if (this.isAgentAdminGrant()) {
+      const grant = await this.electron.syncAdminElevation(id, true);
+      if (!grant.ok) {
+        await this.electron.notifyAgentContinue(
+          id,
+          '',
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          'cancel',
+          req,
+        );
+        this.busy.set(false);
+        this.continueSent = false;
+        this.acceptCommandFinished.emit({
+          requestId: req,
+          status: 'cancelled',
+          summary: grant.error ?? 'Administrator prompt was cancelled or failed.',
+          action: 'cancel',
+          kind,
+        });
+        return;
+      }
+    }
+    const res = await this.electron.notifyAgentContinue(
+      id,
+      '',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      action,
+      req,
+    );
+    this.busy.set(false);
+    if (!res.ok) {
+      this.continueSent = false;
+      this.acceptCommandFinished.emit({
+        requestId: req,
+        status: 'cancelled',
+        summary: res.error ?? 'Request failed',
+        action,
+        kind,
+      });
+      return;
+    }
+    this.acceptCommandFinished.emit({
+      requestId: req,
+      status: 'complete',
+      summary: `${summaryLabel} sent; assistant resuming.`,
+      action,
+      kind,
+    });
   }
 }

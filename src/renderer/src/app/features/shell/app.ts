@@ -25,6 +25,8 @@ import {
   journalPreviewPaths,
   journalUserIdsToInvert,
   resolveRestoreUserIndex,
+  createAdminElevationAcceptPayload,
+  isAdminElevationKind,
   DEFAULT_COMPOSER_RUN_MODE,
   DEFAULT_KOKORO_TTS_VOICE,
   DEFAULT_OPENAI_TTS_VOICE,
@@ -262,6 +264,19 @@ export class App implements OnInit, OnDestroy {
   protected readonly talkEnabled = model(false);
   /** When true, backend applies proposed edits immediately without diff review pause (`auto_apply_mode`). */
   protected readonly autoApplyMode = model(false);
+  /** Per-conversation admin ``run_command`` grant, shown as the composer Admin chip. */
+  protected readonly adminElevationGranted = model(false);
+  private readonly adminElevationByConversation = new Map<string, boolean>();
+  private lastAdminElevationConversationId: string | null = null;
+  /** True while the Admin-chip grant HITL is waiting in this conversation. */
+  protected readonly adminElevationPending = computed(() =>
+    this.messages().some(
+      (m) =>
+        m.role === 'accept_command' &&
+        isAdminElevationKind(m.payload.kind) &&
+        (m.reviewStatus ?? 'pending') === 'pending',
+    ),
+  );
   /** Composer run mode: agent (ReAct), ask (read-only), or plan (plan-and-execute). */
   protected readonly composerMode = model<ComposerRunMode>(DEFAULT_COMPOSER_RUN_MODE);
   /** Shared composer draft (restore puts the selected user prompt back here). */
@@ -713,6 +728,35 @@ export class App implements OnInit, OnDestroy {
       if (this.composerMode() === 'ask') {
         this.autoApplyMode.set(false);
       }
+    });
+
+    effect(() => {
+      const convId = this.activeConversationId();
+      if (convId === this.lastAdminElevationConversationId) {
+        return;
+      }
+      this.lastAdminElevationConversationId = convId;
+      untracked(() => {
+        const granted = this.adminElevationByConversation.get(convId ?? '') ?? false;
+        this.adminElevationGranted.set(granted);
+        if (convId) {
+          void this.electron.syncAdminElevation(convId, granted);
+        }
+      });
+    });
+
+    effect(() => {
+      const granted = this.adminElevationGranted();
+      const convId = untracked(() => this.activeConversationId());
+      if (!convId) {
+        return;
+      }
+      const previous = this.adminElevationByConversation.get(convId) ?? false;
+      if (previous === granted) {
+        return;
+      }
+      this.adminElevationByConversation.set(convId, granted);
+      void this.electron.syncAdminElevation(convId, granted);
     });
 
     effect(() => {
@@ -1360,6 +1404,7 @@ export class App implements OnInit, OnDestroy {
           ? 'openai-compatible'
           : DEFAULT_TTS_PROVIDER,
         userMessageId,
+        this.adminElevationGranted(),
       );
       this.conversationSession.markMessagesDirtyAndAutoSave();
     } catch (err) {
@@ -1524,6 +1569,8 @@ export class App implements OnInit, OnDestroy {
     requestId: string;
     status: 'complete' | 'cancelled';
     summary?: string;
+    action?: 'confirm' | 'confirm_session' | 'cancel';
+    kind?: string;
   }): void {
     this.messages.update((prev) => {
       const copy = [...prev];
@@ -1545,6 +1592,28 @@ export class App implements OnInit, OnDestroy {
       return copy;
     });
     this.conversationSession.markMessagesDirtyAndAutoSave();
+    if (
+      event.status === 'complete' &&
+      (isAdminElevationKind(event.kind) || event.action === 'confirm_session')
+    ) {
+      this.adminElevationGranted.set(true);
+    }
+  }
+
+  onAdminGrantRequested(): void {
+    const convId = this.activeConversationId();
+    if (!convId || this.adminElevationGranted() || this.adminElevationPending()) {
+      return;
+    }
+    const requestId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `admin-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    this.conversationSession.appendLocalHitlArtifact(convId, {
+      role: 'accept_command',
+      payload: createAdminElevationAcceptPayload(requestId),
+      reviewStatus: 'pending',
+    });
   }
 
   onPlanConfirmFinished(event: {

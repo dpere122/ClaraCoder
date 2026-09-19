@@ -50,6 +50,9 @@ SESSION_IDLE_TTL_SEC = 2 * 3600
 #: Opportunistic prune runs from get_session when the dict exceeds this size.
 SESSION_PRUNE_THRESHOLD = 32
 
+#: Reentrancy guard for ``prune_idle_sessions`` (eviction cleanup can call ``get_session``).
+_pruning = False
+
 
 def build_default_runtime_config() -> RuntimeConfig:
     """Factory used on startup: OpenAI + LM Studio presets with empty API keys."""
@@ -133,6 +136,12 @@ def prune_idle_sessions(*, now: float | None = None) -> list[str]:
     full async teardown (checkpoints / bg commands) when an event loop is running.
     Returns evicted session ids.
     """
+    global _pruning
+    if _pruning:
+        # Re-entered from eviction cleanup (cleanup -> get_session -> prune): the
+        # outer prune already owns this pass; recursing here never terminates.
+        return []
+
     ts = time.time() if now is None else now
     protected = (current_session_id.get() or '').strip()
     to_evict = [
@@ -152,23 +161,27 @@ def prune_idle_sessions(*, now: float | None = None) -> list[str]:
     except RuntimeError:
         loop = None
 
-    for sid in to_evict:
-        sess = sessions.get(sid)
-        if sess is None:
-            continue
-        try:
-            invalidate_staging_index_disk(sid)
-        except Exception:
-            logger.debug('invalidate staging index on idle eviction failed', exc_info=True)
-        try:
-            # Cleanup may call get_session (e.g. LSP shutdown); pop only after that returns.
-            cleanup_staging_snapshot_session(sess, sid)
-        except Exception:
-            logger.debug('staging cleanup on idle eviction failed', exc_info=True)
-        sessions.pop(sid, None)
-        if loop is not None:
-            loop.create_task(_async_teardown_after_evict(sid))
-        logger.info('evicted idle session sid=%s', sid)
+    _pruning = True
+    try:
+        for sid in to_evict:
+            sess = sessions.get(sid)
+            if sess is None:
+                continue
+            try:
+                invalidate_staging_index_disk(sid)
+            except Exception:
+                logger.debug('invalidate staging index on idle eviction failed', exc_info=True)
+            try:
+                # Cleanup may call get_session (e.g. LSP shutdown); pop only after that returns.
+                cleanup_staging_snapshot_session(sess, sid)
+            except Exception:
+                logger.debug('staging cleanup on idle eviction failed', exc_info=True)
+            sessions.pop(sid, None)
+            if loop is not None:
+                loop.create_task(_async_teardown_after_evict(sid))
+            logger.info('evicted idle session sid=%s', sid)
+    finally:
+        _pruning = False
     return to_evict
 
 

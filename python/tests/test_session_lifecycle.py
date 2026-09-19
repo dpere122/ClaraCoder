@@ -127,3 +127,39 @@ def test_prune_idle_sessions_evicts_untouched(
     assert 'idle' not in state.sessions
     assert 'keep' in state.sessions
     state.sessions.clear()
+
+
+def test_prune_idle_sessions_is_reentrant_when_cleanup_calls_get_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Eviction cleanup may call ``get_session``; above the prune threshold that
+    used to recurse (get_session -> prune -> cleanup -> get_session -> ...)."""
+
+    from clara_coder_backend.domain import SessionState
+    from clara_coder_backend.session import state
+    from clara_coder_backend.staging import staging_snapshot_session
+
+    state.sessions.clear()
+    state.current_session_id.set('')
+    monkeypatch.setattr(state, 'SESSION_PRUNE_THRESHOLD', 2)
+    for index in range(5):
+        idle = SessionState()
+        idle.last_touched = 1.0
+        state.sessions[f'idle-{index}'] = idle
+
+    cleanup_calls: list[str] = []
+
+    def _cleanup_via_get_session(_sess: SessionState, sid: str) -> None:
+        cleanup_calls.append(sid)
+        # Mirrors LSP shutdown during eviction: re-enters get_session while pruning.
+        state.get_session(sid)
+
+    monkeypatch.setattr(staging_snapshot_session, 'cleanup_staging_snapshot_session', _cleanup_via_get_session)
+    try:
+        fresh = state.get_session('fresh')
+        assert fresh is state.sessions['fresh']
+        assert len(cleanup_calls) == 5
+        assert not any(sid.startswith('idle-') for sid in state.sessions)
+        assert state._pruning is False
+    finally:
+        state.sessions.clear()

@@ -1,18 +1,21 @@
 @if (batchComplete()) {
-  <div class="staged-batch-card staged-batch-card--collapsed border rounded-2 px-3 py-2">
-    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
-      <div>
-        <span class="fw-medium">{{ payload().untransferredFlush ? 'Untransferred drafts' : 'Staged transfer batch' }}</span>
-        <span class="text-secondary small ms-2">{{ payload().files.length }} file(s)</span>
+  <div class="staged-batch-card staged-batch-card--collapsed">
+    <div class="staged-batch__summary">
+      <div class="staged-batch__summary-text">
+        <span class="staged-batch__summary-title">{{ batchTitle() }}</span>
+        <span class="staged-batch__muted">{{ fileCountLabel() }}</span>
+        @if (outcomeSummary()) {
+          <span class="staged-batch__muted">{{ outcomeSummary() }}</span>
+        }
         @if (reviewSummary()) {
-          <span class="text-secondary small ms-2">{{ reviewSummary() }}</span>
+          <span class="staged-batch__muted">{{ reviewSummary() }}</span>
         }
       </div>
       <span
-        class="badge"
-        [class.text-bg-success]="reviewStatus() === 'complete'"
-        [class.text-bg-secondary]="reviewStatus() === 'cancelled'"
-        >{{ reviewStatus() === 'complete' ? 'Complete' : 'Cancelled' }}</span
+        class="staged-batch__chip"
+        [class.staged-batch__chip--ok]="reviewStatus() === 'complete'"
+        [class.staged-batch__chip--warn]="reviewStatus() !== 'complete'"
+        >{{ reviewStatus() === 'complete' ? 'Reviewed' : 'Sent back' }}</span
       >
     </div>
   </div>
@@ -30,107 +33,170 @@
         (click)="collapseBatchExpanded()"
       ></div>
     }
-    <div
-      class="staged-batch-card border rounded-2 overflow-hidden"
-      [class.staged-batch-card--in-expand]="batchExpanded()"
-    >
-      <div class="staged-batch-toolbar p-2 border-bottom">
-        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-          <span class="badge" [class.text-bg-warning]="payload().untransferredFlush" [class.text-bg-info]="!payload().untransferredFlush">{{
-            payload().untransferredFlush ? 'Left untransferred' : 'Staged batch'
-          }}</span>
-          <span class="small fw-medium text-secondary">File {{ fileProgressLabel() }}</span>
-          <code class="small mb-0">{{ currentFile().relativePath }}</code>
+    <div class="staged-batch-card" [class.staged-batch-card--in-expand]="batchExpanded()">
+      <div class="staged-batch-toolbar">
+        <div class="staged-batch__header">
+          <span
+            class="staged-batch__chip"
+            [class.staged-batch__chip--warn]="payload().untransferredFlush"
+            [class.staged-batch__chip--info]="!payload().untransferredFlush"
+            >{{ batchTitle() }}</span
+          >
+          <span class="staged-batch__progress">{{ fileProgressLabel() }}</span>
+          <code class="staged-batch__path" [title]="currentFile().relativePath">{{ currentFile().relativePath }}</code>
+          @if (currentFile().truncated) {
+            <span
+              class="staged-batch__chip staged-batch__chip--warn"
+              title="The preview below is shortened — approving still saves the complete staged file"
+              >Preview shortened</span
+            >
+          }
           <button
             type="button"
-            class="hitl-btn hitl-btn--secondary ms-auto"
+            class="staged-batch__icon-btn"
             [disabled]="applying()"
             (click)="toggleBatchExpanded()"
-            [attr.title]="batchExpanded() ? 'Return batch to inline view (Esc)' : 'Expand batch to full window'"
+            [attr.title]="batchExpanded() ? 'Back to inline view (Esc)' : 'Review in full window'"
+            [attr.aria-label]="batchExpanded() ? 'Back to inline view' : 'Review in full window'"
           >
-            {{ batchExpanded() ? 'Collapse' : 'Expand' }}
+            <lucide-icon [name]="batchExpanded() ? 'minimize-2' : 'maximize-2'" [size]="14" />
           </button>
         </div>
-        <div class="d-flex flex-wrap align-items-center gap-2">
-          @if (payload().files.length > 1) {
-            <button type="button" class="hitl-btn hitl-btn--secondary" [disabled]="currentFileIndex() === 0" (click)="goPrev()">
-              <lucide-icon name="chevron-left" [size]="14" />
-              Prev
-            </button>
+
+        @if (payload().files.length > 1) {
+          <div class="staged-batch__files">
             <button
               type="button"
-              class="hitl-btn hitl-btn--secondary"
-              [disabled]="currentFileIndex() >= payload().files.length - 1"
-              (click)="goNext()"
+              class="staged-batch__icon-btn"
+              [disabled]="currentFileIndex() === 0"
+              (click)="goPrev()"
+              title="Previous file"
+              aria-label="Previous file"
             >
-              Next
-              <lucide-icon name="chevron-right" [size]="14" />
+              <lucide-icon name="chevron-left" [size]="14" />
             </button>
-            <div class="staged-batch-file-tabs d-flex flex-wrap gap-1">
+            <div class="staged-batch__tabs" role="tablist" aria-label="Files in this batch">
               @for (file of payload().files; track file.relativePath; let i = $index) {
                 <button
                   type="button"
-                  class="hitl-btn"
-                  [class.hitl-btn--primary]="i === currentFileIndex()"
-                  [class.hitl-btn--secondary]="i !== currentFileIndex()"
+                  role="tab"
+                  class="staged-batch__tab"
+                  [class.staged-batch__tab--active]="i === currentFileIndex()"
+                  [class.staged-batch__tab--approved]="fileResolution(file.relativePath) === 'approved'"
+                  [class.staged-batch__tab--sent-back]="fileResolution(file.relativePath) === 're_review'"
+                  [attr.aria-selected]="i === currentFileIndex()"
+                  [title]="tabTitle(file.relativePath)"
                   (click)="selectFile(i)"
-                  [title]="file.relativePath"
                 >
+                  <span class="staged-batch__tab-dot" aria-hidden="true"></span>
                   {{ i + 1 }}
-                  @if (isFileResolved(file.relativePath)) {
-                    <span class="ms-1 small">✓</span>
-                  }
                 </button>
               }
             </div>
-          }
+            <button
+              type="button"
+              class="staged-batch__icon-btn"
+              [disabled]="currentFileIndex() >= payload().files.length - 1"
+              (click)="goNext()"
+              title="Next file"
+              aria-label="Next file"
+            >
+              <lucide-icon name="chevron-right" [size]="14" />
+            </button>
+            <span class="staged-batch__muted staged-batch__files-note">{{ remainingLabel() }}</span>
+          </div>
+        }
+
+        <div class="staged-batch__decision">
           @if (applyMessage()) {
-            <span class="small text-secondary" role="status">{{ applyMessage() }}</span>
+            <span class="staged-batch__flash" role="status">{{ applyMessage() }}</span>
           }
           @if (currentFileResolved() === 'pending') {
-            <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
-              <button type="button" class="hitl-btn hitl-btn--success" [disabled]="applying()" (click)="approveCurrentFile()">
-                Approve file
-              </button>
-              <button
-                type="button"
-                class="hitl-btn hitl-btn--accent"
-                [disabled]="applying()"
-                (click)="returnCurrentForReReview()"
-              >
-                Re-review file
-              </button>
-              <button
-                type="button"
-                class="hitl-btn hitl-btn--secondary"
-                [class.active]="feedbackOpen()"
-                (click)="feedbackOpen.set(!feedbackOpen())"
-                [attr.aria-expanded]="feedbackOpen()"
-                title="Optional feedback when returning for re-review"
-              >
-                Notes
-              </button>
-            </div>
+            @if (!feedbackOpen()) {
+              <div class="staged-batch__buttons">
+                <button
+                  type="button"
+                  class="hitl-btn hitl-btn--accent"
+                  [disabled]="applying()"
+                  (click)="openFeedback()"
+                  title="Send this file back for another pass — nothing is saved to disk"
+                >
+                  <lucide-icon name="message-square" [size]="14" />
+                  Request changes
+                </button>
+                <button
+                  type="button"
+                  class="hitl-btn hitl-btn--success"
+                  [disabled]="applying()"
+                  (click)="approveCurrentFile()"
+                  [attr.title]="'Save the staged draft to ' + currentFile().relativePath"
+                >
+                  <lucide-icon name="check" [size]="14" />
+                  Approve &amp; save
+                </button>
+              </div>
+            }
           } @else {
-            <span class="small text-secondary ms-auto">
-              This file is {{ resolutionBadge(currentFileResolved()) | lowercase }}. Use Prev/Next to review remaining files.
-            </span>
+            <div class="staged-batch__resolved">
+              <span
+                class="staged-batch__chip"
+                [class.staged-batch__chip--ok]="currentFileResolved() === 'approved'"
+                [class.staged-batch__chip--warn]="currentFileResolved() === 're_review'"
+                >{{ resolutionHeadline() }}</span
+              >
+              <span class="staged-batch__muted">{{ resolutionHint() }}</span>
+            </div>
           }
         </div>
+
         @if (currentFileResolved() === 'pending' && feedbackOpen()) {
-          <div class="pt-2">
+          <div class="staged-batch__feedback">
+            <label class="staged-batch__feedback-label" for="batch-rereview-notes">
+              What should change in <code>{{ currentFileName() }}</code>?
+              <span class="staged-batch__muted">optional</span>
+            </label>
             <textarea
+              #feedbackInput
               id="batch-rereview-notes"
-              class="form-control form-control-sm"
-              rows="2"
-              aria-label="Notes for this file"
+              class="staged-batch__feedback-input"
+              rows="3"
               [ngModel]="reReviewFeedback()"
               (ngModelChange)="reReviewFeedback.set($event)"
-              placeholder="Optional feedback when returning for re-review"
+              (keydown.control.enter)="returnCurrentForReReview()"
+              (keydown.escape)="closeFeedback()"
+              placeholder="e.g. keep the gradient but make the ears rounder"
             ></textarea>
+            <div class="staged-batch__feedback-footer">
+              <span class="staged-batch__muted">
+                Sends this file back for another pass. Nothing is saved to disk. Ctrl+Enter to send.
+              </span>
+              <div class="staged-batch__buttons">
+                <button type="button" class="hitl-btn hitl-btn--secondary" (click)="closeFeedback()">
+                  Keep reviewing
+                </button>
+                <button
+                  type="button"
+                  class="hitl-btn hitl-btn--accent"
+                  [disabled]="applying()"
+                  (click)="returnCurrentForReReview()"
+                  [attr.title]="'Send ' + currentFile().relativePath + ' back for another pass'"
+                >
+                  <lucide-icon name="undo-2" [size]="14" />
+                  Send back
+                </button>
+              </div>
+            </div>
+          </div>
+        }
+
+        @if (currentFileResolved() === 're_review') {
+          <div class="staged-batch__notes">
+            <span class="staged-batch__notes-label">Notes sent with this file</span>
+            <p class="staged-batch__notes-body">{{ submittedFeedback() || 'No details given.' }}</p>
           </div>
         }
       </div>
+
       @if (currentFile(); as file) {
         <app-diff-apply
           [conversationId]="conversationId()"
@@ -139,6 +205,7 @@
           [reviewSummary]="undefined"
           [suppressStagedTransferActions]="true"
           [hideExpandButton]="true"
+          [hideToolbar]="true"
           [embeddedInBatchExpand]="batchExpanded()"
           [embeddedInHitlExpand]="preferFullscreen()"
         />

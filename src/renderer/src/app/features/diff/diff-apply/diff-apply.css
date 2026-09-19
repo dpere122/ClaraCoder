@@ -212,7 +212,20 @@
 }
 
 .diff-toolbar {
-  border-bottom: 1px solid var(--bs-border-color-translucent);
+  /* Theme border, not Bootstrap's translucent black — the latter is invisible on dark themes. */
+  border-bottom: 1px solid var(--t-border, var(--bs-border-color));
+}
+
+/* Modern rounded chrome for the review card and its controls (beats the global radius reset). */
+.diff-card.border,
+.diff-card--in-expand {
+  border-radius: 0.9rem !important;
+}
+
+.diff-card .hitl-btn,
+.diff-card .diff-search,
+.diff-card textarea {
+  border-radius: 0.6rem !important;
 }
 
 .diff-hunk-row--accepted {

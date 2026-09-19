@@ -52,6 +52,8 @@ export class DiffApplyComponent implements AfterViewInit, OnDestroy {
   readonly suppressStagedTransferActions = input(false);
   /** When true, hide the toolbar Expand control (parent batch card owns fullscreen expand). */
   readonly hideExpandButton = input(false);
+  /** When true, drop the toolbar entirely (parent batch card shows path, status and actions). */
+  readonly hideToolbar = input(false);
   /** When true, stretch diff panes for a parent batch fullscreen shell. */
   readonly embeddedInBatchExpand = input(false);
   /** When true, use taller inline panes inside an expanded HITL trail (not fullscreen). */

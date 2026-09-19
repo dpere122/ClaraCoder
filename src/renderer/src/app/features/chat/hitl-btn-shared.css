@@ -30,64 +30,83 @@
   cursor: not-allowed;
 }
 
+/* Outline (not box-shadow) so the bevel halo survives keyboard focus. */
+.hitl-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--hitl-btn, var(--t-secondary)) 75%, white 25%);
+  outline-offset: 2px;
+}
+
+/* Filled family: bright face, hard bevel, coloured halo so decisions read at a glance. */
 .hitl-btn--primary,
 .hitl-btn--success,
-.hitl-btn--danger {
+.hitl-btn--danger,
+.hitl-btn--accent {
   color: var(--t-bg);
   font-weight: 700;
   letter-spacing: 0.02em;
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--hitl-btn) 88%, white 12%) 0%,
-    var(--hitl-btn) 45%,
-    color-mix(in srgb, var(--hitl-btn) 72%, black 28%) 100%
+    color-mix(in srgb, var(--hitl-btn) 70%, white 30%) 0%,
+    color-mix(in srgb, var(--hitl-btn) 96%, white 4%) 48%,
+    color-mix(in srgb, var(--hitl-btn) 74%, black 26%) 100%
   );
   border-style: solid;
   border-width: 1px;
-  border-top-color: color-mix(in srgb, var(--hitl-btn) 45%, var(--t-edge-light, #fff));
-  border-left-color: color-mix(in srgb, var(--hitl-btn) 40%, var(--t-edge-light, #fff));
-  border-right-color: color-mix(in srgb, var(--hitl-btn) 40%, var(--t-edge-darkest, #000));
-  border-bottom-color: color-mix(in srgb, var(--hitl-btn) 50%, var(--t-edge-darkest, #000));
+  border-top-color: color-mix(in srgb, var(--hitl-btn) 35%, var(--t-edge-light, #fff));
+  border-left-color: color-mix(in srgb, var(--hitl-btn) 32%, var(--t-edge-light, #fff));
+  border-right-color: color-mix(in srgb, var(--hitl-btn) 45%, var(--t-edge-darkest, #000));
+  border-bottom-color: color-mix(in srgb, var(--hitl-btn) 55%, var(--t-edge-darkest, #000));
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 30%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, black 24%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 40%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, black 26%, transparent),
     0 2px 0 color-mix(in srgb, var(--t-edge-darkest, #000) 58%, transparent),
-    0 4px 12px color-mix(in srgb, var(--hitl-btn) 38%, transparent);
-  text-shadow: 0 1px 0 color-mix(in srgb, black 35%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--hitl-btn) 30%, transparent),
+    0 3px 9px color-mix(in srgb, var(--hitl-btn) 24%, transparent);
+  text-shadow: 0 1px 0 color-mix(in srgb, black 30%, transparent);
 }
 
+/* Proceed actions share the confirm green; `--hitl-btn-accent` lets a card override (plan panel). */
 .hitl-btn--primary {
-  --hitl-btn: var(--hitl-btn-accent, var(--t-secondary));
+  --hitl-btn: var(--hitl-btn-accent, var(--t-confirm, var(--t-secondary)));
 }
 
+/* Confirm actions (approve & save, accept): the theme's saturated decision green. */
 .hitl-btn--success {
-  --hitl-btn: var(--t-process-c);
+  --hitl-btn: var(--t-confirm, var(--t-process-c));
 }
 
 .hitl-btn--danger {
   --hitl-btn: var(--t-log-level-error);
 }
 
+/* Caution actions (request changes, apply all): amber, clearly not the confirm button. */
+.hitl-btn--accent {
+  --hitl-btn: var(--t-caution, var(--t-log-level-warning));
+}
+
 .hitl-btn--primary:hover:not(:disabled),
 .hitl-btn--success:hover:not(:disabled),
-.hitl-btn--danger:hover:not(:disabled) {
+.hitl-btn--danger:hover:not(:disabled),
+.hitl-btn--accent:hover:not(:disabled) {
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--hitl-btn) 92%, white 16%) 0%,
-    color-mix(in srgb, var(--hitl-btn) 90%, white 6%) 45%,
-    color-mix(in srgb, var(--hitl-btn) 68%, black 22%) 100%
+    color-mix(in srgb, var(--hitl-btn) 62%, white 38%) 0%,
+    color-mix(in srgb, var(--hitl-btn) 88%, white 12%) 45%,
+    color-mix(in srgb, var(--hitl-btn) 70%, black 20%) 100%
   );
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 36%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 48%, transparent),
     inset 0 -1px 0 color-mix(in srgb, black 18%, transparent),
     0 3px 0 color-mix(in srgb, var(--t-edge-darkest, #000) 58%, transparent),
-    0 7px 16px color-mix(in srgb, var(--hitl-btn) 45%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--hitl-btn) 42%, transparent),
+    0 4px 13px color-mix(in srgb, var(--hitl-btn) 34%, transparent);
   transform: translateY(-1px);
 }
 
 .hitl-btn--primary:active:not(:disabled),
 .hitl-btn--success:active:not(:disabled),
-.hitl-btn--danger:active:not(:disabled) {
+.hitl-btn--danger:active:not(:disabled),
+.hitl-btn--accent:active:not(:disabled) {
   background: linear-gradient(
     180deg,
     color-mix(in srgb, var(--hitl-btn) 65%, black 22%) 0%,
@@ -107,18 +126,20 @@
 
 .hitl-btn--primary:disabled,
 .hitl-btn--success:disabled,
-.hitl-btn--danger:disabled {
+.hitl-btn--danger:disabled,
+.hitl-btn--accent:disabled {
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, white 12%, transparent),
     0 1px 0 color-mix(in srgb, var(--t-edge-darkest, #000) 30%, transparent);
   transform: none;
 }
 
+/* Quiet options (skip, keep reviewing, copy): readable but never competing with the filled pair. */
 .hitl-btn--secondary,
 .hitl-btn--outline {
-  color: var(--t-text-muted);
-  background: transparent;
-  border-color: color-mix(in srgb, var(--t-text-muted) 30%, transparent);
+  color: color-mix(in srgb, var(--t-fg) 62%, var(--t-text-muted));
+  background: color-mix(in srgb, var(--t-fg) 5%, transparent);
+  border-color: color-mix(in srgb, var(--t-text-muted) 48%, transparent);
   box-shadow: none;
   text-shadow: none;
 }
@@ -127,6 +148,7 @@
 .hitl-btn--outline:hover:not(:disabled) {
   background: var(--t-hover-bg);
   color: var(--t-fg);
+  border-color: color-mix(in srgb, var(--t-fg) 45%, transparent);
 }
 
 .hitl-btn--secondary.active:not(:disabled),
@@ -134,19 +156,6 @@
   color: var(--t-fg);
   background: color-mix(in srgb, var(--t-secondary) 14%, var(--t-bg-surface));
   border-color: color-mix(in srgb, var(--t-secondary) 45%, transparent);
-}
-
-.hitl-btn--accent {
-  color: var(--t-secondary);
-  background: color-mix(in srgb, var(--t-secondary) 12%, transparent);
-  border-color: color-mix(in srgb, var(--t-secondary) 45%, transparent);
-  box-shadow: none;
-  text-shadow: none;
-}
-
-.hitl-btn--accent:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--t-secondary) 22%, transparent);
-  color: var(--t-fg);
 }
 
 .hitl-btn--danger-outline {

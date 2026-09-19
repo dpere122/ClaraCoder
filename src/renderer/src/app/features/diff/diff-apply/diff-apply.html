@@ -31,6 +31,7 @@
       [class.rounded-2]="!suppressStagedTransferActions()"
       [class.diff-card--in-expand]="diffExpanded()"
     >
+    @if (!hideToolbar()) {
     <div class="diff-toolbar p-2">
       <div class="diff-toolbar-row d-flex flex-wrap align-items-center gap-2">
         @if (!suppressStagedTransferActions()) {
@@ -74,40 +75,34 @@
           @if (isStagedTransferHitl()) {
             <button
               type="button"
-              class="hitl-btn hitl-btn--success"
-              [disabled]="applying()"
-              (click)="approveStagedTransferHitl()"
-              title="Write staged content to workspace"
+              class="hitl-btn hitl-btn--secondary"
+              [class.active]="feedbackOpen()"
+              (click)="feedbackOpen.set(!feedbackOpen())"
+              [attr.aria-expanded]="feedbackOpen()"
+              title="Add notes to send back with this file"
             >
-              Approve
+              <lucide-icon name="message-square" [size]="14" />
+              Notes
             </button>
             <button
               type="button"
               class="hitl-btn hitl-btn--accent"
               [disabled]="applying()"
               (click)="returnStagedTransferForReReview()"
-              title="Return to review with notes"
+              title="Send this file back for another pass — nothing is saved to disk"
             >
-              Re-review
+              <lucide-icon name="undo-2" [size]="14" />
+              Request changes
             </button>
             <button
               type="button"
-              class="hitl-btn hitl-btn--secondary"
-              [class.active]="feedbackOpen()"
-              (click)="feedbackOpen.set(!feedbackOpen())"
-              [attr.aria-expanded]="feedbackOpen()"
-              title="Optional feedback when returning for re-review"
-            >
-              Notes
-            </button>
-            <button
-              type="button"
-              class="hitl-btn hitl-btn--danger-outline"
+              class="hitl-btn hitl-btn--success"
               [disabled]="applying()"
-              (click)="cancelProposal()"
-              title="Dismiss without approving — same as return for re-review with a default note"
+              (click)="approveStagedTransferHitl()"
+              [attr.title]="'Save the staged draft to ' + payload().relativePath"
             >
-              Cancel
+              <lucide-icon name="check" [size]="14" />
+              Approve &amp; save
             </button>
           } @else if (!suppressStagedTransferActions()) {
             @if (incrementalOk() && changeHunkOrder().length > 0) {
@@ -171,11 +166,12 @@
             aria-label="Notes for re-review"
             [ngModel]="reReviewFeedback()"
             (ngModelChange)="reReviewFeedback.set($event)"
-            placeholder="Optional feedback when returning for re-review"
+            placeholder="What should change before this draft is saved?"
           ></textarea>
         </div>
       }
     </div>
+    }
 
     @if (embeddedInHitlExpand()) {
       <app-diff-monaco-preview

@@ -427,7 +427,13 @@ export {
   LSP_SEMANTIC_LEGEND_SERVER_IDS,
   lspServerIdForMonacoLanguageId,
 } from './lsp-file-policy';
-export type { AcceptCommandPayload } from './types/accept-command';
+export type { AcceptCommandAction, AcceptCommandFinishedEvent, AcceptCommandPayload } from './types/accept-command';
+export {
+  ACCEPT_COMMAND_KIND_ADMIN_ELEVATION,
+  ACCEPT_COMMAND_KIND_ADMIN_ELEVATION_TOOL,
+  createAdminElevationAcceptPayload,
+  isAdminElevationKind,
+} from './types/accept-command';
 export type {
   PlanConfirmFileChange,
   PlanConfirmPayload,

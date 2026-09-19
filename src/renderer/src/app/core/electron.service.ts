@@ -763,6 +763,7 @@ export class ElectronService {
     speechEnabled = false,
     ttsProvider: TtsProvider = 'kokoro',
     userMessageId?: string,
+    adminElevationGranted = false,
   ): void {
     this.api?.sendMessage(
       conversationId,
@@ -775,6 +776,7 @@ export class ElectronService {
       speechEnabled,
       ttsProvider,
       userMessageId,
+      adminElevationGranted,
     );
   }
 
@@ -821,7 +823,7 @@ export class ElectronService {
     deleteRequestId?: string,
     copyAction?: 'confirm' | 'cancel',
     copyRequestId?: string,
-    acceptCommandAction?: 'confirm' | 'cancel',
+    acceptCommandAction?: 'confirm' | 'confirm_session' | 'cancel',
     acceptCommandRequestId?: string,
     stagedTransferAction?: 'confirm' | 're_review',
     stagedTransferRequestId?: string,
@@ -866,6 +868,14 @@ export class ElectronService {
   syncAutoApplyMode(conversationId: string, autoApplyMode: boolean): Promise<{ ok: boolean; error?: string }> {
     return (
       this.api?.syncAutoApplyMode(conversationId, autoApplyMode) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  /** Grant or revoke session admin ``run_command`` (composer Admin chip). */
+  syncAdminElevation(conversationId: string, granted: boolean): Promise<{ ok: boolean; error?: string }> {
+    return (
+      this.api?.syncAdminElevation(conversationId, granted) ??
       Promise.resolve({ ok: false, error: 'API not available' })
     );
   }

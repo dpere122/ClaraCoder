@@ -87,6 +87,7 @@ def outer_turn_authority_preamble(session: SessionState, apply_mode: bool) -> st
 
     editor_s = 'on' if apply_mode else 'off'
     auto_s = 'on' if session.auto_apply_mode else 'off'
+    admin_s = 'on' if session.admin_elevation_granted else 'off'
     direct_s = 'on' if direct_workspace_edits_active(session, apply_mode=apply_mode) else 'off'
     overlap = session.active_editor_langgraph_streams > 0
     overlap_line = (
@@ -98,6 +99,7 @@ def outer_turn_authority_preamble(session: SessionState, apply_mode: bool) -> st
         '**Session truth (authoritative for this message; older assistant replies may be outdated):**\n'
         f'- Editor (toolbar, this turn): **{editor_s}**\n'
         f'- Auto-apply (UI): **{auto_s}**\n'
+        f'- Admin (composer chip): **{admin_s}**\n'
         f'- Direct workspace writes (Editor + Auto-apply): **{direct_s}**'
         f'{overlap_line}\n'
         '- If any line above conflicts with earlier assistant prose in this chat, trust **this block** and the **current** '

@@ -29,6 +29,7 @@ from clara_coder_backend.session.schemas import (
     ClearRequest,
     LoadRequest,
     PythonInterpreterSelectRequest,
+    SessionAdminElevationRequest,
     SessionAutoApplyRequest,
     WorkspaceContextRequest,
     WorkspaceSystemPromptRequest,
@@ -263,3 +264,26 @@ async def session_auto_apply(request: SessionAutoApplyRequest) -> dict[str, bool
     sess = state.get_session(request.session_id)
     sess.auto_apply_mode = request.auto_apply_mode
     return {'ok': True}
+
+
+@router.post('/session/admin-elevation')
+async def session_admin_elevation(request: SessionAdminElevationRequest) -> dict[str, bool | str]:
+    """Grant or revoke per-session admin ``run_command`` (composer Admin chip).
+
+    Grant starts the elevated helper immediately so UAC/polkit appears here,
+    not on the next ``run_command``.
+    """
+    from clara_coder_backend.runtime.admin_exec import shutdown_session_broker, warmup_persistent_broker
+
+    sess = state.get_session(request.session_id)
+    if not request.granted:
+        sess.admin_elevation_granted = False
+        await shutdown_session_broker(request.session_id)
+        return {'ok': True, 'granted': False}
+
+    err = await warmup_persistent_broker(request.session_id)
+    if err:
+        sess.admin_elevation_granted = False
+        return {'ok': False, 'granted': False, 'error': err}
+    sess.admin_elevation_granted = True
+    return {'ok': True, 'granted': True}

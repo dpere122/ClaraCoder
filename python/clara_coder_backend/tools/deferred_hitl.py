@@ -8,8 +8,10 @@ from contextvars import ContextVar
 from typing import Any
 
 from clara_coder_backend.domain import SessionState
+from clara_coder_backend.runtime.admin_exec import elevation_privilege_label
 
 ACCEPT_COMMAND_KIND_DEFERRED_TOOL = 'deferred_tool'
+ACCEPT_COMMAND_KIND_ADMIN_ELEVATION_TOOL = 'admin_elevation_tool'
 
 deferred_tool_hitl_bypass: ContextVar[bool] = ContextVar('deferred_tool_hitl_bypass', default=False)
 
@@ -23,9 +25,11 @@ DEFERRED_HITL_TOOL_NAMES: frozenset[str] = frozenset(
 )
 
 __all__ = [
+    'ACCEPT_COMMAND_KIND_ADMIN_ELEVATION_TOOL',
     'ACCEPT_COMMAND_KIND_DEFERRED_TOOL',
     'DEFERRED_HITL_TOOL_NAMES',
     'deferred_tool_hitl_bypass',
+    'maybe_await_hitl_for_admin_elevation',
     'maybe_await_hitl_for_deferred_tool',
 ]
 
@@ -35,6 +39,8 @@ def _presentation(tool_name: str, tool_input: dict[str, Any]) -> tuple[str, str,
         command = str(tool_input.get('command') or '').strip()
         cwd = str(tool_input.get('cwd') or '').strip()
         details = [f'Working directory: `{cwd or "."}`']
+        if bool(tool_input.get('elevate')):
+            details.append(f'Elevation: `{elevation_privilege_label()}`')
         return (
             'Run terminal command',
             'Run a shell command in the workspace as a managed background job.',
@@ -87,6 +93,44 @@ def _presentation(tool_name: str, tool_input: dict[str, Any]) -> tuple[str, str,
     )
 
 
+def maybe_await_hitl_for_admin_elevation(
+    session: SessionState,
+    *,
+    tool_name: str,
+    tool_input: dict[str, Any] | None = None,
+) -> str:
+    """Stage the composer Admin grant card and pause until the user allows or cancels."""
+
+    inp = dict(tool_input or {})
+    pending: dict[str, Any] = {
+        'request_id': uuid.uuid4().hex,
+        'kind': ACCEPT_COMMAND_KIND_ADMIN_ELEVATION_TOOL,
+        'title': 'Grant administrator access',
+        'message': (
+            'Allow this agent to run shell commands with administrator or root privileges '
+            'for this conversation. A Windows UAC or polkit prompt will appear after you click Allow.'
+        ),
+        'confirm_label': 'Allow',
+        'cancel_label': 'Cancel',
+        'command_text': '',
+        'details': [
+            'Applies to this conversation only',
+            'Approve the system prompt now to start the elevated helper',
+            'Turn off Admin in the composer to revoke',
+        ],
+        'cancel_note': 'User declined administrator access for this agent.',
+        'action': {
+            'tool_name': tool_name,
+            'tool_input': inp,
+        },
+    }
+    session.pending_accept_command_request = pending
+    return (
+        'Pending user confirmation for administrator access. '
+        'The UI will ask the user to enable Admin before this elevated command runs.'
+    )
+
+
 def maybe_await_hitl_for_deferred_tool(
     session: SessionState,
     *,
@@ -97,11 +141,13 @@ def maybe_await_hitl_for_deferred_tool(
 
     if tool_name not in DEFERRED_HITL_TOOL_NAMES:
         return None
-    if session.auto_apply_mode or deferred_tool_hitl_bypass.get():
+    if deferred_tool_hitl_bypass.get():
         return None
     inp = dict(tool_input or {})
+    if session.auto_apply_mode:
+        return None
     title, message, command_text, details = _presentation(tool_name, inp)
-    session.pending_accept_command_request = {
+    pending: dict[str, Any] = {
         'request_id': uuid.uuid4().hex,
         'kind': ACCEPT_COMMAND_KIND_DEFERRED_TOOL,
         'title': title,
@@ -116,6 +162,7 @@ def maybe_await_hitl_for_deferred_tool(
             'tool_input': inp,
         },
     }
+    session.pending_accept_command_request = pending
     return (
         f'Pending user confirmation for `{tool_name}`. '
         'The UI will ask the user to confirm before this command runs.'

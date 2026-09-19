@@ -34,6 +34,7 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
         request.speech_enabled,
         request.tts_provider,
         request.user_message_id,
+        request.admin_elevation_granted,
     )
     return StreamingResponse(generator, media_type='text/event-stream')
 
@@ -110,8 +111,9 @@ async def agent_continue(request: AgentContinueRequest) -> dict[str, bool | str]
     elif request.accept_command_action:
         extra = await execute_pending_accept_command_decision(
             sess,
-            confirm=request.accept_command_action == 'confirm',
+            confirm=request.accept_command_action in ('confirm', 'confirm_session'),
             request_id=request.accept_command_request_id or None,
+            grant_session=request.accept_command_action == 'confirm_session',
         )
         note = extra if extra else note
     elif request.staged_transfer_action:

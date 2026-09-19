@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import codecs
 import re
+import sys
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -29,6 +30,14 @@ from langchain_core.tools import tool
 from clara_coder_backend.config import (
     CLARA_RUN_COMMAND_DEFAULT_WAIT_SEC,
     CLARA_RUN_COMMAND_MAX_WAIT_SEC,
+)
+from clara_coder_backend.runtime.admin_exec import (
+    ElevatedJobHandle,
+    admin_elevation_supported,
+    elevation_privilege_label,
+    is_currently_privileged,
+    shutdown_session_broker,
+    start_elevated_job,
 )
 from clara_coder_backend.session.state import current_session_id, get_session, mutation_tools_blocked_reason
 from clara_coder_backend.tools.tool_conventions import describe
@@ -102,9 +111,36 @@ __all__ = [
     'kill_background_command_tool',
     'kill_session_background_commands',
     'list_background_commands_tool',
+    'normalize_run_command_elevation',
     'run_command_tool',
     'wait_for_command_tool',
 ]
+
+
+_LEADING_SUDO_VALUE_FLAGS = frozenset({'-u', '-g', '-C', '-D', '-p', '-r', '-t', '-U'})
+
+
+def normalize_run_command_elevation(command: str, elevate: bool = False) -> tuple[str, bool]:
+    """Strip a leading ``sudo`` (and common flags) and return ``(command, elevate)``."""
+
+    text = (command or '').strip()
+    tokens = text.split()
+    if tokens and tokens[0].lower() == 'sudo':
+        index = 1
+        while index < len(tokens):
+            token = tokens[index]
+            if token == '--':
+                index += 1
+                break
+            if token in _LEADING_SUDO_VALUE_FLAGS:
+                index += 2
+                continue
+            if token.startswith('-'):
+                index += 1
+                continue
+            break
+        return ' '.join(tokens[index:]), True
+    return text, bool(elevate)
 
 
 @dataclass
@@ -115,7 +151,7 @@ class CommandJob:
     session_id: str
     command_text: str
     cwd_label: str
-    proc: asyncio.subprocess.Process
+    proc: asyncio.subprocess.Process | None
     started_at: float  # time.monotonic()
     buffer: str = ''
     #: Absolute char index of ``buffer[0]`` in the full output stream (grows when old output is dropped).
@@ -126,6 +162,8 @@ class CommandJob:
     exit_code: int | None = None
     done: asyncio.Event = field(default_factory=asyncio.Event)
     reader_task: asyncio.Task | None = None
+    elevated: bool = False
+    elevated_handle: ElevatedJobHandle | None = None
 
     def elapsed_sec(self) -> int:
         return max(0, int(time.monotonic() - self.started_at))
@@ -232,21 +270,36 @@ def _consume_new_output(job: CommandJob) -> tuple[str, bool]:
 async def _pump_output(job: CommandJob) -> None:
     """Stream merged stdout+stderr into the rolling buffer, then record the exit."""
     decoder = codecs.getincrementaldecoder('utf-8')('replace')
-    stdout = job.proc.stdout
     try:
-        if stdout is not None:
-            while True:
-                block = await stdout.read(_READ_BLOCK_BYTES)
-                if not block:
-                    break
+        handle = job.elevated_handle
+        if handle is not None:
+            async for block in handle.iter_chunks():
                 chunk = decoder.decode(block)
                 _append_output(job, chunk)
                 await _emit_run_command_chunk(job.session_id, job, chunk)
             tail = decoder.decode(b'', True)
             _append_output(job, tail)
             await _emit_run_command_chunk(job.session_id, job, tail)
+        else:
+            stdout = job.proc.stdout if job.proc is not None else None
+            if stdout is not None:
+                while True:
+                    block = await stdout.read(_READ_BLOCK_BYTES)
+                    if not block:
+                        break
+                    chunk = decoder.decode(block)
+                    _append_output(job, chunk)
+                    await _emit_run_command_chunk(job.session_id, job, chunk)
+                tail = decoder.decode(b'', True)
+                _append_output(job, tail)
+                await _emit_run_command_chunk(job.session_id, job, tail)
     finally:
-        code = await job.proc.wait()
+        if job.elevated_handle is not None:
+            code = await job.elevated_handle.wait()
+        elif job.proc is not None:
+            code = await job.proc.wait()
+        else:
+            code = 1
         job.exit_code = code
         if job.status == STATUS_RUNNING:
             job.status = STATUS_EXITED
@@ -283,6 +336,8 @@ def _format_report(job: CommandJob, *, waited_sec: float) -> str:
         f'- Command: `{job.command_text}`',
         f'- Working directory: `{job.cwd_label}`',
     ]
+    if job.elevated:
+        lines.append(f'- Elevation: `{elevation_privilege_label()}`')
     if job.status == STATUS_RUNNING:
         lines.append(f'- Status: still running after {job.elapsed_sec()}s (waited {int(waited_sec)}s this call)')
     elif job.status == STATUS_KILLED:
@@ -325,7 +380,11 @@ async def _kill_job(job: CommandJob) -> None:
 
     if job.status == STATUS_RUNNING:
         job.status = STATUS_KILLED
-    await _terminate_subprocess_tree(job.proc)
+    if job.elevated_handle is not None:
+        await job.elevated_handle.kill()
+        return
+    if job.proc is not None:
+        await _terminate_subprocess_tree(job.proc)
 
 
 async def _start_job(
@@ -335,6 +394,7 @@ async def _start_job(
     cwd_label: str,
     cwd: str,
     env: dict[str, str] | None,
+    elevated: bool = False,
 ) -> tuple[CommandJob | None, str | None]:
     try:
         proc = await asyncio.create_subprocess_shell(
@@ -355,6 +415,54 @@ async def _start_job(
         cwd_label=cwd_label,
         proc=proc,
         started_at=time.monotonic(),
+        elevated=elevated,
+    )
+    job.reader_task = asyncio.create_task(_pump_output(job))
+    _JOBS[job.job_id] = job
+    await _emit_run_command_open(session_id, job)
+    return job, None
+
+
+async def _start_elevated_job(
+    session_id: str,
+    *,
+    command: str,
+    cwd_label: str,
+    cwd: str,
+    env: dict[str, str] | None,
+    persist: bool,
+) -> tuple[CommandJob | None, str | None]:
+    if not admin_elevation_supported():
+        return None, 'Tool error: admin commands are supported on Windows and Linux only.'
+    if is_currently_privileged():
+        return await _start_job(
+            session_id,
+            command=command,
+            cwd_label=cwd_label,
+            cwd=cwd,
+            env=env,
+            elevated=True,
+        )
+    job_id = uuid.uuid4().hex[:8]
+    handle, err = await start_elevated_job(
+        session_id,
+        job_id=job_id,
+        command=command,
+        cwd=cwd,
+        env=env,
+        persist=persist,
+    )
+    if err or handle is None:
+        return None, err or 'Tool error: elevated command failed to start.'
+    job = CommandJob(
+        job_id=job_id,
+        session_id=session_id,
+        command_text=command,
+        cwd_label=cwd_label,
+        proc=None,
+        started_at=time.monotonic(),
+        elevated=True,
+        elevated_handle=handle,
     )
     job.reader_task = asyncio.create_task(_pump_output(job))
     _JOBS[job.job_id] = job
@@ -380,20 +488,28 @@ def _find_session_job(session_id: str, command_id: str) -> tuple[CommandJob | No
     'Run a shell command in the workspace as a managed background job.',
     when=(
         'builds, tests, git, scripts, app/runtime smoke checks, and long-lived dev servers '
-        '(npm/pnpm/yarn start/dev/serve/preview, python entrypoints) — anything without a dedicated tool.'
+        '(npm/pnpm/yarn start/dev/serve/preview, python entrypoints) — anything without a dedicated tool. '
+        'Set `elevate` for package installs, services, hosts/firewall, and other admin/root work.'
     ),
-    not_='interactive commands (stdin is closed); use `kill_background_command` for jobs started here.',
+    not_=(
+        'interactive commands (stdin is closed; no password prompt); '
+        'use `kill_background_command` for jobs started here.'
+    ),
     shape=(
-        'requires user confirmation unless auto-apply is on; waits `wait_seconds` '
+        'requires user confirmation unless auto-apply is on; `elevate=true` without Admin '
+        'asks the user to grant administrator access (same HITL as the composer Admin chip); '
+        'after Admin is on, auto-apply off still asks Run/Cancel; '
+        'waits `wait_seconds` '
         f'(default {CLARA_RUN_COMMAND_DEFAULT_WAIT_SEC}s, 0 = return immediately, max {CLARA_RUN_COMMAND_MAX_WAIT_SEC}s); '
         'if still running, returns a command id for `wait_for_command` / `kill_background_command`; '
         'prefer this over one-shot runners for servers so the process stays in the background framework; '
-        'stdout+stderr merged; `cwd` is workspace-relative.'
+        'stdout+stderr merged; `cwd` is workspace-relative; a leading `sudo` is treated as `elevate`.'
     ),))
 async def run_command_tool(
     command: Annotated[str, 'shell command line, e.g. `npm run build`'],
     cwd: Annotated[str, 'workspace-relative working directory (empty = workspace root)'] = '',
     wait_seconds: Annotated[float | None, 'seconds to wait before reporting; 0 = fire and forget'] = None,
+    elevate: Annotated[bool, 'run with administrator/root privileges; user must enable Admin in the composer first'] = False,
 ) -> str:
 
     sid = (current_session_id.get() or '').strip()
@@ -404,21 +520,53 @@ async def run_command_tool(
         return blocked
     session = get_session(sid)
 
-    command_text = (command or '').strip()
+    if isinstance(elevate, str):
+        elevate = elevate.strip().lower() in {'1', 'true', 'yes', 'on'}
+    else:
+        elevate = bool(elevate)
+    command_text, elevate = normalize_run_command_elevation(command, elevate)
     denied = validate_run_command_text(command_text)
     if denied:
         return denied
+    if elevate and not admin_elevation_supported():
+        return 'Tool error: admin commands are supported on Windows and Linux only.'
     wait_sec, wait_err = _normalize_wait_seconds(wait_seconds, default=CLARA_RUN_COMMAND_DEFAULT_WAIT_SEC)
     if wait_err:
         return wait_err
     assert wait_sec is not None
+    if elevate and not session.admin_elevation_granted:
+        from clara_coder_backend.tools.deferred_hitl import (
+            deferred_tool_hitl_bypass,
+            maybe_await_hitl_for_admin_elevation,
+        )
+
+        if deferred_tool_hitl_bypass.get():
+            return (
+                'Tool error: administrator access is off. The user must enable Admin in the composer '
+                '(shield chip) before elevated `run_command` / `sudo` can run.'
+            )
+        return maybe_await_hitl_for_admin_elevation(
+            session,
+            tool_name=RUN_COMMAND_NAME,
+            tool_input={
+                'command': command_text,
+                'cwd': cwd,
+                'wait_seconds': wait_sec,
+                'elevate': True,
+            },
+        )
 
     from clara_coder_backend.tools.deferred_hitl import maybe_await_hitl_for_deferred_tool
 
     pending = maybe_await_hitl_for_deferred_tool(
         session,
         tool_name=RUN_COMMAND_NAME,
-        tool_input={'command': command_text, 'cwd': cwd, 'wait_seconds': wait_sec},
+        tool_input={
+            'command': command_text,
+            'cwd': cwd,
+            'wait_seconds': wait_sec,
+            'elevate': elevate,
+        },
     )
     if pending:
         return pending
@@ -450,13 +598,23 @@ async def run_command_tool(
     from clara_coder_backend.runtime.python_env import session_workspace_subprocess_env, with_subprocess_color_env
 
     env = session_workspace_subprocess_env(session) or with_subprocess_color_env()
-    job, start_err = await _start_job(
-        sid,
-        command=command_text,
-        cwd_label=cwd_label,
-        cwd=str(cwd_path),
-        env=env,
-    )
+    if elevate:
+        job, start_err = await _start_elevated_job(
+            sid,
+            command=command_text,
+            cwd_label=cwd_label,
+            cwd=str(cwd_path),
+            env=env,
+            persist=bool(session.admin_elevation_granted),
+        )
+    else:
+        job, start_err = await _start_job(
+            sid,
+            command=command_text,
+            cwd_label=cwd_label,
+            cwd=str(cwd_path),
+            env=env,
+        )
     if start_err:
         return start_err
     assert job is not None
@@ -590,6 +748,7 @@ async def kill_session_background_commands(session_id: str) -> None:
         if job.status == STATUS_RUNNING:
             await _kill_job(job)
         _JOBS.pop(job_id, None)
+    await shutdown_session_broker(session_id)
 
 
 def background_command_tools() -> list[object]:

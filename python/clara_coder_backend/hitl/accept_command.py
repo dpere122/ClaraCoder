@@ -5,9 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 from clara_coder_backend.domain import SessionState
-from clara_coder_backend.tools.deferred_hitl import ACCEPT_COMMAND_KIND_DEFERRED_TOOL
+from clara_coder_backend.tools.deferred_hitl import (
+    ACCEPT_COMMAND_KIND_ADMIN_ELEVATION_TOOL,
+    ACCEPT_COMMAND_KIND_DEFERRED_TOOL,
+)
 
 __all__ = [
+    'ACCEPT_COMMAND_KIND_ADMIN_ELEVATION_TOOL',
     'ACCEPT_COMMAND_KIND_DEFERRED_TOOL',
     'accept_command_sse_payload',
     'execute_pending_accept_command_decision',
@@ -28,6 +32,9 @@ def accept_command_sse_payload(pending: dict[str, Any]) -> dict[str, Any]:
         'commandText': str(pending.get('command_text') or ''),
         'details': [str(item) for item in (pending.get('details') or []) if str(item).strip()],
     }
+    session_label = str(pending.get('confirm_session_label') or '').strip()
+    if session_label:
+        payload['confirmSessionLabel'] = session_label
 
     risk_status = pending.get('risk_assessment_status')
     if risk_status:
@@ -44,6 +51,7 @@ async def execute_pending_accept_command_decision(
     *,
     confirm: bool,
     request_id: str | None,
+    grant_session: bool = False,
 ) -> str:
     """Execute or cancel the current generic accept-command request."""
 
@@ -57,7 +65,24 @@ async def execute_pending_accept_command_decision(
     if not confirm:
         return str(pending.get('cancel_note') or 'User cancelled the requested command.')
 
+    if grant_session:
+        action = pending.get('action') if isinstance(pending.get('action'), dict) else {}
+        tool_input = action.get('tool_input') if isinstance(action.get('tool_input'), dict) else {}
+        if str(action.get('tool_name') or '') == 'run_command' and bool(tool_input.get('elevate')):
+            session.admin_elevation_granted = True
+
     kind = str(pending.get('kind') or '')
+    if kind == ACCEPT_COMMAND_KIND_ADMIN_ELEVATION_TOOL:
+        from clara_coder_backend.hitl.deferred_tool_hitl import execute_pending_deferred_tool
+        from clara_coder_backend.runtime.admin_exec import warmup_persistent_broker
+        from clara_coder_backend.session.state import sessions
+
+        sid = next((key for key, state in sessions.items() if state is session), '')
+        err = await warmup_persistent_broker(sid) if sid else 'Tool error: no active session.'
+        if err:
+            return err
+        session.admin_elevation_granted = True
+        return await execute_pending_deferred_tool(session, pending)
     if kind == ACCEPT_COMMAND_KIND_DEFERRED_TOOL:
         from clara_coder_backend.hitl.deferred_tool_hitl import execute_pending_deferred_tool
 

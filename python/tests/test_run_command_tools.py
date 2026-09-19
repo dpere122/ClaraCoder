@@ -18,7 +18,9 @@ from clara_coder_backend.tools.run_command import (
     kill_background_command_tool,
     kill_session_background_commands,
     list_background_commands_tool,
+    normalize_run_command_elevation,
     run_command_tool,
+    validate_run_command_text,
     wait_for_command_tool,
 )
 
@@ -162,4 +164,94 @@ async def test_list_background_commands_and_session_cleanup(command_session) -> 
         listing_after = await list_background_commands_tool.ainvoke({})
         assert listing_after == 'No background commands in this session.'
     finally:
+        await _cleanup('run-command-test-session')
+
+
+@pytest.mark.parametrize(
+    ('raw', 'elevate_in', 'expected_command', 'expected_elevate'),
+    [
+        ('echo hi', False, 'echo hi', False),
+        ('echo hi', True, 'echo hi', True),
+        ('sudo apt install foo', False, 'apt install foo', True),
+        ('sudo -- apt install foo', False, 'apt install foo', True),
+        ('sudo -n apt install foo', False, 'apt install foo', True),
+        ('sudo -E -- id', True, 'id', True),
+    ],
+)
+def test_normalize_run_command_elevation(
+    raw: str,
+    elevate_in: bool,
+    expected_command: str,
+    expected_elevate: bool,
+) -> None:
+    command, elevate = normalize_run_command_elevation(raw, elevate_in)
+    assert command == expected_command
+    assert elevate is expected_elevate
+
+
+@pytest.mark.asyncio(loop_scope='function')
+async def test_elevate_still_denied_by_denylist(command_session) -> None:
+    command_session.auto_apply_mode = True
+    command_session.admin_elevation_granted = True
+    out = await run_command_tool.ainvoke({'command': 'rm -rf /', 'elevate': True, 'wait_seconds': 1})
+    assert 'blocked by safety policy' in out
+    assert not [j for j in background_command_jobs().values() if j.session_id == 'run-command-test-session']
+    assert validate_run_command_text('rm -rf /') is not None
+
+
+@pytest.mark.asyncio(loop_scope='function')
+async def test_sudo_without_admin_grant_stages_admin_hitl(command_session) -> None:
+    command_session.auto_apply_mode = True
+    command_session.admin_elevation_granted = False
+    try:
+        out = await run_command_tool.ainvoke({'command': 'sudo echo elevated-hi', 'wait_seconds': 5})
+        assert 'Pending user confirmation for administrator access' in out
+        pending = command_session.pending_accept_command_request
+        assert pending is not None
+        assert pending['kind'] == 'admin_elevation_tool'
+        assert pending['confirm_label'] == 'Allow'
+        assert pending['command_text'] == ''
+        assert pending['action']['tool_input']['elevate'] is True
+        assert pending['action']['tool_input']['command'] == 'echo elevated-hi'
+        assert not [j for j in background_command_jobs().values() if j.session_id == 'run-command-test-session']
+    finally:
+        command_session.pending_accept_command_request = None
+
+
+@pytest.mark.asyncio(loop_scope='function')
+async def test_granted_session_skips_elevate_hitl_and_runs(command_session, monkeypatch: pytest.MonkeyPatch) -> None:
+    command_session.auto_apply_mode = True
+    command_session.admin_elevation_granted = True
+    monkeypatch.setattr(
+        'clara_coder_backend.tools.run_command.is_currently_privileged',
+        lambda: True,
+    )
+    try:
+        out = await run_command_tool.ainvoke(
+            {'command': 'echo elevated-granted', 'elevate': True, 'wait_seconds': 15}
+        )
+        assert 'exited with code 0' in out
+        assert 'elevated-granted' in out
+        assert 'Elevation:' in out
+        assert command_session.pending_accept_command_request is None
+    finally:
+        await _cleanup('run-command-test-session')
+
+
+@pytest.mark.asyncio(loop_scope='function')
+async def test_granted_session_still_hitl_when_auto_apply_off(command_session) -> None:
+    command_session.auto_apply_mode = False
+    command_session.admin_elevation_granted = True
+    try:
+        out = await run_command_tool.ainvoke(
+            {'command': 'echo still-ask', 'elevate': True, 'wait_seconds': 5}
+        )
+        assert 'Pending user confirmation' in out
+        pending = command_session.pending_accept_command_request
+        assert pending is not None
+        assert pending['confirm_label'] == 'Run'
+        assert 'confirm_session_label' not in pending
+        assert not [j for j in background_command_jobs().values() if j.session_id == 'run-command-test-session']
+    finally:
+        command_session.pending_accept_command_request = None
         await _cleanup('run-command-test-session')

@@ -116,8 +116,8 @@ import { ThemedConfirmDialogService } from './themed-confirm-dialog.service';
 
     .tcd-btn {
       min-width: 6.5rem;
-      padding: 0.4rem 0.85rem;
-      border-radius: 4px;
+      padding: 0.4rem 0.95rem;
+      border-radius: 999px !important;
       font-size: 0.78rem;
       font-family: inherit;
       cursor: pointer;

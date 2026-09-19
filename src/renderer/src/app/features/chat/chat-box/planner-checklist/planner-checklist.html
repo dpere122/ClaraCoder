@@ -10,16 +10,13 @@
     role="region"
     aria-label="Plan"
   >
-    <div class="plan-panel__frame plan-panel__frame--top" aria-hidden="true">
-      <span class="plan-panel__frame-corner">╔</span>
-      <span class="plan-panel__frame-label">═ {{ frameLabel() }} ═</span>
-      <span class="plan-panel__frame-fill"></span>
+    <div class="plan-panel__frame" aria-hidden="true">
+      <span class="plan-panel__frame-label">{{ frameLabel() }}</span>
       <span class="plan-panel__frame-count">
         @if (totalSteps() > 0 && (planner().phase === 'executing' || planner().phase === 'complete' || planner().phase === 'error')) {
           {{ completeCount() }}/{{ totalSteps() }}
         }
       </span>
-      <span class="plan-panel__frame-corner">╗</span>
     </div>
 
     <div class="plan-panel__inner">
@@ -235,10 +232,5 @@
         }
     </div>
 
-    <div class="plan-panel__frame plan-panel__frame--bottom" aria-hidden="true">
-      <span class="plan-panel__frame-corner">╚</span>
-      <span class="plan-panel__frame-fill"></span>
-      <span class="plan-panel__frame-corner">╝</span>
-    </div>
   </div>
 }

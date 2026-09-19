@@ -20,19 +20,26 @@ app-conversation-manager .conv-list {
 app-conversation-manager .conv-item {
   display: flex;
   align-items: center;
-  padding: 0.45rem 0.7rem;
+  margin: 0.12rem 0.45rem;
+  padding: 0.4rem 0.7rem;
   cursor: pointer;
-  transition: background-color 0.12s;
-  border-left: 2px solid transparent;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  border: 1px solid transparent;
+  border-radius: 999px !important;
 }
 
 app-conversation-manager .conv-item:hover {
   background-color: var(--t-hover-bg);
+  border-color: var(--t-primary);
+}
+
+app-conversation-manager .conv-item:hover .conv-title {
+  color: var(--t-primary);
 }
 
 app-conversation-manager .conv-item.active {
   background-color: var(--t-active-bg);
-  border-left-color: var(--t-primary);
+  border-color: var(--t-primary);
 }
 
 app-conversation-manager .conv-title {
@@ -72,12 +79,15 @@ app-conversation-manager .delete-btn {
   align-items: center;
   justify-content: center;
   background: transparent;
-  border: none;
+  border: 1px solid transparent;
+  border-radius: 999px !important;
   color: var(--t-border);
-  padding: 0.15rem 0.3rem;
+  padding: 0.15rem;
+  width: 1.45rem;
+  height: 1.45rem;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.15s, color 0.15s;
+  transition: opacity 0.15s, color 0.15s, background-color 0.12s, border-color 0.12s;
 }
 
 app-conversation-manager .conv-item:hover .delete-btn {
@@ -86,16 +96,18 @@ app-conversation-manager .conv-item:hover .delete-btn {
 
 app-conversation-manager .delete-btn:hover {
   color: #ff4444;
+  background-color: var(--t-hover-bg);
+  border-color: color-mix(in srgb, #ff4444 55%, var(--t-border));
 }
 
 app-conversation-manager .conv-context-menu {
   position: fixed;
   z-index: 10000;
   min-width: 9rem;
-  padding: 0.2rem 0;
+  padding: 0.25rem;
   margin: 0;
   border: 1px solid var(--t-border);
-  border-radius: 4px;
+  border-radius: 0.85rem !important;
   background: var(--t-bg);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
 }
@@ -104,7 +116,8 @@ app-conversation-manager .conv-context-menu-item {
   display: block;
   width: 100%;
   padding: 0.45rem 0.75rem;
-  border: none;
+  border: 1px solid transparent;
+  border-radius: 999px !important;
   background: transparent;
   color: var(--t-primary);
   font-family: inherit;
@@ -115,6 +128,7 @@ app-conversation-manager .conv-context-menu-item {
 
 app-conversation-manager .conv-context-menu-item:hover {
   background: var(--t-hover-bg);
+  border-color: var(--t-primary);
 }
 
 app-conversation-manager .conv-context-menu-item.danger {
@@ -123,6 +137,7 @@ app-conversation-manager .conv-context-menu-item.danger {
 
 app-conversation-manager .conv-context-menu-item.danger:hover {
   background: color-mix(in srgb, var(--t-danger, #c44) 12%, var(--t-hover-bg));
+  border-color: color-mix(in srgb, var(--t-danger, #c44) 55%, var(--t-border));
 }
 
 app-conversation-manager .conv-pending-spinner-host {

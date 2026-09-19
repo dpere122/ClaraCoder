@@ -1227,3 +1227,216 @@ def test_parallel_same_name_previews_bind_by_path(mock_conn: MagicMock) -> None:
     assert [_sse_json(ln)['status']['id'] for ln in first_second if '"type": "status"' in ln] == [ids[0]]
     assert state.gemma_run_id_alias['lg-b'] == ids[1]
     assert state.gemma_run_id_alias['lg-a'] == ids[0]
+
+
+def _native_tool_chunk(*, index: int, name: str | None = None, args: str = '', call_id: str | None = None) -> AIMessageChunk:
+    return AIMessageChunk(
+        content='',
+        tool_call_chunks=[{'name': name, 'args': args, 'id': call_id, 'index': index}],
+    )
+
+
+def test_native_tool_call_chunks_preview_write_tool_while_args_stream() -> None:
+    state = GraphStreamState()
+    kwargs = _sse_kwargs()
+
+    named = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {'chunk': _native_tool_chunk(index=0, name='stage_create_file', args='', call_id='call_1')},
+        },
+        state,
+        **kwargs,
+    )
+    named_status = [_sse_json(ln)['status'] for ln in named if '"type": "status"' in ln]
+    assert named_status
+    assert named_status[0]['label'] == 'stage_create_file'
+    assert named_status[0]['state'] == 'running'
+    assert named_status[0]['source'] == 'tool'
+    preview_id = named_status[0]['id']
+    assert preview_id.startswith('native-tool-preview-')
+    assert preview_id in state.pending_tool_runs
+
+    pathed = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {'chunk': _native_tool_chunk(index=0, args='{"relative_path": "src/app.ts", "new_content": "')},
+        },
+        state,
+        **kwargs,
+    )
+    pathed_status = [_sse_json(ln)['status'] for ln in pathed if '"type": "status"' in ln]
+    assert pathed_status
+    assert pathed_status[0]['id'] == preview_id
+    assert pathed_status[0]['detail'] == 'src/app.ts'
+
+    # Small deltas do not re-announce until the buffer grows by a step.
+    quiet = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {'chunk': _native_tool_chunk(index=0, args='const x = 1;\\n')},
+        },
+        state,
+        **kwargs,
+    )
+    assert not any('"type": "status"' in ln for ln in quiet)
+
+    big = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {'chunk': _native_tool_chunk(index=0, args='x' * 1200)},
+        },
+        state,
+        **kwargs,
+    )
+    big_status = [_sse_json(ln)['status'] for ln in big if '"type": "status"' in ln]
+    assert big_status
+    assert big_status[0]['id'] == preview_id
+    assert big_status[0]['detail'].startswith('src/app.ts · drafting ')
+    assert 'KB' in big_status[0]['detail']
+
+    start = sse_lines_for_graph_event(
+        {
+            'event': 'on_tool_start',
+            'name': 'stage_create_file',
+            'run_id': 'lg-run-native',
+            'data': {'input': {'relative_path': 'src/app.ts', 'new_content': 'const x = 1;'}},
+        },
+        state,
+        **kwargs,
+    )
+    start_status = [_sse_json(ln)['status'] for ln in start if '"type": "status"' in ln]
+    assert start_status[0]['id'] == preview_id
+    assert start_status[0]['detail'] == 'src/app.ts'
+    assert preview_id not in state.pending_tool_runs
+    assert 'lg-run-native' in state.pending_tool_runs
+
+    end = sse_lines_for_graph_event(
+        {
+            'event': 'on_tool_end',
+            'name': 'stage_create_file',
+            'run_id': 'lg-run-native',
+            'data': {'output': 'Staged src/app.ts'},
+        },
+        state,
+        **kwargs,
+    )
+    end_status = [_sse_json(ln)['status'] for ln in end if '"type": "status"' in ln]
+    assert end_status[0]['id'] == preview_id
+    assert end_status[0]['state'] == 'complete'
+
+
+def test_native_tool_call_chunks_parallel_calls_get_distinct_previews() -> None:
+    state = GraphStreamState()
+    kwargs = _sse_kwargs()
+    first = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {
+                'chunk': AIMessageChunk(
+                    content='',
+                    tool_call_chunks=[
+                        {'name': 'read_workspace_file', 'args': '{"path": "a.py"}', 'id': 'c1', 'index': 0},
+                        {'name': 'read_workspace_file', 'args': '{"path": "b.py"}', 'id': 'c2', 'index': 1},
+                    ],
+                ),
+            },
+        },
+        state,
+        **kwargs,
+    )
+    rows = [_sse_json(ln)['status'] for ln in first if '"type": "status"' in ln]
+    assert [row['detail'] for row in rows] == ['a.py', 'b.py']
+    assert rows[0]['id'] != rows[1]['id']
+
+    bound_b = sse_lines_for_graph_event(
+        {
+            'event': 'on_tool_start',
+            'name': 'read_workspace_file',
+            'run_id': 'lg-b',
+            'data': {'input': {'path': 'b.py'}},
+        },
+        state,
+        **kwargs,
+    )
+    assert [_sse_json(ln)['status']['id'] for ln in bound_b if '"type": "status"' in ln] == [rows[1]['id']]
+
+
+def test_native_preview_reset_per_llm_step_and_completed_when_no_tool_calls() -> None:
+    state = GraphStreamState()
+    kwargs = _sse_kwargs()
+    sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {'chunk': _native_tool_chunk(index=0, name='stage_create_file', args='{"relative_path": "a.py"')},
+        },
+        state,
+        **kwargs,
+    )
+    preview_id = next(iter(state.native_tool_drafts.values())).preview_id
+    end_lines = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_end',
+            'data': {'output': AIMessage(content='I changed my mind.')},
+        },
+        state,
+        **kwargs,
+    )
+    done = [
+        _sse_json(ln)['status']
+        for ln in end_lines
+        if '"type": "status"' in ln and _sse_json(ln)['status']['id'] == preview_id
+    ]
+    assert done and done[0]['state'] == 'complete'
+    assert preview_id not in state.pending_tool_runs
+
+    sse_lines_for_graph_event(
+        {'event': 'on_chat_model_start', 'data': {'input': {'messages': [HumanMessage(content='hi')]}}},
+        state,
+        **kwargs,
+    )
+    assert state.native_tool_drafts == {}
+
+
+def test_tool_progress_folds_into_running_tool_pill() -> None:
+    from clara_coder_backend.lang_agent.langgraph_sse import tool_progress_sse_lines
+
+    state = GraphStreamState()
+    kwargs = _sse_kwargs()
+    start = sse_lines_for_graph_event(
+        {
+            'event': 'on_tool_start',
+            'name': 'stage_snippet_edit',
+            'run_id': 'lg-run-2',
+            'data': {'input': {'relative_path': 'src/a.ts', 'old_snippet': 'x', 'new_snippet': 'y'}},
+        },
+        state,
+        **kwargs,
+    )
+    status_id = [_sse_json(ln)['status']['id'] for ln in start if '"type": "status"' in ln][0]
+
+    lines = tool_progress_sse_lines(
+        {'tool_name': 'stage_snippet_edit', 'relative_path': 'src/a.ts', 'detail': 'src/a.ts · formatting'},
+        states=[state],
+        agent_role=None,
+        stream_tag='agent',
+    )
+    rows = [_sse_json(ln)['status'] for ln in lines]
+    assert rows == [
+        {
+            'id': status_id,
+            'label': 'stage_snippet_edit',
+            'detail': 'src/a.ts · formatting',
+            'state': 'running',
+            'source': 'tool',
+            'stream_tag': 'agent',
+        }
+    ]
+
+    # Unknown tool → nothing (no orphan pill).
+    assert tool_progress_sse_lines(
+        {'tool_name': 'stage_create_file', 'relative_path': 'other.ts', 'detail': 'other.ts · writing to disk'},
+        states=[state],
+        agent_role=None,
+        stream_tag='agent',
+    ) == []

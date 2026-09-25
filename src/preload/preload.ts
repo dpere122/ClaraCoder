@@ -10,6 +10,7 @@ import { lspHealthApi } from './apis/lsp-health-api';
 import { modelManagerApi } from './apis/model-manager-api';
 import { workspaceApi } from './apis/workspace-api';
 import { dependenciesApi } from './apis/dependencies-api';
+import { themeApi } from './apis/theme-api';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   ...chatApi,
@@ -19,4 +20,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   ...modelManagerApi,
   ...lspHealthApi,
   ...dependenciesApi,
+  ...themeApi,
 });

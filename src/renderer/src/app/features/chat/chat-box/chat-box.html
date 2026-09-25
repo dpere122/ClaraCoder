@@ -16,6 +16,7 @@
 
       <div
         class="msg-bubble"
+        [attr.data-theme-group]="slot.row.kind === 'user' ? 'chat.user-bubble' : 'chat.assistant-bubble'"
         [class.user-bubble]="slot.row.kind === 'user'"
         [class.assistant-bubble]="slot.row.kind === 'assistant-turn'"
         [class.assistant-turn-bubble]="slot.row.kind === 'assistant-turn'"

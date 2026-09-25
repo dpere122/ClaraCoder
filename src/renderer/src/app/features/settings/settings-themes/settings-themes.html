@@ -1,0 +1,160 @@
+<div class="settings-pane settings-pane--sectioned settings-pane--themes">
+  @if (subTab() !== 'library') {
+    <div class="themes-context">
+      <div class="themes-context__text">
+        <span class="themes-context__label">Editing</span>
+        <strong class="themes-context__name">{{ t.selectedTheme().name }}</strong>
+        <code class="themes-context__id">{{ t.selectedTheme().id }}</code>
+        <span class="pill">{{ t.selectedTheme().mode }}</span>
+        @if (t.readOnly()) {
+          <span class="pill">built-in · read-only</span>
+        } @else if (t.draftDirty()) {
+          <span class="pill">unsaved edits</span>
+        }
+      </div>
+      @if (t.readOnly()) {
+        <button type="button" class="action-button action-button--primary" [disabled]="t.busy()" (click)="t.duplicateSelected()">
+          Duplicate to edit
+        </button>
+      }
+    </div>
+    @if (t.status()) {
+      <p class="tll__status" role="status">{{ t.status() }}</p>
+    }
+  }
+
+  @if (subTab() === 'library') {
+    <app-theme-library-list />
+  }
+
+  @if (subTab() === 'global') {
+    @for (category of tokenCategories; track category.id) {
+      <section class="form-section themes-section">
+        <div class="themes-section__header">
+          <h5>{{ category.label }}</h5>
+          <p class="settings-copy">{{ category.description }}</p>
+        </div>
+        <app-theme-token-editor
+          [tokens]="category.tokens"
+          [values]="t.selectedTheme().tokens"
+          [inherited]="t.effectiveTokens()"
+          [readOnly]="t.readOnly()"
+          (tokenChange)="onGlobalToken($event)"
+        />
+      </section>
+    }
+  }
+
+  @if (category()) {
+    <p class="settings-copy themes-intro">
+      {{ categoryGroups().length }} registered group{{ categoryGroups().length === 1 ? '' : 's' }} in
+      <strong>{{ categoryLabel() }}</strong>. Overrides apply only inside each group's root element.
+    </p>
+    @for (group of categoryGroups(); track group.id) {
+      <app-theme-group-panel
+        [group]="group"
+        [override]="override(group.id)"
+        [themeId]="t.selectedTheme().id"
+        [assets]="t.selectedTheme().assets ?? {}"
+        [inherited]="t.effectiveTokens()"
+        [readOnly]="t.readOnly()"
+        [cssWarnings]="cssWarnings(group.id)"
+        (tokenChange)="onGroupToken(group.id, $event)"
+        (cssChange)="t.setGroupCss(group.id, $event)"
+        (backgroundChange)="t.setGroupBackground(group.id, $event)"
+        (backgroundClear)="t.clearGroupBackground(group.id)"
+        (pickAsset)="t.pickGroupBackground(group.id)"
+        (removeAsset)="t.removeAsset($event)"
+      />
+    }
+  }
+
+  @if (subTab() === 'monaco') {
+    <app-theme-monaco-panel />
+  }
+
+  @if (subTab() === 'advanced') {
+    <section class="form-section themes-section">
+      <div class="themes-section__header">
+        <h5>Metadata</h5>
+      </div>
+      <div class="form-grid">
+        <label class="field">
+          <span>Name</span>
+          <input type="text" [disabled]="t.readOnly()" [value]="t.selectedTheme().name" (change)="t.setName($any($event.target).value)" />
+        </label>
+        <label class="field">
+          <span>Mode</span>
+          <select [disabled]="t.readOnly()" [value]="t.selectedTheme().mode" (change)="t.setMode($any($event.target).value)">
+            <option value="dark">dark</option>
+            <option value="light">light</option>
+          </select>
+        </label>
+        <label class="field field--full">
+          <span>Description</span>
+          <input
+            type="text"
+            [disabled]="t.readOnly()"
+            [value]="t.selectedTheme().description ?? ''"
+            (change)="t.setDescription($any($event.target).value)"
+          />
+        </label>
+      </div>
+    </section>
+
+    <section class="form-section themes-section">
+      <div class="themes-section__header">
+        <h5>Validation</h5>
+        <p class="settings-copy">
+          Problems the engine will drop or default at apply time. Errors block saving; warnings are informational.
+        </p>
+      </div>
+      @if (t.validation().errors.length === 0 && t.validation().warnings.length === 0) {
+        <p class="settings-copy">No issues.</p>
+      }
+      @if (t.validation().errors.length > 0) {
+        <ul class="themes-issues themes-issues--errors">
+          @for (issue of t.validation().errors; track $index) {
+            <li><code>{{ issue.path || '(root)' }}</code> {{ issue.message }}</li>
+          }
+        </ul>
+      }
+      @if (t.validation().warnings.length > 0) {
+        <ul class="themes-issues">
+          @for (issue of t.validation().warnings; track $index) {
+            <li><code>{{ issue.path || '(root)' }}</code> {{ issue.message }}</li>
+          }
+        </ul>
+      }
+    </section>
+
+    <section class="form-section themes-section">
+      <div class="themes-section__header">
+        <h5>Raw JSON</h5>
+        <p class="settings-copy">
+          The full theme document. Paste a document from Clara or another user and apply it; unknown tokens and groups
+          are dropped with warnings. The id is kept.
+        </p>
+      </div>
+      <div class="themes-json-actions">
+        <button type="button" class="action-button" (click)="loadJson()">Load current</button>
+        <button type="button" class="action-button action-button--primary" [disabled]="t.readOnly() || !jsonText().trim()" (click)="applyJson()">
+          Apply JSON
+        </button>
+        <button type="button" class="action-button" [disabled]="t.busy()" (click)="t.importTheme()">Import file</button>
+        <button type="button" class="action-button" [disabled]="t.busy()" (click)="t.exportSelected()">Export file</button>
+        @if (jsonMessage()) {
+          <span class="themes-json-message">{{ jsonMessage() }}</span>
+        }
+      </div>
+      <textarea
+        class="themes-json"
+        rows="18"
+        spellcheck="false"
+        [ngModel]="jsonText()"
+        (ngModelChange)="jsonText.set($event)"
+        placeholder="Click “Load current” or paste a theme document here."
+      ></textarea>
+    </section>
+  }
+</div>

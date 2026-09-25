@@ -13,7 +13,7 @@
     <span class="talk-status-text">{{ talkStatus() || talkDetail() }}</span>
   </div>
 }
-<div class="composer-stack" (mousedown)="onComposerMouseDown($event)">
+<div class="composer-stack" data-theme-group="chat.composer" (mousedown)="onComposerMouseDown($event)">
   <div class="composer-entry-row">
     <div
       class="composer-input-wrap"

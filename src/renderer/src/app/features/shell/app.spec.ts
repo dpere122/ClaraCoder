@@ -52,7 +52,7 @@ function stubElectronApi(
     currentWorkspaceId: null as string | null,
     lastActiveConversationByWorkspaceId: {} as Record<string, string>,
     workspaces: [] as { id: string; name: string; path: string }[],
-    themeId: 'woodland',
+    themeId: 'clara-dark',
     activeLlmModelId: 'default-lmstudio',
     llmProviders: [
       {
@@ -136,14 +136,14 @@ function stubElectronApi(
       {
         ...conversationMetas[index],
         messages: fixture.messages ?? [],
-        themeId: 'woodland',
+        themeId: 'clara-dark',
       },
     ]),
   );
   const fallbackConv = {
     ...conversationMetas[0],
     messages: conversationFixtures[0]?.messages ?? [],
-    themeId: 'woodland',
+    themeId: 'clara-dark',
   };
   const loadedConfig = { ...defaultConfig, ...configOverrides };
   refs.loadedConfig = loadedConfig;

@@ -51,7 +51,7 @@ function sampleConfig(): AppConfig {
         favoriteOrder: 1,
       },
     ],
-    themeId: 'default',
+    themeId: 'clara-dark',
     activeLlmModelId: 'm',
     llmProviders: [],
     audioTranscription: {} as AppConfig['audioTranscription'],

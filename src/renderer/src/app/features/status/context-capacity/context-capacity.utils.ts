@@ -46,6 +46,7 @@ function estimateMessageTokens(message: ConversationMessage): number {
     case 'delete_confirm':
     case 'plan_confirm':
     case 'agent_question':
+    case 'theme_proposal':
     case 'staged_transfer_batch':
       return (
         TOOL_ARTIFACT_OVERHEAD_TOKENS +

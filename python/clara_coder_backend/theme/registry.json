@@ -1,0 +1,1469 @@
+{
+  "version": 1,
+  "categories": [
+    {
+      "id": "chat",
+      "label": "Chat"
+    },
+    {
+      "id": "dependencies",
+      "label": "Dependencies window"
+    },
+    {
+      "id": "dialogs",
+      "label": "Dialogs"
+    },
+    {
+      "id": "editor",
+      "label": "Editor"
+    },
+    {
+      "id": "health",
+      "label": "Health window"
+    },
+    {
+      "id": "hitl",
+      "label": "Review cards"
+    },
+    {
+      "id": "settings",
+      "label": "Settings window"
+    },
+    {
+      "id": "shell",
+      "label": "Shell & layout"
+    },
+    {
+      "id": "workspace",
+      "label": "Workspace"
+    }
+  ],
+  "groups": [
+    {
+      "id": "chat.assistant-bubble",
+      "label": "Assistant bubble",
+      "category": "chat",
+      "categoryLabel": "Chat",
+      "selector": "[data-theme-group=\"chat.assistant-bubble\"]",
+      "component": "app/features/chat/chat-box",
+      "tokens": [
+        "--t-assistant-bg",
+        "--t-assistant-border",
+        "--t-assistant-fg",
+        "--t-bg",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-chat-bg",
+        "--t-code-bg",
+        "--t-code-inline-bg",
+        "--t-code-text",
+        "--t-fg",
+        "--t-glow",
+        "--t-glow-soft",
+        "--t-hljs-attr",
+        "--t-hljs-class",
+        "--t-hljs-comment",
+        "--t-hljs-function",
+        "--t-hljs-keyword",
+        "--t-hljs-meta",
+        "--t-hljs-name",
+        "--t-hljs-number",
+        "--t-hljs-operator",
+        "--t-hljs-params",
+        "--t-hljs-property",
+        "--t-hljs-punctuation",
+        "--t-hljs-selector",
+        "--t-hljs-string",
+        "--t-hljs-symbol",
+        "--t-hljs-tag",
+        "--t-hover-bg",
+        "--t-log-level-warning",
+        "--t-primary",
+        "--t-secondary",
+        "--t-surface-2",
+        "--t-text-muted",
+        "--t-tui-clara-frame",
+        "--t-user-bg",
+        "--t-user-border",
+        "--t-user-fg"
+      ],
+      "supportsBackground": false,
+      "description": "Clara's replies, including rendered markdown and code blocks."
+    },
+    {
+      "id": "chat.composer",
+      "label": "Composer",
+      "category": "chat",
+      "categoryLabel": "Chat",
+      "selector": "[data-theme-group=\"chat.composer\"]",
+      "component": "app/features/chat/message-box",
+      "tokens": [
+        "--t-active-bg",
+        "--t-bg",
+        "--t-bg-deep",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-composer-bg",
+        "--t-confirm",
+        "--t-fg",
+        "--t-hover-bg",
+        "--t-input-bg",
+        "--t-input-fg",
+        "--t-primary",
+        "--t-secondary",
+        "--t-text-muted"
+      ],
+      "supportsBackground": false,
+      "description": "Message input, prompt toggle, send/abort, and option row."
+    },
+    {
+      "id": "chat.context-bar",
+      "label": "Context chips",
+      "category": "chat",
+      "categoryLabel": "Chat",
+      "selector": "[data-theme-group=\"chat.context-bar\"]",
+      "component": "app/features/chat/chat-context-bar",
+      "tokens": [
+        "--t-bg",
+        "--t-border-subtle",
+        "--t-fg",
+        "--t-hover-bg",
+        "--t-input-fg",
+        "--t-primary",
+        "--t-text-muted"
+      ],
+      "supportsBackground": false,
+      "description": "Attached files and folders above the composer."
+    },
+    {
+      "id": "chat.conversation-list",
+      "label": "Conversation list",
+      "category": "chat",
+      "categoryLabel": "Chat",
+      "selector": "[data-theme-group=\"chat.conversation-list\"]",
+      "component": "app/features/chat/conversation-manager",
+      "tokens": [
+        "--t-active-bg",
+        "--t-bg",
+        "--t-bg-deep",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-danger",
+        "--t-fg",
+        "--t-hover-bg",
+        "--t-primary",
+        "--t-secondary",
+        "--t-text-muted"
+      ],
+      "supportsBackground": false,
+      "description": "Saved conversations in the sidebar hub."
+    },
+    {
+      "id": "chat.plan-panel",
+      "label": "Plan panel",
+      "category": "chat",
+      "categoryLabel": "Chat",
+      "selector": "[data-theme-group=\"chat.plan-panel\"]",
+      "component": "app/features/chat/chat-box/planner-checklist",
+      "tokens": [
+        "--t-bg-surface",
+        "--t-fg",
+        "--t-font",
+        "--t-font-mono",
+        "--t-log-level-error",
+        "--t-primary",
+        "--t-process-c",
+        "--t-secondary",
+        "--t-text-muted",
+        "--t-tui-clara-frame",
+        "--t-tui-input-frame"
+      ],
+      "supportsBackground": false,
+      "description": "Planner checklist shown for plan-mode turns."
+    },
+    {
+      "id": "chat.stream-pills",
+      "label": "Stream pills",
+      "category": "chat",
+      "categoryLabel": "Chat",
+      "selector": "[data-theme-group=\"chat.stream-pills\"]",
+      "component": "app/features/chat/chat-box/stream-tool-pill",
+      "tokens": [
+        "--t-bg",
+        "--t-bg-deep",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-code-inline-bg",
+        "--t-code-text",
+        "--t-edge-darkest",
+        "--t-glow",
+        "--t-glow-soft",
+        "--t-hover-bg",
+        "--t-log-level-error",
+        "--t-panel",
+        "--t-primary",
+        "--t-process-a",
+        "--t-secondary"
+      ],
+      "supportsBackground": false,
+      "description": "Live thought, nudge, and tool-status pills during a reply."
+    },
+    {
+      "id": "chat.transcript",
+      "label": "Transcript",
+      "category": "chat",
+      "categoryLabel": "Chat",
+      "selector": "[data-theme-group=\"chat.transcript\"]",
+      "component": "app/features/chat/chat-box",
+      "tokens": [
+        "--t-assistant-bg",
+        "--t-assistant-border",
+        "--t-assistant-fg",
+        "--t-bg",
+        "--t-bg-deep",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-chat-bg",
+        "--t-code-bg",
+        "--t-code-inline-bg",
+        "--t-code-text",
+        "--t-edge-darkest",
+        "--t-fg",
+        "--t-font",
+        "--t-font-mono",
+        "--t-glow",
+        "--t-glow-soft",
+        "--t-hljs-attr",
+        "--t-hljs-class",
+        "--t-hljs-comment",
+        "--t-hljs-function",
+        "--t-hljs-keyword",
+        "--t-hljs-meta",
+        "--t-hljs-name",
+        "--t-hljs-number",
+        "--t-hljs-operator",
+        "--t-hljs-params",
+        "--t-hljs-property",
+        "--t-hljs-punctuation",
+        "--t-hljs-selector",
+        "--t-hljs-string",
+        "--t-hljs-symbol",
+        "--t-hljs-tag",
+        "--t-hover-bg",
+        "--t-log-level-error",
+        "--t-log-level-warning",
+        "--t-panel",
+        "--t-primary",
+        "--t-process-a",
+        "--t-process-c",
+        "--t-secondary",
+        "--t-surface-2",
+        "--t-text-muted",
+        "--t-tui-clara-frame",
+        "--t-tui-input-frame",
+        "--t-user-bg",
+        "--t-user-border",
+        "--t-user-fg"
+      ],
+      "supportsBackground": true,
+      "description": "Scrollable conversation panel behind the message bubbles.",
+      "backgroundClear": [
+        ".chat-box"
+      ]
+    },
+    {
+      "id": "chat.user-bubble",
+      "label": "User bubble",
+      "category": "chat",
+      "categoryLabel": "Chat",
+      "selector": "[data-theme-group=\"chat.user-bubble\"]",
+      "component": "app/features/chat/chat-box",
+      "tokens": [
+        "--t-assistant-bg",
+        "--t-assistant-border",
+        "--t-assistant-fg",
+        "--t-bg",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-chat-bg",
+        "--t-code-bg",
+        "--t-code-inline-bg",
+        "--t-code-text",
+        "--t-fg",
+        "--t-glow",
+        "--t-glow-soft",
+        "--t-hljs-attr",
+        "--t-hljs-class",
+        "--t-hljs-comment",
+        "--t-hljs-function",
+        "--t-hljs-keyword",
+        "--t-hljs-meta",
+        "--t-hljs-name",
+        "--t-hljs-number",
+        "--t-hljs-operator",
+        "--t-hljs-params",
+        "--t-hljs-property",
+        "--t-hljs-punctuation",
+        "--t-hljs-selector",
+        "--t-hljs-string",
+        "--t-hljs-symbol",
+        "--t-hljs-tag",
+        "--t-hover-bg",
+        "--t-log-level-warning",
+        "--t-primary",
+        "--t-secondary",
+        "--t-surface-2",
+        "--t-text-muted",
+        "--t-tui-user-frame",
+        "--t-user-bg",
+        "--t-user-border",
+        "--t-user-fg"
+      ],
+      "supportsBackground": false,
+      "description": "Your messages in the transcript."
+    },
+    {
+      "id": "dependencies.window",
+      "label": "Window",
+      "category": "dependencies",
+      "categoryLabel": "Dependencies window",
+      "selector": "[data-theme-group=\"dependencies.window\"]",
+      "component": "app/features/dependencies/dependencies",
+      "tokens": [
+        "--t-bg",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-fg",
+        "--t-font",
+        "--t-hover-bg",
+        "--t-mono",
+        "--t-primary",
+        "--t-text-muted"
+      ],
+      "supportsBackground": false,
+      "description": "Dependencies manager window."
+    },
+    {
+      "id": "dialogs.confirm",
+      "label": "Confirm dialog",
+      "category": "dialogs",
+      "categoryLabel": "Dialogs",
+      "selector": "[data-theme-group=\"dialogs.confirm\"]",
+      "component": "app/shared/themed-confirm-dialog",
+      "tokens": [
+        "--t-bg-deep",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-elev-shadow",
+        "--t-fg",
+        "--t-font-mono",
+        "--t-hover-bg",
+        "--t-primary",
+        "--t-text-muted",
+        "--t-warn"
+      ],
+      "supportsBackground": false,
+      "description": "Themed confirmation dialog panel."
+    },
+    {
+      "id": "dialogs.prompt",
+      "label": "Prompt dialog",
+      "category": "dialogs",
+      "categoryLabel": "Dialogs",
+      "selector": "[data-theme-group=\"dialogs.prompt\"]",
+      "component": "app/shared/themed-prompt-dialog",
+      "tokens": [
+        "--t-bg-deep",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-elev-shadow",
+        "--t-fg",
+        "--t-font-mono",
+        "--t-hover-bg",
+        "--t-primary",
+        "--t-warn"
+      ],
+      "supportsBackground": false,
+      "description": "Themed text-input dialog panel."
+    },
+    {
+      "id": "editor.image-viewer",
+      "label": "Image viewer",
+      "category": "editor",
+      "categoryLabel": "Editor",
+      "selector": "[data-theme-group=\"editor.image-viewer\"]",
+      "component": "app/features/workspace/image-viewer",
+      "tokens": [
+        "--t-bg",
+        "--t-bg-deep",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-hover-bg",
+        "--t-primary",
+        "--t-text-muted"
+      ],
+      "supportsBackground": false,
+      "description": "Image tab toolbar and canvas."
+    },
+    {
+      "id": "editor.monaco",
+      "label": "Code editor",
+      "category": "editor",
+      "categoryLabel": "Editor",
+      "selector": "[data-theme-group=\"editor.monaco\"]",
+      "component": "app/features/workspace/workspace-monaco",
+      "tokens": [
+        "--t-bg-surface",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-code-bg",
+        "--t-code-text",
+        "--t-font-mono",
+        "--t-heading",
+        "--t-hover-bg",
+        "--t-log-level-error",
+        "--t-mono-font",
+        "--t-panel-bg",
+        "--t-primary",
+        "--t-text",
+        "--t-text-muted"
+      ],
+      "supportsBackground": true,
+      "description": "Monaco editor surface and markdown preview.",
+      "backgroundClear": [
+        ".monaco-editor",
+        ".monaco-editor .margin",
+        ".monaco-editor-background",
+        ".monaco-editor .lines-content",
+        ".monaco-editor .minimap",
+        ".workspace-monaco-diff-toolbar"
+      ]
+    },
+    {
+      "id": "editor.outline",
+      "label": "Outline",
+      "category": "editor",
+      "categoryLabel": "Editor",
+      "selector": "[data-theme-group=\"editor.outline\"]",
+      "component": "app/features/workspace/editor-outline",
+      "tokens": [
+        "--t-bg-deep",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-hover-bg",
+        "--t-primary",
+        "--t-secondary",
+        "--t-text-muted"
+      ],
+      "supportsBackground": false,
+      "description": "Symbol outline for the active file."
+    },
+    {
+      "id": "editor.problems",
+      "label": "Problems",
+      "category": "editor",
+      "categoryLabel": "Editor",
+      "selector": "[data-theme-group=\"editor.problems\"]",
+      "component": "app/features/workspace/editor-problems",
+      "tokens": [
+        "--t-bg-deep",
+        "--t-border-subtle",
+        "--t-fg",
+        "--t-hljs-number",
+        "--t-hover-bg",
+        "--t-log-level-error",
+        "--t-log-level-warning",
+        "--t-text-muted"
+      ],
+      "supportsBackground": false,
+      "description": "Diagnostics list from the language server."
+    },
+    {
+      "id": "editor.terminal",
+      "label": "Terminal dock",
+      "category": "editor",
+      "categoryLabel": "Editor",
+      "selector": "[data-theme-group=\"editor.terminal\"]",
+      "component": "app/features/workspace-terminal",
+      "tokens": [
+        "--t-bg-deep",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-code-bg",
+        "--t-error",
+        "--t-hover-bg",
+        "--t-primary",
+        "--t-run-command-tab",
+        "--t-secondary",
+        "--t-surface-3",
+        "--t-text-muted"
+      ],
+      "supportsBackground": false,
+      "description": "Integrated terminal tabs below the editor."
+    },
+    {
+      "id": "health.window",
+      "label": "Window",
+      "category": "health",
+      "categoryLabel": "Health window",
+      "selector": "[data-theme-group=\"health.window\"]",
+      "component": "app/features/health/health-monitor",
+      "tokens": [
+        "--t-bg",
+        "--t-bg-deep",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-code-text",
+        "--t-elev-shadow",
+        "--t-fg",
+        "--t-font",
+        "--t-font-mono",
+        "--t-hover-bg",
+        "--t-log-level-error",
+        "--t-log-level-warning",
+        "--t-primary",
+        "--t-process-a",
+        "--t-text-muted"
+      ],
+      "supportsBackground": false,
+      "description": "Health monitor window: runtime status, metrics, and log viewer."
+    },
+    {
+      "id": "hitl.cards",
+      "label": "Review cards",
+      "category": "hitl",
+      "categoryLabel": "Review cards",
+      "selector": "[data-theme-group=\"hitl.cards\"]",
+      "component": "app/features/chat/hitl-composer-dock",
+      "tokens": [
+        "--t-bg",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-caution",
+        "--t-composer-input-focus-bg",
+        "--t-confirm",
+        "--t-edge-darkest",
+        "--t-edge-light",
+        "--t-fg",
+        "--t-hover-bg",
+        "--t-input-bg",
+        "--t-input-fg",
+        "--t-log-level-error",
+        "--t-log-level-warning",
+        "--t-process-c",
+        "--t-secondary",
+        "--t-text-muted"
+      ],
+      "supportsBackground": false,
+      "description": "Command approvals, file diffs, copy/delete confirmations, plan confirmations, and agent questions."
+    },
+    {
+      "id": "hitl.dock",
+      "label": "Review dock",
+      "category": "hitl",
+      "categoryLabel": "Review cards",
+      "selector": "[data-theme-group=\"hitl.dock\"]",
+      "component": "app/features/chat/hitl-composer-dock",
+      "tokens": [
+        "--t-border-subtle"
+      ],
+      "supportsBackground": false,
+      "description": "Panel above the composer that holds pending review cards."
+    },
+    {
+      "id": "settings.content",
+      "label": "Content",
+      "category": "settings",
+      "categoryLabel": "Settings window",
+      "selector": "[data-theme-group=\"settings.content\"]",
+      "component": "app/features/settings/settings",
+      "tokens": [
+        "--t-bg",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-danger",
+        "--t-edge-light",
+        "--t-fg",
+        "--t-font-mono",
+        "--t-glow",
+        "--t-glow-soft",
+        "--t-hover-bg",
+        "--t-log-level-warning",
+        "--t-muted",
+        "--t-on-primary",
+        "--t-primary",
+        "--t-secondary",
+        "--t-success",
+        "--t-titlebar-end",
+        "--t-titlebar-start",
+        "--t-warn"
+      ],
+      "supportsBackground": false,
+      "description": "Section header and form panes."
+    },
+    {
+      "id": "settings.nav",
+      "label": "Navigation",
+      "category": "settings",
+      "categoryLabel": "Settings window",
+      "selector": "[data-theme-group=\"settings.nav\"]",
+      "component": "app/features/settings/settings",
+      "tokens": [
+        "--t-bg",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-danger",
+        "--t-edge-light",
+        "--t-fg",
+        "--t-font-mono",
+        "--t-glow",
+        "--t-glow-soft",
+        "--t-hover-bg",
+        "--t-log-level-warning",
+        "--t-muted",
+        "--t-on-primary",
+        "--t-primary",
+        "--t-secondary",
+        "--t-success",
+        "--t-titlebar-end",
+        "--t-titlebar-start",
+        "--t-warn"
+      ],
+      "supportsBackground": false,
+      "description": "Category and section list on the left."
+    },
+    {
+      "id": "settings.window",
+      "label": "Window",
+      "category": "settings",
+      "categoryLabel": "Settings window",
+      "selector": "[data-theme-group=\"settings.window\"]",
+      "component": "app/features/settings/settings",
+      "tokens": [
+        "--t-active-bg",
+        "--t-bg",
+        "--t-bg-deep",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-danger",
+        "--t-edge-darkest",
+        "--t-edge-light",
+        "--t-fg",
+        "--t-font-mono",
+        "--t-glow",
+        "--t-glow-soft",
+        "--t-hover-bg",
+        "--t-log-level-error",
+        "--t-log-level-warning",
+        "--t-muted",
+        "--t-on-primary",
+        "--t-primary",
+        "--t-secondary",
+        "--t-success",
+        "--t-text-muted",
+        "--t-titlebar-end",
+        "--t-titlebar-start",
+        "--t-warn"
+      ],
+      "supportsBackground": false,
+      "description": "Settings window frame and title bar."
+    },
+    {
+      "id": "shell.editor-grid",
+      "label": "Editor grid",
+      "category": "shell",
+      "categoryLabel": "Shell & layout",
+      "selector": "[data-theme-group=\"shell.editor-grid\"]",
+      "component": "app/features/shell/editor-grid",
+      "tokens": [
+        "--t-bg",
+        "--t-bg-deep",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-fg",
+        "--t-font-mono",
+        "--t-hover-bg",
+        "--t-primary",
+        "--t-text-muted",
+        "--t-warn"
+      ],
+      "supportsBackground": false,
+      "description": "Split-pane container for open editor tabs."
+    },
+    {
+      "id": "shell.empty-state",
+      "label": "Welcome screen",
+      "category": "shell",
+      "categoryLabel": "Shell & layout",
+      "selector": "[data-theme-group=\"shell.empty-state\"]",
+      "component": "app/features/shell/main-panel-empty-state",
+      "tokens": [
+        "--t-bg",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-edge-light",
+        "--t-fg",
+        "--t-glow-soft",
+        "--t-hover-bg",
+        "--t-primary",
+        "--t-text-muted"
+      ],
+      "supportsBackground": false,
+      "description": "Home panel shown when no file is open."
+    },
+    {
+      "id": "shell.sidebar",
+      "label": "Chat sidebar",
+      "category": "shell",
+      "categoryLabel": "Shell & layout",
+      "selector": "[data-theme-group=\"shell.sidebar\"]",
+      "component": "app/features/shell",
+      "tokens": [
+        "--t-bg",
+        "--t-bg-deep",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-edge-light",
+        "--t-elev-shadow",
+        "--t-fg",
+        "--t-fg-muted",
+        "--t-font",
+        "--t-glow",
+        "--t-glow-soft",
+        "--t-hover-bg",
+        "--t-muted",
+        "--t-primary",
+        "--t-text-muted",
+        "--t-titlebar-end",
+        "--t-titlebar-start",
+        "--t-titlebar-text"
+      ],
+      "supportsBackground": false,
+      "description": "Right-hand column containing the conversation hub and chat."
+    },
+    {
+      "id": "shell.stage",
+      "label": "Editor stage",
+      "category": "shell",
+      "categoryLabel": "Shell & layout",
+      "selector": "[data-theme-group=\"shell.stage\"]",
+      "component": "app/features/shell",
+      "tokens": [
+        "--t-bg",
+        "--t-bg-deep",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-edge-light",
+        "--t-elev-shadow",
+        "--t-fg",
+        "--t-fg-muted",
+        "--t-font",
+        "--t-glow",
+        "--t-glow-soft",
+        "--t-hover-bg",
+        "--t-muted",
+        "--t-primary",
+        "--t-text-muted",
+        "--t-titlebar-end",
+        "--t-titlebar-start",
+        "--t-titlebar-text"
+      ],
+      "supportsBackground": false,
+      "description": "Main column that hosts file tabs, the editor grid, and the expanded chat overlay."
+    },
+    {
+      "id": "shell.status-bar",
+      "label": "Status bar",
+      "category": "shell",
+      "categoryLabel": "Shell & layout",
+      "selector": "[data-theme-group=\"shell.status-bar\"]",
+      "component": "app/features/shell",
+      "tokens": [
+        "--t-bg",
+        "--t-bg-deep",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-edge-light",
+        "--t-elev-shadow",
+        "--t-fg",
+        "--t-fg-muted",
+        "--t-font",
+        "--t-font-mono",
+        "--t-glow",
+        "--t-glow-soft",
+        "--t-hover-bg",
+        "--t-log-level-error",
+        "--t-log-level-warning",
+        "--t-muted",
+        "--t-primary",
+        "--t-secondary",
+        "--t-surface",
+        "--t-text-muted",
+        "--t-titlebar-end",
+        "--t-titlebar-start",
+        "--t-titlebar-text"
+      ],
+      "supportsBackground": false,
+      "description": "Bottom footer with model status and language-server chips."
+    },
+    {
+      "id": "shell.tab-strip",
+      "label": "File tabs",
+      "category": "shell",
+      "categoryLabel": "Shell & layout",
+      "selector": "[data-theme-group=\"shell.tab-strip\"]",
+      "component": "app/features/shell/editor-grid",
+      "tokens": [
+        "--t-bg",
+        "--t-bg-deep",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-fg",
+        "--t-font-mono",
+        "--t-hover-bg",
+        "--t-primary",
+        "--t-text-muted",
+        "--t-warn"
+      ],
+      "supportsBackground": false,
+      "description": "Pill tabs above each editor slot."
+    },
+    {
+      "id": "shell.titlebar",
+      "label": "Title bar",
+      "category": "shell",
+      "categoryLabel": "Shell & layout",
+      "selector": "[data-theme-group=\"shell.titlebar\"]",
+      "component": "app/features/shell",
+      "tokens": [
+        "--t-bg",
+        "--t-bg-deep",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-edge-light",
+        "--t-elev-shadow",
+        "--t-fg",
+        "--t-fg-muted",
+        "--t-font",
+        "--t-glow",
+        "--t-glow-soft",
+        "--t-hover-bg",
+        "--t-muted",
+        "--t-primary",
+        "--t-text-muted",
+        "--t-titlebar-end",
+        "--t-titlebar-start",
+        "--t-titlebar-text"
+      ],
+      "supportsBackground": false,
+      "description": "Frameless window chrome: app title, menu buttons, and window controls."
+    },
+    {
+      "id": "workspace.footer",
+      "label": "Workspace footer",
+      "category": "workspace",
+      "categoryLabel": "Workspace",
+      "selector": "[data-theme-group=\"workspace.footer\"]",
+      "component": "app/features/workspace/workspace",
+      "tokens": [
+        "--t-bg",
+        "--t-bg-deep",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-danger",
+        "--t-glow",
+        "--t-hover-bg",
+        "--t-primary",
+        "--t-secondary",
+        "--t-text-muted"
+      ],
+      "supportsBackground": false,
+      "description": "Managed llama-server controls and workspace actions."
+    },
+    {
+      "id": "workspace.panel",
+      "label": "Workspace column",
+      "category": "workspace",
+      "categoryLabel": "Workspace",
+      "selector": "[data-theme-group=\"workspace.panel\"]",
+      "component": "app/features/shell",
+      "tokens": [
+        "--t-bg",
+        "--t-bg-deep",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-danger",
+        "--t-edge-light",
+        "--t-elev-shadow",
+        "--t-fg",
+        "--t-fg-muted",
+        "--t-font",
+        "--t-glow",
+        "--t-glow-soft",
+        "--t-hover-bg",
+        "--t-muted",
+        "--t-primary",
+        "--t-secondary",
+        "--t-text-muted",
+        "--t-titlebar-end",
+        "--t-titlebar-start",
+        "--t-titlebar-text"
+      ],
+      "supportsBackground": false,
+      "description": "Left column hosting the file tree."
+    },
+    {
+      "id": "workspace.tree",
+      "label": "File tree",
+      "category": "workspace",
+      "categoryLabel": "Workspace",
+      "selector": "[data-theme-group=\"workspace.tree\"]",
+      "component": "app/features/workspace/workspace",
+      "tokens": [
+        "--t-bg",
+        "--t-bg-deep",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-danger",
+        "--t-hover-bg",
+        "--t-primary",
+        "--t-secondary",
+        "--t-text-muted"
+      ],
+      "supportsBackground": false,
+      "description": "Workspace explorer with folders, files, and workspace settings."
+    }
+  ],
+  "tokens": [
+    {
+      "name": "--t-bg",
+      "label": "App background",
+      "category": "surfaces",
+      "kind": "color"
+    },
+    {
+      "name": "--t-bg-surface",
+      "label": "Surface",
+      "category": "surfaces",
+      "kind": "color"
+    },
+    {
+      "name": "--t-bg-deep",
+      "label": "Deep background",
+      "category": "surfaces",
+      "kind": "color"
+    },
+    {
+      "name": "--t-panel",
+      "label": "Panel",
+      "category": "surfaces",
+      "kind": "color"
+    },
+    {
+      "name": "--t-chat-bg",
+      "label": "Chat transcript",
+      "category": "surfaces",
+      "kind": "color"
+    },
+    {
+      "name": "--t-input-bg",
+      "label": "Input background",
+      "category": "surfaces",
+      "kind": "color"
+    },
+    {
+      "name": "--t-composer-bg",
+      "label": "Composer shell",
+      "category": "surfaces",
+      "kind": "color"
+    },
+    {
+      "name": "--t-composer-input-bg",
+      "label": "Composer input",
+      "category": "surfaces",
+      "kind": "color"
+    },
+    {
+      "name": "--t-composer-input-focus-bg",
+      "label": "Composer input (focus)",
+      "category": "surfaces",
+      "kind": "color"
+    },
+    {
+      "name": "--t-surface",
+      "label": "Surface (alias)",
+      "category": "surfaces",
+      "kind": "color",
+      "alias": true
+    },
+    {
+      "name": "--t-surface-2",
+      "label": "Surface 2 (alias)",
+      "category": "surfaces",
+      "kind": "color",
+      "alias": true
+    },
+    {
+      "name": "--t-surface-3",
+      "label": "Surface 3 (alias)",
+      "category": "surfaces",
+      "kind": "color",
+      "alias": true
+    },
+    {
+      "name": "--t-panel-bg",
+      "label": "Panel background (alias)",
+      "category": "surfaces",
+      "kind": "color",
+      "alias": true
+    },
+    {
+      "name": "--t-fg",
+      "label": "Foreground",
+      "category": "text",
+      "kind": "color"
+    },
+    {
+      "name": "--t-primary",
+      "label": "Primary",
+      "category": "text",
+      "kind": "color"
+    },
+    {
+      "name": "--t-secondary",
+      "label": "Secondary / accent",
+      "category": "text",
+      "kind": "color"
+    },
+    {
+      "name": "--t-text-muted",
+      "label": "Muted text",
+      "category": "text",
+      "kind": "color"
+    },
+    {
+      "name": "--t-input-fg",
+      "label": "Input text",
+      "category": "text",
+      "kind": "color"
+    },
+    {
+      "name": "--t-on-primary",
+      "label": "Text on primary",
+      "category": "text",
+      "kind": "color"
+    },
+    {
+      "name": "--t-muted",
+      "label": "Muted (alias)",
+      "category": "text",
+      "kind": "color",
+      "alias": true
+    },
+    {
+      "name": "--t-text",
+      "label": "Text (alias)",
+      "category": "text",
+      "kind": "color",
+      "alias": true
+    },
+    {
+      "name": "--t-heading",
+      "label": "Heading (alias)",
+      "category": "text",
+      "kind": "color",
+      "alias": true
+    },
+    {
+      "name": "--t-fg-muted",
+      "label": "Foreground muted (alias)",
+      "category": "text",
+      "kind": "color",
+      "alias": true
+    },
+    {
+      "name": "--t-border",
+      "label": "Border",
+      "category": "borders",
+      "kind": "color"
+    },
+    {
+      "name": "--t-border-subtle",
+      "label": "Border (subtle)",
+      "category": "borders",
+      "kind": "color"
+    },
+    {
+      "name": "--t-edge-light",
+      "label": "Edge light",
+      "category": "borders",
+      "kind": "color"
+    },
+    {
+      "name": "--t-edge-mid",
+      "label": "Edge mid",
+      "category": "borders",
+      "kind": "color"
+    },
+    {
+      "name": "--t-edge-dark",
+      "label": "Edge dark",
+      "category": "borders",
+      "kind": "color"
+    },
+    {
+      "name": "--t-edge-darkest",
+      "label": "Edge darkest",
+      "category": "borders",
+      "kind": "color"
+    },
+    {
+      "name": "--t-tui-frame",
+      "label": "Frame",
+      "category": "borders",
+      "kind": "color"
+    },
+    {
+      "name": "--t-tui-user-frame",
+      "label": "User frame",
+      "category": "borders",
+      "kind": "color"
+    },
+    {
+      "name": "--t-tui-clara-frame",
+      "label": "Assistant frame",
+      "category": "borders",
+      "kind": "color"
+    },
+    {
+      "name": "--t-tui-input-frame",
+      "label": "Input frame",
+      "category": "borders",
+      "kind": "color"
+    },
+    {
+      "name": "--t-hover-bg",
+      "label": "Hover background",
+      "category": "interaction",
+      "kind": "color"
+    },
+    {
+      "name": "--t-active-bg",
+      "label": "Active background",
+      "category": "interaction",
+      "kind": "color"
+    },
+    {
+      "name": "--t-selection-bg",
+      "label": "Selection background",
+      "category": "interaction",
+      "kind": "color"
+    },
+    {
+      "name": "--t-glow",
+      "label": "Glow",
+      "category": "interaction",
+      "kind": "color"
+    },
+    {
+      "name": "--t-glow-soft",
+      "label": "Glow (soft)",
+      "category": "interaction",
+      "kind": "color"
+    },
+    {
+      "name": "--t-elev-shadow",
+      "label": "Elevation shadow",
+      "category": "interaction",
+      "kind": "shadow"
+    },
+    {
+      "name": "--t-user-bg",
+      "label": "User bubble background",
+      "category": "chat",
+      "kind": "color"
+    },
+    {
+      "name": "--t-user-fg",
+      "label": "User bubble text",
+      "category": "chat",
+      "kind": "color"
+    },
+    {
+      "name": "--t-user-border",
+      "label": "User bubble border",
+      "category": "chat",
+      "kind": "color"
+    },
+    {
+      "name": "--t-assistant-bg",
+      "label": "Assistant bubble background",
+      "category": "chat",
+      "kind": "color"
+    },
+    {
+      "name": "--t-assistant-fg",
+      "label": "Assistant bubble text",
+      "category": "chat",
+      "kind": "color"
+    },
+    {
+      "name": "--t-assistant-border",
+      "label": "Assistant bubble border",
+      "category": "chat",
+      "kind": "color"
+    },
+    {
+      "name": "--t-code-bg",
+      "label": "Code block background",
+      "category": "code",
+      "kind": "color"
+    },
+    {
+      "name": "--t-code-inline-bg",
+      "label": "Inline code background",
+      "category": "code",
+      "kind": "color"
+    },
+    {
+      "name": "--t-code-text",
+      "label": "Code text",
+      "category": "code",
+      "kind": "color"
+    },
+    {
+      "name": "--t-hljs-keyword",
+      "label": "Keyword",
+      "category": "syntax",
+      "kind": "color"
+    },
+    {
+      "name": "--t-hljs-string",
+      "label": "String",
+      "category": "syntax",
+      "kind": "color"
+    },
+    {
+      "name": "--t-hljs-number",
+      "label": "Number",
+      "category": "syntax",
+      "kind": "color"
+    },
+    {
+      "name": "--t-hljs-comment",
+      "label": "Comment",
+      "category": "syntax",
+      "kind": "color"
+    },
+    {
+      "name": "--t-hljs-function",
+      "label": "Function",
+      "category": "syntax",
+      "kind": "color"
+    },
+    {
+      "name": "--t-hljs-class",
+      "label": "Class / type",
+      "category": "syntax",
+      "kind": "color"
+    },
+    {
+      "name": "--t-hljs-attr",
+      "label": "Attribute",
+      "category": "syntax",
+      "kind": "color"
+    },
+    {
+      "name": "--t-hljs-params",
+      "label": "Parameters",
+      "category": "syntax",
+      "kind": "color"
+    },
+    {
+      "name": "--t-hljs-property",
+      "label": "Property",
+      "category": "syntax",
+      "kind": "color"
+    },
+    {
+      "name": "--t-hljs-punctuation",
+      "label": "Punctuation",
+      "category": "syntax",
+      "kind": "color"
+    },
+    {
+      "name": "--t-hljs-operator",
+      "label": "Operator",
+      "category": "syntax",
+      "kind": "color"
+    },
+    {
+      "name": "--t-hljs-meta",
+      "label": "Meta",
+      "category": "syntax",
+      "kind": "color"
+    },
+    {
+      "name": "--t-hljs-tag",
+      "label": "Tag",
+      "category": "syntax",
+      "kind": "color"
+    },
+    {
+      "name": "--t-hljs-name",
+      "label": "Name",
+      "category": "syntax",
+      "kind": "color"
+    },
+    {
+      "name": "--t-hljs-symbol",
+      "label": "Symbol",
+      "category": "syntax",
+      "kind": "color"
+    },
+    {
+      "name": "--t-hljs-selector",
+      "label": "Selector",
+      "category": "syntax",
+      "kind": "color"
+    },
+    {
+      "name": "--t-confirm",
+      "label": "Confirm",
+      "category": "status",
+      "kind": "color"
+    },
+    {
+      "name": "--t-caution",
+      "label": "Caution",
+      "category": "status",
+      "kind": "color"
+    },
+    {
+      "name": "--t-log-level-error",
+      "label": "Error",
+      "category": "status",
+      "kind": "color"
+    },
+    {
+      "name": "--t-log-level-warning",
+      "label": "Warning",
+      "category": "status",
+      "kind": "color"
+    },
+    {
+      "name": "--t-process-a",
+      "label": "Process indicator A",
+      "category": "status",
+      "kind": "color"
+    },
+    {
+      "name": "--t-process-b",
+      "label": "Process indicator B",
+      "category": "status",
+      "kind": "color"
+    },
+    {
+      "name": "--t-process-c",
+      "label": "Process indicator C",
+      "category": "status",
+      "kind": "color"
+    },
+    {
+      "name": "--t-run-command-tab",
+      "label": "Run-command tab",
+      "category": "status",
+      "kind": "color"
+    },
+    {
+      "name": "--t-warn",
+      "label": "Warn (alias)",
+      "category": "status",
+      "kind": "color",
+      "alias": true
+    },
+    {
+      "name": "--t-danger",
+      "label": "Danger (alias)",
+      "category": "status",
+      "kind": "color",
+      "alias": true
+    },
+    {
+      "name": "--t-error",
+      "label": "Error (alias)",
+      "category": "status",
+      "kind": "color",
+      "alias": true
+    },
+    {
+      "name": "--t-success",
+      "label": "Success (alias)",
+      "category": "status",
+      "kind": "color",
+      "alias": true
+    },
+    {
+      "name": "--t-font",
+      "label": "UI font stack",
+      "category": "typography",
+      "kind": "font"
+    },
+    {
+      "name": "--t-font-mono",
+      "label": "Monospace font stack",
+      "category": "typography",
+      "kind": "font"
+    },
+    {
+      "name": "--t-mono",
+      "label": "Monospace (alias)",
+      "category": "typography",
+      "kind": "font",
+      "alias": true
+    },
+    {
+      "name": "--t-mono-font",
+      "label": "Monospace font (alias)",
+      "category": "typography",
+      "kind": "font",
+      "alias": true
+    },
+    {
+      "name": "--t-titlebar-start",
+      "label": "Title bar gradient start",
+      "category": "titlebar",
+      "kind": "color"
+    },
+    {
+      "name": "--t-titlebar-end",
+      "label": "Title bar gradient end",
+      "category": "titlebar",
+      "kind": "color"
+    },
+    {
+      "name": "--t-titlebar-text",
+      "label": "Title bar text",
+      "category": "titlebar",
+      "kind": "color"
+    }
+  ]
+}

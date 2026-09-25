@@ -1,4 +1,4 @@
-<div class='editor-grid' cdkDropListGroup [class.is-dragging]='dragging()'>
+<div class='editor-grid' data-theme-group='shell.editor-grid' cdkDropListGroup [class.is-dragging]='dragging()'>
   @for (column of layout().columns; track column.id; let ci = $index; let lastCol = $last) {
     <div class='editor-grid__column' [style.flex]='columnStyle(ci)'>
       @for (slot of column.slots; track slot.id; let ri = $index; let lastRow = $last) {

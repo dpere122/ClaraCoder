@@ -48,7 +48,9 @@ import {
   SecretValue,
   unwrapSecret,
 } from '../../shared/types/app-config';
-import { APP_THEME_IDS, FIRST_THEME_ID } from '../constants';
+import { FIRST_THEME_ID } from '../constants';
+import { THEME_ID_PATTERN } from '../../shared/theme/theme-document';
+import { LEGACY_THEME_ID_MAP } from '../../shared/theme/builtin';
 import { getConfigPath } from '../paths';
 import {
   APP_CONFIG_SCHEMA_VERSION,
@@ -780,12 +782,19 @@ export function migrateConfig(config: AppConfig): AppConfig {
     migrated = true;
   }
 
-  if (!newConfig.themeId) {
+  if (!newConfig.themeId || typeof newConfig.themeId !== 'string') {
     newConfig.themeId = FIRST_THEME_ID;
     migrated = true;
   }
 
-  if (!(APP_THEME_IDS as readonly string[]).includes(newConfig.themeId)) {
+  // Pre-engine ids (woodland / classical / dark-classical) map onto the new built-ins. Other
+  // ids are user themes on disk; keep them (the renderer falls back to the dark built-in when
+  // the file is missing) as long as they are well-formed.
+  const legacyTheme = LEGACY_THEME_ID_MAP[newConfig.themeId];
+  if (legacyTheme) {
+    newConfig.themeId = legacyTheme;
+    migrated = true;
+  } else if (!THEME_ID_PATTERN.test(newConfig.themeId)) {
     newConfig.themeId = FIRST_THEME_ID;
     migrated = true;
   }
@@ -862,6 +871,15 @@ export function migrateConfig(config: AppConfig): AppConfig {
       const monaco = (newConfig as AppConfig).monacoWorkspaceEditor;
       if (monaco && monaco.paddingTop === 0) {
         monaco.paddingTop = 20;
+      }
+    }
+    if (schemaVersion < 8) {
+      // Theme engine: the Monaco palette now follows the app theme by default. Users who never
+      // changed the editor theme (still on the old `vs-dark` default) move to `follow-app`;
+      // explicit picks of vs / hc-* are kept.
+      const monaco = (newConfig as AppConfig).monacoWorkspaceEditor;
+      if (monaco && (monaco.theme as string) === 'vs-dark') {
+        monaco.theme = 'follow-app';
       }
     }
     (newConfig as { configSchemaVersion: number }).configSchemaVersion = APP_CONFIG_SCHEMA_VERSION;

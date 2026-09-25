@@ -21,6 +21,7 @@ import type {
   StreamPart,
 } from '@shared/index';
 import { DEFAULT_COMPOSER_RUN_MODE, normalizeChatContainerSize } from '@shared/index';
+import type { ThemeProposalFinishedEvent } from '@shared/index';
 import { ChatBox, pendingHitlArtifactsForDock, type ChatMessage } from '../chat-box/chat-box';
 import { handleChatContextDragOver, handleChatContextDrop, type ChatContextDroppedPath } from '../chat-context-bar/chat-context-drop';
 import { type ChatContextFile } from '../chat-context-bar/chat-context-file';
@@ -105,6 +106,7 @@ export class ChatActiveStackComponent implements OnDestroy {
     status: 'complete' | 'cancelled';
     summary?: string;
   }>();
+  readonly themeProposalFinished = output<ThemeProposalFinishedEvent>();
 
   readonly chatContextFiles = input<readonly ChatContextFile[]>([]);
   readonly workspaceRoot = input('');

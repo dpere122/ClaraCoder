@@ -32,6 +32,8 @@ import {
 } from '@shared/index';
 import { normalizeMonacoWorkspaceEditorSettings } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
+import { ThemeEngineService } from '../../../core/theme/theme-engine.service';
+import { defineMonacoAppTheme, resolveMonacoThemeName } from '../../../core/theme/monaco-app-theme';
 import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
 import {
   displayPathForModelKey,
@@ -218,8 +220,14 @@ export class WorkspaceMonacoComponent {
   private mdPreviewContentDisposable: Monaco.IDisposable | null = null;
   private mdPreviewRenderTimer: number | null = null;
 
+  private readonly themeEngine = inject(ThemeEngineService);
   private monaco: typeof Monaco | null = null;
   private editor: Monaco.editor.IStandaloneCodeEditor | null = null;
+
+  /** Monaco theme name for the persisted setting; `follow-app` uses the engine-derived palette. */
+  private monacoThemeName(settings: MonacoWorkspaceEditorSettings): string {
+    return resolveMonacoThemeName(settings.theme, this.themeEngine.monacoTheme() !== null, this.themeEngine.mode());
+  }
   private editorSelectionDisposable: Monaco.IDisposable | null = null;
   private editorSelectionDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private editorContentDisposable: Monaco.IDisposable | null = null;
@@ -257,6 +265,23 @@ export class WorkspaceMonacoComponent {
 
   constructor() {
     afterNextRender(() => void this.bootstrapEditor());
+
+    // App theme → Monaco: (re)define the derived palette whenever the theme changes and
+    // switch to it when the Editor setting is `follow-app`.
+    effect(() => {
+      const def = this.themeEngine.monacoTheme();
+      const ready = this.editorReady();
+      const cfg = this.editorSettings();
+      const monacoApi = this.monaco;
+      if (!def || !ready || !monacoApi) {
+        return;
+      }
+      untracked(() => {
+        defineMonacoAppTheme(monacoApi, def);
+        const { settings } = normalizeMonacoWorkspaceEditorSettings(cfg == null ? undefined : cfg);
+        monacoApi.editor.setTheme(this.monacoThemeName(settings));
+      });
+    });
 
     // Shared context every instance pushes into the store (all slots share one workspace).
     effect(() => this.store.setWorkspaceRoot(this.workspacePath() ?? ''));
@@ -385,7 +410,7 @@ export class WorkspaceMonacoComponent {
           const { theme: _t, ...diffOpts } = mapped as Record<string, unknown>;
           this.diffEditor.updateOptions(diffOpts as Monaco.editor.IDiffEditorConstructionOptions);
         }
-        monacoApi.editor.setTheme(settings.theme);
+        monacoApi.editor.setTheme(this.monacoThemeName(settings));
       });
     });
 
@@ -1030,9 +1055,13 @@ export class WorkspaceMonacoComponent {
     const mapped = monacoWorkspaceSettingsToEditorOptions(settings);
     // Monaco standalone only honors the dotted global-style key (see monaco-editor#1833);
     // `semanticHighlighting: true` is ignored and semantic tokens are never painted.
+    const appTheme = this.themeEngine.monacoTheme();
+    if (appTheme) {
+      defineMonacoAppTheme(monacoApi, appTheme);
+    }
     const editorOptions = {
       ...mapped,
-      theme: settings.theme,
+      theme: this.monacoThemeName(settings),
       automaticLayout: true,
       'semanticHighlighting.enabled': true,
     } as Monaco.editor.IStandaloneEditorConstructionOptions & {
@@ -1431,13 +1460,13 @@ export class WorkspaceMonacoComponent {
       this.diffMountedPayloadKey = payloadKey;
       this.diffEditor = monacoApi.editor.createDiffEditor(host, {
         ...mapped,
-        theme: settings.theme,
+        theme: this.monacoThemeName(settings),
         automaticLayout: true,
         readOnly: true,
         renderSideBySide: true,
       });
       void import('../../../../monaco-hover-delegate-safety').then((m) => m.ensureMonacoHoverDelegateSafe());
-      monacoApi.editor.setTheme(settings.theme);
+      monacoApi.editor.setTheme(this.monacoThemeName(settings));
 
       // Diff models are per-instance: suffix the URI with the owner id so two slots reviewing
       // the same file never collide on `createModel`.

@@ -47,7 +47,6 @@ import {
   upsertClaraOuterBriefStreamPart,
   upsertToolTrailStatusStreamPart,
 } from './app-stream-parts';
-import { applyAppTheme, resolveAppThemeId } from './app-theme';
 import { abandonStaleHitlMessages } from './abandon-stale-hitl';
 import { filter, merge } from 'rxjs';
 /** Choose text for end-of-turn TTS flush (see App for rationale). */
@@ -255,6 +254,12 @@ export class ConversationSessionService {
       this.appendHitlArtifact(conversationId, artifact, { mergeBackgroundTrail: false });
     });
 
+    this.electron.themeProposal$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, payload }) => {
+      if (payload.version !== 1 || !payload.requestId || !payload.title) return;
+      const artifact = { role: 'theme_proposal', payload, reviewStatus: 'pending' as const } satisfies ChatMessage;
+      this.appendHitlArtifact(conversationId, artifact, { mergeBackgroundTrail: false });
+    });
+
     this.electron.llmStatus$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, status }) => {
       if (conversationId !== this.activeConversationId()) return;
       const src = (status.source ?? 'agent').toLowerCase();
@@ -459,8 +464,6 @@ export class ConversationSessionService {
       this.streamingParts.set([]);
       this.streamingPlanner.set(null);
       this.streamingFinalText.set(undefined);
-      const config = await this.electron.loadConfig();
-      applyAppTheme(resolveAppThemeId(config));
       await this.refreshConversationList(currentWorkspaceId);
       await this.rememberLastActiveForWorkspace(conv);
       this.chatHubView.set('activeChat');
@@ -517,8 +520,6 @@ export class ConversationSessionService {
     // observe the previous chat's messages under the new id.
     this.hooks.onConversationLoaded?.(conv.id);
 
-    const config = await this.electron.loadConfig();
-    applyAppTheme(resolveAppThemeId(config));
     await this.rememberLastActiveForWorkspace(conv);
   }
 

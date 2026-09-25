@@ -1,0 +1,42 @@
+{
+  "groups": {
+    "chat.transcript": {
+      "label": "Transcript",
+      "description": "Scrollable conversation panel behind the message bubbles.",
+      "supportsBackground": true,
+      "backgroundClear": [".chat-box"],
+      "styleSources": ["features/chat/chat-box"]
+    },
+    "chat.user-bubble": {
+      "label": "User bubble",
+      "description": "Your messages in the transcript.",
+      "tokens": ["--t-user-bg", "--t-user-fg", "--t-user-border", "--t-tui-user-frame"]
+    },
+    "chat.assistant-bubble": {
+      "label": "Assistant bubble",
+      "description": "Clara's replies, including rendered markdown and code blocks.",
+      "tokens": ["--t-assistant-bg", "--t-assistant-fg", "--t-assistant-border", "--t-tui-clara-frame", "--t-code-bg", "--t-code-inline-bg", "--t-code-text"]
+    },
+    "chat.composer": {
+      "label": "Composer",
+      "description": "Message input, prompt toggle, send/abort, and option row."
+    },
+    "chat.context-bar": {
+      "label": "Context chips",
+      "description": "Attached files and folders above the composer."
+    },
+    "chat.stream-pills": {
+      "label": "Stream pills",
+      "description": "Live thought, nudge, and tool-status pills during a reply."
+    },
+    "chat.plan-panel": {
+      "label": "Plan panel",
+      "description": "Planner checklist shown for plan-mode turns."
+    },
+    "chat.conversation-list": {
+      "label": "Conversation list",
+      "description": "Saved conversations in the sidebar hub.",
+      "styleSources": ["features/chat/chat-conversation-hub"]
+    }
+  }
+}

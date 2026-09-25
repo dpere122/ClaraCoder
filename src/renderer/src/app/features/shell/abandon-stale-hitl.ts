@@ -11,6 +11,7 @@ const HITL_ARTIFACT_ROLES = new Set<ConversationMessage['role']>([
   'plan_confirm',
   'staged_transfer_batch',
   'agent_question',
+  'theme_proposal',
 ]);
 
 type HitlArtifactMessage = Extract<

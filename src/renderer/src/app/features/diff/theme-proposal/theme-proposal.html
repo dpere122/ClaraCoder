@@ -1,0 +1,83 @@
+@if (reviewStatus() !== 'pending') {
+  <div class="theme-proposal-card theme-proposal-card--collapsed">
+    <div class="theme-proposal-collapsed-row">
+      <div class="theme-proposal-collapsed-text">
+        <span class="theme-proposal-title">{{ payload().title }}</span>
+        @if (reviewSummary()) {
+          <span class="theme-proposal-summary">{{ reviewSummary() }}</span>
+        }
+      </div>
+      <span
+        class="theme-proposal-badge"
+        [class.theme-proposal-badge--complete]="reviewStatus() === 'complete'"
+        [class.theme-proposal-badge--cancelled]="reviewStatus() === 'cancelled'"
+        >{{ reviewStatus() === 'complete' ? 'Saved' : 'Dismissed' }}</span
+      >
+    </div>
+  </div>
+} @else {
+  <div class="theme-proposal-card">
+    <div class="theme-proposal-toolbar">
+      <div class="theme-proposal-head">
+        <div class="theme-proposal-swatches" aria-hidden="true">
+          @for (color of swatches(); track $index) {
+            <span class="theme-proposal-swatch" [style.background]="color"></span>
+          }
+        </div>
+        <div class="theme-proposal-meta">
+          <span class="theme-proposal-title">{{ payload().title }}</span>
+          @if (doc(); as d) {
+            <span class="theme-proposal-sub">
+              {{ d.mode }} · {{ tokenCount() }} token{{ tokenCount() === 1 ? '' : 's' }} · {{ groupCount() }} group
+              override{{ groupCount() === 1 ? '' : 's' }}
+              @if (d.monaco) { · editor palette }
+            </span>
+          }
+        </div>
+      </div>
+      @if (payload().summary) {
+        <p class="theme-proposal-message">{{ payload().summary }}</p>
+      }
+      @if (!doc()) {
+        <p class="theme-proposal-error">
+          This proposal is not a valid theme:
+          @for (issue of validation().errors; track $index) {
+            <span>{{ issue.path }} {{ issue.message }}.</span>
+          }
+        </p>
+      }
+      @if (notes().length > 0) {
+        <details class="theme-proposal-notes">
+          <summary>{{ notes().length }} adjustment{{ notes().length === 1 ? '' : 's' }} applied</summary>
+          <ul>
+            @for (note of notes(); track $index) {
+              <li>{{ note }}</li>
+            }
+          </ul>
+        </details>
+      }
+      @if (error()) {
+        <p class="theme-proposal-error">{{ error() }}</p>
+      }
+      <div class="theme-proposal-actions">
+        <button
+          type="button"
+          class="hitl-btn hitl-btn--secondary"
+          [class.hitl-btn--active]="previewing()"
+          [disabled]="busy() || !doc()"
+          [attr.aria-pressed]="previewing()"
+          (click)="togglePreview()"
+        >
+          {{ previewing() ? 'Stop preview' : 'Preview' }}
+        </button>
+        <button type="button" class="hitl-btn hitl-btn--primary" [disabled]="busy() || !doc()" (click)="save(true)">
+          Save &amp; apply
+        </button>
+        <button type="button" class="hitl-btn hitl-btn--secondary" [disabled]="busy() || !doc()" (click)="save(false)">
+          Save only
+        </button>
+        <button type="button" class="hitl-btn hitl-btn--secondary" [disabled]="busy()" (click)="dismiss()">Dismiss</button>
+      </div>
+    </div>
+  </div>
+}

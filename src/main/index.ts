@@ -1,6 +1,6 @@
 /**
  * Electron main process entry: Python sidecar, IPC, workspace watch, and BrowserWindows.
- * Privileged schemes (`nemo-tts`, `nemo-asset`) must register before `app.whenReady`.
+ * Privileged schemes (`nemo-tts`, `nemo-asset`, `clara-theme`) must register before `app.whenReady`.
  */
 import { mkdir } from 'fs/promises';
 import { app, BrowserWindow } from 'electron';
@@ -8,6 +8,7 @@ import { registerPrivilegedSchemes } from './protocol/register-privileged';
 import { ensurePythonServer, stopPythonSidecar } from './python/server';
 import { registerNemoTtsStreamProtocol } from './protocol/nemo-tts';
 import { registerNemoAssetProtocol } from './protocol/nemo-asset';
+import { registerClaraThemeAssetProtocol } from './protocol/clara-theme-asset';
 import { loadConfigSync } from './config/load-save';
 import { reconcileLostWorkspacesOnStartup } from './ipc/handlers/config-workspaces';
 import { setHealthMetricsEnabled, syncPythonLogLevel } from './ipc/handlers/health';
@@ -86,6 +87,7 @@ app
     // while waitForPython polled a sidecar that had already crashed (missing venv deps).
     registerNemoTtsStreamProtocol();
     registerNemoAssetProtocol();
+    registerClaraThemeAssetProtocol();
     createMainWindow();
 
     // Fire-and-forget: each orphan may take the full CTRL_C grace to unload.

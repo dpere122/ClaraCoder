@@ -9,6 +9,7 @@ import { SettingsGeneral } from '../settings-general/settings-general';
 import { SettingsModelManager } from '../settings-model-manager/settings-model-manager';
 import { SettingsModels } from '../settings-models/settings-models';
 import { SettingsMonaco } from '../settings-monaco/settings-monaco';
+import { SettingsThemes } from '../settings-themes/settings-themes';
 import { SettingsTools } from '../settings-tools/settings-tools';
 import { SettingsWorkspaces } from '../settings-workspaces/settings-workspaces';
 import { SettingsStore } from './settings-store';
@@ -26,6 +27,7 @@ import { SettingsStore } from './settings-store';
     ThemedPromptDialogComponent,
     NgxSpinnerComponent,
     SettingsGeneral,
+    SettingsThemes,
     SettingsModels,
     SettingsModelManager,
     SettingsTools,

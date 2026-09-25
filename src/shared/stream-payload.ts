@@ -19,6 +19,8 @@ import type { LlmStatusPayload, PlannerProgress } from './types/llm';
 import type { PlanConfirmPayload } from './types/plan-confirm';
 import { normalizePlanConfirmFilesToChange } from './types/plan-confirm';
 import type { StagedTransferBatchPayload } from './types/staged-transfer-batch';
+import type { ThemeProposalPayload } from './types/theme-proposal';
+import { isThemeProposalPayload } from './types/theme-proposal';
 import type { AppendConversationFileJournalRequest } from './types/conversation-timeline';
 import { parseFileJournalSsePayload } from './conversation-timeline';
 
@@ -68,6 +70,7 @@ export type ParsedAgentStreamPayload =
   | { type: 'build_plan_stream_end'; buildPlanStreamEnd: BuildPlanStreamEndPayload }
   | { type: 'plan_confirm'; planConfirm: PlanConfirmPayload }
   | { type: 'agent_question'; agentQuestion: AgentQuestionPayload }
+  | { type: 'theme_proposal'; themeProposal: ThemeProposalPayload }
   | { type: 'staged_transfer_batch'; stagedTransferBatch: StagedTransferBatchPayload }
   | {
       type: 'file_journal';
@@ -119,6 +122,7 @@ type RawAgentStreamPayload = {
   planner?: unknown;
   planConfirm?: unknown;
   agentQuestion?: unknown;
+  themeProposal?: unknown;
   buildPlanOpen?: unknown;
   buildPlanChunk?: unknown;
   buildPlanStreamEnd?: unknown;
@@ -220,6 +224,13 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
       return {
         type: 'agent_question',
         agentQuestion: parsed.agentQuestion as AgentQuestionPayload,
+      };
+    }
+
+    if (parsed.type === 'theme_proposal' && isThemeProposalPayload(parsed.themeProposal)) {
+      return {
+        type: 'theme_proposal',
+        themeProposal: parsed.themeProposal,
       };
     }
 

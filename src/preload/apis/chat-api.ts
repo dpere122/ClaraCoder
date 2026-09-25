@@ -114,6 +114,9 @@ export const chatApi = {
   onMessageAgentQuestion: (
     callback: (event: unknown, conversationId: string, payload: unknown) => void,
   ) => ipcRenderer.on('message-agent-question', callback),
+  onMessageThemeProposal: (
+    callback: (event: unknown, conversationId: string, payload: unknown) => void,
+  ) => ipcRenderer.on('message-theme-proposal', callback),
   onMessageStagedTransferBatch: (
     callback: (event: unknown, conversationId: string, payload: StagedTransferBatchPayload) => void,
   ) => ipcRenderer.on('message-staged-transfer-batch', callback),

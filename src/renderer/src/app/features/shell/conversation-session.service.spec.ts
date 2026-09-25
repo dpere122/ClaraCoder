@@ -83,6 +83,7 @@ function mockElectron(overrides: Partial<{
     plannerProgress$: new Subject().asObservable(),
     planConfirm$: new Subject().asObservable(),
     agentQuestion$: new Subject().asObservable(),
+    themeProposal$: new Subject().asObservable(),
     llmStatus$: new Subject().asObservable(),
     finalText$: new Subject().asObservable(),
     clearPrimaryStream$: new Subject().asObservable(),
@@ -111,7 +112,7 @@ function mockElectron(overrides: Partial<{
               reviewStatus: 'pending',
             },
           ],
-          themeId: 'woodland',
+          themeId: 'clara-dark',
         }) satisfies Conversation),
     newConversation:
       overrides.newConversation ??
@@ -119,12 +120,12 @@ function mockElectron(overrides: Partial<{
         ...convMeta,
         id: 'conv-b',
         messages: [],
-        themeId: 'woodland',
+        themeId: 'clara-dark',
       }) satisfies Conversation),
     loadConfig: async () => ({
       currentWorkspaceId: 'ws-1',
       workspaces: [],
-      themeId: 'woodland',
+      themeId: 'clara-dark',
       activeLlmModelId: 'default',
       llmProviders: [],
       lastActiveConversationByWorkspaceId: {},
@@ -133,7 +134,7 @@ function mockElectron(overrides: Partial<{
     saveConversation,
     readConversationFromDisk:
       overrides.readConversationFromDisk ??
-      (async () => ({ ...convMeta, messages: [], themeId: 'woodland' })),
+      (async () => ({ ...convMeta, messages: [], themeId: 'clara-dark' })),
     getConversations: overrides.getConversations ?? (async () => [convMeta]),
     maybeAutoTitleConversation: async () => ({ ok: false as const, reason: 'not_due' as const }),
     abortMessage,
@@ -247,13 +248,13 @@ describe('ConversationSessionService', () => {
         id: 'conv-b',
         title: 'B',
         messages: [],
-        themeId: 'woodland',
+        themeId: 'clara-dark',
       }),
       readConversationFromDisk: async (id) => ({
         ...convAMeta,
         id,
         messages: [],
-        themeId: 'woodland',
+        themeId: 'clara-dark',
       }),
       getConversations: async () => [
         convAMeta,
@@ -297,7 +298,7 @@ describe('ConversationSessionService', () => {
       id: 'conv-b',
       title: 'B',
       messages: [],
-      themeId: 'woodland',
+      themeId: 'clara-dark',
     };
     let releaseNew!: (value: Conversation) => void;
     const newConversation = vi.fn(

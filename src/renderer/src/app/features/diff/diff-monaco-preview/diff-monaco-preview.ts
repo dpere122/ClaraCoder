@@ -17,6 +17,8 @@ import {
   mergedContentForDiffPreview,
   originalContentForDiffPreview,
 } from '../diff-rebuild';
+import { ThemeEngineService } from '../../../core/theme/theme-engine.service';
+import { defineMonacoAppTheme, resolveMonacoThemeName } from '../../../core/theme/monaco-app-theme';
 
 let monacoLoadPromise: Promise<typeof import('monaco-editor')> | null = null;
 
@@ -29,13 +31,6 @@ function loadMonaco(): Promise<typeof import('monaco-editor')> {
     return monacoApi;
   });
   return monacoLoadPromise;
-}
-
-function hitlMonacoTheme(): 'vs' | 'vs-dark' {
-  if (typeof document === 'undefined') {
-    return 'vs-dark';
-  }
-  return document.documentElement.getAttribute('data-bs-theme') === 'light' ? 'vs' : 'vs-dark';
 }
 
 @Component({
@@ -53,6 +48,7 @@ export class DiffMonacoPreviewComponent implements OnDestroy {
 
   private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
   private readonly inj = inject(Injector);
+  private readonly themeEngine = inject(ThemeEngineService);
 
   private diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
   private originalModel: Monaco.editor.ITextModel | null = null;
@@ -79,6 +75,23 @@ export class DiffMonacoPreviewComponent implements OnDestroy {
         afterNextRender(() => this.revealFocusHunk(hunk), { injector: this.inj });
       });
     });
+
+    // Follow app-theme changes while mounted (HITL previews always use the app palette).
+    effect(() => {
+      const def = this.themeEngine.monacoTheme();
+      const monacoApi = this.monacoApi;
+      if (!def || !monacoApi || !this.diffEditor) {
+        return;
+      }
+      untracked(() => {
+        defineMonacoAppTheme(monacoApi, def);
+        monacoApi.editor.setTheme(this.hitlMonacoTheme());
+      });
+    });
+  }
+
+  private hitlMonacoTheme(): string {
+    return resolveMonacoThemeName('follow-app', this.themeEngine.monacoTheme() !== null, this.themeEngine.mode());
   }
 
   ngOnDestroy(): void {
@@ -140,7 +153,11 @@ export class DiffMonacoPreviewComponent implements OnDestroy {
       }
       this.monacoApi = monacoApi;
       const payload = this.payload();
-      const theme = hitlMonacoTheme();
+      const appTheme = this.themeEngine.monacoTheme();
+      if (appTheme) {
+        defineMonacoAppTheme(monacoApi, appTheme);
+      }
+      const theme = this.hitlMonacoTheme();
       monacoApi.editor.setTheme(theme);
 
       const hostEl = this.host().nativeElement;

@@ -67,4 +67,21 @@ describe('buildXterm256PaletteFromCss', () => {
     expect(palette[0]).toBeTruthy();
     expect(palette[255]).toBeTruthy();
   });
+
+  it('recomputes when the theme engine bumps data-theme-revision', () => {
+    invalidateTerminalPaletteCache();
+    document.documentElement.setAttribute('data-theme-id', 'clara-dark');
+    document.documentElement.setAttribute('data-theme-revision', '1');
+    const first = buildXterm256PaletteFromCss(fakeRoot({ '--t-log-level-error': '#ff0000' }));
+    expect(first[1]).toBe('#ff0000');
+    // Same revision → cached palette even though the root now reports a different color.
+    const cached = buildXterm256PaletteFromCss(fakeRoot({ '--t-log-level-error': '#00ff00' }));
+    expect(cached[1]).toBe('#ff0000');
+    document.documentElement.setAttribute('data-theme-revision', '2');
+    const next = buildXterm256PaletteFromCss(fakeRoot({ '--t-log-level-error': '#00ff00' }));
+    expect(next[1]).toBe('#00ff00');
+    document.documentElement.removeAttribute('data-theme-id');
+    document.documentElement.removeAttribute('data-theme-revision');
+    invalidateTerminalPaletteCache();
+  });
 });

@@ -191,6 +191,7 @@ export {
   DEFAULT_OPENAI_TTS_VOICE,
   DEFAULT_TTS_PROVIDER,
   DEFAULT_WHISPER_MODEL,
+  DEFAULT_MONACO_WORKSPACE_EDITOR_THEME_ID,
   MONACO_WORKSPACE_EDITOR_THEME_IDS,
   TTS_SPEECH_SPEED_DEFAULT,
   TTS_SPEECH_SPEED_MAX,
@@ -450,6 +451,8 @@ export type {
   QuestionOption,
   QuestionPrompt,
 } from './types/agent-question';
+export type { ThemeProposalAction, ThemeProposalFinishedEvent, ThemeProposalPayload } from './types/theme-proposal';
+export { isThemeProposalPayload } from './types/theme-proposal';
 export type { BuildPlanChunkPayload, BuildPlanOpenPayload, BuildPlanStreamEndPayload } from './types/build-plan';
 export type { CopyConfirmItem, CopyConfirmPayload } from './types/copy-confirm';
 export type { DeleteConfirmEntry, DeleteConfirmPayload } from './types/delete-confirm';

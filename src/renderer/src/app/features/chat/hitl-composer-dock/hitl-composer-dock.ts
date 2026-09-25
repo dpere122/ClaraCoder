@@ -1,5 +1,5 @@
 import { Component, computed, input, output, ViewEncapsulation } from '@angular/core';
-import type { DiffReviewStatus, HitlTrailArtifact } from '@shared/index';
+import type { DiffReviewStatus, HitlTrailArtifact, ThemeProposalFinishedEvent } from '@shared/index';
 import { AcceptCommandComponent } from '../../diff/accept-command/accept-command';
 import { AgentQuestionComponent } from '../../diff/agent-question/agent-question';
 import { CopyConfirmComponent } from '../../diff/copy-confirm/copy-confirm';
@@ -7,6 +7,7 @@ import { DeleteConfirmComponent } from '../../diff/delete-confirm/delete-confirm
 import { DiffApplyComponent } from '../../diff/diff-apply/diff-apply';
 import { PlanConfirmComponent } from '../../diff/plan-confirm/plan-confirm';
 import { StagedTransferBatchReviewComponent } from '../../diff/staged-transfer-batch-review/staged-transfer-batch-review';
+import { ThemeProposalComponent } from '../../diff/theme-proposal/theme-proposal';
 
 /**
  * Slide-up dock above the INPUT composer for pending HITL review cards.
@@ -23,6 +24,7 @@ import { StagedTransferBatchReviewComponent } from '../../diff/staged-transfer-b
     StagedTransferBatchReviewComponent,
     PlanConfirmComponent,
     AgentQuestionComponent,
+    ThemeProposalComponent,
   ],
   templateUrl: './hitl-composer-dock.html',
   styleUrl: './hitl-composer-dock.css',
@@ -73,6 +75,7 @@ export class HitlComposerDockComponent {
     status: 'complete' | 'cancelled';
     summary?: string;
   }>();
+  readonly themeProposalFinished = output<ThemeProposalFinishedEvent>();
 
   readonly pendingArtifacts = computed(() =>
     this.artifacts().filter((a) => this.reviewStatus(a) === 'pending'),
@@ -96,6 +99,8 @@ export class HitlComposerDockComponent {
         return `plan:${artifact.payload.requestId}`;
       case 'agent_question':
         return `question:${artifact.payload.requestId}`;
+      case 'theme_proposal':
+        return `theme:${artifact.payload.requestId}`;
       case 'staged_transfer_batch':
         return `staged:${artifact.payload.requestId}|${artifact.payload.files.length}`;
       default:

@@ -1,0 +1,93 @@
+<div class="tll">
+  <div class="tll__toolbar">
+    <button type="button" class="action-button action-button--primary" [disabled]="s.busy()" (click)="s.createTheme()">
+      New from selected
+    </button>
+    <button type="button" class="action-button" [disabled]="s.busy()" (click)="s.duplicateSelected()">Duplicate</button>
+    <button type="button" class="action-button" [disabled]="s.busy()" (click)="s.importTheme()">Import</button>
+    <button type="button" class="action-button" [disabled]="s.busy()" (click)="s.exportSelected()">Export</button>
+    <button
+      type="button"
+      class="action-button action-button--danger"
+      [disabled]="s.busy() || s.selectedTheme().builtIn"
+      (click)="s.deleteSelected()"
+    >
+      Delete
+    </button>
+  </div>
+  @if (s.status()) {
+    <p class="tll__status" role="status">{{ s.status() }}</p>
+  }
+
+  <div class="tll__scroll" role="listbox" aria-label="Themes">
+    <p class="tll__section-label">Built-in</p>
+    @for (theme of s.builtInThemes(); track theme.id) {
+      <button
+        type="button"
+        class="tll__item"
+        role="option"
+        [class.tll__item--selected]="isSelected(theme)"
+        [attr.aria-selected]="isSelected(theme)"
+        (click)="s.select(theme.id)"
+      >
+        <span class="tll__swatches" aria-hidden="true">
+          @for (color of swatches(theme); track $index) {
+            <span class="tll__swatch" [style.background]="color"></span>
+          }
+        </span>
+        <span class="tll__text">
+          <span class="tll__name">{{ theme.name }}</span>
+          <small class="tll__meta">
+            {{ theme.mode }} · built-in
+            @if (theme.description) { · {{ theme.description }} }
+          </small>
+        </span>
+        <span class="tll__badges">
+          @if (isSelected(theme)) {
+            <span class="pill pill--success">active</span>
+          }
+        </span>
+      </button>
+    }
+
+    <p class="tll__section-label">My themes</p>
+    @if (s.userThemes().length === 0) {
+      <p class="tll__empty settings-copy">
+        No custom themes yet. Pick a built-in above and use <strong>New from selected</strong>, or ask Clara in chat to
+        propose one.
+      </p>
+    }
+    @for (theme of s.userThemes(); track theme.id) {
+      <button
+        type="button"
+        class="tll__item"
+        role="option"
+        [class.tll__item--selected]="isSelected(theme)"
+        [attr.aria-selected]="isSelected(theme)"
+        (click)="s.select(theme.id)"
+      >
+        <span class="tll__swatches" aria-hidden="true">
+          @for (color of swatches(theme); track $index) {
+            <span class="tll__swatch" [style.background]="color"></span>
+          }
+        </span>
+        <span class="tll__text">
+          <span class="tll__name">{{ theme.name }}</span>
+          <small class="tll__meta">
+            {{ theme.mode }} · {{ groupCount(theme) }} group override{{ groupCount(theme) === 1 ? '' : 's' }}
+            @if (theme.monaco) { · custom editor palette }
+            @if (theme.author) { · {{ theme.author }} }
+          </small>
+        </span>
+        <span class="tll__badges">
+          @if (isSelected(theme)) {
+            <span class="pill pill--success">active</span>
+          }
+          @if (isSelected(theme) && s.draftDirty()) {
+            <span class="pill">unsaved</span>
+          }
+        </span>
+      </button>
+    }
+  </div>
+</div>

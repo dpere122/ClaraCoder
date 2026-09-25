@@ -13,6 +13,7 @@ import { ThemedConfirmDialogService } from './themed-confirm-dialog.service';
       >
         <div
           class="tcd-panel"
+          data-theme-group="dialogs.confirm"
           role="dialog"
           aria-modal="true"
           [attr.aria-labelledby]="'tcd-title'"

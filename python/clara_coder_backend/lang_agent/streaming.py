@@ -63,6 +63,11 @@ def agent_question_event(payload: dict[str, Any]) -> dict[str, Any]:
     return {'type': 'agent_question', 'agentQuestion': payload}
 
 
+def theme_proposal_event(payload: dict[str, Any]) -> dict[str, Any]:
+    """Agent-authored theme for the Preview / Save card (``propose_theme`` tool; no pause)."""
+    return {'type': 'theme_proposal', 'themeProposal': payload}
+
+
 def build_plan_open_event(payload: dict[str, Any]) -> dict[str, Any]:
     """Open the build-plan Markdown preview tab in the workspace UI."""
     return {'type': 'build_plan_open', 'buildPlanOpen': payload}

@@ -3,6 +3,7 @@ import { hitlTrailStreamTag, isHitlTrailStreamTag } from './stream-parts';
 import type { DiffReviewStatus, StreamPart } from './types/conversation';
 import type { PlanConfirmPayload } from './types/plan-confirm';
 import type { AgentQuestionPayload } from './types/agent-question';
+import type { ThemeProposalPayload } from './types/theme-proposal';
 import type { AcceptCommandPayload } from './types/accept-command';
 import type { CopyConfirmPayload } from './types/copy-confirm';
 import type { DeleteConfirmPayload } from './types/delete-confirm';
@@ -37,6 +38,7 @@ export type HitlTrailArtifact =
   | { role: 'accept_command'; payload: AcceptCommandPayload; reviewStatus?: DiffReviewStatus; reviewSummary?: string }
   | { role: 'plan_confirm'; payload: PlanConfirmPayload; reviewStatus?: DiffReviewStatus; reviewSummary?: string }
   | { role: 'agent_question'; payload: AgentQuestionPayload; reviewStatus?: DiffReviewStatus; reviewSummary?: string }
+  | { role: 'theme_proposal'; payload: ThemeProposalPayload; reviewStatus?: DiffReviewStatus; reviewSummary?: string }
   | {
       role: 'staged_transfer_batch';
       payload: StagedTransferBatchPayload;
@@ -282,7 +284,7 @@ export function mergeHitlTrailIntoAuxiliaryTimeline(
   artifacts: readonly HitlTrailArtifact[],
 ): StreamPart[] {
   const trailArtifacts = artifacts.filter(
-    (a) => a.role !== 'plan_confirm' && a.role !== 'agent_question',
+    (a) => a.role !== 'plan_confirm' && a.role !== 'agent_question' && a.role !== 'theme_proposal',
   );
   const desired = hitlTrailItemsToStreamParts(hitlTrailItemsFromArtifacts(trailArtifacts));
   if (desired.length === 0) {

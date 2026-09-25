@@ -25,8 +25,7 @@ import {
   WHISPER_MODEL_OPTIONS,
   dependencyComponents,
 } from '@shared/index';
-import { THEMES } from '../../layout/theme-selector/theme-selector';
-import { resolveAppThemeId, applyAppFontOverrides } from '../../shell/app-theme';
+import { applyAppFontOverrides } from '../../../core/theme/app-font-overrides';
 import { ElectronService } from '../../../core/electron.service';
 
 interface LogEntry {
@@ -471,10 +470,8 @@ export class Dependencies implements OnInit, OnDestroy {
     }
   }
 
+  /** Theme itself is painted by ThemeEngineService (started in AppShell); fonts are per-window. */
   private applyTheme(config: AppConfig): void {
-    const theme = THEMES.find((t) => t.id === resolveAppThemeId(config)) ?? THEMES[0];
-    document.documentElement.className = theme.cssClass;
-    document.documentElement.setAttribute('data-bs-theme', theme.bsTheme);
     applyAppFontOverrides(config);
   }
 

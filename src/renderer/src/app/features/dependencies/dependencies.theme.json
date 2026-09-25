@@ -1,0 +1,8 @@
+{
+  "groups": {
+    "dependencies.window": {
+      "label": "Window",
+      "description": "Dependencies manager window."
+    }
+  }
+}

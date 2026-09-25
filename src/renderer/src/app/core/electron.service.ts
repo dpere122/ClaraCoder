@@ -43,6 +43,7 @@ import type {
   MaybeAutoTitleResult,
   PlanConfirmPayload,
   AgentQuestionPayload,
+  ThemeProposalPayload,
   PlannerProgress,
   BuildPlanChunkPayload,
   BuildPlanOpenPayload,
@@ -63,14 +64,24 @@ import type {
   WorkspaceOpenTabsState,
   EnsureWorkspaceSystemPromptResult,
 } from '@shared/index';
-import { getDefaultContextCompression, SecretValue } from '@shared/index';
+import { getDefaultContextCompression, isThemeProposalPayload, SecretValue } from '@shared/index';
+import {
+  DEFAULT_THEME_ID,
+  type ClaraThemeDocument,
+  type ThemeAssetPickResult,
+  type ThemeExportResult,
+  type ThemeImportResult,
+  type ThemeMode,
+  type ThemeMutationResult,
+  type ThemeSaveResult,
+} from '@shared/theme';
 
 /** Shape returned when `window.electronAPI` is unavailable (e.g. browser preview outside Electron). */
 const FALLBACK_APP_CONFIG: AppConfig = {
   currentWorkspaceId: null,
   defaultHomePageOnStart: false,
   workspaces: [],
-  themeId: 'woodland',
+  themeId: DEFAULT_THEME_ID,
   activeLlmModelId: 'default-lmstudio',
   llmProviders: [],
   audioTranscription: {
@@ -210,6 +221,11 @@ export interface PlanConfirmMessage {
 export interface AgentQuestionMessage {
   conversationId: string;
   payload: AgentQuestionPayload;
+}
+
+export interface ThemeProposalMessage {
+  conversationId: string;
+  payload: ThemeProposalPayload;
 }
 
 export interface PlannerProgressMessage {
@@ -369,7 +385,10 @@ export class ElectronService {
   private readonly buildPlanStreamEndSubject = new Subject<BuildPlanStreamEndMessage>();
   private readonly planConfirmSubject = new Subject<PlanConfirmMessage>();
   private readonly agentQuestionSubject = new Subject<AgentQuestionMessage>();
+  private readonly themeProposalSubject = new Subject<ThemeProposalMessage>();
   private readonly configSubject = new Subject<AppConfig>();
+  private readonly themeLibrarySubject = new Subject<ClaraThemeDocument[]>();
+  private readonly themePreviewSubject = new Subject<ClaraThemeDocument | null>();
   private readonly settingsWindowVisibilitySubject = new Subject<boolean>();
   private readonly settingsSelectTabSubject = new Subject<string>();
   private readonly activeConversationChangedSubject = new Subject<string | null>();
@@ -430,7 +449,13 @@ export class ElectronService {
   readonly buildPlanStreamEnd$ = this.buildPlanStreamEndSubject.asObservable();
   readonly planConfirm$ = this.planConfirmSubject.asObservable();
   readonly agentQuestion$ = this.agentQuestionSubject.asObservable();
+  /** Agent-authored theme proposals (`propose_theme` tool) for the Preview / Save card. */
+  readonly themeProposal$ = this.themeProposalSubject.asObservable();
   readonly config$ = this.configSubject.asObservable();
+  /** Full theme library (built-ins + user themes) after any mutation in main. */
+  readonly themeLibrary$ = this.themeLibrarySubject.asObservable();
+  /** Draft theme to paint instead of the persisted one; `null` clears the preview. */
+  readonly themePreview$ = this.themePreviewSubject.asObservable();
   readonly settingsWindowVisibility$ = this.settingsWindowVisibilitySubject.asObservable();
   readonly settingsSelectTab$ = this.settingsSelectTabSubject.asObservable();
   readonly activeConversationChanged$ = this.activeConversationChangedSubject.asObservable();
@@ -663,8 +688,20 @@ export class ElectronService {
         this.agentQuestionSubject.next({ conversationId, payload: payload as AgentQuestionPayload }),
       );
     });
+    this.api?.onMessageThemeProposal?.((_event, conversationId, payload) => {
+      if (!isThemeProposalPayload(payload)) {
+        return;
+      }
+      this.zone.run(() => this.themeProposalSubject.next({ conversationId, payload }));
+    });
     this.api?.onConfigUpdated((_event, config) => {
       this.zone.run(() => this.configSubject.next(config));
+    });
+    this.api?.onThemeLibraryUpdated?.((_event, themes) => {
+      this.zone.run(() => this.themeLibrarySubject.next(Array.isArray(themes) ? themes : []));
+    });
+    this.api?.onThemePreview?.((_event, theme) => {
+      this.zone.run(() => this.themePreviewSubject.next(theme ?? null));
     });
     this.api?.onSettingsWindowVisibilityChanged((_event, isOpen) => {
       this.zone.run(() => this.settingsWindowVisibilitySubject.next(isOpen));
@@ -1318,6 +1355,54 @@ export class ElectronService {
   /** App-wide UI theme (single `AppConfig.themeId`, no per-workspace override). */
   setTheme(themeId: string): Promise<AppConfig> {
     return this.api?.setTheme(themeId) ?? Promise.resolve(structuredClone(FALLBACK_APP_CONFIG));
+  }
+
+  // ── Theme library (see src/main/ipc/handlers/themes.ts) ──
+
+  listThemes(): Promise<ClaraThemeDocument[]> {
+    return this.api?.listThemes?.() ?? Promise.resolve([]);
+  }
+
+  saveTheme(theme: ClaraThemeDocument): Promise<ThemeSaveResult> {
+    return this.api?.saveTheme?.(theme) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  createTheme(payload: { name: string; mode: ThemeMode; fromThemeId?: string }): Promise<ThemeSaveResult> {
+    return this.api?.createTheme?.(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  duplicateTheme(themeId: string, name: string): Promise<ThemeSaveResult> {
+    return this.api?.duplicateTheme?.(themeId, name) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  deleteTheme(themeId: string): Promise<ThemeMutationResult> {
+    return this.api?.deleteTheme?.(themeId) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  importThemeFile(): Promise<ThemeImportResult> {
+    return this.api?.importThemeFile?.() ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  exportTheme(themeId: string): Promise<ThemeExportResult> {
+    return this.api?.exportTheme?.(themeId) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  pickThemeAsset(themeId: string): Promise<ThemeAssetPickResult> {
+    return this.api?.pickThemeAsset?.(themeId) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  removeThemeAsset(themeId: string, asset: string): Promise<ThemeMutationResult> {
+    return this.api?.removeThemeAsset?.(themeId, asset) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  /** Paint `theme` in every window without persisting; `null` returns to the saved theme. */
+  previewTheme(theme: ClaraThemeDocument | null): Promise<void> {
+    if (this.api?.previewTheme) {
+      return this.api.previewTheme(theme);
+    }
+    // Browser dev fallback: preview locally only.
+    this.themePreviewSubject.next(theme);
+    return Promise.resolve();
   }
 
   getActiveConversationId(): Promise<string | null> {

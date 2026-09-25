@@ -1,6 +1,7 @@
 import type { FileDiffPayload } from './diff';
 import type { AcceptCommandPayload } from './accept-command';
 import type { AgentQuestionPayload } from './agent-question';
+import type { ThemeProposalPayload } from './theme-proposal';
 import type { CopyConfirmPayload } from './copy-confirm';
 import type { DeleteConfirmPayload } from './delete-confirm';
 import type { PlanConfirmPayload } from './plan-confirm';
@@ -113,6 +114,12 @@ export type ConversationMessage =
   | {
       role: 'agent_question';
       payload: AgentQuestionPayload;
+      reviewStatus?: DiffReviewStatus;
+      reviewSummary?: string;
+    }
+  | {
+      role: 'theme_proposal';
+      payload: ThemeProposalPayload;
       reviewStatus?: DiffReviewStatus;
       reviewSummary?: string;
     };

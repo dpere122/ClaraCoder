@@ -49,6 +49,7 @@ export type ArtifactMessage = Extract<
   | { role: 'delete_confirm' }
   | { role: 'plan_confirm' }
   | { role: 'agent_question' }
+  | { role: 'theme_proposal' }
   | { role: 'staged_transfer_batch' }
 >;
 
@@ -131,7 +132,7 @@ export function liveTurnPresentationSettled(
 
 /** Plan approval + clarifying questions are rendered inside the unified plan panel — omit from the HITL detail stack. */
 export function hitlArtifactsExcludingPlanConfirm(artifacts: readonly ArtifactMessage[]): ArtifactMessage[] {
-  return artifacts.filter((a) => a.role !== 'plan_confirm' && a.role !== 'agent_question');
+  return artifacts.filter((a) => a.role !== 'plan_confirm' && a.role !== 'agent_question' && a.role !== 'theme_proposal');
 }
 
 export function planPanelCompleteCount(planner: PlannerProgress): number {
@@ -261,6 +262,7 @@ export function isScrollWorthyAppendMessage(m: ChatMessage): boolean {
     m.role === 'accept_command' ||
     m.role === 'plan_confirm' ||
     m.role === 'agent_question' ||
+    m.role === 'theme_proposal' ||
     m.role === 'staged_transfer_batch'
   );
 }
@@ -450,6 +452,7 @@ export function isHitlActivationMessage(m: ChatMessage): boolean {
     m.role === 'accept_command' ||
     m.role === 'plan_confirm' ||
     m.role === 'agent_question' ||
+    m.role === 'theme_proposal' ||
     m.role === 'staged_transfer_batch'
   );
 }
@@ -695,6 +698,7 @@ export function buildChatDisplayRows(messages: ChatMessage[]): ChatDisplayRow[] 
       msg.role === 'delete_confirm' ||
       msg.role === 'plan_confirm' ||
       msg.role === 'agent_question' ||
+      msg.role === 'theme_proposal' ||
       msg.role === 'staged_transfer_batch'
     ) {
       flushChainGroup();

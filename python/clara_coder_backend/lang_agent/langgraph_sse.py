@@ -960,6 +960,12 @@ def sse_lines_for_graph_event(
                 ),
             ),
         ]
+    if et == 'theme_proposal':
+        if not isinstance(data, dict) or not isinstance(data.get('theme'), dict) or not data.get('requestId'):
+            return []
+        from clara_coder_backend.lang_agent.streaming import theme_proposal_event
+
+        return [sse_line(theme_proposal_event(data))]
     if et == 'background_command_open':
         command_id = data.get('command_id')
         command_text = data.get('command_text')

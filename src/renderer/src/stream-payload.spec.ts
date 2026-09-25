@@ -370,6 +370,24 @@ describe('parseAgentStreamPayload', () => {
     });
   });
 
+  it('parses theme_proposal payloads and rejects malformed ones', () => {
+    const themeProposal = {
+      version: 1,
+      requestId: 'theme-abc123',
+      title: 'Theme proposal: Ocean',
+      summary: 'Cool blues.',
+      theme: { version: 1, id: 'ocean', name: 'Ocean', mode: 'dark', tokens: { '--t-primary': '#00aaff' }, groups: {} },
+      warnings: ['tokens.--t-nope: unknown token (dropped)'],
+    };
+    expect(parseAgentStreamPayload(JSON.stringify({ type: 'theme_proposal', themeProposal }))).toEqual({
+      type: 'theme_proposal',
+      themeProposal,
+    });
+    // Missing `theme` → falls through to the plain-text chunk fallback rather than a half-formed event.
+    const line = JSON.stringify({ type: 'theme_proposal', themeProposal: { version: 1, requestId: 'x', title: 't' } });
+    expect(parseAgentStreamPayload(line)).toEqual({ type: 'chunk', delta: line });
+  });
+
   it('parses build_plan_open payloads', () => {
     expect(
       parseAgentStreamPayload(

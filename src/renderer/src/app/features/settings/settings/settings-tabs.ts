@@ -1,6 +1,7 @@
 /** Settings window tab ids and sub-tab catalog. */
+import { THEME_GROUP_CATEGORIES } from '@shared/theme';
 
-export type SettingsTab = 'general' | 'models' | 'modelManager' | 'tools' | 'monaco' | 'audio' | 'workspaces';
+export type SettingsTab = 'general' | 'themes' | 'models' | 'modelManager' | 'tools' | 'monaco' | 'audio' | 'workspaces';
 
 export type SettingsSubTabEntry = {
   id: string;
@@ -12,7 +13,13 @@ export const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; description:
   {
     id: 'general',
     label: 'General',
-    description: 'UI theme, chat font size, and other global preferences.',
+    description: 'Chat font size, app fonts, and other global preferences.',
+  },
+  {
+    id: 'themes',
+    label: 'Themes',
+    description:
+      'Pick, create, import, and customize app themes: global colors, per-element-group overrides, background images, and the editor palette.',
   },
   {
     id: 'models',
@@ -58,13 +65,38 @@ export function initialSettingsTab(hash = globalThis.location?.hash ?? ''): Sett
   return settingsTabFromHash(hash) ?? 'models';
 }
 
+/** Sub-tab id prefix for one registry category inside the Themes tab (`cat:chat`, `cat:editor`, …). */
+export const THEMES_CATEGORY_SUB_TAB_PREFIX = 'cat:';
+
+export function themesCategorySubTabId(categoryId: string): string {
+  return `${THEMES_CATEGORY_SUB_TAB_PREFIX}${categoryId}`;
+}
+
+export function themesCategoryFromSubTabId(subTabId: string): string | null {
+  return subTabId.indexOf(THEMES_CATEGORY_SUB_TAB_PREFIX) === 0
+    ? subTabId.slice(THEMES_CATEGORY_SUB_TAB_PREFIX.length)
+    : null;
+}
+
+/** Themes sub-tabs: library, global tokens, one pane per registered element-group category, editor palette, advanced. */
+export function buildThemesSubTabs(
+  categories: ReadonlyArray<{ id: string; label: string }> = THEME_GROUP_CATEGORIES,
+): SettingsSubTabEntry[] {
+  return [
+    { id: 'library', label: 'Theme library', description: 'Choose the active theme; create, duplicate, import, export, or delete themes.' },
+    { id: 'global', label: 'Global colors', description: 'Design tokens every element group inherits by default.' },
+    ...categories.map((c) => ({
+      id: themesCategorySubTabId(c.id),
+      label: c.label,
+      description: `Per-group token overrides, advanced CSS, and background images for ${c.label.toLowerCase()} elements.`,
+    })),
+    { id: 'monaco', label: 'Editor palette', description: 'Monaco colors and syntax rules; derived from the tokens unless customized.' },
+    { id: 'advanced', label: 'Advanced', description: 'Theme metadata, raw JSON, and validation messages.' },
+  ];
+}
+
 export const SETTINGS_SUB_TAB_CATALOG: Partial<Record<SettingsTab, SettingsSubTabEntry[]>> = {
   general: [
-    {
-      id: 'themes',
-      label: 'Theme',
-      description: 'App-wide UI theme.',
-    },
     {
       id: 'chat',
       label: 'Chat appearance',
@@ -72,6 +104,7 @@ export const SETTINGS_SUB_TAB_CATALOG: Partial<Record<SettingsTab, SettingsSubTa
         'App UI scale, chat font size, expanded chat width, app-wide UI font, and code font for message text.',
     },
   ],
+  themes: buildThemesSubTabs(),
   tools: [
     {
       id: 'editTools',

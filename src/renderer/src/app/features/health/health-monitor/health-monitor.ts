@@ -4,13 +4,14 @@ import {
   ElementRef,
   OnDestroy,
   OnInit,
+  effect,
   inject,
   signal,
 } from '@angular/core';
 import Chart from 'chart.js/auto';
 import type { AppConfig, GpuInfo, HealthMetricsSnapshot } from '@shared/index';
-import { THEMES } from '../../layout/theme-selector/theme-selector';
-import { resolveAppThemeId, applyAppFontOverrides } from '../../shell/app-theme';
+import { applyAppFontOverrides } from '../../../core/theme/app-font-overrides';
+import { ThemeEngineService } from '../../../core/theme/theme-engine.service';
 import { ElectronService } from '../../../core/electron.service';
 import { HealthLogViewer } from '../health-log-viewer/health-log-viewer';
 import { HealthMetricsToggle } from '../health-metrics-toggle/health-metrics-toggle';
@@ -48,8 +49,17 @@ function cssColorToRgba(color: string, alpha: number): string {
 export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly electron = inject(ElectronService);
+  private readonly themeEngine = inject(ThemeEngineService);
 
   private charts = new Map<ChartKey, InstanceType<typeof Chart>>();
+
+  constructor() {
+    // Chart colors come from `--t-primary`; re-read them after every theme apply (incl. live preview).
+    effect(() => {
+      this.themeEngine.revision();
+      this.refreshChartColors();
+    });
+  }
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private configSub: { unsubscribe(): void } | null = null;
   private viewInitialized = false;
@@ -113,12 +123,6 @@ export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
     await this.electron.patchHealthMonitor({ metricsEnabled: enabled });
   }
 
-  private applyTheme(config: AppConfig): void {
-    const theme = THEMES.find((t) => t.id === resolveAppThemeId(config)) ?? THEMES[0];
-    document.documentElement.className = theme.cssClass;
-    document.documentElement.setAttribute('data-bs-theme', theme.bsTheme);
-  }
-
   private readThemePrimary(): string {
     return getComputedStyle(document.documentElement).getPropertyValue('--t-primary').trim();
   }
@@ -137,7 +141,6 @@ export class HealthMonitor implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private syncFromConfig(config: AppConfig): void {
-    this.applyTheme(config);
     applyAppFontOverrides(config);
     this.syncMetricsEnabled(config.healthMonitor.metricsEnabled);
     this.refreshChartColors();

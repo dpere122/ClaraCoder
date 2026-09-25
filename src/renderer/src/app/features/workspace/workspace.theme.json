@@ -1,0 +1,48 @@
+{
+  "groups": {
+    "editor.monaco": {
+      "label": "Code editor",
+      "description": "Monaco editor surface and markdown preview.",
+      "supportsBackground": true,
+      "backgroundClear": [
+        ".monaco-editor",
+        ".monaco-editor .margin",
+        ".monaco-editor-background",
+        ".monaco-editor .lines-content",
+        ".monaco-editor .minimap",
+        ".workspace-monaco-diff-toolbar"
+      ]
+    },
+    "editor.outline": {
+      "label": "Outline",
+      "description": "Symbol outline for the active file."
+    },
+    "editor.problems": {
+      "label": "Problems",
+      "description": "Diagnostics list from the language server."
+    },
+    "editor.terminal": {
+      "label": "Terminal dock",
+      "description": "Integrated terminal tabs below the editor.",
+      "styleSources": ["features/workspace-terminal"]
+    },
+    "editor.image-viewer": {
+      "label": "Image viewer",
+      "description": "Image tab toolbar and canvas."
+    },
+    "workspace.panel": {
+      "label": "Workspace column",
+      "description": "Left column hosting the file tree.",
+      "styleSources": ["features/workspace/workspace"]
+    },
+    "workspace.tree": {
+      "label": "File tree",
+      "description": "Workspace explorer with folders, files, and workspace settings."
+    },
+    "workspace.footer": {
+      "label": "Workspace footer",
+      "description": "Managed llama-server controls and workspace actions.",
+      "styleSources": ["features/status/managed-llama-controls"]
+    }
+  }
+}

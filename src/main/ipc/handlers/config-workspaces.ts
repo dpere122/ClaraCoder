@@ -91,6 +91,7 @@ function broadcastConfig(config: AppConfig): void {
   sendToWindowIfAlive(mainState.mainWindow, 'config-updated', config);
   sendToWindowIfAlive(mainState.settingsWindow, 'config-updated', config);
   sendToWindowIfAlive(mainState.healthWindow, 'config-updated', config);
+  sendToWindowIfAlive(mainState.dependenciesWindow, 'config-updated', config);
 }
 
 async function publishLostWorkspaceReconcile(result: ReconcileLostWorkspacesResult): Promise<void> {

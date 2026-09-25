@@ -127,8 +127,11 @@ import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialo
 import { ThemedPromptDialogService } from '../../../shared/themed-prompt-dialog/themed-prompt-dialog.service';
 import { activeStreamWorkspaceSwitchPrompt, unsavedWorkspaceSwitchPrompt } from '../../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
 import { customModelDeletePrompt } from '../../../shared/themed-confirm-dialog/format-delete-prompt';
-import { DEFAULT_THEME_ID, THEMES, ThemeOption } from '../../layout/theme-selector/theme-selector';
-import { applyAppFontOverrides } from '../../shell/app-theme';
+import { DEFAULT_THEME_ID, resolveLegacyThemeId } from '@shared/theme';
+import { applyAppFontOverrides } from '../../../core/theme/app-font-overrides';
+import { ThemeEngineService } from '../../../core/theme/theme-engine.service';
+import { SettingsThemesStore } from '../settings-themes/settings-themes-store';
+import { themesCategoryFromSubTabId } from './settings-tabs';
 import { VOICE_OPTIONS } from '../../speech/speech-module/speech-module';
 import {
   SETTINGS_SUB_TAB_CATALOG,
@@ -205,6 +208,7 @@ function modelExtension(fileName: string): string {
 }
 
 const MONACO_EDITOR_THEME_LABELS: Record<MonacoWorkspaceEditorThemeId, string> = {
+  'follow-app': 'Follow app theme',
   'vs-dark': 'VS Dark',
   vs: 'VS Light',
   'hc-black': 'High contrast dark',
@@ -246,7 +250,13 @@ export class SettingsStore {
   readonly tabs = SETTINGS_TABS;
   /** Kokoro voice ids for {@link AudioTranscriptionConfig.ttsVoice} (same list as chat TTS). */
   readonly ttsVoiceChoices = VOICE_OPTIONS;
-  readonly themes: ThemeOption[] = THEMES;
+  private readonly themeEngine = inject(ThemeEngineService);
+  /** Theme editing state (Settings → Themes); participates in Apply / OK through {@link attach}. */
+  readonly themes$ = inject(SettingsThemesStore);
+  /** Selectable themes (built-ins + user library) as `{ id, label }` rows for pickers. */
+  get themes(): { id: string; label: string }[] {
+    return this.themeEngine.library().map((t) => ({ id: t.id, label: t.name }));
+  }
   readonly monacoEditorThemeSelectOptions = MONACO_WORKSPACE_EDITOR_THEME_IDS.map((id) => ({
     id,
     label: MONACO_EDITOR_THEME_LABELS[id],
@@ -651,6 +661,17 @@ export class SettingsStore {
       const loading = this.whisperModelsLoading();
       untracked(() => this.scheduleNamedSpinnerSync(this.whisperModelDropdownSpinnerName, loading));
     });
+    this.themes$.attach({
+      themeId: this.themeId,
+      markDirty: () => this.markSettingsDirty(),
+    });
+    // Library arrives asynchronously from main and `themeId` re-hydrates from config;
+    // re-derive the editing draft whenever either changes.
+    effect(() => {
+      this.themeEngine.library();
+      this.themeId();
+      untracked(() => this.themes$.syncSelectionFromHost());
+    });
   }
 
   async ngOnInit(): Promise<void> {
@@ -720,6 +741,9 @@ export class SettingsStore {
     this.hfDownloadSubscription?.unsubscribe();
     if (this.configSnapshot && this.settingsDirty()) {
       void this.enqueuePersist();
+    } else {
+      // Nothing to save: make every window drop the live preview.
+      this.themes$.cancelPreview();
     }
   }
 
@@ -746,11 +770,29 @@ export class SettingsStore {
 
   settingsSubTabSummary(tab: SettingsTab, id: string): string {
     switch (tab) {
-      case 'general':
-        if (id === 'themes') {
-          const theme = this.themes.find((t) => t.id === this.themeId());
-          return theme?.label.split(/\s+/)[0] ?? this.themeId();
+      case 'themes': {
+        const theme = this.themes$.selectedTheme();
+        if (id === 'library') {
+          return `${this.themes.length} themes`;
         }
+        if (id === 'global') {
+          return `${Object.keys(theme.tokens).length} tokens`;
+        }
+        if (id === 'monaco') {
+          return theme.monaco ? 'Custom' : 'Derived';
+        }
+        if (id === 'advanced') {
+          const warnings = this.themes$.validation().warnings.length;
+          return warnings > 0 ? `${warnings} warning${warnings === 1 ? '' : 's'}` : 'Valid';
+        }
+        const category = themesCategoryFromSubTabId(id);
+        if (category) {
+          const count = this.themes$.groups.filter((g) => g.category === category && theme.groups[g.id]).length;
+          return count > 0 ? `${count} customized` : 'Inherits';
+        }
+        break;
+      }
+      case 'general':
         if (id === 'chat') {
           const sizeLabel =
             CHAT_CONTAINER_SIZE_OPTIONS.find((opt) => opt.value === this.chatContainerSize())?.label ?? 'Standard';
@@ -891,15 +933,8 @@ export class SettingsStore {
     await this.enqueuePersist();
   }
 
-  applyTheme(themeId: string): void {
-    const theme = THEMES.find((item) => item.id === themeId) ?? THEMES[0];
-    document.documentElement.className = theme.cssClass;
-    document.documentElement.setAttribute('data-bs-theme', theme.bsTheme);
-  }
-
   onThemeChange(themeId: string): void {
     this.themeId.set(themeId);
-    this.applyTheme(themeId);
     this.markSettingsDirty();
   }
 
@@ -2900,6 +2935,8 @@ export class SettingsStore {
 
   monacoEditorThemeShortLabel(id: MonacoWorkspaceEditorThemeId): string {
     switch (id) {
+      case 'follow-app':
+        return 'App';
       case 'vs':
         return 'VS';
       case 'vs-dark':
@@ -3025,6 +3062,8 @@ export class SettingsStore {
   }
 
   private async enqueuePersist(): Promise<void> {
+    // Theme file first so the saved `themeId` always points at an on-disk document.
+    await this.themes$.persistIfDirty();
     const next = this.buildConfigForPersist();
     const saved = await this.electron.saveConfig(next);
     if (!saved) {
@@ -3032,6 +3071,7 @@ export class SettingsStore {
     }
     this.configSnapshot = structuredClone(saved);
     this.settingsDirty.set(false);
+    this.themes$.afterPersist();
     // Disk-owned workspace registry may differ from the client payload; skip
     // forceFull hydrate so Apply does not re-list llama/HF models after save.
     this.workspaces.set(saved.workspaces);
@@ -3155,8 +3195,7 @@ export class SettingsStore {
         this.configSnapshot.chatExpandedToMainPanel = config.chatExpandedToMainPanel;
         this.configSnapshot.defaultHomePageOnStart = config.defaultHomePageOnStart;
       }
-      this.themeId.set(config.themeId || DEFAULT_THEME_ID);
-      this.applyTheme(config.themeId || DEFAULT_THEME_ID);
+      this.themeId.set(resolveLegacyThemeId(config.themeId || DEFAULT_THEME_ID));
       const at = config.audioTranscription;
       this.ttsProvider.set(at?.ttsProvider === 'openai-compatible' ? 'openai-compatible' : DEFAULT_TTS_PROVIDER);
       this.ttsBaseUrl.set(at?.ttsBaseUrl?.trim() || DEFAULT_OPENAI_TTS_BASE_URL);
@@ -3192,7 +3231,7 @@ export class SettingsStore {
 
     const currentWorkspace = config.workspaces.find((workspace) => workspace.id === config.currentWorkspaceId) ?? null;
     this.currentWorkspace.set(currentWorkspace);
-    this.themeId.set(config.themeId || DEFAULT_THEME_ID);
+    this.themeId.set(resolveLegacyThemeId(config.themeId || DEFAULT_THEME_ID));
     this.llmProviders.set(config.llmProviders);
     this.activeLlmModelId.set(config.activeLlmModelId);
     this.audioProvider.set(config.audioTranscription.provider);
@@ -3306,7 +3345,5 @@ export class SettingsStore {
       // user clicks away and back.
       void this.refreshCustomModelCards();
     }
-
-    this.applyTheme(config.themeId || DEFAULT_THEME_ID);
   }
 }

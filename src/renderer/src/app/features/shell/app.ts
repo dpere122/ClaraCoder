@@ -18,6 +18,7 @@ import type {
   LlmConnectionConfig,
   LlmReasoningSettingChange,
   MenuFileCommand,
+  ThemeProposalFinishedEvent,
 } from '@shared/index';
 import {
   fallbackJournalFromMessages,
@@ -108,7 +109,7 @@ import {
   WorkspaceMonacoModelStore,
   type WorkspaceMonacoSaveAsResult,
 } from '../workspace/workspace-monaco/workspace-monaco-model-store';
-import { applyAppFontOverrides, applyAppTheme, resolveAppThemeId } from './app-theme';
+import { applyAppFontOverrides } from '../../core/theme/app-font-overrides';
 import { SETTINGS_TABS, type SettingsTab } from '../settings/settings/settings-tabs';
 import {
   buildContextCapacitySnapshot,
@@ -920,7 +921,6 @@ export class App implements OnInit, OnDestroy {
           ? Math.min(TTS_SPEECH_SPEED_MAX, Math.max(TTS_SPEECH_SPEED_MIN, sp))
           : TTS_SPEECH_SPEED_DEFAULT,
       );
-      applyAppTheme(resolveAppThemeId(config));
       applyAppFontOverrides(config);
       this.workspaces.set(config.workspaces);
       this.applyWorkspaceIdFromConfig(config, false);
@@ -1003,7 +1003,7 @@ export class App implements OnInit, OnDestroy {
     this.applyWorkspaceIdFromConfig(config, true);
     this.restoreOpenTabsForWorkspace(this.currentWorkspaceId());
 
-    applyAppTheme(resolveAppThemeId(config));
+    applyAppFontOverrides(config);
     this.hydrateChatWindowStateFromConfig(config);
 
     if (this.electron.isElectron) {
@@ -1661,6 +1661,30 @@ export class App implements OnInit, OnDestroy {
         const m = copy[i];
         if (
           m.role === 'agent_question' &&
+          m.payload.requestId === event.requestId &&
+          (m.reviewStatus ?? 'pending') === 'pending'
+        ) {
+          copy[i] = {
+            ...m,
+            reviewStatus: event.status,
+            reviewSummary: event.summary,
+          };
+          break;
+        }
+      }
+      return copy;
+    });
+    this.conversationSession.markMessagesDirtyAndAutoSave();
+  }
+
+  /** Theme proposal card resolved (saved / applied / dismissed); no backend round-trip needed. */
+  onThemeProposalFinished(event: ThemeProposalFinishedEvent): void {
+    this.messages.update((prev) => {
+      const copy = [...prev];
+      for (let i = copy.length - 1; i >= 0; i--) {
+        const m = copy[i];
+        if (
+          m.role === 'theme_proposal' &&
           m.payload.requestId === event.requestId &&
           (m.reviewStatus ?? 'pending') === 'pending'
         ) {

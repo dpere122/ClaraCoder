@@ -1,19 +1,5 @@
       <div class='settings-pane settings-pane--sectioned'>
-        
-        @if (s.activeSubTabId('general') === 'themes') {
-          <div class='form-section'>
-            <div class='form-grid'>
-              <label class='field'>
-                <span>Theme</span>
-                <select [ngModel]='s.themeId()' (ngModelChange)='s.onThemeChange($event)'>
-                  @for (theme of s.themes; track theme.id) {
-                    <option [value]='theme.id'>{{ theme.label }}</option>
-                  }
-                </select>
-              </label>
-            </div>
-          </div>
-        }
+
         @if (s.activeSubTabId('general') === 'chat') {
           <div class='form-section'>
             <div class='form-grid'>

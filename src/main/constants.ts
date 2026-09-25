@@ -1,7 +1,8 @@
 /**
  * Main-process constants: Python port, workspace context limits, and dev vs packaged paths.
- * Theme id must stay aligned with THEMES in the renderer theme-selector.
  */
+import { DEFAULT_THEME_ID } from '../shared/theme/builtin';
+
 export const DEV_SERVER_URL = process.env.DEV_SERVER_URL;
 /**
  * Python sidecar port. Dev (`npm run dev` sets `DEV_SERVER_URL`) uses 5124 so a dev
@@ -50,8 +51,5 @@ export const WORKSPACE_CONTEXT_IGNORED_SUFFIXES = ['.pyc', '.pyo', '.tmp', '.swp
 
 export const WORKSPACE_NODE_MODULES_DIR = 'node_modules';
 
-/** Default theme when none is set (matches renderer `DEFAULT_THEME_ID`). */
-export const FIRST_THEME_ID = 'woodland';
-
-/** Allowed app UI theme ids (keep aligned with `THEMES` in theme-selector.ts). */
-export const APP_THEME_IDS = ['woodland', 'classical', 'dark-classical'] as const;
+/** Default theme when none is set (the dark built-in; see `src/shared/theme/builtin`). */
+export const FIRST_THEME_ID: string = DEFAULT_THEME_ID;

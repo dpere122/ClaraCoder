@@ -1,4 +1,4 @@
-<div class='workspace'>
+<div class='workspace' data-theme-group='workspace.tree'>
   <div class='workspace-body'>
     @if (currentWorkspaceId()) {
       <div
@@ -159,7 +159,7 @@
       @if (settingsError()) {
         <p class='workspace-settings-error' role='alert'>{{ settingsError() }}</p>
       }
-      <div class='workspace-footer-model-row'>
+      <div class='workspace-footer-model-row' data-theme-group='workspace.footer'>
         <button
           class='workspace-icon-btn'
           type='button'

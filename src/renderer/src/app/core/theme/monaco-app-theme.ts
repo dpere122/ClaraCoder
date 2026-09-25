@@ -2,8 +2,18 @@ import type * as Monaco from 'monaco-editor';
 import { MONACO_APP_THEME_NAME, type ThemeMonacoDefinition } from '@shared/theme';
 import type { MonacoWorkspaceEditorThemeId } from '@shared/index';
 
-/** Registers (or refreshes) the app-derived Monaco theme. Safe to call repeatedly. */
+/**
+ * Last definition registered per Monaco API instance. Every mounted editor component reacts
+ * to the same `ThemeEngineService.monacoTheme()` object, so this keeps `defineTheme` (which
+ * re-renders every editor on the page) to once per theme change instead of once per editor.
+ */
+const definedThemes = new WeakMap<typeof Monaco, ThemeMonacoDefinition>();
+
+/** Registers (or refreshes) the app-derived Monaco theme. Safe and cheap to call repeatedly. */
 export function defineMonacoAppTheme(monacoApi: typeof Monaco, def: ThemeMonacoDefinition): void {
+  if (definedThemes.get(monacoApi) === def) {
+    return;
+  }
   monacoApi.editor.defineTheme(MONACO_APP_THEME_NAME, {
     base: def.base,
     inherit: true,
@@ -15,6 +25,7 @@ export function defineMonacoAppTheme(monacoApi: typeof Monaco, def: ThemeMonacoD
       fontStyle: r.fontStyle,
     })),
   });
+  definedThemes.set(monacoApi, def);
 }
 
 /**

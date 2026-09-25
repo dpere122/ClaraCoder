@@ -97,6 +97,16 @@ export interface ValidateThemeOptions {
 
 export const THEME_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,63}$/;
 export const THEME_ASSET_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+/**
+ * Embedded image asset: strict `data:image/<type>;base64,<base64>` with no whitespace, so the
+ * value can be interpolated into `url("…")` without ever terminating the CSS string.
+ */
+export const THEME_ASSET_DATA_URL_PATTERN = /^data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/]+=*$/i;
+
+/** True for a well-formed embedded image asset (see {@link THEME_ASSET_DATA_URL_PATTERN}). */
+export function isThemeAssetDataUrl(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= THEME_ASSET_DATA_URL_MAX_CHARS && THEME_ASSET_DATA_URL_PATTERN.test(value);
+}
 export const THEME_NAME_MAX_CHARS = 80;
 export const THEME_DESCRIPTION_MAX_CHARS = 400;
 export const THEME_TOKEN_VALUE_MAX_CHARS = 400;
@@ -308,8 +318,9 @@ function validateBackground(
   const opacityRaw = raw['opacity'];
   let opacity = 0.35;
   if (typeof opacityRaw === 'number' && Number.isFinite(opacityRaw)) {
-    // Accept 0–1 fractions and 0–100 percentages.
-    opacity = opacityRaw > 1 ? opacityRaw / 100 : opacityRaw;
+    // Accept 0–1 fractions; whole numbers above 1 read as percentages (40 → 0.4). Anything
+    // else above 1 (1.5) is an out-of-range fraction and clamps, not a 1.5 % overlay.
+    opacity = opacityRaw > 1 && Number.isInteger(opacityRaw) ? opacityRaw / 100 : opacityRaw;
     opacity = Math.min(1, Math.max(0, opacity));
   } else if (opacityRaw !== undefined) {
     warnings.push({ path: `${path}.opacity`, message: 'must be a number (defaulted)' });
@@ -402,9 +413,13 @@ function validateAssets(raw: unknown, errors: ThemeValidationIssue[], warnings: 
       warnings.push({ path: `assets.${name}`, message: 'must be a non-empty string (dropped)' });
       continue;
     }
-    if (/^data:image\//i.test(value)) {
+    if (/^data:/i.test(value)) {
       if (value.length > THEME_ASSET_DATA_URL_MAX_CHARS) {
         warnings.push({ path: `assets.${name}`, message: 'embedded image too large (dropped)' });
+        continue;
+      }
+      if (!isThemeAssetDataUrl(value)) {
+        warnings.push({ path: `assets.${name}`, message: 'embedded image must be a data:image/…;base64 URL (dropped)' });
         continue;
       }
       out[name] = value;
@@ -419,7 +434,12 @@ function validateAssets(raw: unknown, errors: ThemeValidationIssue[], warnings: 
   return out;
 }
 
-function validateMonaco(raw: unknown, warnings: ThemeValidationIssue[]): ThemeMonacoDefinition | undefined {
+/** Stock Monaco theme that matches an app theme mode. */
+export function defaultMonacoBaseForMode(mode: ThemeMode): ThemeMonacoBase {
+  return mode === 'light' ? 'vs' : 'vs-dark';
+}
+
+function validateMonaco(raw: unknown, mode: ThemeMode, warnings: ThemeValidationIssue[]): ThemeMonacoDefinition | undefined {
   if (raw === undefined || raw === null) {
     return undefined;
   }
@@ -427,13 +447,14 @@ function validateMonaco(raw: unknown, warnings: ThemeValidationIssue[]): ThemeMo
     warnings.push({ path: 'monaco', message: 'must be an object (dropped)' });
     return undefined;
   }
+  const fallbackBase = defaultMonacoBaseForMode(mode);
   const baseRaw = raw['base'];
   const base: ThemeMonacoBase =
     typeof baseRaw === 'string' && THEME_MONACO_BASES.indexOf(baseRaw as ThemeMonacoBase) >= 0
       ? (baseRaw as ThemeMonacoBase)
-      : 'vs-dark';
+      : fallbackBase;
   if (baseRaw !== undefined && base !== baseRaw) {
-    warnings.push({ path: 'monaco.base', message: 'unknown base (defaulted to vs-dark)' });
+    warnings.push({ path: 'monaco.base', message: `unknown base (defaulted to ${fallbackBase})` });
   }
   const colors: Record<string, string> = {};
   const colorsRaw = raw['colors'];
@@ -477,6 +498,11 @@ function validateMonaco(raw: unknown, warnings: ThemeValidationIssue[]): ThemeMo
     }
   } else if (rulesRaw !== undefined) {
     warnings.push({ path: 'monaco.rules', message: 'must be an array (dropped)' });
+  }
+  if (baseRaw === undefined && Object.keys(colors).length === 0 && rules.length === 0) {
+    // `monaco: {}` would otherwise replace the token-derived palette with a bare stock theme.
+    warnings.push({ path: 'monaco', message: 'empty; the editor palette stays derived from the tokens' });
+    return undefined;
   }
   return { base, colors, rules };
 }
@@ -543,7 +569,7 @@ export function validateThemeDocument(raw: unknown, options: ValidateThemeOption
     warnings.push({ path: 'tokens', message: 'missing; theme inherits every built-in token' });
   }
   const groups = validateGroups(raw['groups'], options.knownGroupIds ?? THEME_GROUP_IDS, assets, errors, warnings);
-  const monaco = validateMonaco(raw['monaco'], warnings);
+  const monaco = validateMonaco(raw['monaco'], mode, warnings);
 
   const descriptionRaw = raw['description'];
   const authorRaw = raw['author'];

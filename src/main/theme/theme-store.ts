@@ -18,6 +18,7 @@ import {
   THEME_ASSET_NAME_PATTERN,
   THEME_ID_PATTERN,
   cloneThemeDocument,
+  isThemeAssetDataUrl,
   slugifyThemeId,
   validateThemeDocument,
   type ClaraThemeDocument,
@@ -213,7 +214,10 @@ export async function uniqueThemeId(base: string): Promise<string> {
 }
 
 function parseDataImageUrl(value: string): { mime: string; bytes: Buffer } | null {
-  const m = /^data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$/i.exec(value.trim());
+  if (!isThemeAssetDataUrl(value)) {
+    return null;
+  }
+  const m = /^data:(image\/[a-z0-9.+-]+);base64,(.*)$/i.exec(value);
   if (!m) {
     return null;
   }
@@ -221,11 +225,7 @@ function parseDataImageUrl(value: string): { mime: string; bytes: Buffer } | nul
   if (!EXT_BY_MIME[mime]) {
     return null;
   }
-  try {
-    return { mime, bytes: Buffer.from(m[2]!.replace(/\s+/g, ''), 'base64') };
-  } catch {
-    return null;
-  }
+  return { mime, bytes: Buffer.from(m[2]!, 'base64') };
 }
 
 function prepareAssetBytes(bytes: Buffer, ext: string): Buffer {
@@ -242,10 +242,11 @@ async function uniqueAssetFileName(assetsDir: string, baseName: string, ext: str
 }
 
 /**
- * Persist `doc` under its id. Embedded `data:` assets are written to `assets/` and replaced by
- * file names; asset files no longer referenced are deleted. Built-in ids are rejected.
+ * Validate and persist `input` under its id. Embedded `data:` assets are written to `assets/`
+ * and replaced by file names; asset files no longer referenced are deleted. Built-in ids are
+ * rejected. Accepts unknown JSON (IPC payloads) as well as typed documents.
  */
-export async function writeUserTheme(input: ClaraThemeDocument): Promise<ThemeSaveResult> {
+export async function writeUserTheme(input: unknown): Promise<ThemeSaveResult> {
   const validated = validateThemeDocument(input);
   if (!validated.ok || !validated.doc) {
     return { ok: false, error: 'Theme document is invalid', errors: validated.errors, warnings: validated.warnings };
@@ -263,7 +264,7 @@ export async function writeUserTheme(input: ClaraThemeDocument): Promise<ThemeSa
   const assets: Record<string, string> = {};
   for (const key of Object.keys(doc.assets ?? {})) {
     const value = doc.assets![key]!;
-    if (/^data:image\//i.test(value)) {
+    if (/^data:/i.test(value)) {
       const parsed = parseDataImageUrl(value);
       if (!parsed || parsed.bytes.length === 0 || parsed.bytes.length > THEME_ASSET_MAX_BYTES) {
         validated.warnings.push({ path: `assets.${key}`, message: 'embedded image could not be decoded (dropped)' });
@@ -457,17 +458,4 @@ export async function addThemeAssetFromFile(themeId: string, sourcePath: string)
   await writeFileAtomic(path.join(assetsDir, fileName), prepareAssetBytes(bytes, ext));
   const asset = fileName.slice(0, fileName.length - ext.length - 1);
   return { ok: true, asset, fileName };
-}
-
-export async function removeThemeAssetFile(themeId: string, fileName: string): Promise<ThemeMutationResult> {
-  const abs = resolveThemeAssetPath(themeId, fileName);
-  if (!abs) {
-    return { ok: false, error: 'Invalid asset reference' };
-  }
-  try {
-    await fs.rm(abs, { force: true });
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
 }

@@ -6,14 +6,17 @@
 import {
   CLARA_DARK_THEME,
   DEFAULT_THEME_ID,
+  THEME_ASSET_NAME_PATTERN,
   cssColorToHex,
   findBuiltInTheme,
+  isThemeAssetDataUrl,
   resolveThemeDocument,
   themeStylesheetText,
   type ClaraThemeDocument,
   type ResolvedTheme,
   type ThemeAssetUrlResolver,
   type ThemeColorResolver,
+  type ThemeMode,
 } from '@shared/theme';
 
 export const THEME_TOKENS_STYLE_ID = 'clara-theme-tokens';
@@ -21,13 +24,49 @@ export const THEME_GROUPS_STYLE_ID = 'clara-theme-groups';
 export const THEME_ID_ATTR = 'data-theme-id';
 export const THEME_MODE_ATTR = 'data-theme-mode';
 export const THEME_REVISION_ATTR = 'data-theme-revision';
+/** `localStorage` key holding the last painted mode so the pre-bootstrap paint matches it. */
+export const THEME_MODE_STORAGE_KEY = 'clara-theme-mode';
+
+type ModeStorage = Pick<Storage, 'getItem' | 'setItem'>;
+
+/** `window.localStorage` when it exists and is accessible (it can throw under some origins). */
+export function browserModeStorage(): ModeStorage | null {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/** Mode painted last session (per window origin); `dark` when unknown or storage is unavailable. */
+export function readCachedThemeMode(storage: ModeStorage | undefined | null): ThemeMode {
+  try {
+    return storage?.getItem(THEME_MODE_STORAGE_KEY) === 'light' ? 'light' : 'dark';
+  } catch {
+    return 'dark';
+  }
+}
+
+export function writeCachedThemeMode(storage: ModeStorage | undefined | null, mode: ThemeMode): void {
+  try {
+    storage?.setItem(THEME_MODE_STORAGE_KEY, mode);
+  } catch {
+    // Storage can be disabled or full; the cache is only a first-paint hint.
+  }
+}
 
 const LEGACY_THEME_CLASSES = ['theme-woodland', 'theme-classical', 'theme-dark-classical'];
 
-/** `clara-theme://asset/<themeId>/<file>` for on-disk assets; `data:` URLs pass through. */
+/**
+ * `clara-theme://asset/<themeId>/<file>` for on-disk assets; well-formed `data:image/…;base64`
+ * URLs pass through; anything else is refused (null → no overlay).
+ */
 export const rendererThemeAssetUrl: ThemeAssetUrlResolver = (themeId, _asset, assetValue) => {
-  if (/^data:image\//i.test(assetValue)) {
-    return assetValue;
+  if (/^data:/i.test(assetValue)) {
+    return isThemeAssetDataUrl(assetValue) ? assetValue : null;
+  }
+  if (!THEME_ASSET_NAME_PATTERN.test(assetValue)) {
+    return null;
   }
   return `clara-theme://asset/${encodeURIComponent(themeId)}/${encodeURIComponent(assetValue)}`;
 };
@@ -68,7 +107,10 @@ export function applyResolvedThemeToDocument(
   }
 }
 
-/** Synchronous first paint with a built-in theme (used before Angular bootstraps). */
+/**
+ * Synchronous first paint with a built-in theme (used before Angular bootstraps). Pass the
+ * cached mode's built-in so a light-theme user does not see a dark first frame.
+ */
 export function applyBuiltInThemeSync(doc: Document, themeId: string = DEFAULT_THEME_ID): ClaraThemeDocument {
   const theme = findBuiltInTheme(themeId) ?? CLARA_DARK_THEME;
   applyResolvedThemeToDocument(doc, resolveThemeDocument(theme));

@@ -7,9 +7,15 @@
  * resolver (the renderer resolves through the DOM) and skipped when that returns null.
  */
 
-import type { ClaraThemeDocument, ThemeMonacoDefinition, ThemeMonacoRule } from './theme-document';
+import { defaultMonacoBaseForMode, type ClaraThemeDocument, type ThemeMonacoDefinition, type ThemeMonacoRule } from './theme-document';
 
 export const MONACO_APP_THEME_NAME = 'clara-app-theme';
+
+/**
+ * Registry group whose scoped token overrides feed the derived Monaco palette (the editor
+ * paints its own colors, so `--t-code-bg` set only on this group must still reach it).
+ */
+export const MONACO_THEME_GROUP_ID = 'editor.monaco';
 
 /** Resolve an arbitrary CSS color string to `#rrggbb[aa]`, or null when unknown. */
 export type ThemeColorResolver = (cssValue: string) => string | null;
@@ -318,10 +324,16 @@ export interface DeriveMonacoThemeOptions {
 
 /**
  * Build a Monaco theme definition. Uses `doc.monaco` when present (with the transparent
- * background applied on top when requested); otherwise derives everything from tokens.
+ * background applied on top when requested); otherwise derives everything from tokens —
+ * the mode built-in, then the theme's global tokens, then the `editor.monaco` group's
+ * scoped overrides.
  */
 export function deriveMonacoTheme(doc: ClaraThemeDocument, options: DeriveMonacoThemeOptions = {}): ThemeMonacoDefinition {
-  const tokens: Record<string, string> = { ...(options.baseTokens ?? {}), ...doc.tokens };
+  const tokens: Record<string, string> = {
+    ...(options.baseTokens ?? {}),
+    ...doc.tokens,
+    ...(doc.groups?.[MONACO_THEME_GROUP_ID]?.tokens ?? {}),
+  };
   const resolve = (tokenName: string): string | null => resolveThemeTokenColor(tokens, tokenName, options.resolver);
 
   let def: ThemeMonacoDefinition;
@@ -352,7 +364,7 @@ export function deriveMonacoTheme(doc: ClaraThemeDocument, options: DeriveMonaco
       }
       rules.push(rule);
     }
-    def = { base: doc.mode === 'light' ? 'vs' : 'vs-dark', colors, rules };
+    def = { base: defaultMonacoBaseForMode(doc.mode), colors, rules };
   }
 
   if (options.transparentBackground) {

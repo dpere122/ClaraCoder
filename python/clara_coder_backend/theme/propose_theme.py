@@ -137,7 +137,8 @@ def _validate_background(raw: Any, path: str, warnings: list[str]) -> dict[str, 
     except (TypeError, ValueError):
         opacity = 0.35
         warnings.append(f'{path}.opacity: must be a number (defaulted)')
-    if opacity > 1:
+    # Whole numbers above 1 read as percentages (40 → 0.4); other values above 1 clamp.
+    if opacity > 1 and opacity.is_integer():
         opacity = opacity / 100.0
     opacity = max(0.0, min(1.0, opacity))
     fit = raw.get('fit', 'cover')
@@ -209,16 +210,21 @@ def _bare_hex(value: Any) -> str | None:
     return (v[1:] if v.startswith('#') else v).lower()
 
 
-def _validate_monaco(raw: Any, warnings: list[str]) -> dict[str, Any] | None:
+def _default_monaco_base(mode: str) -> str:
+    return 'vs' if mode == 'light' else 'vs-dark'
+
+
+def _validate_monaco(raw: Any, mode: str, warnings: list[str]) -> dict[str, Any] | None:
     if raw is None:
         return None
     if not isinstance(raw, dict):
         warnings.append('monaco: must be an object (dropped)')
         return None
-    base = raw.get('base', 'vs-dark')
-    if base not in _MONACO_BASES:
-        warnings.append('monaco.base: unknown base (defaulted to vs-dark)')
-        base = 'vs-dark'
+    fallback_base = _default_monaco_base(mode)
+    base_raw = raw.get('base')
+    base = base_raw if base_raw in _MONACO_BASES else fallback_base
+    if base_raw is not None and base != base_raw:
+        warnings.append(f'monaco.base: unknown base (defaulted to {fallback_base})')
     colors: dict[str, str] = {}
     colors_raw = raw.get('colors')
     if isinstance(colors_raw, dict):
@@ -256,6 +262,10 @@ def _validate_monaco(raw: Any, warnings: list[str]) -> dict[str, Any] | None:
             rules.append(entry)
     elif rules_raw is not None:
         warnings.append('monaco.rules: must be an array (dropped)')
+    if base_raw is None and not colors and not rules:
+        # `monaco: {}` would replace the token-derived palette with a bare stock theme.
+        warnings.append('monaco: empty; the editor palette stays derived from the tokens')
+        return None
     return {'base': base, 'colors': colors, 'rules': rules}
 
 
@@ -298,7 +308,7 @@ def validate_theme_proposal(raw: Any) -> tuple[dict[str, Any] | None, list[str]]
     if raw.get('tokens') is None:
         warnings.append('tokens: missing; the theme inherits every built-in token')
     groups = _validate_groups(raw.get('groups'), known_tokens, warnings)
-    monaco = _validate_monaco(raw.get('monaco'), warnings)
+    monaco = _validate_monaco(raw.get('monaco'), mode, warnings)
     if raw.get('assets'):
         warnings.append('assets: dropped; images are added by the user in Settings → Themes')
 

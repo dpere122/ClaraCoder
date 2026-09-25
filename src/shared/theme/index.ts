@@ -17,6 +17,7 @@ export type {
   ValidateThemeOptions,
 } from './theme-document';
 export {
+  THEME_ASSET_DATA_URL_PATTERN,
   THEME_ASSET_NAME_PATTERN,
   THEME_BACKGROUND_FITS,
   THEME_DOCUMENT_VERSION,
@@ -26,9 +27,11 @@ export {
   THEME_NAME_MAX_CHARS,
   THEME_TOKEN_VALUE_MAX_CHARS,
   cloneThemeDocument,
+  defaultMonacoBaseForMode,
   emptyThemeDocument,
   isHexColor,
   isSafeThemeTokenValue,
+  isThemeAssetDataUrl,
   looksLikeCssColor,
   missingThemeTokens,
   normalizeBareHex,
@@ -77,6 +80,7 @@ export {
   MONACO_APP_THEME_NAME,
   MONACO_COLOR_TOKEN_MAP,
   MONACO_RULE_TOKEN_MAP,
+  MONACO_THEME_GROUP_ID,
   cssColorToHex,
   deriveMonacoTheme,
   hexWithAlpha,
@@ -103,4 +107,4 @@ export type {
   ThemeSaveResult,
 } from './theme-ipc';
 export { THEME_IPC } from './theme-ipc';
-export { resolveThemeDocument, themeStylesheetText } from './theme-resolve';
+export { cssQuote, resolveThemeDocument, themeStylesheetText } from './theme-resolve';

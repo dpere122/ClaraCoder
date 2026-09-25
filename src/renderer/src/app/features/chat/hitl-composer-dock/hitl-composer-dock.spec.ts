@@ -9,6 +9,34 @@ import type { ChatMessage } from '../chat-box/chat-box';
 import { ConversationSessionService } from '../../shell/conversation-session.service';
 import { HitlComposerDockComponent } from './hitl-composer-dock';
 
+// The pending diff card mounts `app-diff-monaco-preview`, which dynamically imports Monaco.
+// Under the parallel suite that real import can resolve after this file's environment is torn
+// down (EnvironmentTeardownError). Stub the module: these tests only assert dock behaviour.
+const { makeMonacoMock } = vi.hoisted(() => {
+  function makeMonacoMock() {
+    const modifiedEditor = { revealLineInCenter: vi.fn() };
+    const diffEditor = {
+      setModel: vi.fn(),
+      updateOptions: vi.fn(),
+      layout: vi.fn(),
+      getModifiedEditor: () => modifiedEditor,
+      dispose: vi.fn(),
+    };
+    return {
+      editor: {
+        createDiffEditor: vi.fn(() => diffEditor),
+        createModel: vi.fn((text: string) => ({ getValue: () => text, setValue: vi.fn(), isDisposed: () => false, dispose: vi.fn() })),
+        defineTheme: vi.fn(),
+        setTheme: vi.fn(),
+      },
+      Uri: { parse: (u: string) => u },
+    };
+  }
+  return { makeMonacoMock };
+});
+
+vi.mock('monaco-editor', () => makeMonacoMock());
+
 describe('HitlComposerDockComponent', () => {
   beforeEach(() => {
     if (typeof window.matchMedia !== 'function') {

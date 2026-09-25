@@ -439,7 +439,6 @@ declare global {
     importThemeFile: () => Promise<ThemeImportResult>;
     exportTheme: (themeId: string) => Promise<ThemeExportResult>;
     pickThemeAsset: (themeId: string) => Promise<ThemeAssetPickResult>;
-    removeThemeAsset: (themeId: string, asset: string) => Promise<ThemeMutationResult>;
     previewTheme: (theme: ClaraThemeDocument | null) => Promise<void>;
     onThemeLibraryUpdated: (callback: (event: unknown, themes: ClaraThemeDocument[]) => void) => void;
     onThemePreview: (callback: (event: unknown, theme: ClaraThemeDocument | null) => void) => void;

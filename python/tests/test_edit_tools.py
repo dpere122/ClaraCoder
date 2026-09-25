@@ -143,6 +143,8 @@ def test_outer_agent_tools_staging_mode() -> None:
         'list_background_commands',
     }
     write_job_names = {'wait_for_write', 'cancel_write', 'list_write_jobs'}
+    # `propose_theme` never touches the workspace, so it is bound in both modes.
+    theme_names = {'propose_theme'}
 
     tools_on, map_on = worker_tools_and_map(True, session=session)
     assert {t.name for t in tools_on} == (
@@ -154,11 +156,12 @@ def test_outer_agent_tools_staging_mode() -> None:
         | lsp_mut_names
         | {'delete_workspace_entry', 'batch_delete_workspace_entries'}
         | review_names
+        | theme_names
     )
     assert map_on.keys() == {t.name for t in tools_on}
 
     tools_off, map_off = worker_tools_and_map(False, session=session)
-    assert {t.name for t in tools_off} == read_names
+    assert {t.name for t in tools_off} == read_names | theme_names
     assert 'plan_and_modify' not in map_off
     assert 'execute_workspace_mutation' not in map_off
 

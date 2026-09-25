@@ -97,6 +97,31 @@ def test_validate_normalizes_monaco_block() -> None:
     assert any('bad key!' in w for w in warnings)
 
 
+def test_monaco_base_follows_mode_and_empty_block_is_dropped() -> None:
+    light, _ = validate_theme_proposal({'name': 'L', 'mode': 'light', 'monaco': {'colors': {'editor.background': '#fff'}}})
+    assert light is not None and light['monaco']['base'] == 'vs'
+    dark, _ = validate_theme_proposal({'name': 'D', 'mode': 'dark', 'monaco': {'colors': {'editor.background': '#000'}}})
+    assert dark is not None and dark['monaco']['base'] == 'vs-dark'
+    empty, warnings = validate_theme_proposal({'name': 'E', 'mode': 'light', 'monaco': {}})
+    assert empty is not None and 'monaco' not in empty
+    assert any(w.startswith('monaco: empty') for w in warnings)
+
+
+def test_opacity_percent_heuristic_only_applies_to_whole_numbers() -> None:
+    doc, _ = validate_theme_proposal(
+        {
+            'name': 'O',
+            'groups': {
+                'chat.transcript': {'background': {'opacity': 60}},
+                'editor.monaco': {'background': {'opacity': 1.5}},
+            },
+        }
+    )
+    assert doc is not None
+    assert doc['groups']['chat.transcript']['background']['opacity'] == 0.6
+    assert doc['groups']['editor.monaco']['background']['opacity'] == 1.0
+
+
 def test_tool_is_bound_for_the_outer_agent() -> None:
     tools, mapping = worker_tools_and_map(False)
     assert PROPOSE_THEME_NAME in mapping

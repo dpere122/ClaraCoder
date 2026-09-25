@@ -788,8 +788,8 @@ export function migrateConfig(config: AppConfig): AppConfig {
   }
 
   // Pre-engine ids (woodland / classical / dark-classical) map onto the new built-ins. Other
-  // ids are user themes on disk; keep them (the renderer falls back to the dark built-in when
-  // the file is missing) as long as they are well-formed.
+  // ids are user themes on disk; keep them (the renderer falls back to the built-in for the
+  // last painted mode when the file is missing) as long as they are well-formed.
   const legacyTheme = LEGACY_THEME_ID_MAP[newConfig.themeId];
   if (legacyTheme) {
     newConfig.themeId = legacyTheme;

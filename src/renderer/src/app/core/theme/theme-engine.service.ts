@@ -2,20 +2,24 @@ import { DestroyRef, Injectable, computed, effect, inject, signal, untracked } f
 import type { AppConfig } from '@shared/index';
 import {
   BUILTIN_THEMES,
-  CLARA_DARK_THEME,
-  DEFAULT_THEME_ID,
+  MONACO_THEME_GROUP_ID,
+  builtInThemeForMode,
   deriveMonacoTheme,
   resolveLegacyThemeId,
   resolveThemeDocument,
   type ClaraThemeDocument,
+  type ThemeMode,
   type ThemeMonacoDefinition,
 } from '@shared/theme';
 import { ElectronService } from '../electron.service';
 import {
   THEME_REVISION_ATTR,
   applyResolvedThemeToDocument,
+  browserModeStorage,
   createDomColorResolver,
+  readCachedThemeMode,
   rendererThemeAssetUrl,
+  writeCachedThemeMode,
 } from './theme-dom';
 
 /**
@@ -35,21 +39,31 @@ export class ThemeEngineService {
   private readonly destroyRef = inject(DestroyRef);
   private started = false;
 
+  /**
+   * Mode of the last painted theme (seeded from `localStorage`). Used as the fallback while
+   * the library has not arrived yet, or when the persisted id no longer exists, so the window
+   * never flips dark↔light on its way to the real theme.
+   */
+  readonly fallbackMode = signal<ThemeMode>(readCachedThemeMode(browserModeStorage()));
+
   /** All selectable themes: built-ins first, then user themes. */
   readonly library = signal<readonly ClaraThemeDocument[]>(BUILTIN_THEMES);
-  /** Persisted selection (`AppConfig.themeId`, legacy ids already mapped). */
-  readonly activeThemeId = signal<string>(DEFAULT_THEME_ID);
+  /**
+   * Persisted selection (`AppConfig.themeId`, legacy ids already mapped). Starts as the
+   * built-in for {@link fallbackMode} so the pre-config paint matches the pre-bootstrap one.
+   */
+  readonly activeThemeId = signal<string>(builtInThemeForMode(this.fallbackMode()).id);
   /** Draft shown instead of the active theme while non-null. */
   readonly preview = signal<ClaraThemeDocument | null>(null);
 
-  /** Document currently painted. Falls back to the dark built-in when the id is unknown. */
+  /** Document currently painted. Unknown ids fall back to the built-in for {@link fallbackMode}. */
   readonly applied = computed<ClaraThemeDocument>(() => {
     const preview = this.preview();
     if (preview) {
       return preview;
     }
     const id = this.activeThemeId();
-    return this.library().find((t) => t.id === id) ?? CLARA_DARK_THEME;
+    return this.library().find((t) => t.id === id) ?? builtInThemeForMode(this.fallbackMode());
   });
 
   readonly resolved = computed(() => resolveThemeDocument(this.applied()));
@@ -69,7 +83,7 @@ export class ThemeEngineService {
       const applied = this.applied();
       untracked(() => {
         applyResolvedThemeToDocument(document, resolved, rendererThemeAssetUrl);
-        const monacoHasBackground = resolved.groups.some((g) => g.id === 'editor.monaco' && g.background !== null);
+        const monacoHasBackground = resolved.groups.some((g) => g.id === MONACO_THEME_GROUP_ID && g.background !== null);
         this.monacoTheme.set(
           deriveMonacoTheme(applied, {
             baseTokens: resolved.tokens,
@@ -77,6 +91,12 @@ export class ThemeEngineService {
             transparentBackground: monacoHasBackground,
           }),
         );
+        // Only a real (non-preview) apply moves the fallback so a cancelled preview cannot
+        // leave the next start in the wrong mode.
+        if (!this.preview()) {
+          this.fallbackMode.set(resolved.mode);
+          writeCachedThemeMode(browserModeStorage(), resolved.mode);
+        }
         const next = this.revision() + 1;
         this.revision.set(next);
         document.documentElement.setAttribute(THEME_REVISION_ATTR, String(next));

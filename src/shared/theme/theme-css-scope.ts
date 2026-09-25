@@ -6,13 +6,24 @@
  * apply the same output. Output is fed to the browser's CSS parser afterwards, which drops
  * anything still malformed.
  *
+ * Containment has two layers:
+ * 1. Every style rule is wrapped in a native `@scope (<group root>) { … }` block. The browser
+ *    then only matches subjects inside the group root, no matter how the selector is written
+ *    (`:not(&)`, `:is(&, body)`, `html:has(&) *`, sibling combinators, … all stay contained).
+ * 2. Selectors are additionally prefixed (`.msg-bubble` → `[data-theme-group="g"] .msg-bubble`)
+ *    so specificity matches component CSS, and selectors that can only ever target a
+ *    *sibling* of the root (`& ~ .x`, `+ .x`) are dropped with a warning because they can
+ *    never match anything in scope.
+ *
  * Author conventions:
  * - Plain selectors become descendants: `.msg-bubble` → `[data-theme-group="g"] .msg-bubble`.
  * - `&`, `:host`, `:scope`, `:root`, `html`, `body` at the start of a selector target the group root.
  * - `@media`, `@supports`, `@container`, `@layer` blocks are kept and their contents scoped.
- * - `@keyframes`, `@font-face`, `@page`, `@property`, `@counter-style` are kept verbatim.
- * - `@import` / unknown at-rules, `expression()`, `behavior:`, `-moz-binding`, `javascript:` and
- *   `url()` values outside `clara-theme:` / `data:image/` / `data:font/` are removed.
+ * - `@keyframes`, `@font-face`, `@page`, `@property`, `@counter-style` are kept verbatim and
+ *   hoisted outside the `@scope` block (they are global by nature).
+ * - `@import` / `@scope` / unknown at-rules, `expression()`, `behavior:`, `-moz-binding`,
+ *   `javascript:`, CSS escapes outside strings, and `url()` / `src()` / `image-set()` values
+ *   outside `clara-theme:` / `data:image/` / `data:font/` are removed.
  */
 
 export interface ThemeCssScopeResult {
@@ -22,7 +33,7 @@ export interface ThemeCssScopeResult {
 
 export const THEME_GROUP_CSS_MAX_CHARS = 20_000;
 
-const CONDITIONAL_AT_RULES = new Set(['media', 'supports', 'container', 'layer', 'scope']);
+const CONDITIONAL_AT_RULES = new Set(['media', 'supports', 'container', 'layer']);
 const VERBATIM_AT_RULES = new Set([
   'keyframes',
   '-webkit-keyframes',
@@ -34,12 +45,14 @@ const VERBATIM_AT_RULES = new Set([
 ]);
 const ROOT_SELECTOR_PREFIX = /^(:root|:host|:scope|html|body)(?![\w-])/;
 const DANGEROUS_DECLARATION = /(expression\s*\(|behavior\s*:|-moz-binding|javascript\s*:|@import|<\/?\s*style|vbscript\s*:)/i;
-const URL_FUNCTION = /url\s*\(\s*(['"]?)([^'")]*)\1\s*\)/gi;
+/** Functions whose arguments load a resource. */
+const URL_FUNCTIONS = new Set(['url', 'src', 'image', 'image-set', '-webkit-image-set']);
 const ALLOWED_URL_PREFIXES = ['clara-theme:', 'data:image/', 'data:font/'];
+const IDENT_CHAR = /[A-Za-z0-9_-]/;
 
 export function isAllowedThemeCssUrl(url: string): boolean {
   const u = url.trim().toLowerCase();
-  if (!u) {
+  if (!u || u.indexOf('\\') >= 0) {
     return false;
   }
   return ALLOWED_URL_PREFIXES.some((prefix) => u.indexOf(prefix) === 0);
@@ -142,6 +155,29 @@ function findMatchingBrace(src: string, openIdx: number): number {
   return -1;
 }
 
+/** Index of the `)` matching the `(` at `openIdx` (strings skipped), or -1 when unbalanced. */
+function findMatchingParen(src: string, openIdx: number): number {
+  let depth = 0;
+  let i = openIdx;
+  while (i < src.length) {
+    const ch = src[i]!;
+    if (isQuote(ch)) {
+      i = skipString(src, i);
+      continue;
+    }
+    if (ch === '(') {
+      depth++;
+    } else if (ch === ')') {
+      depth--;
+      if (depth === 0) {
+        return i;
+      }
+    }
+    i++;
+  }
+  return -1;
+}
+
 /** Split on `sep` at depth 0 (parens/brackets balanced, strings skipped). */
 export function splitCssTopLevel(src: string, sep: string): string[] {
   const parts: string[] = [];
@@ -160,19 +196,115 @@ export function splitCssTopLevel(src: string, sep: string): string[] {
   return parts;
 }
 
-function sanitizeUrls(decl: string, warnings: string[]): string | null {
-  let blocked = false;
-  const rewritten = decl.replace(URL_FUNCTION, (whole, _q: string, target: string) => {
-    if (isAllowedThemeCssUrl(target)) {
-      return whole;
+/** Raw bodies of every quoted string in `src` (quotes stripped, escapes left as-is). */
+function quotedStrings(src: string): string[] {
+  const out: string[] = [];
+  let i = 0;
+  while (i < src.length) {
+    if (isQuote(src[i]!)) {
+      const end = skipString(src, i);
+      const closed = end <= src.length && src[end - 1] === src[i] && end - 1 > i;
+      out.push(src.slice(i + 1, closed ? end - 1 : end));
+      i = end;
+      continue;
     }
-    blocked = true;
-    return 'none';
-  });
-  if (blocked) {
-    warnings.push(`Removed url() with a disallowed scheme in "${decl.trim().slice(0, 60)}"`);
+    i++;
   }
-  return rewritten;
+  return out;
+}
+
+/** The single URL argument of `url( … )`: quoted body or the trimmed unquoted text. */
+function urlArgument(inner: string): string {
+  const trimmed = inner.trim();
+  if (trimmed && isQuote(trimmed.charAt(0))) {
+    return quotedStrings(trimmed)[0] ?? trimmed;
+  }
+  return trimmed;
+}
+
+interface UrlSpan {
+  start: number;
+  end: number;
+  blocked: boolean;
+}
+
+interface UrlScan {
+  spans: UrlSpan[];
+  escapeOutsideString: boolean;
+}
+
+/**
+ * Locate every resource-loading function call in a declaration and decide whether its
+ * argument(s) are allowed. Quoted strings are tokenized properly, so `url("a)b")` and
+ * `image-set("…" 1x)` are both understood.
+ */
+function scanUrlFunctions(decl: string): UrlScan {
+  const spans: UrlSpan[] = [];
+  let escapeOutsideString = false;
+  let i = 0;
+  while (i < decl.length) {
+    const ch = decl[i]!;
+    if (isQuote(ch)) {
+      i = skipString(decl, i);
+      continue;
+    }
+    if (ch === '\\') {
+      escapeOutsideString = true;
+      i += 2;
+      continue;
+    }
+    if (ch === '(') {
+      let j = i - 1;
+      while (j >= 0 && IDENT_CHAR.test(decl[j]!)) {
+        j--;
+      }
+      const name = decl.slice(j + 1, i).toLowerCase();
+      if (URL_FUNCTIONS.has(name)) {
+        const close = findMatchingParen(decl, i);
+        const end = close < 0 ? decl.length : close + 1;
+        const inner = decl.slice(i + 1, close < 0 ? decl.length : close);
+        let blocked: boolean;
+        if (name === 'url') {
+          blocked = !isAllowedThemeCssUrl(urlArgument(inner));
+        } else {
+          // `src()` / `image-set()` take strings (or nested url(), handled by the outer scan).
+          blocked = /var\s*\(/i.test(inner) || quotedStrings(inner).some((s) => !isAllowedThemeCssUrl(s));
+        }
+        spans.push({ start: j + 1, end, blocked });
+        if (name === 'url') {
+          i = end;
+          continue;
+        }
+      }
+    }
+    i++;
+  }
+  return { spans, escapeOutsideString };
+}
+
+function sanitizeUrls(decl: string, warnings: string[]): string | null {
+  const { spans, escapeOutsideString } = scanUrlFunctions(decl);
+  if (escapeOutsideString) {
+    warnings.push(`Removed declaration with a CSS escape outside a string "${decl.trim().slice(0, 60)}"`);
+    return null;
+  }
+  const blocked = spans.filter((s) => s.blocked);
+  if (blocked.length === 0) {
+    return decl;
+  }
+  let out = '';
+  let cursor = 0;
+  for (const span of blocked) {
+    if (span.start < cursor) {
+      // Nested inside a span that was already replaced.
+      continue;
+    }
+    out += decl.slice(cursor, span.start) + 'none';
+    cursor = span.end;
+  }
+  out += decl.slice(cursor);
+  warnings.push(`Removed url() with a disallowed scheme in "${decl.trim().slice(0, 60)}"`);
+  return out;
 }
 
 function sanitizeDeclaration(decl: string, warnings: string[]): string | null {
@@ -189,7 +321,7 @@ function sanitizeDeclaration(decl: string, warnings: string[]): string | null {
 
 /**
  * Body of a style rule: declarations plus (optionally) nested rules. Nested rules keep
- * their prelude verbatim because the enclosing selector is already scoped.
+ * their prelude verbatim; the enclosing `@scope` block keeps them contained.
  */
 function processRuleBody(body: string, warnings: string[]): string {
   const decls: string[] = [];
@@ -245,7 +377,32 @@ export function scopeThemeSelector(selector: string, scope: string): string {
   return `${scope} ${s}`;
 }
 
-function processBlock(src: string, scope: string, warnings: string[]): string {
+/**
+ * True when a scoped selector starts at the group root and immediately steps to a sibling
+ * (`[scope] ~ .x`, `[scope] + .x`). Such subjects are never inside the root, so the rule could
+ * not match under `@scope`; dropping it with a warning is more useful than silence.
+ */
+function targetsRootSibling(scopedSelector: string, scope: string): boolean {
+  if (scopedSelector.indexOf(scope) !== 0) {
+    return false;
+  }
+  const rest = scopedSelector.slice(scope.length).trim();
+  return rest.charAt(0) === '~' || rest.charAt(0) === '+';
+}
+
+function wrapInConditionals(rule: string, wrap: readonly string[]): string {
+  let out = rule;
+  for (let i = wrap.length - 1; i >= 0; i--) {
+    out = `${wrap[i]} { ${out} }`;
+  }
+  return out;
+}
+
+/**
+ * Walk a block of rules. Returns the scoped rules (to be placed inside `@scope`); verbatim
+ * at-rules are appended to `global` (wrapped in any enclosing conditional preludes).
+ */
+function processBlock(src: string, scope: string, warnings: string[], global: string[], wrap: readonly string[]): string[] {
   const out: string[] = [];
   let i = 0;
   while (i < src.length) {
@@ -279,36 +436,47 @@ function processBlock(src: string, scope: string, warnings: string[]): string {
       const nameMatch = /^@([a-zA-Z-]+)/.exec(prelude);
       const name = nameMatch ? nameMatch[1]!.toLowerCase() : '';
       if (CONDITIONAL_AT_RULES.has(name)) {
-        const inner = processBlock(body, scope, warnings);
-        if (inner) {
-          out.push(`${prelude} { ${inner} }`);
+        const inner = processBlock(body, scope, warnings, global, [...wrap, prelude]);
+        if (inner.length > 0) {
+          out.push(`${prelude} { ${inner.join(' ')} }`);
         }
         continue;
       }
       if (VERBATIM_AT_RULES.has(name)) {
         const inner = processRuleBody(body, warnings);
         if (inner) {
-          out.push(`${prelude} { ${inner} }`);
+          global.push(wrapInConditionals(`${prelude} { ${inner} }`, wrap));
         }
         continue;
       }
       warnings.push(`Dropped unsupported at-rule "${prelude.slice(0, 40)}"`);
       continue;
     }
-    const selectors = splitCssTopLevel(prelude, ',')
-      .map((sel) => scopeThemeSelector(sel, scope))
-      .filter((sel) => sel.length > 0);
+    const selectors: string[] = [];
+    for (const raw of splitCssTopLevel(prelude, ',')) {
+      const scoped = scopeThemeSelector(raw, scope);
+      if (!scoped) {
+        continue;
+      }
+      if (targetsRootSibling(scoped, scope)) {
+        warnings.push(`Dropped selector "${raw.trim().slice(0, 40)}": siblings of the group root are outside the group`);
+        continue;
+      }
+      selectors.push(scoped);
+    }
     const inner = processRuleBody(body, warnings);
     if (selectors.length > 0 && inner) {
       out.push(`${selectors.join(', ')} { ${inner} }`);
     }
   }
-  return out.join('\n');
+  return out;
 }
 
 /**
  * Sanitize `css` and scope every selector under `scope` (a CSS selector such as
- * `[data-theme-group="chat.transcript"]`). Never throws.
+ * `[data-theme-group="chat.transcript"]`). Style rules are emitted inside a native
+ * `@scope (scope) { … }` block; global at-rules (`@keyframes`, `@font-face`, …) precede it.
+ * Never throws.
  */
 export function scopeThemeCss(css: string, scope: string): ThemeCssScopeResult {
   const warnings: string[] = [];
@@ -318,6 +486,11 @@ export function scopeThemeCss(css: string, scope: string): ThemeCssScopeResult {
     source = source.slice(0, THEME_GROUP_CSS_MAX_CHARS);
   }
   const cleaned = stripCssComments(source);
-  const result = processBlock(cleaned, scope, warnings);
-  return { css: result.trim(), warnings };
+  const global: string[] = [];
+  const scoped = processBlock(cleaned, scope, warnings, global, []);
+  const parts = [...global];
+  if (scoped.length > 0) {
+    parts.push(`@scope (${scope}) {\n${scoped.join('\n')}\n}`);
+  }
+  return { css: parts.join('\n').trim(), warnings };
 }

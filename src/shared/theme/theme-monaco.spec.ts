@@ -61,6 +61,17 @@ describe('deriveMonacoTheme', () => {
     expect(def.colors['editor.foreground']).toBe('#3d2b1f');
   });
 
+  it('lets editor.monaco group tokens override global tokens for the editor palette', () => {
+    const def = deriveMonacoTheme({
+      ...CLARA_DARK_THEME,
+      tokens: { ...CLARA_DARK_THEME.tokens, '--t-code-bg': '#111111' },
+      groups: { 'editor.monaco': { tokens: { '--t-code-bg': '#222222', '--t-primary': 'var(--t-code-text)' } } },
+    });
+    expect(def.colors['editor.background']).toBe('#222222');
+    // var() chains resolve through the merged map (group → theme → built-in).
+    expect(def.colors['editorCursor.foreground']).toBe(def.colors['editor.foreground']);
+  });
+
   it('prefers an explicit monaco block', () => {
     const def = deriveMonacoTheme({
       ...CLARA_DARK_THEME,

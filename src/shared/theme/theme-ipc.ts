@@ -45,7 +45,6 @@ export const THEME_IPC = {
   import: 'themes:import',
   export: 'themes:export',
   pickAsset: 'themes:pick-asset',
-  removeAsset: 'themes:remove-asset',
   preview: 'themes:preview',
   /** main → renderer broadcast: full library after any mutation. */
   libraryUpdated: 'theme-library-updated',

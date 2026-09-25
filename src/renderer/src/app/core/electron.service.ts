@@ -1391,10 +1391,6 @@ export class ElectronService {
     return this.api?.pickThemeAsset?.(themeId) ?? Promise.resolve({ ok: false, error: 'API not available' });
   }
 
-  removeThemeAsset(themeId: string, asset: string): Promise<ThemeMutationResult> {
-    return this.api?.removeThemeAsset?.(themeId, asset) ?? Promise.resolve({ ok: false, error: 'API not available' });
-  }
-
   /** Paint `theme` in every window without persisting; `null` returns to the saved theme. */
   previewTheme(theme: ClaraThemeDocument | null): Promise<void> {
     if (this.api?.previewTheme) {

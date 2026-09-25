@@ -17,36 +17,17 @@ import {
   exportThemeBundle,
   importThemeBundle,
   listAllThemes,
-  removeThemeAssetFile,
   writeUserTheme,
 } from '../../theme/theme-store';
+import { broadcastThemePreview, broadcastToAppWindows as broadcast } from './theme-broadcast';
 
-function allAppWindows(): BrowserWindow[] {
-  return [mainState.mainWindow, mainState.settingsWindow, mainState.healthWindow, mainState.dependenciesWindow].filter(
-    (w): w is BrowserWindow => !!w && !w.isDestroyed(),
-  );
-}
-
-function broadcast(channel: string, payload: unknown): void {
-  for (const win of allAppWindows()) {
-    try {
-      win.webContents.send(channel, payload);
-    } catch {
-      // Window can be torn down between the check and send.
-    }
-  }
-}
+export { broadcastThemePreview } from './theme-broadcast';
 
 /** Push the full library to every window (after any mutation). */
 export async function broadcastThemeLibrary(): Promise<ClaraThemeDocument[]> {
   const themes = await listAllThemes();
   broadcast(THEME_IPC.libraryUpdated, themes);
   return themes;
-}
-
-/** Paint `theme` in every window without persisting; `null` returns to the saved theme. */
-export function broadcastThemePreview(theme: ClaraThemeDocument | null): void {
-  broadcast(THEME_IPC.previewChanged, theme);
 }
 
 function senderWindow(event: IpcMainInvokeEvent): BrowserWindow | undefined {
@@ -74,12 +55,9 @@ export function registerThemesIpc(): void {
     } catch {
       return { ok: false, error: 'Untrusted IPC sender' };
     }
-    const validated = validateThemeDocument(raw);
-    if (!validated.ok || !validated.doc) {
-      return { ok: false, error: 'Theme document is invalid', errors: validated.errors, warnings: validated.warnings };
-    }
     try {
-      const result = await writeUserTheme(validated.doc);
+      // `writeUserTheme` validates the raw payload itself (errors come back in the result).
+      const result = await writeUserTheme(raw);
       if (result.ok) {
         await broadcastThemeLibrary();
       }
@@ -251,18 +229,6 @@ export function registerThemesIpc(): void {
     } catch (err) {
       return { ok: false, error: errorMessage(err) };
     }
-  });
-
-  ipcMain.handle(THEME_IPC.removeAsset, async (event, themeId: unknown, fileName: unknown): Promise<ThemeMutationResult> => {
-    try {
-      assertTrustedAppRenderer(event);
-    } catch {
-      return { ok: false, error: 'Untrusted IPC sender' };
-    }
-    if (typeof themeId !== 'string' || typeof fileName !== 'string') {
-      return { ok: false, error: 'Invalid asset reference' };
-    }
-    return removeThemeAssetFile(themeId, fileName);
   });
 
   ipcMain.handle(THEME_IPC.preview, async (event, raw: unknown): Promise<void> => {

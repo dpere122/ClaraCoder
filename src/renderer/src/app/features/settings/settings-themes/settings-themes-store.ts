@@ -95,6 +95,10 @@ export class SettingsThemesStore {
     }
     const id = this.host.themeId();
     if (id !== this.selectedId()) {
+      // An external change (agent "Save & apply", another window) must not discard edits.
+      if (this.draftDirty()) {
+        void this.persistIfDirty();
+      }
       this.selectedId.set(id);
       this.loadDraftForSelection();
     } else if (!this.draft() && !this.isBuiltInId(id)) {
@@ -274,9 +278,15 @@ export class SettingsThemesStore {
         }
         return;
       }
-      const asset = picked.asset;
       const fileName = picked.fileName;
+      const stem = picked.asset;
       this.mutateDraft((d) => {
+        // Main de-duplicates file names, not asset keys: `bg.png` and `bg.jpg` both stem to
+        // `bg`. Pick a key that does not silently repoint other groups at the new file.
+        let asset = stem;
+        for (let n = 2; d.assets?.[asset] !== undefined && d.assets[asset] !== fileName; n++) {
+          asset = `${stem}-${n}`;
+        }
         d.assets = { ...(d.assets ?? {}), [asset]: fileName };
         const g = this.groupOverride(d, groupId);
         const current: ThemeGroupBackground = g.background ?? { enabled: true, asset, opacity: 0.35, fit: 'cover' };
@@ -470,16 +480,26 @@ export class SettingsThemesStore {
     if (!draft || !this.draftDirty()) {
       return true;
     }
+    // Clear the flag up front so a concurrent call does not save the same document twice.
+    this.draftDirty.set(false);
     const result = await this.electron.saveTheme(draft);
+    // The user may have switched themes while the save was in flight (`select()` persists
+    // fire-and-forget). Only touch the draft when it is still the document we saved.
+    const stillEditingSaved = this.draft()?.id === draft.id;
     if (!result.ok || !result.theme) {
       const detail = result.errors?.map((e) => `${e.path}: ${e.message}`).join('; ');
       this.status.set(result.error ? `${result.error}${detail ? ` — ${detail}` : ''}` : 'Could not save the theme.');
+      if (stillEditingSaved) {
+        this.draftDirty.set(true);
+      }
       return false;
     }
-    // Keep the normalized on-disk form (asset data URLs become file names, etc.).
-    this.draft.set(cloneThemeDocument(result.theme));
-    this.draftDirty.set(false);
     this.engine.setLibrary([...this.library().filter((t) => t.id !== result.theme!.id), result.theme]);
+    if (stillEditingSaved && !this.draftDirty()) {
+      // Keep the normalized on-disk form (asset data URLs become file names, etc.) unless
+      // the user kept editing while we were saving; those edits win and stay dirty.
+      this.draft.set(cloneThemeDocument(result.theme));
+    }
     return true;
   }
 

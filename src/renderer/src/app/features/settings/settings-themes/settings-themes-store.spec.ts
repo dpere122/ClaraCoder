@@ -131,6 +131,63 @@ describe('SettingsThemesStore', () => {
     expect(electron.saveTheme).toHaveBeenCalledTimes(1);
   });
 
+  it('switching themes while a save is in flight does not clobber the new selection', async () => {
+    const other: ClaraThemeDocument = { ...neon, id: 'other', name: 'Other' };
+    engine.setLibrary([neon, other]);
+    let resolveSave: (v: unknown) => void = () => undefined;
+    electron.saveTheme.mockImplementationOnce(() => new Promise((res) => (resolveSave = res)));
+
+    store.select('neon');
+    store.setToken('--t-bg', '#000000');
+    // `select()` persists the dirty draft fire-and-forget, then switches immediately.
+    store.select('other');
+    expect(store.selectedId()).toBe('other');
+    expect(store.draft()?.id).toBe('other');
+    expect(electron.saveTheme).toHaveBeenCalledWith(expect.objectContaining({ id: 'neon', tokens: { '--t-primary': '#ff00ff', '--t-bg': '#000000' } }));
+
+    resolveSave({ ok: true, theme: { ...neon, tokens: { ...neon.tokens, '--t-bg': '#000000' } } });
+    await Promise.resolve();
+    await Promise.resolve();
+    // The saved document lands in the library, but the editor keeps showing "other".
+    expect(store.draft()?.id).toBe('other');
+    expect(store.selectedTheme().id).toBe('other');
+    expect(engine.findTheme('neon')?.tokens['--t-bg']).toBe('#000000');
+    expect(store.draftDirty()).toBe(false);
+  });
+
+  it('edits made during an in-flight save survive and stay dirty', async () => {
+    let resolveSave: (v: unknown) => void = () => undefined;
+    electron.saveTheme.mockImplementationOnce(() => new Promise((res) => (resolveSave = res)));
+    store.select('neon');
+    store.setToken('--t-bg', '#000000');
+    const pending = store.persistIfDirty();
+    store.setToken('--t-fg', '#ffffff');
+    resolveSave({ ok: true, theme: { ...neon, tokens: { ...neon.tokens, '--t-bg': '#000000' } } });
+    expect(await pending).toBe(true);
+    expect(store.draft()?.tokens['--t-fg']).toBe('#ffffff');
+    expect(store.draftDirty()).toBe(true);
+  });
+
+  it('picking an asset whose stem collides with an existing key allocates a new key', async () => {
+    store.select('neon');
+    await store.pickGroupBackground('chat.transcript');
+    electron.pickThemeAsset.mockResolvedValueOnce({ ok: true, asset: 'wall', fileName: 'wall.jpg' });
+    await store.pickGroupBackground('editor.monaco');
+    expect(store.draft()?.assets).toEqual({ wall: 'wall.png', 'wall-2': 'wall.jpg' });
+    expect(store.draft()?.groups['chat.transcript']?.background?.asset).toBe('wall');
+    expect(store.draft()?.groups['editor.monaco']?.background?.asset).toBe('wall-2');
+  });
+
+  it('syncSelectionFromHost persists a dirty draft before following an external selection', () => {
+    store.select('neon');
+    store.setToken('--t-bg', '#000000');
+    themeId.set('clara-dark');
+    store.syncSelectionFromHost();
+    expect(electron.saveTheme).toHaveBeenCalledWith(expect.objectContaining({ id: 'neon' }));
+    expect(store.selectedId()).toBe('clara-dark');
+    expect(store.draft()).toBeNull();
+  });
+
   it('applyJson replaces the draft but keeps the id; cancelPreview clears the broadcast', () => {
     store.select('neon');
     const result = store.applyJson(JSON.stringify({ ...CLARA_DARK_THEME, id: 'something-else', name: 'Imported' }));

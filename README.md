@@ -241,9 +241,12 @@ user themes live under `{userData}/themes/<id>/theme.json` with images in `asset
 ```
 
 Token names come from `src/shared/theme/theme-tokens.ts`; group ids from the generated registry. Unknown
-tokens / groups are dropped with a warning. Group CSS is sanitized (`@import`, remote `url()`, `expression()`
-removed) and scoped to the group's root: plain selectors match descendants, a leading `&` (or `:host`, `:root`)
-targets the root itself.
+tokens / groups are dropped with a warning. Group CSS is sanitized (`@import`, remote `url()` / `src()` /
+`image-set()`, `expression()`, and CSS escapes outside strings are removed) and contained to the group's root:
+every style rule is emitted inside a native `@scope (<root>) { … }` block, so no selector — including
+`:not(&)`, `:has(&)`, or sibling combinators — can style elements outside the group. Plain selectors match
+descendants, a leading `&` (or `:host`, `:root`) targets the root itself; `@keyframes` / `@font-face` are kept
+global. Embedded images must be strict `data:image/…;base64,` URLs.
 
 ### Registering a new element group (for contributors)
 

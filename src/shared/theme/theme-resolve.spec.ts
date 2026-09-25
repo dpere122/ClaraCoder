@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CLARA_DARK_THEME } from './builtin';
 import type { ClaraThemeDocument } from './theme-document';
-import { resolveThemeDocument, themeStylesheetText } from './theme-resolve';
+import { cssQuote, resolveThemeDocument, themeStylesheetText } from './theme-resolve';
 
 const custom: ClaraThemeDocument = {
   version: 1,
@@ -60,5 +60,14 @@ describe('resolveThemeDocument', () => {
     const resolved = resolveThemeDocument(custom);
     const { tokensCss } = themeStylesheetText(resolved, () => null);
     expect(tokensCss).not.toContain('background-image');
+  });
+
+  it('escapes the asset url as a CSS string so it can never close url("…")', () => {
+    const resolved = resolveThemeDocument(custom);
+    const hostile = 'data:image/png;base64,AAAA\n); } body { display: none } .x { a: url("';
+    const { tokensCss } = themeStylesheetText(resolved, () => hostile);
+    expect(tokensCss).not.toContain('\n); }');
+    expect(tokensCss).toContain('background-image: url("data:image/png;base64,AAAA\\a ); } body { display: none } .x { a: url(\\22 ");');
+    expect(cssQuote('a"b\\c')).toBe('"a\\22 b\\5c c"');
   });
 });

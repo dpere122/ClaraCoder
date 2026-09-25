@@ -4,7 +4,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '@shared/index';
 import { CLARA_DARK_THEME, CLARA_LIGHT_THEME, type ClaraThemeDocument } from '@shared/theme';
 import { ElectronService } from '../electron.service';
-import { THEME_GROUPS_STYLE_ID, THEME_TOKENS_STYLE_ID, applyBuiltInThemeSync, createDomColorResolver } from './theme-dom';
+import {
+  THEME_GROUPS_STYLE_ID,
+  THEME_MODE_STORAGE_KEY,
+  THEME_TOKENS_STYLE_ID,
+  applyBuiltInThemeSync,
+  createDomColorResolver,
+  readCachedThemeMode,
+  rendererThemeAssetUrl,
+  writeCachedThemeMode,
+} from './theme-dom';
 import { ThemeEngineService } from './theme-engine.service';
 
 const neon: ClaraThemeDocument = {
@@ -49,6 +58,33 @@ describe('theme-dom', () => {
     expect(resolve('rgb(255, 0, 0)')).toBe('#ff0000');
     expect(resolve('not-a-color-at-all')).toBeNull();
   });
+
+  it('rendererThemeAssetUrl only passes through strict data: images and safe file names', () => {
+    expect(rendererThemeAssetUrl('neon', 'wall', 'wall.png')).toBe('clara-theme://asset/neon/wall.png');
+    expect(rendererThemeAssetUrl('neon', 'wall', 'data:image/png;base64,AAAA')).toBe('data:image/png;base64,AAAA');
+    expect(rendererThemeAssetUrl('neon', 'wall', 'data:image/png;base64,AAAA\n); }')).toBeNull();
+    expect(rendererThemeAssetUrl('neon', 'wall', '../theme.json')).toBeNull();
+  });
+
+  it('caches the theme mode in storage and tolerates a broken storage', () => {
+    const store = new Map<string, string>();
+    const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
+    expect(readCachedThemeMode(storage)).toBe('dark');
+    writeCachedThemeMode(storage, 'light');
+    expect(store.get(THEME_MODE_STORAGE_KEY)).toBe('light');
+    expect(readCachedThemeMode(storage)).toBe('light');
+    const broken = {
+      getItem: (): string | null => {
+        throw new Error('nope');
+      },
+      setItem: (): void => {
+        throw new Error('nope');
+      },
+    };
+    expect(readCachedThemeMode(broken)).toBe('dark');
+    expect(() => writeCachedThemeMode(broken, 'light')).not.toThrow();
+    expect(readCachedThemeMode(null)).toBe('dark');
+  });
 });
 
 describe('ThemeEngineService', () => {
@@ -58,6 +94,7 @@ describe('ThemeEngineService', () => {
   let listThemes: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    localStorage.removeItem(THEME_MODE_STORAGE_KEY);
     configSubject = new Subject<AppConfig>();
     librarySubject = new Subject<ClaraThemeDocument[]>();
     previewSubject = new Subject<ClaraThemeDocument | null>();
@@ -131,10 +168,22 @@ describe('ThemeEngineService', () => {
     expect(engine.isPreviewing()).toBe(false);
     expect(engine.applied().id).toBe('neon');
 
-    // Unknown persisted id falls back to the dark built-in without throwing.
+    // Unknown persisted id falls back to the built-in in the last painted mode (light here),
+    // so the window never flips dark↔light while waiting for the library or after a deletion.
     configSubject.next({ themeId: 'missing-theme' } as AppConfig);
     TestBed.tick();
-    expect(engine.applied().id).toBe('clara-dark');
+    expect(engine.applied().id).toBe(CLARA_LIGHT_THEME.id);
+    expect(engine.fallbackMode()).toBe('light');
+    // Real applies (not previews) persist the mode for the next pre-bootstrap paint.
+    expect(localStorage.getItem(THEME_MODE_STORAGE_KEY)).toBe('light');
+  });
+
+  it('seeds the fallback mode from storage so the first fallback paint matches last session', () => {
+    localStorage.setItem(THEME_MODE_STORAGE_KEY, 'light');
+    const engine = TestBed.inject(ThemeEngineService);
+    TestBed.tick();
+    expect(engine.applied().id).toBe(CLARA_LIGHT_THEME.id);
+    expect(document.documentElement.getAttribute('data-theme-mode')).toBe('light');
   });
 
   it('setLibrary keeps built-ins first and de-duplicates them', () => {

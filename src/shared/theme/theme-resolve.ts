@@ -97,6 +97,14 @@ function declarations(tokens: Record<string, string>, indent = '  '): string {
     .join('\n');
 }
 
+/**
+ * Quote `value` as a CSS `<string>`. Backslashes, quotes, and line terminators become hex
+ * escapes so no input can close the string or start a new rule.
+ */
+export function cssQuote(value: string): string {
+  return `"${value.replace(/[\\"\n\r\f]/g, (ch) => `\\${ch.charCodeAt(0).toString(16)} `)}"`;
+}
+
 function backgroundRules(selector: string, url: string, bg: ResolvedThemeBackground): string {
   const size = bg.fit === 'tile' ? 'auto' : bg.fit === 'center' ? 'auto' : bg.fit;
   const repeat = bg.fit === 'tile' ? 'repeat' : 'no-repeat';
@@ -110,7 +118,7 @@ function backgroundRules(selector: string, url: string, bg: ResolvedThemeBackgro
     '  inset: 0;',
     '  z-index: -1;',
     '  pointer-events: none;',
-    `  background-image: url("${url}");`,
+    `  background-image: url(${cssQuote(url)});`,
     `  background-size: ${size};`,
     `  background-repeat: ${repeat};`,
     '  background-position: center;',
@@ -142,7 +150,7 @@ export function themeStylesheetText(
     if (group.background) {
       const url = assetUrl(resolved.id, group.background.asset, group.background.assetValue);
       if (url) {
-        tokenBlocks.push(backgroundRules(group.selector, url.replace(/"/g, '%22'), group.background));
+        tokenBlocks.push(backgroundRules(group.selector, url, group.background));
       }
     }
     if (group.css) {

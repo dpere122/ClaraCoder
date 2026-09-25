@@ -1,0 +1,133 @@
+<section class="tgp" [class.tgp--open]="isOpen()" [class.tgp--customized]="customized()">
+  <button type="button" class="tgp__header" (click)="toggle()" [attr.aria-expanded]="isOpen()">
+    <span class="tgp__chevron" aria-hidden="true">{{ isOpen() ? '▾' : '▸' }}</span>
+    <span class="tgp__title">{{ group().label }}</span>
+    <code class="tgp__id">{{ group().id }}</code>
+    @if (group().supportsBackground) {
+      <span class="pill tgp__pill">image</span>
+    }
+    @if (customized()) {
+      <span class="pill pill--success tgp__pill">customized</span>
+    }
+    @if (group().description) {
+      <small class="tgp__desc">{{ group().description }}</small>
+    }
+  </button>
+
+  @if (isOpen()) {
+    <div class="tgp__body">
+      @if (group().supportsBackground) {
+        <div class="tgp__section">
+          <h5 class="tgp__section-title">Background image</h5>
+          <div class="tgp__bg">
+            <div class="tgp__bg-preview" [class.tgp__bg-preview--empty]="!previewUrl()">
+              @if (previewUrl()) {
+                <img [src]="previewUrl()" alt="" [style.opacity]="background().enabled ? background().opacity : 0.25" />
+              } @else {
+                <span>No image</span>
+              }
+            </div>
+            <div class="tgp__bg-controls">
+              <label class="toggle-row">
+                <input
+                  type="checkbox"
+                  [checked]="background().enabled"
+                  [disabled]="readOnly() || !background().asset"
+                  (change)="onEnabled($any($event.target).checked)"
+                />
+                <span>Show image overlay</span>
+              </label>
+              <label class="field">
+                <span>Image</span>
+                <div class="tgp__asset-row">
+                  <select [disabled]="readOnly()" [value]="background().asset" (change)="onAsset($any($event.target).value)">
+                    <option value="">— none —</option>
+                    @for (key of assetKeys(); track key) {
+                      <option [value]="key">{{ key }} ({{ assets()[key] }})</option>
+                    }
+                  </select>
+                  <button type="button" class="action-button action-button--compact" [disabled]="readOnly()" (click)="pickAsset.emit()">
+                    Choose
+                  </button>
+                  @if (background().asset && !readOnly()) {
+                    <button
+                      type="button"
+                      class="action-button action-button--compact action-button--danger"
+                      title="Remove this image from the theme"
+                      (click)="removeAsset.emit(background().asset)"
+                    >
+                      Remove
+                    </button>
+                  }
+                </div>
+              </label>
+              <label class="field">
+                <span>Opacity — {{ opacityPercent() }}%</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  [value]="opacityPercent()"
+                  [disabled]="readOnly() || !background().asset"
+                  (input)="onOpacity($any($event.target).value)"
+                />
+              </label>
+              <label class="field">
+                <span>Fit</span>
+                <select [disabled]="readOnly() || !background().asset" [value]="background().fit" (change)="onFit($any($event.target).value)">
+                  @for (fit of fits; track fit) {
+                    <option [value]="fit">{{ fit }}</option>
+                  }
+                </select>
+              </label>
+              @if (override()?.background && !readOnly()) {
+                <button type="button" class="tgp__link" (click)="backgroundClear.emit()">Clear background settings</button>
+              }
+            </div>
+          </div>
+        </div>
+      }
+
+      <div class="tgp__section">
+        <h5 class="tgp__section-title">Tokens used by this group</h5>
+        @if (tokenDefs().length === 0) {
+          <p class="settings-copy">This group's stylesheet does not read any design tokens directly.</p>
+        } @else {
+          <app-theme-token-editor
+            [tokens]="tokenDefs()"
+            [values]="override()?.tokens ?? {}"
+            [inherited]="inherited()"
+            [readOnly]="readOnly()"
+            [dense]="true"
+            (tokenChange)="tokenChange.emit($event)"
+          />
+        }
+      </div>
+
+      <div class="tgp__section">
+        <h5 class="tgp__section-title">Advanced CSS</h5>
+        <p class="settings-copy">
+          Scoped to <code>{{ group().selector }}</code>. Plain selectors target descendants; start a selector with
+          <code>&amp;</code> to style the group root. Remote <code>url()</code> and <code>&#64;import</code> are removed.
+        </p>
+        <textarea
+          class="tgp__css"
+          rows="6"
+          spellcheck="false"
+          [disabled]="readOnly()"
+          [value]="override()?.css ?? ''"
+          placeholder=".msg-bubble { border-radius: 0; }"
+          (change)="onCss($any($event.target).value)"
+        ></textarea>
+        @if (cssWarnings().length > 0) {
+          <ul class="tgp__warnings">
+            @for (warning of cssWarnings(); track $index) {
+              <li>{{ warning }}</li>
+            }
+          </ul>
+        }
+      </div>
+    </div>
+  }
+</section>

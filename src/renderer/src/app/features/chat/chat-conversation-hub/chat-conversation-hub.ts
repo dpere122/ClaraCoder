@@ -10,7 +10,15 @@ import {
   output,
   untracked,
 } from '@angular/core';
-import type { AppConfig, ComposerRunMode, ConversationMeta, LlmReasoningSettingChange, PlannerProgress, StreamPart } from '@shared/index';
+import type {
+  AppConfig,
+  ComposerRunMode,
+  ConversationMeta,
+  LlmReasoningSettingChange,
+  PlannerProgress,
+  StreamPart,
+  ThemeProposalFinishedEvent,
+} from '@shared/index';
 import { DEFAULT_COMPOSER_RUN_MODE } from '@shared/index';
 import { LucideAngularModule } from 'lucide-angular';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
@@ -111,6 +119,7 @@ export class ChatConversationHubComponent implements OnDestroy {
     status: 'complete' | 'cancelled';
     summary?: string;
   }>();
+  readonly themeProposalFinished = output<ThemeProposalFinishedEvent>();
 
   readonly chatContextFiles = input<readonly ChatContextFile[]>([]);
   readonly workspaceRoot = input('');

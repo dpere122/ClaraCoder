@@ -27,6 +27,7 @@ vi.mock('../utils/reveal-browser-window', () => ({
   settingsWindowParentOptions: () => ({}),
 }));
 
+import { BrowserWindow } from 'electron';
 import { mainState } from '../state';
 import {
   createSettingsWindow,
@@ -85,5 +86,26 @@ describe('settings tab delivery', () => {
       'settings-select-tab',
       'audio',
     );
+  });
+
+  it('clears any live theme preview in the remaining windows when the window closes', () => {
+    mainState.settingsWindow = null as never;
+    const handlers = new Map<string, () => void>();
+    const created = {
+      ...fakeWin(),
+      on: vi.fn((event: string, cb: () => void) => void handlers.set(event, cb)),
+      removeMenu: vi.fn(),
+      loadFile: vi.fn(),
+      loadURL: vi.fn(),
+    };
+    vi.mocked(BrowserWindow).mockImplementationOnce(function () {
+      return created as never;
+    });
+
+    createSettingsWindow('themes');
+    expect(mainState.settingsWindow).toBe(created);
+    handlers.get('closed')!();
+    expect(mainState.settingsWindow).toBeNull();
+    expect(mainState.mainWindow?.webContents.send).toHaveBeenCalledWith('theme-preview', null);
   });
 });

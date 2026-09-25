@@ -45,9 +45,22 @@ describe('abandonStaleHitlMessages', () => {
         },
         reviewStatus: 'pending',
       },
+      {
+        // Local-only card: nothing in Python is waiting, so it must stay actionable.
+        role: 'theme_proposal',
+        payload: {
+          version: 1,
+          requestId: 'theme-1',
+          title: 'Theme proposal: Neon',
+          summary: '',
+          theme: { version: 1, id: 'neon', name: 'Neon', mode: 'dark', tokens: {}, groups: {} },
+        },
+        reviewStatus: 'pending',
+      },
     ];
     const next = abandonStaleHitlMessages(messages);
     expect(next).not.toBe(messages);
+    expect(next[4]).toEqual(messages[4]);
     expect(next[1]).toEqual(
       expect.objectContaining({
         role: 'diff',

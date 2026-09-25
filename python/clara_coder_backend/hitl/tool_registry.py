@@ -178,6 +178,10 @@ def worker_tools_and_map(
         mapping[tool_.name] = tool_
     for tool_ in LSP_READ_TOOLS:
         mapping[tool_.name] = tool_
+    from clara_coder_backend.theme.propose_theme import propose_theme_tool
+
+    tools.append(propose_theme_tool)
+    mapping[propose_theme_tool.name] = propose_theme_tool
     if getattr(runtime_config.tools, 'allow_web_access', False):
         from clara_coder_backend.tools.fetch_url import fetch_url_tool
         from clara_coder_backend.tools.web_search import web_search_tool
@@ -306,6 +310,7 @@ TOOL_FAMILIES: list[tuple[str, tuple[str, ...]]] = [
         ),
     ),
     ('Build plan', ('read_build_plan', 'mark_build_plan_steps_complete')),
+    ('App theme', ('propose_theme',)),
     ('Other', ()),
 ]
 

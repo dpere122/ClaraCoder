@@ -692,9 +692,13 @@ export const CODE_FONT_FAMILY_OPTIONS: readonly FontFamilyOption[] = [
   { label: 'Consolas', stack: "Consolas, 'Courier New', monospace" },
 ];
 
-/** Built-in Monaco color themes for the workspace file editor. */
-export const MONACO_WORKSPACE_EDITOR_THEME_IDS = ['vs-dark', 'vs', 'hc-black', 'hc-light'] as const;
+/**
+ * Monaco color themes for the workspace file editor. `follow-app` (default) derives the
+ * palette from the active app theme; the rest are Monaco's stock themes.
+ */
+export const MONACO_WORKSPACE_EDITOR_THEME_IDS = ['follow-app', 'vs-dark', 'vs', 'hc-black', 'hc-light'] as const;
 export type MonacoWorkspaceEditorThemeId = (typeof MONACO_WORKSPACE_EDITOR_THEME_IDS)[number];
+export const DEFAULT_MONACO_WORKSPACE_EDITOR_THEME_ID: MonacoWorkspaceEditorThemeId = 'follow-app';
 
 /**
  * JSON-serializable subset of Monaco `IEditorOptions` for the in-app workspace file editor.
@@ -747,7 +751,7 @@ export interface MonacoWorkspaceEditorSettings {
 
 export function defaultMonacoWorkspaceEditorSettings(): MonacoWorkspaceEditorSettings {
   return {
-    theme: 'vs-dark',
+    theme: DEFAULT_MONACO_WORKSPACE_EDITOR_THEME_ID,
     fontSize: 13,
     lineHeight: 0,
     fontFamily: '',
@@ -1317,7 +1321,10 @@ export interface AppConfig {
    */
   lastActiveConversationByWorkspaceId?: Record<string, string>;
   workspaces: Workspace[];
-  /** The single app-wide UI theme id (see `THEMES` in `theme-selector.ts`). Not per-workspace. */
+  /**
+   * The single app-wide UI theme id: a built-in (`clara-dark`, `clara-light`) or a user theme
+   * stored under `{userData}/themes/<id>/theme.json` (see `src/shared/theme`). Not per-workspace.
+   */
   themeId: string;
   /** Which model preset is used for chat (`LlmModelProfile.id`). */
   activeLlmModelId: string;

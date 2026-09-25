@@ -1,0 +1,13 @@
+{
+  "groups": {
+    "hitl.dock": {
+      "label": "Review dock",
+      "description": "Panel above the composer that holds pending review cards."
+    },
+    "hitl.cards": {
+      "label": "Review cards",
+      "description": "Command approvals, file diffs, copy/delete confirmations, plan confirmations, and agent questions.",
+      "styleSources": ["features/diff", "features/chat/hitl-btn-shared.css"]
+    }
+  }
+}

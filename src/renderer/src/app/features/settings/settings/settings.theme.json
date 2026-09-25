@@ -1,0 +1,17 @@
+{
+  "groups": {
+    "settings.window": {
+      "label": "Window",
+      "description": "Settings window frame and title bar.",
+      "styleSources": ["features/settings"]
+    },
+    "settings.nav": {
+      "label": "Navigation",
+      "description": "Category and section list on the left."
+    },
+    "settings.content": {
+      "label": "Content",
+      "description": "Section header and form panes."
+    }
+  }
+}

@@ -1,6 +1,7 @@
 @if (planner().steps.length > 0 || planner().phase === 'discovery' || showAgentQuestion()) {
   <div
     class="plan-panel"
+    data-theme-group="chat.plan-panel"
     [class.plan-panel--live]="live()"
     [class.plan-panel--awaiting]="showApprovalActions()"
     [class.plan-panel--discovering]="planner().phase === 'discovery'"

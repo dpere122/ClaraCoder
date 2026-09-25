@@ -1,0 +1,44 @@
+{
+  "categories": {
+    "shell": "Shell & layout",
+    "chat": "Chat",
+    "hitl": "Review cards",
+    "editor": "Editor",
+    "workspace": "Workspace",
+    "settings": "Settings window",
+    "health": "Health window",
+    "dependencies": "Dependencies window",
+    "dialogs": "Dialogs"
+  },
+  "groups": {
+    "shell.titlebar": {
+      "label": "Title bar",
+      "description": "Frameless window chrome: app title, menu buttons, and window controls."
+    },
+    "shell.stage": {
+      "label": "Editor stage",
+      "description": "Main column that hosts file tabs, the editor grid, and the expanded chat overlay."
+    },
+    "shell.sidebar": {
+      "label": "Chat sidebar",
+      "description": "Right-hand column containing the conversation hub and chat."
+    },
+    "shell.status-bar": {
+      "label": "Status bar",
+      "description": "Bottom footer with model status and language-server chips.",
+      "styleSources": ["features/status", "features/shell/editor-lsp-status"]
+    },
+    "shell.editor-grid": {
+      "label": "Editor grid",
+      "description": "Split-pane container for open editor tabs."
+    },
+    "shell.tab-strip": {
+      "label": "File tabs",
+      "description": "Pill tabs above each editor slot."
+    },
+    "shell.empty-state": {
+      "label": "Welcome screen",
+      "description": "Home panel shown when no file is open."
+    }
+  }
+}

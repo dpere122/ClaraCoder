@@ -65,9 +65,10 @@ export function buildXterm256PaletteFromCss(root?: CssVarRoot): string[] {
     (typeof document !== 'undefined' && document.documentElement
       ? getComputedStyle(document.documentElement)
       : emptyCssRoot());
+  // The theme engine stamps `data-theme-id` / `data-theme-revision` on <html> after each apply.
   const key =
     typeof document !== 'undefined' && document.documentElement
-      ? document.documentElement.className
+      ? `${document.documentElement.getAttribute('data-theme-id') ?? ''}#${document.documentElement.getAttribute('data-theme-revision') ?? ''}`
       : readTerminalAnsiPalette(resolvedRoot).join('|');
   if (cached256Palette && cached256Key === key) {
     return cached256Palette;

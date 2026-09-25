@@ -1,5 +1,6 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
+import { ThemeEngineService } from '../../core/theme/theme-engine.service';
 
 @Component({
   selector: 'app-shell',
@@ -21,4 +22,11 @@ import { RouterOutlet } from '@angular/router';
     }
   `,
 })
-export class AppShell {}
+export class AppShell {
+  /** Every window (main, settings, health, dependencies) boots through this shell. */
+  private readonly themeEngine = inject(ThemeEngineService);
+
+  constructor() {
+    this.themeEngine.start();
+  }
+}

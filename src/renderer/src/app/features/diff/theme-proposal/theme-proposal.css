@@ -1,0 +1,134 @@
+app-theme-proposal .theme-proposal-card {
+  overflow: hidden;
+  border-radius: 1rem !important;
+  background:
+    linear-gradient(to right, color-mix(in srgb, var(--t-secondary) 30%, transparent) 3px, transparent 3px),
+    color-mix(in srgb, var(--t-secondary) 6%, var(--t-bg-surface));
+}
+
+app-theme-proposal .theme-proposal-card--collapsed {
+  padding: 0.55rem 0.75rem;
+}
+
+app-theme-proposal .theme-proposal-collapsed-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+app-theme-proposal .theme-proposal-collapsed-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+app-theme-proposal .theme-proposal-title {
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--t-secondary);
+}
+
+app-theme-proposal .theme-proposal-summary,
+app-theme-proposal .theme-proposal-sub {
+  font-size: 0.74rem;
+  color: var(--t-text-muted);
+}
+
+app-theme-proposal .theme-proposal-badge {
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px !important;
+}
+
+app-theme-proposal .theme-proposal-badge--complete {
+  color: var(--t-process-c);
+  background: color-mix(in srgb, var(--t-process-c) 12%, transparent);
+}
+
+app-theme-proposal .theme-proposal-badge--cancelled {
+  color: var(--t-text-muted);
+  background: color-mix(in srgb, var(--t-text-muted) 10%, transparent);
+}
+
+app-theme-proposal .theme-proposal-toolbar {
+  padding: 0.65rem 0.75rem;
+  background: color-mix(in srgb, var(--t-secondary) 10%, var(--t-bg-surface));
+}
+
+app-theme-proposal .theme-proposal-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+app-theme-proposal .theme-proposal-swatches {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+app-theme-proposal .theme-proposal-swatch {
+  width: 14px;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, var(--t-edge-darkest) 40%, transparent);
+}
+
+app-theme-proposal .theme-proposal-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+app-theme-proposal .theme-proposal-message {
+  margin: 0.45rem 0 0;
+  font-size: 0.76rem;
+  color: var(--t-fg);
+}
+
+app-theme-proposal .theme-proposal-error {
+  margin: 0.45rem 0 0;
+  font-size: 0.74rem;
+  color: var(--t-log-level-error);
+}
+
+app-theme-proposal .theme-proposal-notes {
+  margin-top: 0.45rem;
+  font-size: 0.72rem;
+  color: var(--t-text-muted);
+}
+
+app-theme-proposal .theme-proposal-notes summary {
+  cursor: pointer;
+}
+
+app-theme-proposal .theme-proposal-notes ul {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+}
+
+app-theme-proposal .theme-proposal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--t-secondary) 12%, transparent) 1px,
+    transparent 1px
+  );
+}
+
+app-theme-proposal .hitl-btn--active {
+  outline: 1px solid color-mix(in srgb, var(--t-secondary) 70%, transparent);
+}
+
+/* Actions use shared .hitl-btn styles (hitl-btn-shared.css). */

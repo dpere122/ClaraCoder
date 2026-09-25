@@ -23,6 +23,7 @@ import { ThemedPromptDialogService } from './themed-prompt-dialog.service';
       >
         <div
           class="tpd-panel"
+          data-theme-group="dialogs.prompt"
           role="dialog"
           aria-modal="true"
           [attr.aria-labelledby]="'tpd-title'"

@@ -1,5 +1,5 @@
 <div class='app-layout'>
-  <div class='app-top-bar'>
+  <div class='app-top-bar' data-theme-group='shell.titlebar'>
     @if (electron.isElectron) {
       <div class='window-chrome'>
         <h1 class='chrome-title' (dblclick)='onWindowToggleMaximize()'>
@@ -181,7 +181,7 @@
 
   <div class='app-content' [class.app-content--no-workspace]='!hasOpenWorkspace()'>
     @if (hasOpenWorkspace()) {
-      <div class='workspace-panel' [style.width.px]='workspaceWidth()'>
+      <div class='workspace-panel' data-theme-group='workspace.panel' [style.width.px]='workspaceWidth()'>
         <app-workspace
           [workspaces]='workspaces()'
           [currentWorkspaceId]='currentWorkspaceId()'
@@ -200,7 +200,7 @@
     }
 
     <div class='chat-area'>
-      <section class='chat-area__stage'>
+      <section class='chat-area__stage' data-theme-group='shell.stage'>
         <div class='chat-area__tabs' role='presentation'>
         @if (hasOpenWorkspace() && fileTabContextMenuVisible()) {
           <div
@@ -357,6 +357,7 @@
                 (deleteReviewFinished)='onDeleteReviewFinished($event)'
                 (planConfirmFinished)='onPlanConfirmFinished($event)'
                 (agentQuestionFinished)='onAgentQuestionFinished($event)'
+                (themeProposalFinished)='onThemeProposalFinished($event)'
                 [chatContextFiles]='composerContextFiles()'
                 [workspaceRoot]='currentWorkspacePath()'
                 (removeChatContextFile)='removeChatContextFile($event)'
@@ -436,6 +437,7 @@
 
     <div
       class='sidebar'
+      data-theme-group='shell.sidebar'
       [class.sidebar--collapsed]='chatCollapsed()'
       [style.width.px]='effectiveSidebarWidth()'
     >
@@ -470,6 +472,7 @@
         (deleteReviewFinished)='onDeleteReviewFinished($event)'
         (planConfirmFinished)='onPlanConfirmFinished($event)'
         (agentQuestionFinished)='onAgentQuestionFinished($event)'
+        (themeProposalFinished)='onThemeProposalFinished($event)'
         [chatContextFiles]='composerContextFiles()'
         [workspaceRoot]='currentWorkspacePath()'
         (removeChatContextFile)='removeChatContextFile($event)'
@@ -507,7 +510,7 @@
   </div>
 
   @if (electron.isElectron) {
-    <footer class="app-status-footer">
+    <footer class="app-status-footer" data-theme-group="shell.status-bar">
       <div class="app-status-footer__start">
         <app-llama-status-indicator [appConfig]="appConfig()" />
       </div>

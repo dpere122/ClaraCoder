@@ -53,6 +53,7 @@ narrow the variant.
 | `build_plan_stream_end` | `buildPlanStreamEnd: { relativePath: string }` | End of a streamed build-plan file. |
 | `plan_confirm` | `planConfirm: PlanConfirmPayload` | HITL prompt to confirm a proposed plan. `filesToChange` is normalized via `normalizePlanConfirmFilesToChange`. |
 | `agent_question` | `agentQuestion: AgentQuestionPayload` | Agent is asking the user a structured question. |
+| `theme_proposal` | `themeProposal: ThemeProposalPayload` | Agent-authored app theme (`propose_theme` tool). Non-blocking: the card's Preview / Save / Dismiss resolve through Electron IPC, never back to Python. Gated by `isThemeProposalPayload`. |
 | `staged_transfer_batch` | `stagedTransferBatch: StagedTransferBatchPayload` | A batch of staged file transfers. |
 | `final_text` | `text: string` | Terminal, non-streamed text to append after the stream closes. |
 | `clear_primary_stream` | _(none)_ | Instructs the UI to clear the primary stream buffer. |
@@ -197,6 +198,7 @@ noted) and lists the wire fields each branch reads.
 | `build_plan_stream_end` | `build_plan_stream_end` | `buildPlanStreamEnd.relativePath` |
 | `plan_confirm` | `plan_confirm` | `planConfirm` (object, `filesToChange` normalized) |
 | `agent_question` | `agent_question` | `agentQuestion` (object) |
+| `theme_proposal` | `theme_proposal` | `themeProposal` (object: `version: 1`, `requestId`, `title`, `summary`, `theme`, `warnings?`) |
 | `staged_transfer_batch` | `staged_transfer_batch` | `stagedTransferBatch` (object) |
 | `final_text` | `final_text` | `text` |
 | `clear_primary_stream` | `clear_primary_stream` | _(none)_ |

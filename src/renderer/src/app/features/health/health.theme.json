@@ -1,0 +1,9 @@
+{
+  "groups": {
+    "health.window": {
+      "label": "Window",
+      "description": "Health monitor window: runtime status, metrics, and log viewer.",
+      "styleSources": ["features/health"]
+    }
+  }
+}

@@ -1,0 +1,52 @@
+<div class="tte" [class.tte--dense]="dense()" [class.tte--readonly]="readOnly()">
+  @for (token of tokens(); track token.name) {
+    <div class="tte__row" [class.tte__row--set]="isSet(token.name)">
+      <div class="tte__meta">
+        <label class="tte__label" [for]="inputId(token.name)" [title]="token.name">
+          {{ token.label }}
+          @if (token.alias) {
+            <em class="tte__alias">alias</em>
+          }
+        </label>
+        <code class="tte__name">{{ token.name }}</code>
+        @if (token.description) {
+          <small class="tte__desc">{{ token.description }}</small>
+        }
+      </div>
+      <div class="tte__control">
+        @if (token.kind === 'color') {
+          <span class="tte__swatch" [style.background]="swatchStyle(token.name)" aria-hidden="true"></span>
+          <input
+            class="tte__picker"
+            type="color"
+            [value]="colorInputValue(token.name)"
+            [disabled]="readOnly()"
+            (input)="onColorPick(token.name, $any($event.target).value)"
+            [attr.aria-label]="token.label + ' color picker'"
+          />
+        }
+        <input
+          class="tte__text"
+          type="text"
+          [id]="inputId(token.name)"
+          [value]="effective(token.name)"
+          [disabled]="readOnly()"
+          [attr.list]="token.kind === 'font' ? 'tte-font-stacks' : null"
+          [placeholder]="inheritedPlaceholder(token.name)"
+          spellcheck="false"
+          (change)="onTextChange(token.name, $any($event.target).value)"
+        />
+        @if (isSet(token.name) && !readOnly()) {
+          <button type="button" class="tte__reset" (click)="reset(token.name)" title="Clear override and inherit">Reset</button>
+        } @else {
+          <span class="tte__inherited" title="Inherited from the built-in for this mode">inherited</span>
+        }
+      </div>
+    </div>
+  }
+  <datalist id="tte-font-stacks">
+    @for (stack of fontStacks(); track stack) {
+      <option [value]="stack"></option>
+    }
+  </datalist>
+</div>

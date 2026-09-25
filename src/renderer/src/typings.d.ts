@@ -45,6 +45,15 @@ import type {
   EnsureWorkspaceSystemPromptResult,
 } from '../../shared/index';
 import type {
+  ClaraThemeDocument,
+  ThemeAssetPickResult,
+  ThemeExportResult,
+  ThemeImportResult,
+  ThemeMode,
+  ThemeMutationResult,
+  ThemeSaveResult,
+} from '../../shared/theme';
+import type {
   LspEditorCompletionItemPayload,
   LspEditorDiagnosticPayload,
   LspEditorDocumentSymbolPayload,
@@ -174,6 +183,9 @@ declare global {
     ) => void;
     onMessageAgentQuestion?: (
       callback: (event: unknown, conversationId: string, payload: import('@shared/index').AgentQuestionPayload) => void,
+    ) => void;
+    onMessageThemeProposal?: (
+      callback: (event: unknown, conversationId: string, payload: import('@shared/index').ThemeProposalPayload) => void,
     ) => void;
     onMessageStagedTransferBatch?: (
       callback: (
@@ -419,6 +431,17 @@ declare global {
     getCurrentWorkspace: () => Promise<Workspace | null>;
     setConversationTheme: (id: string, themeId: string) => Promise<void>;
     setTheme: (themeId: string) => Promise<AppConfig>;
+    listThemes: () => Promise<ClaraThemeDocument[]>;
+    saveTheme: (theme: ClaraThemeDocument) => Promise<ThemeSaveResult>;
+    createTheme: (payload: { name: string; mode: ThemeMode; fromThemeId?: string }) => Promise<ThemeSaveResult>;
+    duplicateTheme: (themeId: string, name: string) => Promise<ThemeSaveResult>;
+    deleteTheme: (themeId: string) => Promise<ThemeMutationResult>;
+    importThemeFile: () => Promise<ThemeImportResult>;
+    exportTheme: (themeId: string) => Promise<ThemeExportResult>;
+    pickThemeAsset: (themeId: string) => Promise<ThemeAssetPickResult>;
+    previewTheme: (theme: ClaraThemeDocument | null) => Promise<void>;
+    onThemeLibraryUpdated: (callback: (event: unknown, themes: ClaraThemeDocument[]) => void) => void;
+    onThemePreview: (callback: (event: unknown, theme: ClaraThemeDocument | null) => void) => void;
     getActiveConversationId: () => Promise<string | null>;
     onConfigUpdated: (callback: (event: unknown, config: AppConfig) => void) => void;
     onSettingsWindowVisibilityChanged: (callback: (event: unknown, isOpen: boolean) => void) => void;

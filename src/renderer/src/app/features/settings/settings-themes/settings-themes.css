@@ -1,0 +1,580 @@
+/* Settings → Themes pane and its sub-components (ViewEncapsulation.None, shared prefixes). */
+
+.settings-pane--themes {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.themes-context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0 10px;
+  border-bottom: 1px solid var(--t-border-subtle);
+}
+
+.themes-context__text {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.themes-context__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--t-text-muted);
+}
+
+.themes-context__name {
+  color: var(--t-primary);
+}
+
+.themes-context__id,
+.tgp__id,
+.tte__name,
+.tmp__key,
+.themes-context code {
+  font-family: var(--t-font-mono);
+  font-size: 11px;
+  color: var(--t-text-muted);
+}
+
+.themes-intro {
+  margin: 0;
+}
+
+.themes-section {
+  gap: 8px;
+}
+
+.themes-section__header h5 {
+  margin: 0 0 2px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--t-primary);
+}
+
+.themes-section__header .settings-copy {
+  margin: 0;
+}
+
+.themes-issues {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--t-log-level-warning);
+}
+
+.themes-issues--errors {
+  color: var(--t-log-level-error);
+}
+
+.themes-issues code {
+  font-family: var(--t-font-mono);
+  font-size: 11px;
+  margin-right: 6px;
+}
+
+.themes-json-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.themes-json-message {
+  font-size: 12px;
+  color: var(--t-text-muted);
+}
+
+.themes-json,
+.tgp__css {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  font-family: var(--t-font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
+  background: color-mix(in srgb, var(--t-bg) 70%, var(--t-bg-surface));
+  color: var(--t-fg);
+  resize: vertical;
+}
+
+.themes-json:focus,
+.tgp__css:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--t-primary) 75%, transparent);
+}
+
+/* ── Token editor ── */
+
+.tte {
+  display: flex;
+  flex-direction: column;
+}
+
+.tte__row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr);
+  gap: 6px 14px;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--t-border-subtle) 70%, transparent);
+}
+
+.tte--dense .tte__row {
+  padding: 4px 0;
+}
+
+.tte__row:last-of-type {
+  border-bottom: none;
+}
+
+.tte__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tte__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--t-fg);
+}
+
+.tte__row--set .tte__label {
+  color: var(--t-primary);
+}
+
+.tte__alias {
+  margin-left: 6px;
+  font-size: 10px;
+  font-style: normal;
+  color: var(--t-text-muted);
+}
+
+.tte__desc {
+  font-size: 11px;
+  color: var(--t-text-muted);
+}
+
+.tte__control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tte__swatch {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--t-border);
+  background-clip: padding-box;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--t-edge-darkest) 30%, transparent);
+}
+
+.tte__picker {
+  flex-shrink: 0;
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--t-border);
+  background: transparent;
+  cursor: pointer;
+}
+
+.tte__picker:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.tte__text {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  font: inherit;
+  font-family: var(--t-font-mono);
+  font-size: 12px;
+  border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
+  background: color-mix(in srgb, var(--t-bg) 70%, var(--t-bg-surface));
+  color: var(--t-fg);
+}
+
+.tte__text:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--t-primary) 75%, transparent);
+}
+
+.tte__text:disabled {
+  opacity: 0.7;
+}
+
+.tte__reset,
+.tgp__link {
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  color: var(--t-secondary);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.tte__reset:hover,
+.tgp__link:hover {
+  color: var(--t-primary);
+}
+
+.tte__inherited {
+  flex-shrink: 0;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--t-text-muted);
+}
+
+/* ── Group panel ── */
+
+.tgp {
+  border: 1px solid var(--t-border-subtle);
+  background: color-mix(in srgb, var(--t-bg-surface) 55%, var(--t-bg));
+}
+
+.tgp--customized {
+  border-color: color-mix(in srgb, var(--t-primary) 45%, var(--t-border));
+}
+
+.tgp__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  background: transparent;
+  color: var(--t-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tgp__header:hover {
+  background: var(--t-hover-bg);
+}
+
+.tgp__chevron {
+  width: 12px;
+  color: var(--t-text-muted);
+}
+
+.tgp__title {
+  font-weight: 700;
+  color: var(--t-primary);
+}
+
+.tgp__pill {
+  padding: 2px 6px;
+}
+
+.tgp__desc {
+  flex-basis: 100%;
+  padding-left: 20px;
+  font-size: 11px;
+  color: var(--t-text-muted);
+}
+
+.tgp__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 12px 14px;
+  border-top: 1px solid var(--t-border-subtle);
+}
+
+.tgp__section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tgp__section-title,
+.tmp__section-title {
+  margin: 8px 0 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--t-secondary);
+}
+
+.tgp__section .settings-copy {
+  margin: 0;
+  font-size: 12px;
+}
+
+.tgp__bg {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.tgp__bg-preview {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border: 1px solid var(--t-border);
+  background:
+    linear-gradient(45deg, var(--t-bg-deep) 25%, transparent 25%, transparent 75%, var(--t-bg-deep) 75%),
+    linear-gradient(45deg, var(--t-bg-deep) 25%, var(--t-bg-surface) 25%, var(--t-bg-surface) 75%, var(--t-bg-deep) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+}
+
+.tgp__bg-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.tgp__bg-preview--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--t-text-muted);
+}
+
+.tgp__bg-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tgp__bg-controls .field span {
+  font-size: 10px;
+}
+
+.tgp__asset-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.tgp__asset-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+.tgp__warnings {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 11px;
+  color: var(--t-log-level-warning);
+}
+
+/* ── Library list ── */
+
+.tll {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.tll__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tll__toolbar .action-button {
+  min-width: 0;
+}
+
+.tll__status {
+  margin: 0;
+  font-size: 12px;
+  color: var(--t-secondary);
+}
+
+.tll__scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: min(60vh, 560px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.tll__section-label {
+  margin: 8px 0 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--t-text-muted);
+}
+
+.tll__empty {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--t-border-subtle);
+}
+
+.tll__item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--t-border-subtle);
+  background: color-mix(in srgb, var(--t-bg-surface) 55%, var(--t-bg));
+  color: var(--t-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tll__item:hover {
+  border-color: color-mix(in srgb, var(--t-primary) 45%, var(--t-border));
+  background: var(--t-hover-bg);
+}
+
+.tll__item--selected {
+  border-color: var(--t-primary);
+  background: var(--t-active-bg);
+}
+
+.tll__swatches {
+  display: flex;
+  gap: 2px;
+}
+
+.tll__swatch {
+  width: 14px;
+  height: 26px;
+  border: 1px solid color-mix(in srgb, var(--t-edge-darkest) 40%, transparent);
+}
+
+.tll__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tll__name {
+  font-weight: 700;
+  color: var(--t-primary);
+}
+
+.tll__meta {
+  font-size: 11px;
+  color: var(--t-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tll__badges {
+  display: flex;
+  gap: 6px;
+}
+
+/* ── Monaco panel ── */
+
+.tmp {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tmp__mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tmp__mode .settings-copy {
+  margin: 0;
+  flex: 1 1 320px;
+}
+
+.tmp__grid {
+  grid-template-columns: minmax(0, 260px);
+}
+
+.tmp__rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.tmp__row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr);
+  gap: 6px 14px;
+  align-items: center;
+  padding: 5px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--t-border-subtle) 70%, transparent);
+}
+
+.tmp__row:last-of-type {
+  border-bottom: none;
+}
+
+.tmp__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tmp__label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tmp__control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tmp__style {
+  flex-shrink: 0;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
+  background: color-mix(in srgb, var(--t-bg) 70%, var(--t-bg-surface));
+  color: var(--t-fg);
+}
+
+@media (max-width: 900px) {
+  .tte__row,
+  .tmp__row {
+    grid-template-columns: 1fr;
+  }
+
+  .tgp__bg {
+    grid-template-columns: 1fr;
+  }
+}

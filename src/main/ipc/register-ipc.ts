@@ -21,6 +21,7 @@ import { registerLspDiagnosticsWatchIpc } from './handlers/lsp-diagnostics-watch
 import { registerModelManagerIpc } from './handlers/model-manager';
 import { registerListSystemFontsIpc } from './handlers/list-system-fonts';
 import { registerDependenciesIpc } from './handlers/dependencies';
+import { registerThemesIpc } from './handlers/themes';
 
 /** Registers all `ipcMain` handlers used by the preload `electronAPI` surface. */
 export function registerAllIpc(): void {
@@ -47,4 +48,5 @@ export function registerAllIpc(): void {
   registerHealthIpc();
   registerHealthWindowIpc();
   registerListSystemFontsIpc();
+  registerThemesIpc();
 }

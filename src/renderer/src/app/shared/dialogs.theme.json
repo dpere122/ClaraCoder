@@ -1,0 +1,12 @@
+{
+  "groups": {
+    "dialogs.confirm": {
+      "label": "Confirm dialog",
+      "description": "Themed confirmation dialog panel."
+    },
+    "dialogs.prompt": {
+      "label": "Prompt dialog",
+      "description": "Themed text-input dialog panel."
+    }
+  }
+}

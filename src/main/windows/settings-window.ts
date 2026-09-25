@@ -12,10 +12,12 @@ import {
   attachBrowserWindowRevealFallbacks,
   settingsWindowParentOptions,
 } from '../utils/reveal-browser-window';
+import { broadcastThemePreview } from '../ipc/handlers/theme-broadcast';
 
 /** Keep labels in sync with renderer `SETTINGS_TABS`. */
 export const SETTINGS_WINDOW_TABS = [
   { id: 'general', label: 'General' },
+  { id: 'themes', label: 'Themes' },
   { id: 'models', label: 'Models' },
   { id: 'modelManager', label: 'Model Manager' },
   { id: 'tools', label: 'Tools' },
@@ -138,5 +140,8 @@ export function createSettingsWindow(tab?: SettingsWindowTab): void {
     resetSettingsTabDelivery();
     notifyVisibility(false);
     mainState.settingsWindow = null;
+    // The renderer is gone before any Angular teardown can run, so a live theme preview
+    // started from Settings → Themes would otherwise stay painted in every other window.
+    broadcastThemePreview(null);
   });
 }

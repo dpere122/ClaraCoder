@@ -1,0 +1,107 @@
+<div class="tmp">
+  <div class="tmp__mode">
+    @if (customized()) {
+      <p class="settings-copy">
+        This theme carries its own Monaco palette. Edits below are saved with the theme; the Editor tab's
+        <em>Follow app theme</em> option uses it.
+      </p>
+      <button type="button" class="action-button" [disabled]="s.readOnly()" (click)="revert()">Revert to derived palette</button>
+    } @else {
+      <p class="settings-copy">
+        The editor palette is derived from this theme's tokens (code background, code text, syntax colors). Customize to
+        override individual colors and syntax rules.
+      </p>
+      <button type="button" class="action-button action-button--primary" [disabled]="s.readOnly()" (click)="customize()">
+        Customize editor palette
+      </button>
+    }
+  </div>
+
+  <div class="form-grid tmp__grid">
+    <label class="field">
+      <span>Base theme</span>
+      <select [disabled]="s.readOnly() || !customized()" [value]="current().base" (change)="setBase($any($event.target).value)">
+        @for (base of bases; track base) {
+          <option [value]="base">{{ base }}</option>
+        }
+      </select>
+    </label>
+  </div>
+
+  <h5 class="tmp__section-title">Colors</h5>
+  <div class="tmp__rows">
+    @for (row of colorRows; track row.key) {
+      <div class="tmp__row">
+        <div class="tmp__meta">
+          <span class="tmp__label">{{ row.label }}</span>
+          <code class="tmp__key">{{ row.key }}</code>
+        </div>
+        <div class="tmp__control">
+          <span class="tte__swatch" [style.background]="color(row.key) || 'transparent'" aria-hidden="true"></span>
+          <input
+            type="color"
+            class="tte__picker"
+            [value]="colorPicker(row.key)"
+            [disabled]="s.readOnly() || !customized()"
+            (input)="setColor(row.key, $any($event.target).value)"
+            [attr.aria-label]="row.label + ' color'"
+          />
+          <input
+            type="text"
+            class="tte__text"
+            spellcheck="false"
+            [value]="color(row.key)"
+            [disabled]="s.readOnly() || !customized()"
+            placeholder="#rrggbb[aa]"
+            (change)="setColor(row.key, $any($event.target).value)"
+          />
+        </div>
+      </div>
+    }
+  </div>
+
+  <h5 class="tmp__section-title">Syntax rules</h5>
+  <div class="tmp__rows">
+    @for (row of ruleRows; track row.scope) {
+      <div class="tmp__row">
+        <div class="tmp__meta">
+          <span class="tmp__label">{{ row.label }}</span>
+          <code class="tmp__key">{{ row.scope || '(default)' }}</code>
+        </div>
+        <div class="tmp__control">
+          <span class="tte__swatch" [style.background]="rule(row.scope) || 'transparent'" aria-hidden="true"></span>
+          <input
+            type="color"
+            class="tte__picker"
+            [value]="rulePicker(row.scope)"
+            [disabled]="s.readOnly() || !customized()"
+            (input)="setRuleColor(row.scope, $any($event.target).value)"
+            [attr.aria-label]="row.label + ' color'"
+          />
+          <input
+            type="text"
+            class="tte__text"
+            spellcheck="false"
+            [value]="rule(row.scope)"
+            [disabled]="s.readOnly() || !customized()"
+            placeholder="#rrggbb"
+            (change)="setRuleColor(row.scope, $any($event.target).value)"
+          />
+          <select
+            class="tmp__style"
+            [disabled]="s.readOnly() || !customized()"
+            [value]="ruleStyle(row.scope)"
+            (change)="setRuleStyle(row.scope, $any($event.target).value)"
+            [attr.aria-label]="row.label + ' font style'"
+          >
+            <option value="">normal</option>
+            <option value="italic">italic</option>
+            <option value="bold">bold</option>
+            <option value="bold italic">bold italic</option>
+            <option value="underline">underline</option>
+          </select>
+        </div>
+      </div>
+    }
+  </div>
+</div>

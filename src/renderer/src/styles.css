@@ -1,75 +1,12 @@
 /*
- * `--t-font-ui-override` / `--t-font-code-override` are NOT declared here. They're optional
- * inline properties set on `documentElement.style` by `applyAppFontOverrides()` (app-theme.ts)
- * from Settings → General "App font" / "Code font" pickers. Root `html` font-size is scaled there
- * too from `uiFontSizeRem`. Consumers reference them as
- * `var(--t-font-ui-override, var(--t-font))` / `var(--t-font-code-override, <default stack>)`
- * so they fall through to the theme's own font when unset.
+ * Design tokens (`--t-*`) are NOT declared here. The theme engine
+ * (src/renderer/src/app/core/theme) writes them into <style id="clara-theme-tokens"> from the
+ * active theme document (src/shared/theme); built-in palettes live in src/shared/theme/builtin.
+ * `--t-font-ui-override` / `--t-font-code-override` are optional inline properties set on
+ * `documentElement.style` by `applyAppFontOverrides()` from Settings → General; consumers
+ * reference them as `var(--t-font-ui-override, var(--t-font))` so they fall through to the
+ * theme font when unset.
  */
-:root {
-  --t-bg: #191c17;
-  --t-bg-surface: #22261f;
-  --t-surface: var(--t-bg-surface);
-  --t-bg-deep: #121410;
-  --t-panel: #1e221b;
-  --t-primary: #a8b89a;
-  --t-secondary: #c9a96e;
-  --t-fg: #d2cdc2;
-  --t-border: #3d4436;
-  --t-border-subtle: #2e3429;
-  --t-glow: transparent;
-  --t-glow-soft: transparent;
-  --t-hover-bg: rgba(168, 184, 154, 0.1);
-  --t-active-bg: rgba(168, 184, 154, 0.14);
-  --t-selection-bg: rgba(168, 184, 154, 0.28);
-  --t-text-muted: #7a8470;
-  --t-muted: #7a8470;
-  --t-user-bg: #2e3628;
-  --t-user-fg: #d8c8a0;
-  --t-user-border: #c9a96e66;
-  --t-assistant-bg: #161812;
-  --t-assistant-fg: #a8b89a;
-  --t-assistant-border: #8a7a5a;
-  --t-code-bg: #151812;
-  --t-code-inline-bg: #252b20;
-  --t-code-text: #ddd8cc;
-  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  --t-titlebar-start: #2a3024;
-  --t-titlebar-end: #1a1e17;
-  --t-titlebar-text: #d2cdc2;
-  --t-edge-light: #4a5442;
-  --t-edge-mid: #343b2e;
-  --t-edge-dark: #1e2319;
-  --t-edge-darkest: #0d0f0b;
-  --t-process-a: #a8b89a;
-  --t-process-b: #c9a96e;
-  --t-process-c: #7eb5a6;
-  --t-run-command-tab: #7eb5a6;
-  --t-hljs-keyword: #a8b89a;
-  --t-hljs-string: #c9a96e;
-  --t-hljs-number: #7eb5a6;
-  --t-hljs-comment: #6b7361;
-  --t-hljs-function: #d4c49a;
-  --t-hljs-class: #b8a88a;
-  --t-hljs-attr: #c4a87a;
-  --t-hljs-params: #d2cdc2;
-  --t-hljs-property: #9bb88e;
-  --t-hljs-punctuation: #7a8470;
-  --t-hljs-operator: #b89a7a;
-  --t-hljs-meta: #8aaa80;
-  --t-hljs-tag: #c49a70;
-  --t-hljs-name: #a8b89a;
-  --t-hljs-symbol: #7eb5a6;
-  --t-hljs-selector: #9bb88e;
-  --t-log-level-error: #e07a7a;
-  --t-log-level-warning: #d4a84b;
-  /* Decision colors for HITL action buttons — saturated on purpose so approve/reject pop. */
-  --t-confirm: #5fd39b;
-  --t-caution: #e8b455;
-  --t-elev-shadow: 0 10px 28px color-mix(in srgb, var(--t-edge-darkest) 42%, transparent);
-  --t-font-mono: var(--t-font);
-  --t-chat-bg: color-mix(in srgb, var(--t-bg-surface) 62%, var(--t-bg));
-}
 
 /* Lucide (lucide-angular): align with text and inherit theme color */
 lucide-icon {
@@ -81,222 +18,6 @@ lucide-icon {
 
 lucide-icon svg {
   display: block;
-}
-
-.theme-classical {
-  --t-bg: #f5f0e8;
-  --t-bg-surface: #ebe5d9;
-  --t-surface: var(--t-bg-surface);
-  --t-bg-deep: #e0d8c8;
-  --t-panel: #f3ede4;
-  --t-primary: #2c1810;
-  --t-secondary: #5c3d2e;
-  --t-fg: #2c1810;
-  --t-border: #c4b5a0;
-  --t-border-subtle: #d4c8b4;
-  --t-glow: transparent;
-  --t-glow-soft: transparent;
-  --t-hover-bg: #e8dfd0;
-  --t-active-bg: #ddd3c0;
-  --t-selection-bg: #c9b99a80;
-  --t-text-muted: #8a7a68;
-  --t-muted: #8a7a68;
-  --t-user-bg: #ddd0bc;
-  --t-user-fg: #2c1810;
-  --t-user-border: #a0806088;
-  --t-assistant-bg: #f8f4ec;
-  --t-assistant-fg: #5c4030;
-  --t-assistant-border: #a08060;
-  --t-code-bg: #ebe5d9;
-  --t-code-inline-bg: #e5ddd0;
-  --t-code-text: #3d2b1f;
-  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  --t-titlebar-start: #d8c8b2;
-  --t-titlebar-end: #c5b399;
-  --t-titlebar-text: #2c1810;
-  --t-edge-light: #f6f0e6;
-  --t-edge-mid: #e0d6c6;
-  --t-edge-dark: #a58d74;
-  --t-edge-darkest: #715843;
-  --t-process-a: #7b5b3a;
-  --t-process-b: #5c3d2e;
-  --t-process-c: #6b3a8a;
-  --t-run-command-tab: #6b3a8a;
-  --t-hljs-keyword: #7b3014;
-  --t-hljs-string: #2e6b2e;
-  --t-hljs-number: #1a5276;
-  --t-hljs-comment: #8a7a68;
-  --t-hljs-function: #6b3a8a;
-  --t-hljs-class: #5b2c6f;
-  --t-hljs-attr: #7b5b3a;
-  --t-hljs-params: #4a3520;
-  --t-hljs-property: #6b5040;
-  --t-hljs-punctuation: #8a7a68;
-  --t-hljs-operator: #7b3014;
-  --t-hljs-meta: #5b6b50;
-  --t-hljs-tag: #7b3014;
-  --t-hljs-name: #6b3a8a;
-  --t-hljs-symbol: #1a5276;
-  --t-hljs-selector: #2e6b2e;
-  --t-log-level-error: #b3261e;
-  --t-log-level-warning: #b45309;
-  /* Light theme: filled buttons carry light ink, so decision fills stay deep. */
-  --t-confirm: #1f7a4f;
-  --t-caution: #bd640b;
-  --t-tui-frame: #8a7a68;
-  --t-tui-user-frame: #5c3d2e;
-  --t-tui-clara-frame: #5c4030;
-  --t-tui-input-frame: #5c3d2e;
-  --t-input-bg: #ebe5d9;
-  --t-input-fg: #2c1810;
-  --t-composer-bg: #e8dfd0;
-  --t-composer-input-bg: #ebe5d9;
-  --t-composer-input-focus-bg: #e0d6c6;
-}
-
-.theme-dark-classical {
-  --t-bg: #1b1613;
-  --t-bg-surface: #261f1a;
-  --t-surface: var(--t-bg-surface);
-  --t-bg-deep: #140f0c;
-  --t-panel: #221c17;
-  --t-primary: #f3e6d0;
-  --t-secondary: #d7b98d;
-  --t-fg: #f3e6d0;
-  --t-border: #6c5846;
-  --t-border-subtle: #4f4033;
-  --t-glow: transparent;
-  --t-glow-soft: transparent;
-  --t-hover-bg: #312721;
-  --t-active-bg: #3a2e27;
-  --t-selection-bg: #8b6a3f99;
-  --t-text-muted: #b59d81;
-  --t-muted: #b59d81;
-  --t-user-bg: #3a3028;
-  --t-user-fg: #ffe8c8;
-  --t-user-border: #c9a96e88;
-  --t-assistant-bg: #1a1510;
-  --t-assistant-fg: #c8b090;
-  --t-assistant-border: #9a7d5c;
-  --t-code-bg: #16110e;
-  --t-code-inline-bg: #2a211c;
-  --t-code-text: #f6ead8;
-  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  --t-titlebar-start: #3a2a20;
-  --t-titlebar-end: #241913;
-  --t-titlebar-text: #f3e6d0;
-  --t-edge-light: #7c6550;
-  --t-edge-mid: #574636;
-  --t-edge-dark: #2b221b;
-  --t-edge-darkest: #120e0b;
-  --t-process-a: #cfa575;
-  --t-process-b: #a97c50;
-  --t-process-c: #8d5d7a;
-  --t-run-command-tab: #8d5d7a;
-  --t-hljs-keyword: #e3b07d;
-  --t-hljs-string: #a9cf95;
-  --t-hljs-number: #8fc3d4;
-  --t-hljs-comment: #8f7a66;
-  --t-hljs-function: #d8c18d;
-  --t-hljs-class: #d7a6c0;
-  --t-hljs-attr: #c69c72;
-  --t-hljs-params: #f3e6d0;
-  --t-hljs-property: #d4bb97;
-  --t-hljs-punctuation: #b59d81;
-  --t-hljs-operator: #d8b07f;
-  --t-hljs-meta: #9fb38a;
-  --t-hljs-tag: #d49a6a;
-  --t-hljs-name: #e0c39b;
-  --t-hljs-symbol: #8fc3d4;
-  --t-hljs-selector: #a9cf95;
-  --t-log-level-error: #ff8a7a;
-  --t-log-level-warning: #f0c674;
-  --t-confirm: #74cfa0;
-  --t-caution: #f0b45c;
-  --t-tui-frame: #d7b98d;
-  --t-tui-user-frame: #ffe8c8;
-  --t-tui-clara-frame: #c8b090;
-  --t-tui-input-frame: #d7b98dcc;
-  --t-input-bg: #16110e;
-  --t-input-fg: #f3e6d0;
-  --t-composer-bg: #140f0c;
-  --t-composer-input-bg: #261f1a;
-  --t-composer-input-focus-bg: #2e2520;
-}
-
-html.theme-classical .terminal-shell,
-html.theme-classical .interactive-output .terminal-shell {
-  background: var(--t-code-bg);
-}
-
-.theme-woodland {
-  --t-bg: #191c17;
-  --t-bg-surface: #22261f;
-  --t-surface: var(--t-bg-surface);
-  --t-bg-deep: #121410;
-  --t-panel: #1e221b;
-  --t-primary: #a8b89a;
-  --t-secondary: #c9a96e;
-  --t-fg: #d2cdc2;
-  --t-border: #3d4436;
-  --t-border-subtle: #2e3429;
-  --t-glow: transparent;
-  --t-glow-soft: transparent;
-  --t-hover-bg: rgba(168, 184, 154, 0.1);
-  --t-active-bg: rgba(168, 184, 154, 0.14);
-  --t-selection-bg: rgba(168, 184, 154, 0.28);
-  --t-text-muted: #7a8470;
-  --t-muted: #7a8470;
-  --t-user-bg: #2e3628;
-  --t-user-fg: #d8c8a0;
-  --t-user-border: #c9a96e66;
-  --t-assistant-bg: #161812;
-  --t-assistant-fg: #a8b89a;
-  --t-assistant-border: #8a7a5a;
-  --t-code-bg: #151812;
-  --t-code-inline-bg: #252b20;
-  --t-code-text: #ddd8cc;
-  --t-input-bg: #191c17;
-  --t-input-fg: #d2cdc2;
-  --t-font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  --t-titlebar-start: #2a3024;
-  --t-titlebar-end: #1a1e17;
-  --t-titlebar-text: #d2cdc2;
-  --t-edge-light: #4a5442;
-  --t-edge-mid: #343b2e;
-  --t-edge-dark: #1e2319;
-  --t-edge-darkest: #0d0f0b;
-  --t-process-a: #a8b89a;
-  --t-process-b: #c9a96e;
-  --t-process-c: #7eb5a6;
-  --t-run-command-tab: #7eb5a6;
-  --t-hljs-keyword: #a8b89a;
-  --t-hljs-string: #c9a96e;
-  --t-hljs-number: #7eb5a6;
-  --t-hljs-comment: #6b7361;
-  --t-hljs-function: #d4c49a;
-  --t-hljs-class: #b8a88a;
-  --t-hljs-attr: #c4a87a;
-  --t-hljs-params: #d2cdc2;
-  --t-hljs-property: #9bb88e;
-  --t-hljs-punctuation: #7a8470;
-  --t-hljs-operator: #b89a7a;
-  --t-hljs-meta: #8aaa80;
-  --t-hljs-tag: #c49a70;
-  --t-hljs-name: #a8b89a;
-  --t-hljs-symbol: #7eb5a6;
-  --t-hljs-selector: #9bb88e;
-  --t-log-level-error: #e07a7a;
-  --t-log-level-warning: #d4a84b;
-  --t-confirm: #5fd39b;
-  --t-caution: #e8b455;
-  --t-tui-frame: #c9a96e;
-  --t-tui-user-frame: #d8c8a0;
-  --t-tui-clara-frame: #a8b89a;
-  --t-tui-input-frame: #c9a96ecc;
-  --t-composer-bg: #121410;
-  --t-composer-input-bg: #22261f;
-  --t-composer-input-focus-bg: #2a3024;
 }
 
 [data-bs-theme="dark"] {
@@ -852,139 +573,130 @@ html .terminal-shell .output-pre.terminal-output {
   box-shadow: none;
 }
 
-/* ── Flat divider layout (woodland) ─ */
-html.theme-woodland .settings-nav,
-html.theme-woodland .connection-card,
-html.theme-woodland .workspace-card {
+/* ── Flat divider layout (baseline for every theme) ─ */
+html .settings-nav,
+html .connection-card,
+html .workspace-card {
   border: none;
   box-shadow: none;
 }
-html.theme-woodland .settings-nav {
+html .settings-nav {
   border-bottom: 1px solid var(--t-border);
 }
-html.theme-woodland .connection-card,
-html.theme-woodland .workspace-card__body {
+html .connection-card,
+html .workspace-card__body {
   border: none;
   box-shadow: none;
   border-bottom: 1px solid var(--t-border-subtle);
 }
-html.theme-woodland .connection-card:last-child,
-html.theme-woodland .workspace-card:last-child .workspace-card__body {
+html .connection-card:last-child,
+html .workspace-card:last-child .workspace-card__body {
   border-bottom: none;
 }
-html.theme-woodland .tab-button {
+html .tab-button {
   border: none;
   border-bottom: 1px solid var(--t-border-subtle);
 }
-html.theme-woodland .tab-button:hover,
-html.theme-woodland .tab-button.is-active {
+html .tab-button:hover,
+html .tab-button.is-active {
   border: none;
   border-bottom: 1px solid var(--t-primary);
   background: color-mix(in srgb, var(--t-primary) 10%, var(--t-bg));
   transform: none;
 }
-html.theme-woodland .settings-overview {
+html .settings-overview {
   border-bottom: 1px solid var(--t-border);
 }
-html.theme-woodland .settings-footer {
+html .settings-footer {
   border-top: 1px solid var(--t-border);
 }
-html.theme-woodland .form-section + .settings-divider {
+html .form-section + .settings-divider {
   border-color: var(--t-border-subtle);
 }
-html.theme-woodland .chat-box {
+html .chat-box {
   border: none;
   background-color: var(--t-chat-bg, color-mix(in srgb, var(--t-bg-surface) 62%, var(--t-bg)));
 }
-html.theme-woodland .msg-bubble,
-html.theme-woodland .user-bubble,
-html.theme-woodland .assistant-bubble {
+html .msg-bubble,
+html .user-bubble,
+html .assistant-bubble {
   border: 1px solid var(--t-border) !important;
 }
-html.theme-woodland .user-bubble {
+html .user-bubble {
   border-color: color-mix(in srgb, var(--t-secondary) 42%, var(--t-border)) !important;
 }
-html.theme-woodland .assistant-bubble {
+html .assistant-bubble {
   border-color: color-mix(in srgb, var(--t-assistant-border) 70%, var(--t-border)) !important;
 }
-html.theme-woodland .assistant-bubble h1,
-html.theme-woodland .assistant-bubble h2,
-html.theme-woodland .assistant-bubble h3,
-html.theme-woodland .assistant-bubble h4,
-html.theme-woodland .assistant-bubble h5,
-html.theme-woodland .assistant-bubble h6 {
+html .assistant-bubble h1,
+html .assistant-bubble h2,
+html .assistant-bubble h3,
+html .assistant-bubble h4,
+html .assistant-bubble h5,
+html .assistant-bubble h6 {
   text-shadow: none;
 }
-html.theme-woodland .assistant-bubble code {
+html .assistant-bubble code {
   border: 1px solid var(--t-border-subtle);
 }
-html.theme-woodland .assistant-bubble pre {
+html .assistant-bubble pre {
   border: 1px solid var(--t-border-subtle);
 }
-html.theme-woodland .assistant-bubble a:hover {
+html .assistant-bubble a:hover {
   text-shadow: none;
 }
-html.theme-woodland .assistant-bubble blockquote {
+html .assistant-bubble blockquote {
   border-left: 3px solid var(--t-assistant-border);
   background: transparent;
 }
-html.theme-woodland .terminal-shell-badge {
+html .terminal-shell-badge {
   border: none;
   background: var(--t-hover-bg);
 }
-html.theme-woodland .section-count {
+html .section-count {
   border: none;
   background: var(--t-hover-bg);
 }
-html.theme-woodland .processing-text {
+html .processing-text {
   text-shadow: none;
 }
-html.theme-woodland .streaming-cursor {
+html .streaming-cursor {
   box-shadow: none;
 }
-html.theme-woodland app-stream-thought-pill .stream-thought-preview__inner,
-html.theme-woodland app-stream-nudge-pill .stream-nudge-preview__inner {
+html app-stream-thought-pill .stream-thought-preview__inner,
+html app-stream-nudge-pill .stream-nudge-preview__inner {
   background: color-mix(in srgb, var(--t-bg-surface) 78%, var(--t-panel) 22%);
   border-color: var(--t-border);
 }
-html.theme-woodland app-stream-thought-pill .stream-thought-preview__header,
-html.theme-woodland app-stream-nudge-pill .stream-nudge-preview__header {
+html app-stream-thought-pill .stream-thought-preview__header,
+html app-stream-nudge-pill .stream-nudge-preview__header {
   color: var(--t-secondary);
 }
-html.theme-woodland app-stream-thought-pill .stream-thought-preview__body,
-html.theme-woodland app-stream-nudge-pill .stream-nudge-preview__body {
+html app-stream-thought-pill .stream-thought-preview__body,
+html app-stream-nudge-pill .stream-nudge-preview__body {
   color: var(--t-secondary);
 }
-html.theme-woodland .code-block-run-btn {
+html .code-block-run-btn {
   border: none;
   background: var(--t-hover-bg);
 }
-html.theme-woodland .code-block-run-btn:hover {
+html .code-block-run-btn:hover {
   border: none;
   background: var(--t-active-bg);
 }
-html.theme-woodland .interactive-submit-btn,
-html.theme-woodland .read-more-btn,
-html.theme-woodland .send-output-btn,
-html.theme-woodland .end-script-btn {
+html .interactive-submit-btn,
+html .read-more-btn,
+html .send-output-btn,
+html .end-script-btn {
   border: none;
   background: var(--t-hover-bg);
 }
-html.theme-woodland .interactive-submit-btn:hover,
-html.theme-woodland .read-more-btn:hover,
-html.theme-woodland .send-output-btn:hover,
-html.theme-woodland .end-script-btn:hover {
+html .interactive-submit-btn:hover,
+html .read-more-btn:hover,
+html .send-output-btn:hover,
+html .end-script-btn:hover {
   border: none;
   background: var(--t-active-bg);
-}
-
-html.theme-woodland app-message-box .composer-mode-select {
-  color-scheme: dark;
-}
-
-html.theme-woodland app-message-box .composer-mode-select option {
-  background-color: var(--t-input-bg);
-  color: var(--t-input-fg);
 }
 
 /* ── Rounded chat transcript ── */
@@ -1309,10 +1021,6 @@ html app-message-box .composer-options-row .btn-reasoning--active .composer-reas
   filter: drop-shadow(0 0 4px color-mix(in srgb, var(--t-tui-user-frame) 55%, transparent));
 }
 
-html app-message-box .composer-mode-select {
-  color-scheme: dark;
-}
-
 html app-message-box .composer-mode-select option {
   background-color: var(--t-input-bg);
   color: var(--t-input-fg);
@@ -1398,47 +1106,8 @@ html app-chat-box app-stream-nudge-pill .stream-nudge-preview__inner {
   border: 1px solid var(--t-border) !important;
 }
 
-/* Light Classical: skip glow on restore / composer labels; native light dropdowns in composer. */
-html.theme-classical app-chat-box .msg-restore-btn,
-html.theme-classical app-message-box .composer-prompt {
-  text-shadow: none;
-}
-
-html.theme-classical app-message-box .composer-mode-select {
-  color-scheme: light;
-}
-
-html.theme-classical app-stream-thought-pill .stream-thought-preview__inner,
-html.theme-classical app-stream-nudge-pill .stream-nudge-preview__inner {
-  background: var(--t-assistant-bg);
-  border: 1px solid var(--t-assistant-border) !important;
-  border-radius: 0.95rem !important;
-}
-html.theme-classical app-stream-thought-pill .stream-thought-preview__header,
-html.theme-classical app-stream-nudge-pill .stream-nudge-preview__header {
-  color: var(--t-secondary);
-}
-html.theme-classical app-stream-thought-pill .stream-thought-preview__body,
-html.theme-classical app-stream-nudge-pill .stream-nudge-preview__body {
-  color: var(--t-assistant-fg);
-}
-
-html.theme-dark-classical app-stream-thought-pill .stream-thought-preview__inner,
-html.theme-dark-classical app-stream-nudge-pill .stream-nudge-preview__inner {
-  background: color-mix(in srgb, var(--t-bg-deep) 70%, var(--t-code-bg) 30%);
-  border: 1px solid color-mix(in srgb, var(--t-secondary) 45%, var(--t-border)) !important;
-}
-html.theme-dark-classical app-stream-thought-pill .stream-thought-preview__header,
-html.theme-dark-classical app-stream-nudge-pill .stream-nudge-preview__header {
-  color: var(--t-secondary);
-}
-html.theme-dark-classical app-stream-thought-pill .stream-thought-preview__body,
-html.theme-dark-classical app-stream-nudge-pill .stream-nudge-preview__body {
-  color: var(--t-assistant-fg);
-}
-
 @media (max-width: 1100px) {
-  html.theme-woodland .settings-nav {
+  html .settings-nav {
     border-bottom: 1px solid var(--t-border);
     border-right: none;
   }

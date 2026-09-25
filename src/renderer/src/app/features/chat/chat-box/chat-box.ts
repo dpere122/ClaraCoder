@@ -164,6 +164,7 @@ const THINKING_PROCESSING_LABEL = 'thinking';
   encapsulation: ViewEncapsulation.None,
   host: {
     '[class.chat-layout-sidebar]': 'layout() === "sidebar"',
+    'data-theme-group': 'chat.transcript',
   },
 })
 /**

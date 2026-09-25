@@ -1,12 +1,13 @@
 <div
   class="hitl-composer-dock"
+  data-theme-group="hitl.dock"
   [class.hitl-composer-dock--open]="open()"
   [attr.aria-hidden]="open() ? null : 'true'"
 >
   <div class="hitl-composer-dock__panel" role="region" aria-label="Pending reviews">
     @for (artifact of pendingArtifacts(); track artifactTrackKey(artifact)) {
       @if (artifact.role === 'diff') {
-        <div class="hitl-composer-dock__card hitl-composer-dock__card--diff">
+        <div class="hitl-composer-dock__card hitl-composer-dock__card--diff" data-theme-group="hitl.cards">
           <app-diff-apply
             [conversationId]="conversationId()"
             [payload]="artifact.payload"
@@ -17,7 +18,7 @@
           />
         </div>
       } @else if (artifact.role === 'delete_confirm') {
-        <div class="hitl-composer-dock__card hitl-composer-dock__card--delete">
+        <div class="hitl-composer-dock__card hitl-composer-dock__card--delete" data-theme-group="hitl.cards">
           <app-delete-confirm
             [conversationId]="conversationId()"
             [payload]="artifact.payload"
@@ -27,7 +28,7 @@
           />
         </div>
       } @else if (artifact.role === 'accept_command') {
-        <div class="hitl-composer-dock__card hitl-composer-dock__card--accept">
+        <div class="hitl-composer-dock__card hitl-composer-dock__card--accept" data-theme-group="hitl.cards">
           <app-accept-command
             [conversationId]="conversationId()"
             [payload]="artifact.payload"
@@ -37,7 +38,7 @@
           />
         </div>
       } @else if (artifact.role === 'copy_confirm') {
-        <div class="hitl-composer-dock__card hitl-composer-dock__card--copy">
+        <div class="hitl-composer-dock__card hitl-composer-dock__card--copy" data-theme-group="hitl.cards">
           <app-copy-confirm
             [conversationId]="conversationId()"
             [payload]="artifact.payload"
@@ -47,7 +48,7 @@
           />
         </div>
       } @else if (artifact.role === 'staged_transfer_batch') {
-        <div class="hitl-composer-dock__card hitl-composer-dock__card--staged-batch">
+        <div class="hitl-composer-dock__card hitl-composer-dock__card--staged-batch" data-theme-group="hitl.cards">
           <app-staged-transfer-batch-review
             [conversationId]="conversationId()"
             [payload]="artifact.payload"
@@ -60,7 +61,7 @@
           />
         </div>
       } @else if (artifact.role === 'plan_confirm') {
-        <div class="hitl-composer-dock__card hitl-composer-dock__card--plan">
+        <div class="hitl-composer-dock__card hitl-composer-dock__card--plan" data-theme-group="hitl.cards">
           <app-plan-confirm
             [conversationId]="conversationId()"
             [payload]="artifact.payload"
@@ -70,13 +71,22 @@
           />
         </div>
       } @else if (artifact.role === 'agent_question') {
-        <div class="hitl-composer-dock__card hitl-composer-dock__card--question">
+        <div class="hitl-composer-dock__card hitl-composer-dock__card--question" data-theme-group="hitl.cards">
           <app-agent-question
             [conversationId]="conversationId()"
             [payload]="artifact.payload"
             [reviewStatus]="reviewStatus(artifact)"
             [reviewSummary]="artifact.reviewSummary"
             (agentQuestionFinished)="agentQuestionFinished.emit($event)"
+          />
+        </div>
+      } @else if (artifact.role === 'theme_proposal') {
+        <div class="hitl-composer-dock__card hitl-composer-dock__card--theme" data-theme-group="hitl.cards">
+          <app-theme-proposal
+            [payload]="artifact.payload"
+            [reviewStatus]="reviewStatus(artifact)"
+            [reviewSummary]="artifact.reviewSummary"
+            (themeProposalFinished)="themeProposalFinished.emit($event)"
           />
         </div>
       }

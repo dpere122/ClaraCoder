@@ -7,6 +7,9 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 
+vi.mock('electron', () => ({
+  app: { isPackaged: false },
+}));
 vi.mock('../log-ingest', () => ({ ingestElectronLog: vi.fn() }));
 vi.mock('../config/load-save', () => ({
   loadConfigSync: vi.fn(() => ({
@@ -53,6 +56,26 @@ describe('isRuntimeEnvPassthrough', () => {
       expect(isRuntimeEnvPassthrough(key)).toBe(false);
     },
   );
+
+  it('PYTHONHOME is passthrough only when not packaged', () => {
+    expect(isRuntimeEnvPassthrough('PYTHONHOME', false)).toBe(true);
+    expect(isRuntimeEnvPassthrough('PYTHONHOME', true)).toBe(false);
+  });
+
+  it('PATH is passthrough in both modes', () => {
+    expect(isRuntimeEnvPassthrough('PATH', false)).toBe(true);
+    expect(isRuntimeEnvPassthrough('PATH', true)).toBe(true);
+  });
+
+  it('CLARA_* is passthrough in both modes', () => {
+    expect(isRuntimeEnvPassthrough('CLARA_X', false)).toBe(true);
+    expect(isRuntimeEnvPassthrough('CLARA_X', true)).toBe(true);
+  });
+
+  it('OPENAI_API_KEY is never passthrough', () => {
+    expect(isRuntimeEnvPassthrough('OPENAI_API_KEY', false)).toBe(false);
+    expect(isRuntimeEnvPassthrough('OPENAI_API_KEY', true)).toBe(false);
+  });
 });
 
 describe('depId allowlist gates', () => {

@@ -5,6 +5,7 @@
 import { spawn } from 'child_process';
 import { mkdirSync } from 'fs';
 import path = require('path');
+import { app } from 'electron';
 import type {
   DependencyActionResult,
   DependencyId,
@@ -24,6 +25,7 @@ import {
   getRuntimeBinDir,
   getRuntimeDir,
   getRuntimePythonDir,
+  pythonIsolationEnv,
 } from '../paths';
 import { mainState } from '../state';
 import { getDefaultCustomModelsDir } from '../config/defaults';
@@ -43,9 +45,10 @@ const RUNTIME_ENV_PASSTHROUGH = new Set([
   'CURL_CA_BUNDLE',
 ]);
 
-export function isRuntimeEnvPassthrough(key: string): boolean {
+export function isRuntimeEnvPassthrough(key: string, packaged = app.isPackaged): boolean {
   const upper = key.toUpperCase();
   if (upper.startsWith('CLARA_') || upper.startsWith('NEMO_')) return true;
+  if (packaged && upper === 'PYTHONHOME') return false;
   return RUNTIME_ENV_PASSTHROUGH.has(upper);
 }
 
@@ -78,10 +81,11 @@ function customModelsRoot(): string {
 }
 
 function runtimeEnv(): NodeJS.ProcessEnv {
+  const packaged = app.isPackaged;
   const scrubbed = envForChildProcess();
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(scrubbed)) {
-    if (value !== undefined && isRuntimeEnvPassthrough(key)) {
+    if (value !== undefined && isRuntimeEnvPassthrough(key, packaged)) {
       env[key] = value;
     }
   }
@@ -97,6 +101,7 @@ function runtimeEnv(): NodeJS.ProcessEnv {
     CLARA_LOG_DIR: getLogsDir(),
     CLARA_CUSTOM_MODELS_DIR: customModelsRoot(),
     ...(hfToken ? { HF_TOKEN: hfToken, HUGGING_FACE_HUB_TOKEN: hfToken } : {}),
+    ...pythonIsolationEnv(),
   };
 }
 
@@ -155,8 +160,8 @@ function broadcastProgress(payload: DependencyProgressEvent): void {
   }
 }
 
-/** Prefer the same interpreter as the sidecar (runtime venv / .venv / bundled / system). */
-function bootstrapPythonCmd(): string {
+/** Prefer the same interpreter as the sidecar (runtime venv / bundled; packaged has no PATH fallback). */
+function bootstrapPythonCmd(): string | null {
   return getPythonExecutable();
 }
 
@@ -167,6 +172,11 @@ async function runDepsCli(
 ): Promise<{ ok: boolean; dependencies?: DependencyInfo[]; dependency?: DependencyInfo; error?: string }> {
   ensureRuntimeDirs();
   const py = bootstrapPythonCmd();
+  if (!py) {
+    const err = 'Bundled Python runtime missing; reinstall Clara Coder.';
+    logDeps('ERROR', err);
+    return { ok: false, error: err };
+  }
   const args = ['-m', 'clara_coder_backend.runtime.deps', action];
   if (depId) {
     if (!isKnownDependencyId(depId)) {

@@ -31,12 +31,22 @@ extraResources:
       - "**/*"
   # Bundled vtsls (TypeScript/JavaScript LSP) from `npm run bundle:vtsls`.
   # Run via the Electron binary in Node mode (ELECTRON_RUN_AS_NODE=1); no system Node required.
+  #
+  # electron-builder's extraResources filter always drops a ROOT-level `node_modules`
+  # of the `from` dir (app-builder-lib/util/filter.js), so `from: vtsls-bundle` shipped
+  # only package.json. Copy node_modules as its own entry (it becomes the source root),
+  # and the metadata files separately. scripts/verify-packed-runtime.mjs asserts the entry.
+  - from: vtsls-bundle/node_modules
+    to: vtsls/node_modules
+    filter:
+      - "**/*"
+      - "!.bin/**"
+      - "!.package-lock.json"
   - from: vtsls-bundle
     to: vtsls
     filter:
-      - "**/*"
-      - "!**/.bin/**"
-      - "!**/.package-lock.json"
+      - "package.json"
+      - ".clara-vtsls-version"
 
 asarUnpack:
   - "**/node_modules/node-pty/**/*"

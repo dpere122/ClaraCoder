@@ -2,10 +2,13 @@ import { createHash, randomBytes } from 'crypto';
 import { spawn, type ChildProcess } from 'child_process';
 import { mkdirSync } from 'fs';
 import path = require('path');
+import { app, dialog } from 'electron';
 import { mainState } from '../state';
 import { PYTHON_PORT, PYTHON_URL } from '../constants';
 import { getPythonSidecarToken, pythonControlFetch, setPythonSidecarToken } from './http-client';
 import {
+  consumePythonResolutionNotes,
+  getBundledRuntimeDir,
   getCheckpointDbPath,
   getJavaLspCacheDir,
   getLogsDir,
@@ -17,12 +20,32 @@ import {
   getWorkspaceSemanticIndexDir,
   getWorkspaceStagingDir,
   getBundledVtslsEntry,
+  PYTHON_ENV_KEYS_TO_STRIP,
+  pythonIsolationEnv,
 } from '../paths';
 import { ingestElectronLog } from '../log-ingest';
 import { getDefaultCustomModelsDir } from '../config/defaults';
 import { loadConfigSync } from '../config/load-save';
 import { unwrapSecret } from '../../shared';
 import { killProcessTree } from '../utils/kill-process-tree';
+
+let reportedMissingBundledRuntime = false;
+
+function reportMissingBundledRuntime(): void {
+  if (reportedMissingBundledRuntime) return;
+  reportedMissingBundledRuntime = true;
+  const msg = `Clara Coder installation is incomplete: the bundled Python runtime was not found at ${getBundledRuntimeDir()}. Please reinstall Clara Coder.`;
+  console.error(msg);
+  void ingestElectronLog('ERROR', 'clara.electron.python', msg, 'electron');
+  const show = (): void => {
+    dialog.showErrorBox('Clara Coder installation is incomplete', msg);
+  };
+  if (app.isReady()) {
+    show();
+  } else {
+    void app.whenReady().then(show);
+  }
+}
 
 export { PYTHON_URL, PYTHON_PORT };
 
@@ -192,6 +215,10 @@ export function startPythonServer(): ChildProcess {
   }
   const sidecarToken = ensureSidecarToken();
   const pythonCmd = getPythonExecutable();
+  if (!pythonCmd) {
+    reportMissingBundledRuntime();
+    throw new Error('Bundled Python runtime missing');
+  }
   const scriptPath = getPythonServerScriptPath();
   const logDir = getLogsDir();
   const stagingDir = getWorkspaceStagingDir();
@@ -214,7 +241,18 @@ export function startPythonServer(): ChildProcess {
   } catch {
     hfToken = '';
   }
-  console.log(`[Python] Spawning sidecar: ${pythonCmd}`);
+  for (const note of consumePythonResolutionNotes()) {
+    void ingestElectronLog('WARNING', 'clara.electron.python', note, 'electron');
+  }
+  const spawnMsg = `Spawning sidecar: ${pythonCmd} (packaged=${app.isPackaged})`;
+  console.log(`[Python] ${spawnMsg}`);
+  void ingestElectronLog('INFO', 'clara.electron.python', spawnMsg, 'electron');
+  const spawnEnv: NodeJS.ProcessEnv = { ...process.env };
+  if (app.isPackaged) {
+    for (const key of PYTHON_ENV_KEYS_TO_STRIP) {
+      delete spawnEnv[key];
+    }
+  }
   const child = spawn(pythonCmd, ['-u', scriptPath], {
     stdio: ['ignore', 'pipe', 'pipe'],
     /** POSIX: new session so ``kill(-pid)`` tears down LSP / run_command children. */
@@ -227,7 +265,7 @@ export function startPythonServer(): ChildProcess {
       // Kokoro (torch) and faster-whisper (CTranslate2) run in-process on CPU and use it
       // for their own intra-op parallelism. Spread first so a user override still wins.
       OPENBLAS_NUM_THREADS: '1',
-      ...process.env,
+      ...spawnEnv,
       PYTHONUNBUFFERED: '1',
       CLARA_SIDECAR_TOKEN: sidecarToken,
       CLARA_PYTHON_PORT: String(PYTHON_PORT),
@@ -245,6 +283,7 @@ export function startPythonServer(): ChildProcess {
       CLARA_ELECTRON_EXEC_PATH: process.execPath,
       CLARA_VTSLS_BUNDLED_ENTRY: getBundledVtslsEntry() ?? '',
       ...(hfToken ? { HF_TOKEN: hfToken, HUGGING_FACE_HUB_TOKEN: hfToken } : {}),
+      ...pythonIsolationEnv(),
     },
   });
   mainState.pythonProcess = child;

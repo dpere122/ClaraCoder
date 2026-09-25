@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { spawnSync, execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { verifyPackedRuntime } from './verify-packed-runtime.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.join(__dirname, '..');
@@ -91,6 +92,13 @@ async function main() {
 
   const code = r.status ?? 1;
   if (code !== 0) process.exit(code);
+
+  try {
+    await verifyPackedRuntime(outputDir);
+  } catch (err) {
+    console.error(err && err.message ? err.message : err);
+    process.exit(1);
+  }
 
   const artifacts = findArtifacts(outputDir);
   if (artifacts.length) {

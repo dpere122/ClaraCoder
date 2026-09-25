@@ -1,3 +1,8 @@
+[project]
+name = "clara-coder-backend"
+version = "0.1.1"
+requires-python = ">=3.10,<3.14"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

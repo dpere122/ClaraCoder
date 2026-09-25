@@ -113,7 +113,15 @@ npm test
 npm run pack:dir
 ```
 
-`pack` / `pack:dir` run `bundle:python` first (downloads a portable CPython into `runtime-bundle/python/`), then compile and invoke electron-builder. Packaged output lands under `release/` (or `release-pack-<timestamp>/` if the folder is locked on Windows).
+`pack` / `pack:dir` run `bundle:python` first (downloads a portable CPython into `runtime-bundle/python/`, installs `python/requirements.txt` into that interpreter, and writes `.clara-runtime-manifest.json`), then compile and invoke electron-builder. After a successful pack, `scripts/verify-packed-runtime.mjs` checks the unpacked resources (interpreter, manifest, backend sources, vtsls). Packaged output lands under `release/` (or `release-pack-<timestamp>/` if the folder is locked on Windows).
+
+In packaged builds only the bundled runtime is used. `CLARA_PYTHON`, the repo-root `.venv`, and system Python apply to development only.
+
+To regenerate `python/requirements.lock` from the bundled interpreter:
+
+```bash
+npm run bundle:python -- --force --write-lock
+```
 
 On **Linux**, `npm run pack` builds a `.deb` and an AppImage. Prefer the `.deb` on Debian/Ubuntu. The AppImage needs FUSE 2 (`libfuse.so.2`); on Debian 13 / Ubuntu 24.04+ install `libfuse2t64` first, or run with `APPIMAGE_EXTRACT_AND_RUN=1`.
 
@@ -134,7 +142,7 @@ After install (or in dev), open **Dependencies** to download optional runtime pi
 | Java LSP (JDT LS) | Eclipse JDT Language Server for Java |
 | Kokoro TTS | Local neural TTS (CPU PyTorch + kokoro) |
 
-Heavy pieces are on-demand; the packaged app ships a minimal portable Python plus the backend sources.
+Heavy pieces are on-demand; the packaged app ships a portable Python with core backend packages plus the backend sources.
 
 #### llama-server GPU acceleration (auto-detected)
 
@@ -178,8 +186,8 @@ Managed chat servers are started with `--cache-ram 0` unless the run command alr
 | --------------------------- | ------------------------------------------------------ |
 | `npm run dev`               | Development (UI + Electron + Python backend)           |
 | `npm run build`             | Compile main process + Angular for production          |
-| `npm run pack`              | Bundle portable Python + build installer (`.exe`, `.dmg`, Linux `.deb`/AppImage)|
-| `npm run bundle:python`     | Fetch portable CPython into `runtime-bundle/python/`   |
+| `npm run pack`              | Bundle portable Python + core deps, verify unpacked runtime, build installer (`.exe`, `.dmg`, Linux `.deb`/AppImage)|
+| `npm run bundle:python`     | Fetch portable CPython, install requirements into the bundle, write runtime manifest |
 | `npm run setup:python`      | Create `.venv` if needed; install deps + GPU PyTorch + Kokoro |
 | `npm run setup:python:cpu`  | Same without CUDA — CPU-only PyTorch                   |
 | `npm run check:python-deps` | Lint Python dependency graph (`deptry`)                |
@@ -192,7 +200,7 @@ Managed chat servers are started with `--cache-ram 0` unless the run command alr
 
 | Variable             | Purpose                                                           |
 | -------------------- | ----------------------------------------------------------------- |
-| `CLARA_PYTHON`        | Absolute path to Python executable (skips auto `.venv` detection) |
+| `CLARA_PYTHON`        | Dev only: absolute path to Python executable (skips auto `.venv` detection). Ignored in packaged builds. |
 | `CLARA_PYTORCH_CPU=1` | Same as `setup:python:cpu` — CPU-only PyTorch                     |
 | `PYTHON`             | Base interpreter for creating `.venv` if it does not exist yet    |
 | `DEV_SERVER_URL`     | Set automatically by `npm run dev`                                |
@@ -231,7 +239,7 @@ To recreate from scratch: `rm -rf .venv && npm run setup:python`.
 
 ### Backend uses the wrong Python
 
-Dev mode prefers `<repo>/.venv/bin/python` (or `.venv\Scripts\python.exe`). If that venv is missing, it falls back to system `python3`. Run `npm run setup:python` or set `CLARA_PYTHON`.
+Dev mode prefers `<repo>/.venv/bin/python` (or `.venv\Scripts\python.exe`). If that venv is missing, it falls back to system `python3`. Run `npm run setup:python` or set `CLARA_PYTHON`. Packaged builds use only the bundled runtime.
 
 ### Native modules (`better-sqlite3` / `node-pty`)
 

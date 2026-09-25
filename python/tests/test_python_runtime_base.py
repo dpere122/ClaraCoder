@@ -2,20 +2,46 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from clara_coder_backend.runtime.deps.paths import venv_python
+from clara_coder_backend.runtime.deps.paths import venv_python, venv_unusable_reason
 from clara_coder_backend.runtime.deps.providers import python_runtime as pr
+
+
+@pytest.fixture(autouse=True)
+def _clear_bundled_runtime_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv('CLARA_BUNDLED_PYTHON', raising=False)
+    monkeypatch.delenv('CLARA_BUNDLED_RUNTIME_DIR', raising=False)
+    monkeypatch.delenv('NEMO_BUNDLED_PYTHON', raising=False)
+    monkeypatch.delenv('NEMO_BUNDLED_RUNTIME_DIR', raising=False)
+    monkeypatch.setattr(pr, '_BUNDLED_CORE_OK', None)
+
+
+def _stub_bundled_exe(tmp_path: Path) -> Path:
+    home = tmp_path / 'runtime-python'
+    home.mkdir(parents=True, exist_ok=True)
+    exe = home / ('python.exe' if sys.platform.startswith('win') else 'python3')
+    exe.write_text('', encoding='utf-8')
+    return exe
 
 
 def _venv_exe(root: Path) -> Path:
     return root / ('Scripts' if sys.platform.startswith('win') else 'bin') / (
         'python.exe' if sys.platform.startswith('win') else 'python'
     )
+
+
+def _fake_base_home(tmp_path: Path) -> Path:
+    """Directory a venv's ``pyvenv.cfg`` ``home =`` can point at (stub interpreter inside)."""
+    home = tmp_path / 'base-python'
+    home.mkdir(parents=True, exist_ok=True)
+    (home / ('python.exe' if sys.platform.startswith('win') else 'python3')).write_text('', encoding='utf-8')
+    return home
 
 
 def test_base_python_skips_interpreter_inside_target_venv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -169,8 +195,98 @@ def test_venv_python_none_without_pyvenv_cfg(tmp_path: Path) -> None:
     py.parent.mkdir(parents=True)
     py.write_text('', encoding='utf-8')
     assert venv_python(venv) is None
-    (venv / 'pyvenv.cfg').write_text('home = /tmp\n', encoding='utf-8')
+    (venv / 'pyvenv.cfg').write_text(f'home = {_fake_base_home(tmp_path)}\n', encoding='utf-8')
     assert venv_python(venv) == py
+
+
+def test_venv_python_none_when_base_interpreter_gone(tmp_path: Path) -> None:
+    """Windows venv launcher exits 103 "No Python at '…'" when ``home`` no longer exists."""
+    venv = tmp_path / 'python-venv'
+    py = _venv_exe(venv)
+    py.parent.mkdir(parents=True)
+    py.write_text('', encoding='utf-8')
+    gone = tmp_path / 'Programs' / 'Clara Coder' / 'resources' / 'runtime-python'
+    (venv / 'pyvenv.cfg').write_text(
+        f'home = {gone}\ninclude-system-site-packages = false\nversion = 3.12.11\n'
+        f'executable = {gone / "python.exe"}\n',
+        encoding='utf-8',
+    )
+    assert venv_python(venv) is None
+    reason = venv_unusable_reason(venv)
+    assert reason is not None
+    assert 'base interpreter missing' in reason
+    assert str(gone) in reason
+
+
+def test_venv_usable_when_pyvenv_cfg_has_no_home(tmp_path: Path) -> None:
+    venv = tmp_path / 'python-venv'
+    py = _venv_exe(venv)
+    py.parent.mkdir(parents=True)
+    py.write_text('', encoding='utf-8')
+    (venv / 'pyvenv.cfg').write_text('version = 3.12.11\n', encoding='utf-8')
+    assert venv_unusable_reason(venv) is None
+    assert venv_python(venv) == py
+
+
+def test_status_reports_error_when_base_interpreter_gone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    venv = tmp_path / 'python-venv'
+    py = _venv_exe(venv)
+    py.parent.mkdir(parents=True)
+    py.write_text('', encoding='utf-8')
+    gone = tmp_path / 'gone-runtime-python'
+    (venv / 'pyvenv.cfg').write_text(f'home = {gone}\n', encoding='utf-8')
+    monkeypatch.setattr(pr, 'get_runtime_python_dir', lambda: venv)
+
+    st = pr.status()
+    assert st['state'] == 'error'
+    assert 'base interpreter missing' in (st.get('error') or '')
+    assert 'Download' in (st.get('error') or '')
+
+
+def test_install_recreates_venv_when_base_interpreter_gone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    venv = tmp_path / 'python-venv'
+    stub = _venv_exe(venv)
+    stub.parent.mkdir(parents=True)
+    stub.write_text('', encoding='utf-8')
+    gone = tmp_path / 'gone-runtime-python'
+    (venv / 'pyvenv.cfg').write_text(f'home = {gone}\n', encoding='utf-8')
+    (venv / '.clara-ready').write_text('3.12.11\n', encoding='utf-8')
+
+    durable = _fake_base_home(tmp_path) / ('python.exe' if sys.platform.startswith('win') else 'python3')
+
+    monkeypatch.setattr(pr, 'get_runtime_python_dir', lambda: venv)
+    monkeypatch.setattr(pr, '_base_python', lambda _v: str(durable))
+    monkeypatch.setattr(pr, '_base_has_core', lambda _base: False)
+    monkeypatch.setattr(pr, '_pip_install_requirements', lambda _py: None)
+    monkeypatch.setattr(pr, '_write_requirements_hash', lambda _v: None)
+    monkeypatch.setattr(pr, '_interpreter_version', lambda _py: '3.12.11')
+    monkeypatch.setattr(pr, 'write_ready_marker', lambda _v, _ver: None)
+    monkeypatch.setattr(pr, 'status', lambda: {'id': 'python-runtime', 'state': 'installed'})
+    # Must never be asked: the stale launcher cannot run.
+    monkeypatch.setattr(
+        pr, '_core_packages_importable', lambda _py: pytest.fail('stale venv python must not be executed')
+    )
+
+    saw_venv_create = {'ok': False}
+
+    def fake_run_streaming(args, **_kwargs):  # type: ignore[no-untyped-def]
+        argv = [str(a) for a in args]
+        if '-m' in argv and 'venv' in argv:
+            assert argv[0] == str(durable)
+            assert not (venv / 'pyvenv.cfg').exists(), 'stale venv should be wiped before python -m venv'
+            saw_venv_create['ok'] = True
+            py = _venv_exe(venv)
+            py.parent.mkdir(parents=True)
+            py.write_text('', encoding='utf-8')
+            (venv / 'pyvenv.cfg').write_text(f'home = {durable.parent}\n', encoding='utf-8')
+        return subprocess.CompletedProcess(args, 0, '', '')
+
+    monkeypatch.setattr(pr, 'run_streaming', fake_run_streaming)
+    result = pr.install(force=False)
+    assert saw_venv_create['ok'] is True
+    assert result['state'] == 'installed'
 
 
 def test_install_wipes_incomplete_venv_missing_pyvenv_cfg(
@@ -187,7 +303,13 @@ def test_install_wipes_incomplete_venv_missing_pyvenv_cfg(
 
     monkeypatch.setattr(pr, 'get_runtime_python_dir', lambda: venv)
     monkeypatch.setattr(pr, '_base_python', lambda _v: str(durable))
-    monkeypatch.setattr(pr, '_pip_install_requirements', lambda _py: None)
+    monkeypatch.setattr(pr, '_base_has_core', lambda _base: False)
+    pip_called = {'ok': False}
+
+    def fake_pip(_py: Path) -> None:
+        pip_called['ok'] = True
+
+    monkeypatch.setattr(pr, '_pip_install_requirements', fake_pip)
     monkeypatch.setattr(pr, '_write_requirements_hash', lambda _v: None)
     monkeypatch.setattr(pr, '_interpreter_version', lambda _py: '3.12.0')
     monkeypatch.setattr(pr, 'write_ready_marker', lambda _v, _ver: None)
@@ -199,17 +321,178 @@ def test_install_wipes_incomplete_venv_missing_pyvenv_cfg(
         argv = [str(a) for a in args]
         if '-m' in argv and 'venv' in argv:
             assert not stub.exists(), 'incomplete venv stub should be removed before python -m venv'
+            assert '--system-site-packages' not in argv
             saw_venv_create['ok'] = True
             py = _venv_exe(venv)
             py.parent.mkdir(parents=True)
             py.write_text('', encoding='utf-8')
-            (venv / 'pyvenv.cfg').write_text('home = /tmp\n', encoding='utf-8')
+            (venv / 'pyvenv.cfg').write_text(f'home = {durable.parent}\n', encoding='utf-8')
+        return subprocess.CompletedProcess(args, 0, '', '')
+
+    monkeypatch.setattr(pr, 'run_streaming', fake_run_streaming)
+    result = pr.install(force=False)
+    assert saw_venv_create['ok'] is True
+    assert pip_called['ok'] is True
+    assert result['state'] == 'installed'
+
+
+def test_base_python_uses_bundled_exe_and_ignores_other_candidates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / 'python-venv'
+    bundled = _stub_bundled_exe(tmp_path)
+    other = tmp_path / 'other-python'
+    other.write_text('#!/bin/sh\n', encoding='utf-8')
+    other.chmod(0o755)
+
+    monkeypatch.setenv('CLARA_BUNDLED_PYTHON', str(bundled))
+    monkeypatch.setenv('CLARA_PYTHON', str(other))
+    monkeypatch.setenv('PYTHON', str(other))
+    monkeypatch.setattr(pr.sys, 'executable', str(other))
+    monkeypatch.setattr(pr.sys, '_base_executable', str(other), raising=False)
+    monkeypatch.setattr(pr.shutil, 'which', lambda _name: str(other))
+
+    assert Path(pr._base_python(target)).resolve() == bundled.resolve()
+
+
+def test_base_python_raises_when_bundled_exe_is_inside_target_venv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / 'python-venv'
+    inside = _venv_exe(target)
+    inside.parent.mkdir(parents=True)
+    inside.write_text('#!/bin/sh\n', encoding='utf-8')
+    inside.chmod(0o755)
+
+    other = tmp_path / 'other-python'
+    other.write_text('#!/bin/sh\n', encoding='utf-8')
+    other.chmod(0o755)
+
+    monkeypatch.setenv('CLARA_BUNDLED_PYTHON', str(inside))
+    monkeypatch.setenv('PYTHON', str(other))
+    monkeypatch.setattr(pr.shutil, 'which', lambda _name: str(other))
+
+    with pytest.raises(RuntimeError, match='durable Python'):
+        pr._base_python(target)
+
+
+def test_venv_unusable_when_home_is_not_bundled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundled = _stub_bundled_exe(tmp_path)
+    monkeypatch.setenv('CLARA_BUNDLED_PYTHON', str(bundled))
+
+    venv = tmp_path / 'python-venv'
+    py = _venv_exe(venv)
+    py.parent.mkdir(parents=True)
+    py.write_text('', encoding='utf-8')
+    other = _fake_base_home(tmp_path)
+    (venv / 'pyvenv.cfg').write_text(f'home = {other}\n', encoding='utf-8')
+
+    reason = venv_unusable_reason(venv)
+    assert reason is not None
+    assert 'not created from the bundled runtime' in reason
+    assert venv_python(venv) is None
+
+
+def test_venv_usable_when_home_is_bundled_exe_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundled = _stub_bundled_exe(tmp_path)
+    monkeypatch.setenv('CLARA_BUNDLED_PYTHON', str(bundled))
+
+    venv = tmp_path / 'python-venv'
+    py = _venv_exe(venv)
+    py.parent.mkdir(parents=True)
+    py.write_text('', encoding='utf-8')
+    (venv / 'pyvenv.cfg').write_text(f'home = {bundled.parent}\n', encoding='utf-8')
+
+    assert venv_unusable_reason(venv) is None
+    assert venv_python(venv) == py
+
+
+def test_install_bundled_mode_uses_system_site_packages_and_skips_pip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    venv = tmp_path / 'python-venv'
+    bundled = _stub_bundled_exe(tmp_path)
+    monkeypatch.setenv('CLARA_BUNDLED_PYTHON', str(bundled))
+    monkeypatch.setattr(pr, 'get_runtime_python_dir', lambda: venv)
+    monkeypatch.setattr(
+        pr,
+        '_pip_install_requirements',
+        lambda _py: pytest.fail('must not pip-install core packages in bundled mode'),
+    )
+    monkeypatch.setattr(pr, '_write_requirements_hash', lambda _v: None)
+    monkeypatch.setattr(pr, '_interpreter_version', lambda _py: '3.12.11')
+    monkeypatch.setattr(pr, 'write_ready_marker', lambda _v, _ver: None)
+    monkeypatch.setattr(pr, 'status', lambda: {'id': 'python-runtime', 'state': 'installed'})
+
+    saw_venv_create = {'ok': False}
+
+    def fake_run_streaming(args, **_kwargs):  # type: ignore[no-untyped-def]
+        argv = [str(a) for a in args]
+        if '-m' in argv and 'venv' in argv:
+            assert '--system-site-packages' in argv
+            assert argv[0] == str(Path(pr._base_python(venv)))
+            saw_venv_create['ok'] = True
+            py = _venv_exe(venv)
+            py.parent.mkdir(parents=True)
+            py.write_text('', encoding='utf-8')
+            (venv / 'pyvenv.cfg').write_text(f'home = {bundled.parent}\n', encoding='utf-8')
         return subprocess.CompletedProcess(args, 0, '', '')
 
     monkeypatch.setattr(pr, 'run_streaming', fake_run_streaming)
     result = pr.install(force=False)
     assert saw_venv_create['ok'] is True
     assert result['state'] == 'installed'
+
+
+def test_status_bundled_installed_without_overlay_venv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundled = _stub_bundled_exe(tmp_path)
+    (bundled.parent / '.clara-runtime-manifest.json').write_text(
+        json.dumps({'schemaVersion': 1, 'pythonVersion': '3.12.11'}),
+        encoding='utf-8',
+    )
+    monkeypatch.setenv('CLARA_BUNDLED_PYTHON', str(bundled))
+    monkeypatch.setenv('CLARA_BUNDLED_RUNTIME_DIR', str(bundled.parent))
+    monkeypatch.setattr(pr, 'get_runtime_python_dir', lambda: tmp_path / 'python-venv')
+    monkeypatch.setattr(pr, '_base_has_core', lambda _exe: True)
+
+    st = pr.status()
+    assert st['state'] == 'installed'
+    assert st['path'] == str(bundled)
+    assert st['canDelete'] is False
+    assert st.get('error') is None
+    assert 'Bundled with Clara Coder' in (st.get('description') or '')
+    assert st['version'] == '3.12.11'
+
+
+def test_expected_requirements_hash_uses_manifest_when_bundled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundled = _stub_bundled_exe(tmp_path)
+    digest = 'ab' * 32
+    (bundled.parent / '.clara-runtime-manifest.json').write_text(
+        json.dumps(
+            {
+                'schemaVersion': 1,
+                'pythonVersion': '3.12.11',
+                'requirementsSha256': digest,
+            }
+        ),
+        encoding='utf-8',
+    )
+    req = tmp_path / 'requirements.txt'
+    req.write_text('fastapi\nsomething-else\n', encoding='utf-8')
+    monkeypatch.setenv('CLARA_BUNDLED_PYTHON', str(bundled))
+    monkeypatch.setenv('CLARA_BUNDLED_RUNTIME_DIR', str(bundled.parent))
+    monkeypatch.setattr(pr, 'requirements_txt', lambda: req)
+
+    assert pr._expected_requirements_hash() == digest
+    assert pr._requirements_fingerprint() != digest
 
 
 def test_requirement_names_strips_specifiers_comments_and_options() -> None:

@@ -1,4 +1,4 @@
-# Interpreter: Python 3.10–3.13. Kokoro is installed by scripts/setup-python.mjs
+# Interpreter range is declared in pyproject.toml requires-python. Kokoro is installed by scripts/setup-python.mjs
 # (PyPI on 3.10–3.12; GitHub + spacy wheels on 3.13 until upstream publishes 3.13 wheels).
 fastapi>=0.135,<1
 pydantic>=2.10,<3

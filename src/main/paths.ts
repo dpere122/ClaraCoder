@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, renameSync, cpSync, rmSync, readdirSync } from 'fs';
+import { existsSync, mkdirSync, renameSync, cpSync, rmSync, readdirSync, readFileSync } from 'fs';
 import { app } from 'electron';
 import path = require('path');
 import { migrateLegacyAppDataDir } from './app-data';
@@ -170,11 +170,38 @@ export function getJavaLspCacheDir(): string {
   return runtimeJava;
 }
 
-/** Portable CPython shipped with the packaged app (`extraResources/runtime-python`). */
-export function getBundledPythonExecutable(): string | null {
-  const base = app.isPackaged
+export const BUNDLED_RUNTIME_MANIFEST_FILE = '.clara-runtime-manifest.json';
+
+export interface BundledRuntimeManifest {
+  schemaVersion: number;
+  pythonVersion: string;
+  pbsRelease?: string;
+  requirementsSource?: string;
+  requirementsSha256?: string;
+  builtAt?: string;
+  platform?: string;
+  arch?: string;
+}
+
+/** Env keys stripped from packaged sidecar / deps-CLI spawns (inherited interpreter leakage). */
+export const PYTHON_ENV_KEYS_TO_STRIP = [
+  'PYTHONPATH',
+  'PYTHONHOME',
+  'PYTHONSTARTUP',
+  'PYTHONUSERBASE',
+  'PYTHONSAFEPATH',
+] as const;
+
+/** Root of the portable CPython tree (packaged extraResources vs repo runtime-bundle). */
+export function getBundledRuntimeDir(): string {
+  return app.isPackaged
     ? path.join(process.resourcesPath, 'runtime-python')
     : path.join(__dirname, '..', '..', 'runtime-bundle', 'python');
+}
+
+/** Portable CPython shipped with the packaged app (`extraResources/runtime-python`). */
+export function getBundledPythonExecutable(): string | null {
+  const base = getBundledRuntimeDir();
   const unix = path.join(base, 'bin', 'python3');
   const win = path.join(base, 'python.exe');
   if (existsSync(unix)) return unix;
@@ -185,6 +212,22 @@ export function getBundledPythonExecutable(): string | null {
   if (existsSync(unixInstall)) return unixInstall;
   if (existsSync(winInstall)) return winInstall;
   return null;
+}
+
+/** Parse ``<bundle root>/.clara-runtime-manifest.json``. Null when missing or invalid; never throws. */
+export function readBundledRuntimeManifest(): BundledRuntimeManifest | null {
+  const file = path.join(getBundledRuntimeDir(), BUNDLED_RUNTIME_MANIFEST_FILE);
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'));
+    if (!parsed || typeof parsed !== 'object') return null;
+    const rec = parsed as Record<string, unknown>;
+    if (typeof rec.schemaVersion !== 'number' || typeof rec.pythonVersion !== 'string') {
+      return null;
+    }
+    return parsed as BundledRuntimeManifest;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -202,27 +245,114 @@ export function getBundledVtslsEntry(): string | null {
   return existsSync(entry) ? entry : null;
 }
 
-/**
- * Windows venv launchers (`Scripts/python.exe`) refuse to start without ``pyvenv.cfg``
- * (exit 106: "No pyvenv.cfg file"). An interrupted ``python -m venv`` can leave the
- * exe behind with no cfg — treat that as missing so we fall back to bundled / repo / system Python.
- */
-export function isUsablePythonVenv(root: string): boolean {
-  return existsSync(path.join(root, 'pyvenv.cfg'));
+/** ``home = …`` from ``<root>/pyvenv.cfg`` (base interpreter directory), or null when absent. */
+export function readPyvenvHome(root: string): string | null {
+  let text: string;
+  try {
+    text = readFileSync(path.join(root, 'pyvenv.cfg'), 'utf8');
+  } catch {
+    return null;
+  }
+  for (const raw of text.split(/\r?\n/)) {
+    const eq = raw.indexOf('=');
+    if (eq < 0) continue;
+    if (raw.slice(0, eq).trim().toLowerCase() !== 'home') continue;
+    const value = raw.slice(eq + 1).trim();
+    return value || null;
+  }
+  return null;
 }
 
-function runtimeVenvPython(): string | null {
+function stripTrailingSeps(p: string): string {
+  return p.replace(/[\\/]+$/, '');
+}
+
+function normalizeInterpreterHome(p: string): string {
+  const resolved = stripTrailingSeps(path.resolve(p));
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+/** True when ``pyvenv.cfg`` ``home`` is the directory that contains ``bundledExe``. */
+export function venvBelongsToBundledRuntime(venvRoot: string, bundledExe: string): boolean {
+  const home = readPyvenvHome(venvRoot);
+  if (!home) return false;
+  return normalizeInterpreterHome(home) === normalizeInterpreterHome(path.dirname(bundledExe));
+}
+
+/** True when the base interpreter recorded by ``home`` still exists. */
+function venvBaseInterpreterExists(home: string): boolean {
+  if (!existsSync(home)) return false;
+  const names = process.platform === 'win32' ? ['python.exe'] : ['python3', 'python'];
+  return names.some((name) => existsSync(path.join(home, name)));
+}
+
+/**
+ * Why a venv at ``root`` cannot be launched, or null when it looks fine.
+ *
+ * - Windows venv launchers (`Scripts/python.exe`) refuse to start without ``pyvenv.cfg``
+ *   (exit 106: "No pyvenv.cfg file"). An interrupted ``python -m venv`` can leave the
+ *   exe behind with no cfg.
+ * - The launcher also needs the base interpreter from ``home = …`` (exit 103:
+ *   "No Python at '…'"). That happens when the venv was created from the bundled
+ *   portable Python of an app install that was since removed or moved.
+ *
+ * Callers treat either case as "no venv" so we fall back to bundled / repo / system Python
+ * and the dependency installer can recreate it.
+ */
+export function pythonVenvUnusableReason(root: string): string | null {
+  const cfg = path.join(root, 'pyvenv.cfg');
+  if (!existsSync(cfg)) return 'missing pyvenv.cfg';
+  const home = readPyvenvHome(root);
+  if (home && !venvBaseInterpreterExists(home)) {
+    return `base interpreter missing at ${home}`;
+  }
+  return null;
+}
+
+export function isUsablePythonVenv(root: string): boolean {
+  return pythonVenvUnusableReason(root) === null;
+}
+
+/**
+ * Interpreter-resolution warnings queued for the sidecar spawner to ingest into the
+ * unified log (this module cannot import ``log-ingest`` without a cycle).
+ */
+const pythonResolutionNotes: string[] = [];
+
+function notePythonResolution(message: string): void {
+  console.warn(`[Python] ${message}`);
+  if (!pythonResolutionNotes.includes(message)) pythonResolutionNotes.push(message);
+}
+
+/** Drain queued resolution warnings (caller logs them via ``ingestElectronLog``). */
+export function consumePythonResolutionNotes(): string[] {
+  return pythonResolutionNotes.splice(0, pythonResolutionNotes.length);
+}
+
+function runtimeVenvPython(opts: { packaged: boolean; bundledExe: string | null }): string | null {
   const root = getRuntimePythonDir();
   const unix = path.join(root, 'bin', 'python');
   const win = path.join(root, 'Scripts', 'python.exe');
   const exe = existsSync(unix) ? unix : existsSync(win) ? win : null;
   if (!exe) return null;
-  if (!isUsablePythonVenv(root)) {
-    console.warn(`[Python] Ignoring incomplete runtime venv at ${root} (missing pyvenv.cfg)`);
+  const reason = pythonVenvUnusableReason(root);
+  if (reason) {
+    notePythonResolution(`Ignoring unusable runtime venv at ${root} (${reason})`);
     return null;
+  }
+  if (opts.packaged) {
+    if (!opts.bundledExe || !venvBelongsToBundledRuntime(root, opts.bundledExe)) {
+      const home = readPyvenvHome(root);
+      notePythonResolution(
+        `Ignoring runtime venv at ${root}: not created from the bundled runtime (home=${home})`,
+      );
+      return null;
+    }
   }
   return exe;
 }
+
+let loggedMissingBundledRuntime = false;
 
 /**
  * FastAPI entry script: dev (next to repo `python/`) vs packaged (`extraResources/python/`).
@@ -236,29 +366,63 @@ export function getPythonServerScriptPath(): string {
 
 /**
  * Interpreter for `server.py`.
- * Order: ``CLARA_PYTHON`` → runtime app-data venv → bundled portable Python →
- * (dev) repo ``.venv`` → system ``python`` / ``python3``.
+ *
+ * Packaged: the app-data runtime venv when it was created from this install's bundled
+ * interpreter (``pyvenv.cfg`` ``home`` equals the bundled exe directory); otherwise the
+ * bundled portable Python. No ``CLARA_PYTHON``, PATH, or repo ``.venv`` fallback —
+ * missing bundle returns ``null``.
+ *
+ * Dev (``!app.isPackaged``): ``CLARA_PYTHON`` → runtime app-data venv (if usable) →
+ * bundled portable Python → repo ``.venv`` → system ``python`` / ``python3``.
  */
-export function getPythonExecutable(): string {
+export function getPythonExecutable(): string | null {
+  if (app.isPackaged) {
+    const bundled = getBundledPythonExecutable();
+    if (!bundled) {
+      if (!loggedMissingBundledRuntime) {
+        loggedMissingBundledRuntime = true;
+        console.error(`[Python] Bundled Python runtime missing at ${getBundledRuntimeDir()}`);
+      }
+      return null;
+    }
+    const venv = runtimeVenvPython({ packaged: true, bundledExe: bundled });
+    return venv ?? bundled;
+  }
+
   const fromEnv = envClara('PYTHON');
   if (fromEnv) return fromEnv;
 
-  const runtimePy = runtimeVenvPython();
+  const runtimePy = runtimeVenvPython({ packaged: false, bundledExe: getBundledPythonExecutable() });
   if (runtimePy) return runtimePy;
 
   const bundled = getBundledPythonExecutable();
   if (bundled) return bundled;
 
-  if (!app.isPackaged) {
-    const scriptPath = getPythonServerScriptPath();
-    const repoRoot = path.dirname(path.dirname(scriptPath));
-    const unix = path.join(repoRoot, '.venv', 'bin', 'python');
-    const win = path.join(repoRoot, '.venv', 'Scripts', 'python.exe');
-    if (existsSync(unix)) return unix;
-    if (existsSync(win)) return win;
-  }
+  const scriptPath = getPythonServerScriptPath();
+  const repoRoot = path.dirname(path.dirname(scriptPath));
+  const unix = path.join(repoRoot, '.venv', 'bin', 'python');
+  const win = path.join(repoRoot, '.venv', 'Scripts', 'python.exe');
+  if (existsSync(unix)) return unix;
+  if (existsSync(win)) return win;
 
   return process.platform === 'win32' ? 'python' : 'python3';
+}
+
+/**
+ * Isolation + discovery env for sidecar / deps-CLI spawns (packaged only).
+ *
+ * ``CLARA_BUNDLED_PYTHON`` switches the Python deps providers into "bundled mode"
+ * (thin overlay venv, ownership check on the app-data venv). Dev deliberately sets
+ * nothing so the Python side mirrors Electron's dev chain (repo ``.venv`` / system).
+ */
+export function pythonIsolationEnv(): NodeJS.ProcessEnv {
+  if (!app.isPackaged) return {};
+  return {
+    PYTHONDONTWRITEBYTECODE: '1',
+    PYTHONNOUSERSITE: '1',
+    CLARA_BUNDLED_PYTHON: getBundledPythonExecutable() ?? '',
+    CLARA_BUNDLED_RUNTIME_DIR: getBundledRuntimeDir(),
+  };
 }
 
 /** Absolute path to managed llama-server when installed under runtime/bin. */

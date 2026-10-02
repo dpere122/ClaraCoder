@@ -9,10 +9,12 @@ from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
-from clara_coder_backend.session.pause import await_diff_review_note
+from clara_coder_backend.session.pause import hitl_tool_call_scope, pause_for_tool_review, tool_call_key
 from clara_coder_backend.llm.messages import stringify_content
 from clara_coder_backend.session.state import current_session_id, get_session
 from clara_coder_backend.hitl.tool_registry import hitl_delete_pause_tools
+
+_SLOT = 'pending_delete_request'
 
 
 class DeleteReviewAfterToolMiddleware(AgentMiddleware):
@@ -23,7 +25,9 @@ class DeleteReviewAfterToolMiddleware(AgentMiddleware):
         request: ToolCallRequest,
         handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]],
     ) -> ToolMessage | Command:
-        result = await handler(request)
+        with hitl_tool_call_scope(tool_call_key(request.tool_call)) as staged:
+            result = await handler(request)
+        pending = staged.pop(_SLOT, None)
         session_id = current_session_id.get()
         if not session_id:
             return result
@@ -33,17 +37,15 @@ class DeleteReviewAfterToolMiddleware(AgentMiddleware):
         if (
             not sess.worker_apply_mode
             or name not in hitl_delete_pause_tools()
-            or not sess.pending_delete_request
+            or not pending
             or sess.auto_apply_mode
+            or sess.hitl_sse_queue is None
         ):
+            if pending:
+                setattr(sess, _SLOT, pending)
             return result
 
-        q = sess.hitl_sse_queue
-        if q is None:
-            return result
-
-        await q.put(('delete',))
-        note = await await_diff_review_note(session_id)
+        note = await pause_for_tool_review(session_id, ('delete',), {_SLOT: pending})
 
         tm: ToolMessage
         if isinstance(result, ToolMessage):

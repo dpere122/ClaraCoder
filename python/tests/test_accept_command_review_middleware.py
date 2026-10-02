@@ -14,12 +14,13 @@ from clara_coder_backend.hitl.accept_command import (
     ACCEPT_COMMAND_KIND_DEFERRED_TOOL,
 )
 from clara_coder_backend.middleware.accept_command_review_middleware import AcceptCommandReviewAfterToolMiddleware
+from clara_coder_backend.session.pause import stage_hitl_request
 from clara_coder_backend.session.state import current_session_id, get_session
 
 pytestmark = pytest.mark.asyncio(loop_scope='function')
 
 
-@patch('clara_coder_backend.middleware.accept_command_review_middleware.await_diff_review_note', new_callable=AsyncMock)
+@patch('clara_coder_backend.middleware.accept_command_review_middleware.pause_for_tool_review', new_callable=AsyncMock)
 async def test_middleware_queues_accept_command_when_hitl_queue_set_even_if_worker_apply_off(
     mock_pause: AsyncMock,
 ) -> None:
@@ -32,7 +33,7 @@ async def test_middleware_queues_accept_command_when_hitl_queue_set_even_if_work
     session.worker_apply_mode = False
     session.auto_apply_mode = False
     session.hitl_sse_queue = asyncio.Queue()
-    session.pending_accept_command_request = {
+    pending = {
         'request_id': 'req-1',
         'kind': ACCEPT_COMMAND_KIND_DEFERRED_TOOL,
         'title': 'Run terminal command',
@@ -51,6 +52,7 @@ async def test_middleware_queues_accept_command_when_hitl_queue_set_even_if_work
     mw = AcceptCommandReviewAfterToolMiddleware()
 
     async def _handler(_req: object) -> ToolMessage:
+        stage_hitl_request(session, 'pending_accept_command_request', pending)
         return ToolMessage(
             content='Pending user confirmation…',
             tool_call_id='tc-1',
@@ -65,11 +67,12 @@ async def test_middleware_queues_accept_command_when_hitl_queue_set_even_if_work
     finally:
         current_session_id.reset(token)
 
-    item = await asyncio.wait_for(session.hitl_sse_queue.get(), timeout=1.0)
-    assert item == ('accept_command',)
+    mock_pause.assert_awaited_once_with(
+        session_id, ('accept_command',), {'pending_accept_command_request': pending}
+    )
 
 
-@patch('clara_coder_backend.middleware.accept_command_review_middleware.await_diff_review_note', new_callable=AsyncMock)
+@patch('clara_coder_backend.middleware.accept_command_review_middleware.pause_for_tool_review', new_callable=AsyncMock)
 async def test_middleware_queues_accept_command_for_staging_overlay_when_auto_apply_off(
     mock_pause: AsyncMock,
 ) -> None:
@@ -82,7 +85,7 @@ async def test_middleware_queues_accept_command_for_staging_overlay_when_auto_ap
     session.worker_apply_mode = True
     session.auto_apply_mode = False
     session.hitl_sse_queue = asyncio.Queue()
-    session.pending_accept_command_request = {
+    pending = {
         'request_id': 'req-overlay',
         'kind': ACCEPT_COMMAND_KIND_DEFERRED_TOOL,
         'title': 'Run staging overlay command',
@@ -101,6 +104,7 @@ async def test_middleware_queues_accept_command_for_staging_overlay_when_auto_ap
     mw = AcceptCommandReviewAfterToolMiddleware()
 
     async def _handler(_req: object) -> ToolMessage:
+        stage_hitl_request(session, 'pending_accept_command_request', pending)
         return ToolMessage(
             content='Pending user confirmation…',
             tool_call_id='tc-overlay',
@@ -115,11 +119,12 @@ async def test_middleware_queues_accept_command_for_staging_overlay_when_auto_ap
     finally:
         current_session_id.reset(token)
 
-    item = await asyncio.wait_for(session.hitl_sse_queue.get(), timeout=1.0)
-    assert item == ('accept_command',)
+    mock_pause.assert_awaited_once_with(
+        session_id, ('accept_command',), {'pending_accept_command_request': pending}
+    )
 
 
-@patch('clara_coder_backend.middleware.accept_command_review_middleware.await_diff_review_note', new_callable=AsyncMock)
+@patch('clara_coder_backend.middleware.accept_command_review_middleware.pause_for_tool_review', new_callable=AsyncMock)
 async def test_middleware_queues_admin_elevation_when_auto_apply_on(
     mock_pause: AsyncMock,
 ) -> None:
@@ -133,7 +138,7 @@ async def test_middleware_queues_admin_elevation_when_auto_apply_on(
     session.auto_apply_mode = True
     session.admin_elevation_granted = False
     session.hitl_sse_queue = asyncio.Queue()
-    session.pending_accept_command_request = {
+    pending = {
         'request_id': 'req-admin-auto',
         'kind': ACCEPT_COMMAND_KIND_ADMIN_ELEVATION_TOOL,
         'title': 'Grant administrator access',
@@ -152,6 +157,7 @@ async def test_middleware_queues_admin_elevation_when_auto_apply_on(
     mw = AcceptCommandReviewAfterToolMiddleware()
 
     async def _handler(_req: object) -> ToolMessage:
+        stage_hitl_request(session, 'pending_accept_command_request', pending)
         return ToolMessage(
             content='Pending user confirmation for administrator access.',
             tool_call_id='tc-admin-auto',
@@ -166,12 +172,12 @@ async def test_middleware_queues_admin_elevation_when_auto_apply_on(
     finally:
         current_session_id.reset(token)
 
-    mock_pause.assert_awaited()
-    item = await asyncio.wait_for(session.hitl_sse_queue.get(), timeout=1.0)
-    assert item == ('accept_command',)
+    mock_pause.assert_awaited_once_with(
+        session_id, ('accept_command',), {'pending_accept_command_request': pending}
+    )
 
 
-@patch('clara_coder_backend.middleware.accept_command_review_middleware.await_diff_review_note', new_callable=AsyncMock)
+@patch('clara_coder_backend.middleware.accept_command_review_middleware.pause_for_tool_review', new_callable=AsyncMock)
 async def test_middleware_skips_when_auto_apply_on_and_no_pending(
     mock_pause: AsyncMock,
 ) -> None:

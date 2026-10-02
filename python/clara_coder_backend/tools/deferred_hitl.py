@@ -9,6 +9,7 @@ from typing import Any
 
 from clara_coder_backend.domain import SessionState
 from clara_coder_backend.runtime.admin_exec import elevation_privilege_label
+from clara_coder_backend.session.pause import stage_hitl_request
 
 ACCEPT_COMMAND_KIND_DEFERRED_TOOL = 'deferred_tool'
 ACCEPT_COMMAND_KIND_ADMIN_ELEVATION_TOOL = 'admin_elevation_tool'
@@ -128,7 +129,7 @@ def maybe_await_hitl_for_admin_elevation(
             'tool_input': inp,
         },
     }
-    session.pending_accept_command_request = pending
+    stage_hitl_request(session, 'pending_accept_command_request', pending)
     return (
         'Pending user confirmation for administrator access. '
         'The UI will ask the user to enable Admin before this elevated command runs.'
@@ -166,7 +167,7 @@ def maybe_await_hitl_for_deferred_tool(
             'tool_input': inp,
         },
     }
-    session.pending_accept_command_request = pending
+    stage_hitl_request(session, 'pending_accept_command_request', pending)
     return (
         f'Pending user confirmation for `{tool_name}`. '
         'The UI will ask the user to confirm before this command runs.'

@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from clara_coder_backend.composer import stream_agent_reply
+from clara_coder_backend.domain import SessionState
 from clara_coder_backend.llm.http_transport import abort_in_flight_generation
 from clara_coder_backend.session.chat_input import effective_user_message_content
 from clara_coder_backend.session.schemas import (
@@ -80,6 +81,24 @@ async def agent_question_answers(request: AgentQuestionAnswersRequest) -> dict[s
     return {'ok': True}
 
 
+def _answers_another_request(sess: SessionState, request: AgentContinueRequest) -> bool:
+    """True when the answer names a request other than the one this card kind is waiting on.
+
+    Review cards from parallel tool calls are shown one at a time, so another call's request
+    can be waiting by the time a stale answer arrives.
+    """
+
+    for action, request_id, pending in (
+        (request.delete_action, request.delete_request_id, sess.pending_delete_request),
+        (request.copy_action, request.copy_request_id, sess.pending_copy_request),
+        (request.accept_command_action, request.accept_command_request_id, sess.pending_accept_command_request),
+    ):
+        if action:
+            rid = (request_id or '').strip()
+            return bool(rid) and pending is not None and pending.get('request_id') != rid
+    return False
+
+
 @router.post('/chat/agent-continue')
 async def agent_continue(request: AgentContinueRequest) -> dict[str, bool | str]:
     """Unblock an agent stream that is waiting after a diff or approval/confirmation step."""
@@ -92,6 +111,9 @@ async def agent_continue(request: AgentContinueRequest) -> dict[str, bool | str]
     from clara_coder_backend.tools.delete import execute_pending_delete_decision
 
     sess = state.get_session(request.session_id)
+    if _answers_another_request(sess, request):
+        # A late or duplicate answer must not resolve (or clear) the card that is waiting now.
+        return {'ok': False, 'batchComplete': True, 'detail': 'This request is no longer waiting for an answer.'}
     note = (request.note or '').strip()
     batch_complete = True
     if request.delete_action:

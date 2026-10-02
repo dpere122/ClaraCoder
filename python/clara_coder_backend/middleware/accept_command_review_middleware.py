@@ -9,10 +9,12 @@ from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
-from clara_coder_backend.session.pause import await_diff_review_note
+from clara_coder_backend.session.pause import hitl_tool_call_scope, pause_for_tool_review, tool_call_key
 from clara_coder_backend.llm.messages import stringify_content
 from clara_coder_backend.session.state import current_session_id, get_session
 from clara_coder_backend.hitl.tool_registry import accept_command_pause_applies
+
+_SLOT = 'pending_accept_command_request'
 
 
 class AcceptCommandReviewAfterToolMiddleware(AgentMiddleware):
@@ -23,9 +25,9 @@ class AcceptCommandReviewAfterToolMiddleware(AgentMiddleware):
         request: ToolCallRequest,
         handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]],
     ) -> ToolMessage | Command:
-        result = await handler(request)
-        if isinstance(result, Command):
-            return result
+        with hitl_tool_call_scope(tool_call_key(request.tool_call)) as staged:
+            result = await handler(request)
+        pending = staged.pop(_SLOT, None)
         session_id = current_session_id.get()
         if not session_id:
             return result
@@ -37,14 +39,16 @@ class AcceptCommandReviewAfterToolMiddleware(AgentMiddleware):
         # Do not skip on ``auto_apply_mode``: ordinary deferred tools never stage a pending request
         # when auto-apply is on, but agent-requested Admin elevation still must pause the composer chip.
         if (
-            sess.hitl_sse_queue is None
+            isinstance(result, Command)
+            or sess.hitl_sse_queue is None
             or not accept_command_pause_applies(name)
-            or not sess.pending_accept_command_request
+            or not pending
         ):
+            if pending:
+                setattr(sess, _SLOT, pending)
             return result
 
-        await sess.hitl_sse_queue.put(('accept_command',))
-        note = await await_diff_review_note(session_id)
+        note = await pause_for_tool_review(session_id, ('accept_command',), {_SLOT: pending})
 
         tm: ToolMessage
         if isinstance(result, ToolMessage):

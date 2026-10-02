@@ -224,7 +224,11 @@ export function registerChatIpc(): void {
           const text = await res.text();
           return { ok: false, error: text || `HTTP ${res.status}` };
         }
-        const data = (await res.json()) as { ok?: boolean; batchComplete?: boolean };
+        const data = (await res.json()) as { ok?: boolean; batchComplete?: boolean; detail?: string };
+        if (data.ok === false && data.detail) {
+          // e.g. a stale answer for a card that is no longer waiting.
+          return { ok: false, batchComplete: data.batchComplete !== false, error: data.detail };
+        }
         return { ok: data.ok !== false, batchComplete: data.batchComplete !== false };
       } catch (err) {
         console.error('agent-continue failed:', err);

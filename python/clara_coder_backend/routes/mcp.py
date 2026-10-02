@@ -1,12 +1,16 @@
-"""MCP host status and interactive OAuth."""
+"""MCP host status, interactive OAuth, and refreshed-token updates."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
 from clara_coder_backend.domain import RuntimeMcpServer
-from clara_coder_backend.mcp.manager import mcp_manager
-from clara_coder_backend.session.schemas import McpOAuthStartRequest
+from clara_coder_backend.mcp.manager import mcp_manager, schedule_mcp_reconcile
+from clara_coder_backend.session.schemas import (
+    McpOAuthStartRequest,
+    McpOAuthTokensRequest,
+    McpOAuthTokensUpdateRequest,
+)
 
 router = APIRouter(prefix='/mcp', tags=['mcp'])
 
@@ -52,3 +56,30 @@ async def mcp_oauth_start(request: McpOAuthStartRequest) -> dict[str, object]:
         message = str(exc).strip() or exc.__class__.__name__
         raise HTTPException(status_code=400, detail=message) from exc
     return {'ok': True, 'oauth': stored.as_public_dict()}
+
+
+def _apply_oauth(server: RuntimeMcpServer, oauth: McpOAuthTokensRequest) -> None:
+    server.oauth_access_token = oauth.accessToken or ''
+    server.oauth_refresh_token = oauth.refreshToken or ''
+    server.oauth_expires_at = float(oauth.expiresAt or 0)
+    server.oauth_client_id = oauth.clientId or ''
+    server.oauth_client_secret = oauth.clientSecret or ''
+    server.oauth_scopes = list(oauth.scopes)
+    server.oauth_server_url = (oauth.serverUrl or '').strip()
+
+
+@router.post('/oauth/tokens')
+async def mcp_oauth_tokens(request: McpOAuthTokensUpdateRequest) -> dict[str, bool]:
+    """Electron refreshed a server's tokens: use them on the live connection without reconnecting."""
+
+    from clara_coder_backend.session.state import runtime_config
+
+    server_id = request.serverId.strip()
+    server = next((item for item in runtime_config.mcp_servers if item.id == server_id), None)
+    if server is None:
+        raise HTTPException(status_code=404, detail='Unknown MCP server.')
+    _apply_oauth(server, request.oauth)
+    mcp_manager.apply_oauth_tokens(server)
+    # A server that was waiting for a fresh token (expired at startup) connects now.
+    schedule_mcp_reconcile()
+    return {'ok': True}

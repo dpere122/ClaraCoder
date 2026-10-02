@@ -81,7 +81,7 @@ describe('migrateConfig mcp servers', () => {
     }
   });
 
-  it('keeps the URL OAuth tokens were issued for, and leaves it empty on older rows', () => {
+  it('keeps the OAuth issuing URL and refresh settings, and leaves them empty on older rows', () => {
     const secret = (value: string) => value as unknown as McpServerConfig['headers'][number]['value'];
     const oauth = {
       accessToken: secret('access'),
@@ -92,13 +92,30 @@ describe('migrateConfig mcp servers', () => {
       scopes: [],
     };
     const bound = migrateConfig(
-      sampleConfig({ mcpServers: [mcpServer({ oauth: { ...oauth, serverUrl: ' https://a.example/mcp ' } })] }),
+      sampleConfig({
+        mcpServers: [
+          mcpServer({
+            oauth: {
+              ...oauth,
+              serverUrl: ' https://a.example/mcp ',
+              tokenEndpoint: 'https://auth.example/token',
+              resource: 'https://a.example/mcp',
+              tokenAuthMethod: 'none',
+            },
+          }),
+        ],
+      }),
     );
-    expect(bound.mcpServers[0]?.oauth?.serverUrl).toBe('https://a.example/mcp');
+    expect(bound.mcpServers[0]?.oauth).toMatchObject({
+      serverUrl: 'https://a.example/mcp',
+      tokenEndpoint: 'https://auth.example/token',
+      resource: 'https://a.example/mcp',
+      tokenAuthMethod: 'none',
+    });
     const legacy = migrateConfig(
       sampleConfig({ mcpServers: [mcpServer({ oauth: oauth as unknown as McpServerConfig['oauth'] })] }),
     );
-    expect(legacy.mcpServers[0]?.oauth?.serverUrl).toBe('');
+    expect(legacy.mcpServers[0]?.oauth).toMatchObject({ serverUrl: '', tokenEndpoint: '', resource: '', tokenAuthMethod: '' });
   });
 });
 

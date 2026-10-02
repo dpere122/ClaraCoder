@@ -219,10 +219,17 @@ function normalizeMcpOAuth(raw: unknown): { oauth: McpOAuthTokens | null; migrat
   const scopes = Array.isArray(row.scopes) ? row.scopes.filter((s): s is string => typeof s === 'string' && !!s.trim()) : [];
   // Missing on tokens saved before URL binding; Python then treats them as not usable.
   const serverUrl = typeof row.serverUrl === 'string' ? row.serverUrl.trim() : '';
+  // Missing on older sign-ins; those tokens are simply not refreshed.
+  const tokenEndpoint = typeof row.tokenEndpoint === 'string' ? row.tokenEndpoint.trim() : '';
+  const resource = typeof row.resource === 'string' ? row.resource.trim() : '';
+  const tokenAuthMethod = typeof row.tokenAuthMethod === 'string' ? row.tokenAuthMethod.trim() : '';
   let migrated =
     expiresAt !== row.expiresAt ||
     clientId !== row.clientId ||
     serverUrl !== row.serverUrl ||
+    tokenEndpoint !== row.tokenEndpoint ||
+    resource !== row.resource ||
+    tokenAuthMethod !== row.tokenAuthMethod ||
     scopes.length !== (Array.isArray(row.scopes) ? row.scopes.length : 0);
   if (!isSecretValue(row.accessToken) || unwrapSecret(row.accessToken) !== accessToken.unwrap()) {
     migrated = true;
@@ -237,7 +244,18 @@ function normalizeMcpOAuth(raw: unknown): { oauth: McpOAuthTokens | null; migrat
     return { oauth: null, migrated: true };
   }
   return {
-    oauth: { accessToken, refreshToken, expiresAt, clientId, clientSecret, scopes, serverUrl },
+    oauth: {
+      accessToken,
+      refreshToken,
+      expiresAt,
+      clientId,
+      clientSecret,
+      scopes,
+      serverUrl,
+      tokenEndpoint,
+      resource,
+      tokenAuthMethod,
+    },
     migrated,
   };
 }
@@ -392,6 +410,9 @@ function encryptMcpOAuth(oauth: McpOAuthTokens | null): Record<string, unknown> 
     clientSecret: encryptSecretForDisk(unwrapSecret(oauth.clientSecret)),
     scopes: oauth.scopes,
     serverUrl: oauth.serverUrl ?? '',
+    tokenEndpoint: oauth.tokenEndpoint ?? '',
+    resource: oauth.resource ?? '',
+    tokenAuthMethod: oauth.tokenAuthMethod ?? '',
   };
 }
 

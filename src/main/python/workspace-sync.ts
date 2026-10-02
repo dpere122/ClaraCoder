@@ -3,6 +3,7 @@ import type {
   ChatTemplateReasoningCaps,
   LlamaManagedRuntimeEndpoints,
   LlmConnectionConfig,
+  McpOAuthTokens,
   WorkspaceContextSyncExtras,
 } from '../../shared';
 import {
@@ -23,6 +24,24 @@ import {
 import { lmStudioListModels } from '../lm-studio-client';
 import { refreshOpenRouterReasoningCaps } from '../openrouter-reasoning';
 
+/**
+ * OAuth fields Python needs. The refresh token stays in Electron, which is the only refresher
+ * (`mcp-oauth-refresh.ts`).
+ */
+export function wireMcpOAuth(oauth: McpOAuthTokens | null): Record<string, unknown> | null {
+  if (!oauth) {
+    return null;
+  }
+  return {
+    accessToken: unwrapSecret(oauth.accessToken),
+    expiresAt: oauth.expiresAt,
+    clientId: oauth.clientId,
+    clientSecret: unwrapSecret(oauth.clientSecret),
+    scopes: oauth.scopes ?? [],
+    serverUrl: oauth.serverUrl ?? '',
+  };
+}
+
 function wireMcpServers(config: AppConfig): unknown[] {
   return (config.mcpServers ?? []).map((server) => ({
     id: server.id,
@@ -37,17 +56,7 @@ function wireMcpServers(config: AppConfig): unknown[] {
     httpTransport: server.httpTransport,
     httpAuth: server.httpAuth,
     headers: (server.headers ?? []).map((entry) => ({ key: entry.key, value: unwrapSecret(entry.value) })),
-    oauth: server.oauth
-      ? {
-          accessToken: unwrapSecret(server.oauth.accessToken),
-          refreshToken: unwrapSecret(server.oauth.refreshToken),
-          expiresAt: server.oauth.expiresAt,
-          clientId: server.oauth.clientId,
-          clientSecret: unwrapSecret(server.oauth.clientSecret),
-          scopes: server.oauth.scopes ?? [],
-          serverUrl: server.oauth.serverUrl ?? '',
-        }
-      : null,
+    oauth: wireMcpOAuth(server.oauth),
     toolDecisions: server.toolDecisions ?? {},
   }));
 }

@@ -545,6 +545,13 @@ class McpOAuthStartRequest(BaseModel):
     server: McpServerRequest
 
 
+class McpOAuthTokensUpdateRequest(BaseModel):
+    """Tokens Electron just refreshed for one configured server."""
+
+    serverId: str
+    oauth: McpOAuthTokensRequest
+
+
 class RuntimeConfigRequest(BaseModel):
     """Full settings payload from the UI; replaces in-memory runtime_config."""
 

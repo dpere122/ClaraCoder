@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
@@ -16,6 +15,8 @@ from clara_coder_backend.mcp.oauth import (
     StoredOAuth,
     build_oauth_provider,
     has_usable_oauth_token,
+    oauth_refresh_settings,
+    set_provider_tokens,
     stored_from_memory,
 )
 
@@ -39,6 +40,8 @@ class LiveServer:
     stop: asyncio.Event = field(default_factory=asyncio.Event)
     task: asyncio.Task[None] | None = None
     session: Any = None
+    #: OAuth provider for this connection; refreshed tokens are swapped in without reconnecting.
+    auth: Any = None
 
 
 def _schema_tokens(tools: list[Any]) -> int:
@@ -66,7 +69,10 @@ def _schema_tokens(tools: list[Any]) -> int:
 
 
 def _fingerprint(server: RuntimeMcpServer, workspace: str) -> str:
-    token = hashlib.sha256((server.oauth_access_token or '').encode('utf-8')).hexdigest()[:16]
+    # Whether a usable token exists, not the token itself: a refresh swaps the token into the
+    # live connection (``apply_oauth_tokens``) instead of reconnecting, while signing in or a
+    # token expiring still restarts the connection.
+    token = has_usable_oauth_token(server) if server.http_auth == 'oauth' else None
     payload = {
         'id': server.id,
         'transport': server.transport,
@@ -213,6 +219,7 @@ class McpManager:
                 fingerprint = wanted[server.id]
                 existing = self._live.get(server.id)
                 if existing is not None:
+                    self.apply_oauth_tokens(server)
                     still_starting = not existing.ready.is_set()
                     if existing.connected or still_starting or (existing.needs_sign_in and existing.task is None):
                         continue
@@ -277,7 +284,15 @@ class McpManager:
         stored = stored_from_memory(storage, server_url=server.url)
         if not stored.access_token:
             raise RuntimeError('Sign-in finished without an access token.')
+        stored.token_endpoint, stored.resource, stored.token_auth_method = oauth_refresh_settings(provider)
         return stored
+
+    def apply_oauth_tokens(self, server: RuntimeMcpServer) -> None:
+        """Give the live connection for ``server`` its current access token, without reconnecting."""
+
+        live = self._live.get(server.id)
+        if live is not None and live.auth is not None:
+            set_provider_tokens(live.auth, server)
 
     async def shutdown(self) -> None:
         async with self._lock:
@@ -357,6 +372,7 @@ class McpManager:
                 interactive=False,
                 loopback=None,
             )
+            live.auth = auth
         headers = _header_map(server)
         if server.http_transport == 'sse':
             from mcp.client.sse import sse_client

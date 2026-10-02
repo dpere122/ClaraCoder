@@ -1344,7 +1344,10 @@ export interface McpSecretEntry {
   value: SecretValue<string>;
 }
 
-/** Tokens from an MCP OAuth sign-in. Stored as secrets and refreshed by the Python host. */
+/**
+ * Tokens from an MCP OAuth sign-in. Stored as secrets. Electron main refreshes them before they
+ * expire (`src/main/mcp-oauth-refresh.ts`) and pushes the new access token to the Python host.
+ */
 export interface McpOAuthTokens {
   accessToken: SecretValue<string>;
   refreshToken: SecretValue<string>;
@@ -1358,6 +1361,12 @@ export interface McpOAuthTokens {
    * for that URL, so editing the server URL can never send them to a different host.
    */
   serverUrl: string;
+  /** Token endpoint discovered at sign-in; refresh requests go here. */
+  tokenEndpoint: string;
+  /** RFC 8707 `resource` to send when refreshing. Empty when the server did not use one. */
+  resource: string;
+  /** Client auth for the token endpoint: `client_secret_basic`, `client_secret_post`, or `none`. */
+  tokenAuthMethod: string;
 }
 
 /**

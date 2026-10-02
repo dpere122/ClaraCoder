@@ -8,6 +8,7 @@ import time
 import urllib.parse
 import webbrowser
 from dataclasses import dataclass
+from typing import Any
 
 from pydantic import AnyUrl
 
@@ -28,6 +29,10 @@ class StoredOAuth:
     scopes: list[str] | None = None
     #: Server URL the sign-in ran against; see :func:`oauth_bound_to_url`.
     server_url: str = ''
+    #: How Electron refreshes these tokens: see :func:`oauth_refresh_settings`.
+    token_endpoint: str = ''
+    resource: str = ''
+    token_auth_method: str = ''
 
     def as_public_dict(self) -> dict[str, object]:
         return {
@@ -38,6 +43,9 @@ class StoredOAuth:
             'clientSecret': self.client_secret,
             'scopes': list(self.scopes or []),
             'serverUrl': self.server_url,
+            'tokenEndpoint': self.token_endpoint,
+            'resource': self.resource,
+            'tokenAuthMethod': self.token_auth_method,
         }
 
 
@@ -57,7 +65,11 @@ def oauth_bound_to_url(server: RuntimeMcpServer) -> bool:
 
 
 def has_usable_oauth_token(server: RuntimeMcpServer) -> bool:
-    return bool((server.oauth_access_token or '').strip()) and oauth_bound_to_url(server)
+    """A bound, unexpired access token. Expired ones wait for Electron's refresh instead of a 401."""
+
+    if not (server.oauth_access_token or '').strip() or not oauth_bound_to_url(server):
+        return False
+    return not server.oauth_expires_at or server.oauth_expires_at > time.time()
 
 
 class OAuthLoopback:
@@ -154,12 +166,13 @@ def _token_from_server(server: RuntimeMcpServer) -> object | None:
     expires_in = None
     if server.oauth_expires_at:
         expires_in = max(0, int(server.oauth_expires_at - time.time()))
-    refresh = (server.oauth_refresh_token or '').strip() or None
     scope = ' '.join(server.oauth_scopes) if server.oauth_scopes else None
+    # No refresh token: Electron is the only refresher (src/main/mcp-oauth-refresh.ts). An SDK
+    # refresh here would race it and, with rotating refresh tokens, revoke the stored copy.
     return OAuthToken(
         access_token=access,
         token_type='Bearer',
-        refresh_token=refresh,
+        refresh_token=None,
         expires_in=expires_in,
         scope=scope,
     )
@@ -214,11 +227,17 @@ def build_oauth_provider(
     from mcp.client.auth import OAuthClientProvider
     from mcp.shared.auth import OAuthClientMetadata
 
-    storage = MemoryTokenStorage(
-        tokens=_token_from_server(server),
-        client_info=_client_info_from_server(server, redirect_uri),
-    )
-    secret = (server.oauth_client_secret or '').strip() if oauth_bound_to_url(server) else ''
+    if interactive:
+        # Sign-in always registers and authorizes from scratch. Stored tokens would skip the
+        # flow, and a stored client was registered for an earlier random loopback port.
+        storage = MemoryTokenStorage()
+        secret = ''
+    else:
+        storage = MemoryTokenStorage(
+            tokens=_token_from_server(server),
+            client_info=_client_info_from_server(server, redirect_uri),
+        )
+        secret = (server.oauth_client_secret or '').strip() if oauth_bound_to_url(server) else ''
     metadata = OAuthClientMetadata(
         redirect_uris=[AnyUrl(redirect_uri)],
         grant_types=['authorization_code', 'refresh_token'],
@@ -246,3 +265,28 @@ def build_oauth_provider(
         timeout=_OAUTH_TIMEOUT_SEC,
     )
     return provider, storage
+
+
+def oauth_refresh_settings(provider: Any) -> tuple[str, str, str]:
+    """Token endpoint, RFC 8707 resource, and client auth method from a finished sign-in.
+
+    Electron refreshes with these (mirroring the SDK's own refresh request), so they are
+    returned with the tokens rather than rediscovered later.
+    """
+
+    ctx = provider.context
+    metadata = ctx.oauth_metadata
+    if metadata is not None and metadata.token_endpoint:
+        token_endpoint = str(metadata.token_endpoint)
+    else:
+        token_endpoint = urllib.parse.urljoin(ctx.get_authorization_base_url(ctx.server_url), '/token')
+    resource = ctx.get_resource_url() if ctx.should_include_resource_param(ctx.protocol_version) else ''
+    method = str(getattr(ctx.client_info, 'token_endpoint_auth_method', '') or '')
+    return token_endpoint, resource, method
+
+
+def set_provider_tokens(provider: Any, server: RuntimeMcpServer) -> None:
+    """Give a live connection the server's current access token (after an Electron refresh)."""
+
+    provider.context.current_tokens = _token_from_server(server)
+    provider.context.token_expiry_time = None

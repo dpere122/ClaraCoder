@@ -4,6 +4,7 @@ import type { AppConfig, McpHostStatus, McpOAuthTokens, McpRememberDecision } fr
 import { SecretValue } from '../../../shared/types/app-config';
 import { updateConfig } from '../../config/load-save';
 import { getLlamaManagedRuntimeOverrides } from '../../llama-server-manager';
+import { rearmMcpOAuthRefresh } from '../../mcp-oauth-refresh';
 import { pythonControlFetch, pythonLongFetch } from '../../python/http-client';
 import { syncRuntimeConfigToPython } from '../../python/workspace-sync';
 import { mainState } from '../../state';
@@ -37,6 +38,7 @@ function oauthFromWire(raw: unknown): McpOAuthTokens | null {
     return null;
   }
   const scopes = Array.isArray(row.scopes) ? row.scopes.filter((scope): scope is string => typeof scope === 'string') : [];
+  const text = (key: string) => (typeof row[key] === 'string' ? (row[key] as string).trim() : '');
   return {
     accessToken: SecretValue.of(accessToken),
     refreshToken: SecretValue.of(typeof row.refreshToken === 'string' ? row.refreshToken : ''),
@@ -44,7 +46,10 @@ function oauthFromWire(raw: unknown): McpOAuthTokens | null {
     clientId: typeof row.clientId === 'string' ? row.clientId : '',
     clientSecret: SecretValue.of(typeof row.clientSecret === 'string' ? row.clientSecret : ''),
     scopes,
-    serverUrl: typeof row.serverUrl === 'string' ? row.serverUrl.trim() : '',
+    serverUrl: text('serverUrl'),
+    tokenEndpoint: text('tokenEndpoint'),
+    resource: text('resource'),
+    tokenAuthMethod: text('tokenAuthMethod'),
   };
 }
 
@@ -99,23 +104,10 @@ export function registerMcpIpc(): void {
               url: server.url,
               httpTransport: server.httpTransport,
               httpAuth: 'oauth',
-              headers: (server.headers ?? []).map((entry) => ({
-                key: entry.key,
-                value: typeof entry.value === 'string' ? entry.value : entry.value.unwrap(),
-              })),
-              oauth: server.oauth
-                ? {
-                    accessToken: typeof server.oauth.accessToken === 'string' ? server.oauth.accessToken : server.oauth.accessToken.unwrap(),
-                    refreshToken:
-                      typeof server.oauth.refreshToken === 'string' ? server.oauth.refreshToken : server.oauth.refreshToken.unwrap(),
-                    expiresAt: server.oauth.expiresAt,
-                    clientId: server.oauth.clientId,
-                    clientSecret:
-                      typeof server.oauth.clientSecret === 'string' ? server.oauth.clientSecret : server.oauth.clientSecret.unwrap(),
-                    scopes: server.oauth.scopes ?? [],
-                    serverUrl: server.oauth.serverUrl ?? '',
-                  }
-                : null,
+              // Sign-in always registers and authorizes from scratch, and sends no static
+              // headers, so no stored secrets go with it.
+              headers: [],
+              oauth: null,
               toolDecisions: server.toolDecisions ?? {},
             },
           }),
@@ -139,6 +131,7 @@ export function registerMcpIpc(): void {
         });
         broadcastConfig(saved);
         await syncRuntimeConfigToPython(saved, () => getLlamaManagedRuntimeOverrides(saved));
+        rearmMcpOAuthRefresh();
         return { ok: true, config: saved };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };

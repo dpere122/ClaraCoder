@@ -42,6 +42,10 @@ export const createAppServicesApi = (ipcRenderer: PreloadIpc) => ({
   llamaServerStatus: (payload: { modelId: string; config: AppConfig }) =>
     ipcRenderer.invoke('llama-server:status', payload),
   embeddingsStatus: () => ipcRenderer.invoke('embeddings:status'),
+  mcpStatus: () => ipcRenderer.invoke('mcp:status'),
+  mcpOauthStart: (serverId: string) => ipcRenderer.invoke('mcp:oauth-start', serverId),
+  mcpRememberDecision: (payload: { serverId: string; decision: 'allow' | 'deny' | 'allow-all'; toolName?: string }) =>
+    ipcRenderer.invoke('mcp:remember-decision', payload),
   llamaServerChatTemplateReasoning: (payload: { modelId: string }) =>
     ipcRenderer.invoke('llama-server:chat-template-reasoning', payload),
   llamacppManagedListModels: (payload: { modelId: string; config: AppConfig }) =>

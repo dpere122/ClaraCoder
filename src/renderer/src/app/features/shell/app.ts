@@ -144,6 +144,7 @@ import {
 import { normalizePathSlashes, workspaceRelativePathIfUnderRoot } from '../../utils/workspace-relative-path';
 import { LucideAngularModule } from 'lucide-angular';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
+import type { AcceptCommandFinishedEvent } from '@shared/index';
 
 const NEW_CONV_EXPANDED_SPINNER = {
   fullScreen: false as const,
@@ -1565,13 +1566,7 @@ export class App implements OnInit, OnDestroy {
     this.conversationSession.markMessagesDirtyAndAutoSave();
   }
 
-  onAcceptCommandFinished(event: {
-    requestId: string;
-    status: 'complete' | 'cancelled';
-    summary?: string;
-    action?: 'confirm' | 'confirm_session' | 'cancel';
-    kind?: string;
-  }): void {
+  onAcceptCommandFinished(event: AcceptCommandFinishedEvent): void {
     this.messages.update((prev) => {
       const copy = [...prev];
       for (let i = copy.length - 1; i >= 0; i--) {

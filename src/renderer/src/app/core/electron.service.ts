@@ -34,6 +34,7 @@ import type {
   LmStudioMutationResult,
   LlmStatus,
   MenuFileCommand,
+  McpHostStatus,
   ModelManagerHfFilesResult,
   ModelManagerHfSearchResult,
   ModelManagerListModelsResult,
@@ -104,6 +105,7 @@ const FALLBACK_APP_CONFIG: AppConfig = {
     extraUserPath: '',
     enableAgentFormatters: false,
   },
+  mcpServers: [],
   contextCompression: getDefaultContextCompression(),
   healthMonitor: {
     logLevel: 'info',
@@ -861,7 +863,7 @@ export class ElectronService {
     deleteRequestId?: string,
     copyAction?: 'confirm' | 'cancel',
     copyRequestId?: string,
-    acceptCommandAction?: 'confirm' | 'confirm_session' | 'cancel',
+    acceptCommandAction?: 'confirm' | 'confirm_session' | 'cancel' | 'deny',
     acceptCommandRequestId?: string,
     stagedTransferAction?: 'confirm' | 're_review',
     stagedTransferRequestId?: string,
@@ -1471,6 +1473,22 @@ export class ElectronService {
     return (
       this.api?.embeddingsStatus() ?? Promise.resolve({ ok: false as const, error: 'API not available' })
     );
+  }
+
+  mcpStatus(): Promise<{ ok: true; status: McpHostStatus } | { ok: false; error: string }> {
+    return this.api?.mcpStatus() ?? Promise.resolve({ ok: false as const, error: 'API not available' });
+  }
+
+  mcpOauthStart(serverId: string): Promise<{ ok: true; config: AppConfig } | { ok: false; error: string }> {
+    return this.api?.mcpOauthStart(serverId) ?? Promise.resolve({ ok: false as const, error: 'API not available' });
+  }
+
+  mcpRememberDecision(payload: {
+    serverId: string;
+    decision: 'allow' | 'deny' | 'allow-all';
+    toolName?: string;
+  }): Promise<{ ok: true; config: AppConfig } | { ok: false; error: string }> {
+    return this.api?.mcpRememberDecision(payload) ?? Promise.resolve({ ok: false as const, error: 'API not available' });
   }
 
   async refreshChatTemplateReasoning(modelId: string): Promise<ChatTemplateReasoningCaps | null> {

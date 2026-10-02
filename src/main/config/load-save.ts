@@ -11,6 +11,14 @@ import type {
   LlmModelProfile,
   LlmProviderConfig,
   ContextCompressionConfig,
+  McpHttpAuth,
+  McpHttpTransport,
+  McpOAuthTokens,
+  McpSecretEntry,
+  McpServerConfig,
+  McpServerTransport,
+  McpToolDecision,
+  McpTrust,
   WorkspaceToolsConfig,
 } from '../../shared';
 import {
@@ -161,6 +169,313 @@ function decryptAndWrapSecret(value: unknown): SecretValue<string> {
   return coerceSecretValue(value);
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function normalizeMcpSecretEntries(raw: unknown): { entries: McpSecretEntry[]; migrated: boolean } {
+  if (!Array.isArray(raw)) {
+    return { entries: [], migrated: raw != null };
+  }
+  const entries: McpSecretEntry[] = [];
+  let migrated = false;
+  for (const item of raw) {
+    const row = asRecord(item);
+    if (!row) {
+      migrated = true;
+      continue;
+    }
+    const key = typeof row.key === 'string' ? row.key.trim() : '';
+    if (!key) {
+      migrated = true;
+      continue;
+    }
+    const value = decryptAndWrapSecret(row.value);
+    if (!isSecretValue(row.value) || unwrapSecret(row.value) !== value.unwrap()) {
+      migrated = true;
+    }
+    entries.push({ key, value });
+  }
+  return { entries, migrated };
+}
+
+function normalizeMcpOAuth(raw: unknown): { oauth: McpOAuthTokens | null; migrated: boolean } {
+  if (raw == null) {
+    return { oauth: null, migrated: false };
+  }
+  const row = asRecord(raw);
+  if (!row) {
+    return { oauth: null, migrated: true };
+  }
+  const accessToken = decryptAndWrapSecret(row.accessToken);
+  const refreshToken = decryptAndWrapSecret(row.refreshToken);
+  const clientSecret = decryptAndWrapSecret(row.clientSecret);
+  const expiresAt = typeof row.expiresAt === 'number' && Number.isFinite(row.expiresAt) ? row.expiresAt : 0;
+  const clientId = typeof row.clientId === 'string' ? row.clientId : '';
+  const scopes = Array.isArray(row.scopes) ? row.scopes.filter((s): s is string => typeof s === 'string' && !!s.trim()) : [];
+  let migrated = expiresAt !== row.expiresAt || clientId !== row.clientId || scopes.length !== (Array.isArray(row.scopes) ? row.scopes.length : 0);
+  if (!isSecretValue(row.accessToken) || unwrapSecret(row.accessToken) !== accessToken.unwrap()) {
+    migrated = true;
+  }
+  if (!isSecretValue(row.refreshToken) || unwrapSecret(row.refreshToken) !== refreshToken.unwrap()) {
+    migrated = true;
+  }
+  if (!isSecretValue(row.clientSecret) || unwrapSecret(row.clientSecret) !== clientSecret.unwrap()) {
+    migrated = true;
+  }
+  if (!accessToken.unwrap() && !refreshToken.unwrap() && !clientId) {
+    return { oauth: null, migrated: true };
+  }
+  return {
+    oauth: { accessToken, refreshToken, expiresAt, clientId, clientSecret, scopes },
+    migrated,
+  };
+}
+
+function normalizeToolDecisions(raw: unknown): { decisions: Record<string, McpToolDecision>; migrated: boolean } {
+  const row = asRecord(raw);
+  if (raw == null) {
+    return { decisions: {}, migrated: false };
+  }
+  if (!row) {
+    return { decisions: {}, migrated: true };
+  }
+  const decisions: Record<string, McpToolDecision> = {};
+  let migrated = false;
+  for (const [key, value] of Object.entries(row)) {
+    const name = key.trim();
+    if (!name || (value !== 'allow' && value !== 'deny')) {
+      migrated = true;
+      continue;
+    }
+    decisions[name] = value;
+  }
+  return { decisions, migrated };
+}
+
+function normalizeOneMcpServer(raw: unknown): { server: McpServerConfig | null; migrated: boolean } {
+  const row = asRecord(raw);
+  if (!row) {
+    return { server: null, migrated: true };
+  }
+  const id = typeof row.id === 'string' ? row.id.trim() : '';
+  if (!id) {
+    return { server: null, migrated: true };
+  }
+  let migrated = false;
+  const name = typeof row.name === 'string' && row.name.trim() ? row.name.trim() : 'MCP server';
+  if (name !== row.name) {
+    migrated = true;
+  }
+  const enabled = typeof row.enabled === 'boolean' ? row.enabled : false;
+  if (enabled !== row.enabled) {
+    migrated = true;
+  }
+  const trust: McpTrust = row.trust === 'allow-all' ? 'allow-all' : 'ask';
+  if (trust !== row.trust) {
+    migrated = true;
+  }
+  const transport: McpServerTransport = row.transport === 'http' ? 'http' : 'stdio';
+  if (transport !== row.transport) {
+    migrated = true;
+  }
+  const command = typeof row.command === 'string' ? row.command : '';
+  if (command !== row.command) {
+    migrated = true;
+  }
+  const args = Array.isArray(row.args) ? row.args.filter((a): a is string => typeof a === 'string') : [];
+  if (!Array.isArray(row.args) || args.length !== row.args.length) {
+    migrated = true;
+  }
+  const env = normalizeMcpSecretEntries(row.env);
+  const url = typeof row.url === 'string' ? row.url.trim() : '';
+  if (url !== row.url) {
+    migrated = true;
+  }
+  const httpTransport: McpHttpTransport = row.httpTransport === 'sse' ? 'sse' : 'streamable';
+  if (httpTransport !== row.httpTransport) {
+    migrated = true;
+  }
+  const httpAuth: McpHttpAuth = row.httpAuth === 'headers' || row.httpAuth === 'oauth' ? row.httpAuth : 'none';
+  if (httpAuth !== row.httpAuth) {
+    migrated = true;
+  }
+  const headers = normalizeMcpSecretEntries(row.headers);
+  const oauth = normalizeMcpOAuth(row.oauth);
+  const decisions = normalizeToolDecisions(row.toolDecisions);
+  migrated =
+    migrated || env.migrated || headers.migrated || oauth.migrated || decisions.migrated;
+  const server: McpServerConfig = {
+    id,
+    name,
+    enabled,
+    trust,
+    transport,
+    command,
+    args,
+    env: env.entries,
+    url,
+    httpTransport,
+    httpAuth,
+    headers: headers.entries,
+    oauth: oauth.oauth,
+    toolDecisions: decisions.decisions,
+  };
+  if (row.trustTouched === true) {
+    server.trustTouched = true;
+  }
+  if (row.toolDecisionsTouched === true) {
+    server.toolDecisionsTouched = true;
+  }
+  if (row.oauthTouched === true) {
+    server.oauthTouched = true;
+  }
+  return { server, migrated };
+}
+
+/** Fill missing MCP config and wrap secrets. Drops entries without an id. */
+function normalizeMcpServers(raw: unknown): { servers: McpServerConfig[]; migrated: boolean } {
+  if (raw == null) {
+    return { servers: [], migrated: true };
+  }
+  if (!Array.isArray(raw)) {
+    return { servers: [], migrated: true };
+  }
+  const servers: McpServerConfig[] = [];
+  let migrated = false;
+  const seen = new Set<string>();
+  for (const item of raw) {
+    const normalized = normalizeOneMcpServer(item);
+    if (!normalized.server) {
+      migrated = true;
+      continue;
+    }
+    if (seen.has(normalized.server.id)) {
+      migrated = true;
+      continue;
+    }
+    seen.add(normalized.server.id);
+    if (normalized.migrated) {
+      migrated = true;
+    }
+    servers.push(normalized.server);
+  }
+  return { servers, migrated };
+}
+
+function encryptMcpSecretEntries(entries: McpSecretEntry[]): Array<{ key: string; value: string }> {
+  return entries.map((entry) => ({
+    key: entry.key,
+    value: encryptSecretForDisk(unwrapSecret(entry.value)),
+  }));
+}
+
+function encryptMcpOAuth(oauth: McpOAuthTokens | null): Record<string, unknown> | null {
+  if (!oauth) {
+    return null;
+  }
+  return {
+    accessToken: encryptSecretForDisk(unwrapSecret(oauth.accessToken)),
+    refreshToken: encryptSecretForDisk(unwrapSecret(oauth.refreshToken)),
+    expiresAt: oauth.expiresAt,
+    clientId: oauth.clientId,
+    clientSecret: encryptSecretForDisk(unwrapSecret(oauth.clientSecret)),
+    scopes: oauth.scopes,
+  };
+}
+
+/** Disk copy of one server: secrets encrypted, merge flags removed. */
+function mcpServerForDisk(server: McpServerConfig): Record<string, unknown> {
+  return {
+    id: server.id,
+    name: server.name,
+    enabled: server.enabled,
+    trust: server.trust,
+    transport: server.transport,
+    command: server.command,
+    args: server.args,
+    env: encryptMcpSecretEntries(server.env ?? []),
+    url: server.url,
+    httpTransport: server.httpTransport,
+    httpAuth: server.httpAuth,
+    headers: encryptMcpSecretEntries(server.headers ?? []),
+    oauth: encryptMcpOAuth(server.oauth),
+    toolDecisions: server.toolDecisions ?? {},
+  };
+}
+
+function exposeMcpSecretEntries(entries: McpSecretEntry[]): void {
+  for (const entry of entries) {
+    (entry as { value: string | SecretValue<string> }).value = unwrapSecret(entry.value);
+  }
+}
+
+function exposeMcpServers(servers: McpServerConfig[] | undefined): void {
+  for (const server of servers ?? []) {
+    exposeMcpSecretEntries(server.env ?? []);
+    exposeMcpSecretEntries(server.headers ?? []);
+    if (server.oauth) {
+      const oauth = server.oauth as {
+        accessToken: string | SecretValue<string>;
+        refreshToken: string | SecretValue<string>;
+        clientSecret: string | SecretValue<string>;
+      };
+      oauth.accessToken = unwrapSecret(server.oauth.accessToken);
+      oauth.refreshToken = unwrapSecret(server.oauth.refreshToken);
+      oauth.clientSecret = unwrapSecret(server.oauth.clientSecret);
+    }
+    delete server.trustTouched;
+    delete server.toolDecisionsTouched;
+    delete server.oauthTouched;
+  }
+}
+
+type McpMergeFlags = { trustTouched: boolean; toolDecisionsTouched: boolean; oauthTouched: boolean };
+
+function mcpMergeFlags(servers: McpServerConfig[] | undefined): Map<string, McpMergeFlags> {
+  const flags = new Map<string, McpMergeFlags>();
+  for (const server of servers ?? []) {
+    if (!server?.id) {
+      continue;
+    }
+    flags.set(server.id, {
+      trustTouched: server.trustTouched === true,
+      toolDecisionsTouched: server.toolDecisionsTouched === true,
+      oauthTouched: server.oauthTouched === true,
+    });
+  }
+  return flags;
+}
+
+/**
+ * Keep chat-time trust, per-tool decisions, and OAuth tokens on disk when Settings
+ * applies an older snapshot that did not edit those fields.
+ */
+function mergeMcpServers(
+  disk: McpServerConfig[],
+  client: McpServerConfig[],
+  flags: Map<string, McpMergeFlags>,
+): McpServerConfig[] {
+  const diskById = new Map(disk.map((server) => [server.id, server]));
+  return client.map((entry) => {
+    const prev = diskById.get(entry.id);
+    const touch = flags.get(entry.id);
+    const next: McpServerConfig = {
+      ...entry,
+      trust: touch?.trustTouched || !prev ? entry.trust : prev.trust,
+      toolDecisions: touch?.toolDecisionsTouched || !prev ? entry.toolDecisions : prev.toolDecisions,
+      oauth: touch?.oauthTouched || !prev ? entry.oauth : prev.oauth,
+    };
+    delete next.trustTouched;
+    delete next.toolDecisionsTouched;
+    delete next.oauthTouched;
+    return next;
+  });
+}
+
 /**
  * Re-expose secrets as plain strings for IPC/renderer consumers that check
  * `typeof x === 'string'` while still allowing in-memory {@link SecretValue} during migrate/save.
@@ -183,6 +498,7 @@ function exposeSecretsForConsumers(config: AppConfig): AppConfig {
     (config.modelManager as { huggingFaceToken: string | SecretValue<string> }).huggingFaceToken =
       unwrapSecret(config.modelManager.huggingFaceToken);
   }
+  exposeMcpServers(config.mcpServers);
   return config;
 }
 
@@ -211,6 +527,7 @@ function serializeConfigForDisk(config: AppConfig): Record<string, unknown> {
     llmProviders: providers,
     audioTranscription: audio,
     modelManager,
+    mcpServers: (config.mcpServers ?? []).map((server) => mcpServerForDisk(server)),
   };
 }
 
@@ -1402,6 +1719,12 @@ export function migrateConfig(config: AppConfig): AppConfig {
     migrated = true;
   }
 
+  const mcpNorm = normalizeMcpServers((newConfig as AppConfig).mcpServers);
+  (newConfig as AppConfig).mcpServers = mcpNorm.servers;
+  if (mcpNorm.migrated) {
+    migrated = true;
+  }
+
   return migrated ? newConfig : config;
 }
 
@@ -1529,6 +1852,8 @@ async function writeConfigToDiskUnsafe(config: AppConfig): Promise<void> {
 /** Preserve workspace registry fields owned by dedicated IPC handlers. */
 export function mergeSettingsConfigSave(disk: AppConfig, client: AppConfig): AppConfig {
   // Client-wins settings merge; never log client/disk (secrets).
+  // Read MCP touch flags first — migrate keeps them, but merge must see the pre-normalize client.
+  const flags = mcpMergeFlags(client.mcpServers);
   const clientMigrated = migrateConfig(client);
   return {
     ...clientMigrated,
@@ -1537,6 +1862,7 @@ export function mergeSettingsConfigSave(disk: AppConfig, client: AppConfig): App
     lastActiveConversationByWorkspaceId: disk.lastActiveConversationByWorkspaceId,
     workspaceMonacoScrollByWorkspaceId: disk.workspaceMonacoScrollByWorkspaceId,
     workspaceOpenTabsByWorkspaceId: disk.workspaceOpenTabsByWorkspaceId,
+    mcpServers: mergeMcpServers(disk.mcpServers ?? [], clientMigrated.mcpServers ?? [], flags),
   };
 }
 

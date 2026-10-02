@@ -123,7 +123,14 @@ import {
   type ManagedLlamaFlashAttn,
   type ManagedLlamaModelSource,
 } from '@shared/index';
-import { SecretValue, unwrapSecret } from '@shared/index';
+import {
+  SecretValue,
+  createEmptyMcpServer,
+  unwrapSecret,
+  type McpHostStatus,
+  type McpServerConfig,
+  type McpToolDecision,
+} from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { ThemedPromptDialogService } from '../../../shared/themed-prompt-dialog/themed-prompt-dialog.service';
@@ -311,6 +318,11 @@ export class SettingsStore {
   readonly ttsApiKey = signal('');
   readonly ttsDefaultInstructions = signal('');
   readonly editToolsMode = signal<'standard' | 'strict'>('standard');
+  readonly mcpServers = signal<McpServerConfig[]>([]);
+  readonly mcpStatus = signal<McpHostStatus | null>(null);
+  readonly mcpStatusError = signal('');
+  readonly mcpOauthBusyId = signal('');
+  readonly mcpEnabledCount = computed(() => this.mcpServers().filter((server) => server.enabled).length);
   readonly maxFileReadLines = signal(400);
   readonly maxSearchResults = signal(40);
   readonly defaultWorkspaceEncoding = signal('utf-8');
@@ -3115,6 +3127,131 @@ export class SettingsStore {
     };
   }
 
+  addMcpServer(): void {
+    this.mcpServers.update((list) => [...list, createEmptyMcpServer(crypto.randomUUID())]);
+    this.markSettingsDirty();
+  }
+
+  removeMcpServer(id: string): void {
+    this.mcpServers.update((list) => list.filter((server) => server.id !== id));
+    this.markSettingsDirty();
+  }
+
+  patchMcpServer(
+    id: string,
+    patch: Partial<McpServerConfig>,
+    touch?: 'trust' | 'decisions' | 'oauth',
+  ): void {
+    this.mcpServers.update((list) =>
+      list.map((server) => {
+        if (server.id !== id) {
+          return server;
+        }
+        return {
+          ...server,
+          ...patch,
+          trustTouched: touch === 'trust' ? true : server.trustTouched,
+          toolDecisionsTouched: touch === 'decisions' ? true : server.toolDecisionsTouched,
+          oauthTouched: touch === 'oauth' ? true : server.oauthTouched,
+        };
+      }),
+    );
+    this.markSettingsDirty();
+  }
+
+  setMcpSecretEntry(
+    id: string,
+    field: 'env' | 'headers',
+    index: number,
+    patch: { key?: string; value?: string },
+  ): void {
+    const server = this.mcpServers().find((entry) => entry.id === id);
+    if (!server) {
+      return;
+    }
+    const rows = server[field].map((entry, rowIndex) => {
+      if (rowIndex !== index) {
+        return entry;
+      }
+      return {
+        key: patch.key !== undefined ? patch.key : entry.key,
+        value: patch.value !== undefined ? SecretValue.of(patch.value) : entry.value,
+      };
+    });
+    this.patchMcpServer(id, { [field]: rows });
+  }
+
+  addMcpSecretEntry(id: string, field: 'env' | 'headers'): void {
+    const server = this.mcpServers().find((entry) => entry.id === id);
+    if (!server) {
+      return;
+    }
+    this.patchMcpServer(id, { [field]: [...server[field], { key: '', value: SecretValue.of('') }] });
+  }
+
+  removeMcpSecretEntry(id: string, field: 'env' | 'headers', index: number): void {
+    const server = this.mcpServers().find((entry) => entry.id === id);
+    if (!server) {
+      return;
+    }
+    this.patchMcpServer(id, { [field]: server[field].filter((_, rowIndex) => rowIndex !== index) });
+  }
+
+  setMcpToolDecision(id: string, toolName: string, decision: McpToolDecision | 'ask'): void {
+    const server = this.mcpServers().find((entry) => entry.id === id);
+    if (!server) {
+      return;
+    }
+    const toolDecisions = { ...server.toolDecisions };
+    if (decision === 'ask') {
+      delete toolDecisions[toolName];
+    } else {
+      toolDecisions[toolName] = decision;
+    }
+    this.patchMcpServer(id, { toolDecisions }, 'decisions');
+  }
+
+  async refreshMcpStatus(): Promise<void> {
+    const result = await this.electron.mcpStatus();
+    if (!result.ok) {
+      this.mcpStatusError.set(result.error);
+      return;
+    }
+    this.mcpStatusError.set('');
+    this.mcpStatus.set(result.status);
+  }
+
+  /** Apply first when the list is dirty so Python sees the saved server, then open the browser. */
+  async signInMcp(id: string): Promise<string> {
+    if (this.settingsDirty()) {
+      await this.applySettings();
+    }
+    this.mcpOauthBusyId.set(id);
+    try {
+      const result = await this.electron.mcpOauthStart(id);
+      if (!result.ok) {
+        return result.error;
+      }
+      const saved = result.config.mcpServers?.find((server) => server.id === id);
+      if (saved?.oauth) {
+        this.mcpServers.update((list) =>
+          list.map((server) => (server.id === id ? { ...server, oauth: saved.oauth, httpAuth: 'oauth' } : server)),
+        );
+        if (this.configSnapshot) {
+          this.configSnapshot.mcpServers = this.mcpServers().map((server) => ({ ...server }));
+        }
+      }
+      await this.refreshMcpStatus();
+      return '';
+    } finally {
+      this.mcpOauthBusyId.set('');
+    }
+  }
+
+  mcpStatusFor(id: string) {
+    return this.mcpStatus()?.servers.find((server) => server.id === id) ?? null;
+  }
+
   private markSettingsDirty(): void {
     this.settingsDirty.set(true);
   }
@@ -3200,6 +3337,19 @@ export class SettingsStore {
         customModelsDir: this.modelManagerCustomDir(),
         huggingFaceToken: SecretValue.of(this.modelManagerHfToken()),
       },
+      mcpServers: this.mcpServers().map((server) => ({
+        ...server,
+        env: server.env.map((entry) => ({ key: entry.key, value: SecretValue.of(unwrapSecret(entry.value)) })),
+        headers: server.headers.map((entry) => ({ key: entry.key, value: SecretValue.of(unwrapSecret(entry.value)) })),
+        oauth: server.oauth
+          ? {
+              ...server.oauth,
+              accessToken: SecretValue.of(unwrapSecret(server.oauth.accessToken)),
+              refreshToken: SecretValue.of(unwrapSecret(server.oauth.refreshToken)),
+              clientSecret: SecretValue.of(unwrapSecret(server.oauth.clientSecret)),
+            }
+          : null,
+      })),
       monacoWorkspaceEditor: structuredClone(this.monacoWorkspaceEditor()),
     };
   }
@@ -3344,6 +3494,7 @@ export class SettingsStore {
     this.defaultWorkspaceNewline.set(
       nl === 'crlf' || nl === 'preserve' ? nl : 'lf',
     );
+    this.mcpServers.set(config.mcpServers ?? []);
     this.allowStagingOverlayCommands.set(!!(wt.allowStagingOverlayCommands ?? false));
     this.commandLineExplainStep.set(!!(wt.commandLineExplainStep ?? false));
     this.exposeAllWorkspaceFiles.set(!!(wt.exposeAllWorkspaceFiles ?? false));

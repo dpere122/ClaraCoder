@@ -170,6 +170,23 @@ export class AcceptCommandComponent implements OnDestroy {
     if (this.continueSent || this.busy() || this.reviewStatus() !== 'pending') return;
     const req = this.payload().requestId;
     const kind = this.payload().kind;
+    if (kind === 'mcp_tool') {
+      const id = this.conversationId();
+      if (!id) return;
+      this.busy.set(true);
+      this.continueSent = true;
+      await this.persistMcpDecision('deny');
+      await this.electron.notifyAgentContinue(id, '', undefined, undefined, undefined, undefined, 'deny', req);
+      this.busy.set(false);
+      this.acceptCommandFinished.emit({
+        requestId: req,
+        status: 'cancelled',
+        summary: 'Denied.',
+        action: 'deny',
+        kind,
+      });
+      return;
+    }
     if (this.isLocalAdminGrant()) {
       this.continueSent = true;
       this.acceptCommandFinished.emit({
@@ -205,6 +222,19 @@ export class AcceptCommandComponent implements OnDestroy {
     });
   }
 
+  /** Store Allow, Deny, or Allow-all before the agent resumes, so a later Settings save cannot drop it. */
+  private async persistMcpDecision(action: 'confirm' | 'confirm_session' | 'deny'): Promise<void> {
+    const payload = this.payload();
+    const serverId = payload.mcpServerId?.trim();
+    if (!serverId) return;
+    const decision = action === 'confirm_session' ? 'allow-all' : action === 'deny' ? 'deny' : 'allow';
+    await this.electron.mcpRememberDecision({
+      serverId,
+      decision,
+      toolName: payload.mcpToolName,
+    });
+  }
+
   private async submitAcceptAction(
     action: 'confirm' | 'confirm_session',
     summaryLabel: string,
@@ -212,6 +242,9 @@ export class AcceptCommandComponent implements OnDestroy {
     if (this.continueSent || this.busy() || this.reviewStatus() !== 'pending') return;
     const req = this.payload().requestId;
     const kind = this.payload().kind;
+    if (kind === 'mcp_tool') {
+      await this.persistMcpDecision(action);
+    }
     if (this.isLocalAdminGrant()) {
       const conversationId = this.conversationId();
       if (!conversationId) return;

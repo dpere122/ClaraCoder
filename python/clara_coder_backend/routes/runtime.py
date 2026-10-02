@@ -13,6 +13,7 @@ from clara_coder_backend.domain import (
     RuntimeConnection,
     RuntimeContextCompressionConfig,
     RuntimeHostConfig,
+    RuntimeMcpServer,
     RuntimeToolsConfig,
 )
 from clara_coder_backend.runtime.http_url_normalize import normalize_bind_all_host_url
@@ -36,6 +37,34 @@ def _chat_template_reasoning_dict(
             list(caps.reasoningEffortValues) if caps.reasoningEffortValues is not None else None
         ),
     }
+
+
+def _runtime_mcp_server(item: object) -> RuntimeMcpServer:
+    oauth = getattr(item, 'oauth', None)
+    decisions = dict(getattr(item, 'toolDecisions', None) or {})
+    return RuntimeMcpServer(
+        id=str(getattr(item, 'id', '') or '').strip(),
+        name=str(getattr(item, 'name', '') or '').strip(),
+        enabled=bool(getattr(item, 'enabled', False)),
+        trust='allow-all' if getattr(item, 'trust', '') == 'allow-all' else 'ask',
+        transport='http' if getattr(item, 'transport', '') == 'http' else 'stdio',
+        command=str(getattr(item, 'command', '') or ''),
+        args=[str(arg) for arg in (getattr(item, 'args', None) or [])],
+        env=[(entry.key, entry.value) for entry in (getattr(item, 'env', None) or []) if str(entry.key).strip()],
+        url=str(getattr(item, 'url', '') or '').strip(),
+        http_transport='sse' if getattr(item, 'httpTransport', '') == 'sse' else 'streamable',
+        http_auth=str(getattr(item, 'httpAuth', '') or 'none'),
+        headers=[
+            (entry.key, entry.value) for entry in (getattr(item, 'headers', None) or []) if str(entry.key).strip()
+        ],
+        oauth_access_token=str(getattr(oauth, 'accessToken', '') or '') if oauth else '',
+        oauth_refresh_token=str(getattr(oauth, 'refreshToken', '') or '') if oauth else '',
+        oauth_expires_at=float(getattr(oauth, 'expiresAt', 0) or 0) if oauth else 0,
+        oauth_client_id=str(getattr(oauth, 'clientId', '') or '') if oauth else '',
+        oauth_client_secret=str(getattr(oauth, 'clientSecret', '') or '') if oauth else '',
+        oauth_scopes=[str(scope) for scope in (getattr(oauth, 'scopes', None) or [])] if oauth else [],
+        tool_decisions={str(key): str(value) for key, value in decisions.items() if value in ('allow', 'deny')},
+    )
 
 
 def _sidecar_marker() -> str:
@@ -199,7 +228,15 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
     )
     cfg.tools = tools_cfg
     cfg.context_compression = context_compression_cfg
+    cfg.mcp_servers = [_runtime_mcp_server(item) for item in request.mcpServers]
+    cfg.active_workspace_path = (request.activeWorkspacePath or '').strip()
     apply_extra_user_path(tools_cfg.extra_user_path)
+    try:
+        from clara_coder_backend.mcp.manager import schedule_mcp_reconcile
+
+        schedule_mcp_reconcile()
+    except Exception:
+        logger.debug('mcp reconcile schedule failed', exc_info=True)
     logger.info(
         'POST /runtime-config applied (tools payload: %s, contextCompression: %s)',
         'yes' if request.tools is not None else 'no',

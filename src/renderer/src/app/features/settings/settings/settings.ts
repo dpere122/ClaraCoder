@@ -10,6 +10,7 @@ import { SettingsModelManager } from '../settings-model-manager/settings-model-m
 import { SettingsModels } from '../settings-models/settings-models';
 import { SettingsMonaco } from '../settings-monaco/settings-monaco';
 import { SettingsThemes } from '../settings-themes/settings-themes';
+import { SettingsMcp } from '../settings-mcp/settings-mcp';
 import { SettingsTools } from '../settings-tools/settings-tools';
 import { SettingsWorkspaces } from '../settings-workspaces/settings-workspaces';
 import { SettingsStore } from './settings-store';
@@ -31,6 +32,7 @@ import { SettingsStore } from './settings-store';
     SettingsModels,
     SettingsModelManager,
     SettingsTools,
+    SettingsMcp,
     SettingsMonaco,
     SettingsAudio,
     SettingsWorkspaces,

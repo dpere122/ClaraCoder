@@ -155,6 +155,14 @@ def hitl_copy_pause_tools() -> frozenset[str]:
     return frozenset({COPY_WORKSPACE_FILES_NAME})
 
 
+def accept_command_pause_applies(name: str) -> bool:
+    """True for built-in accept-command tools and for prefixed MCP tools."""
+
+    from clara_coder_backend.mcp.names import is_mcp_tool_name
+
+    return name in hitl_accept_command_pause_tools() or is_mcp_tool_name(name)
+
+
 def hitl_accept_command_pause_tools() -> frozenset[str]:
     from clara_coder_backend.hitl.deferred_tool_hitl import DEFERRED_HITL_TOOL_NAMES
 
@@ -234,6 +242,11 @@ def worker_tools_and_map(
                 ('staging_review', staging_review_tools(direct=direct)[0]),
             ],
         )
+    from clara_coder_backend.mcp.tools import bound_mcp_tools
+
+    for mcp_tool in bound_mcp_tools():
+        tools.append(mcp_tool)
+        mapping[mcp_tool.name] = mcp_tool
     return tools, mapping
 
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from clara_coder_backend.config import DEFAULT_TRANSCRIBE_MODEL, DEFAULT_WHISPER_MODEL
 
@@ -110,7 +110,7 @@ class AgentContinueRequest(BaseModel):
     copy_action: Literal['confirm', 'cancel'] | None = None
     copy_request_id: str = ''
     #: When set with a pending generic command request, perform or cancel it before resuming.
-    accept_command_action: Literal['confirm', 'confirm_session', 'cancel'] | None = None
+    accept_command_action: Literal['confirm', 'confirm_session', 'cancel', 'deny'] | None = None
     accept_command_request_id: str = ''
     #: When set with ``pending_staged_transfer_hitl``, finalize or return the deferred staged→workspace transfer.
     staged_transfer_action: Literal['confirm', 're_review'] | None = Field(
@@ -505,6 +505,45 @@ class RuntimeContextCompressionRequest(BaseModel):
         return _coerce_boolish(v)
 
 
+class McpSecretEntryRequest(BaseModel):
+    key: str = ''
+    value: str = ''
+
+
+class McpOAuthTokensRequest(BaseModel):
+    accessToken: str = ''
+    refreshToken: str = ''
+    expiresAt: float = 0
+    clientId: str = ''
+    clientSecret: str = ''
+    scopes: list[str] = Field(default_factory=list)
+
+
+class McpServerRequest(BaseModel):
+    """One Settings → MCP entry, secrets already unwrapped by Electron."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    id: str
+    name: str = ''
+    enabled: bool = False
+    trust: Literal['ask', 'allow-all'] = 'ask'
+    transport: Literal['stdio', 'http'] = 'stdio'
+    command: str = ''
+    args: list[str] = Field(default_factory=list)
+    env: list[McpSecretEntryRequest] = Field(default_factory=list)
+    url: str = ''
+    httpTransport: Literal['streamable', 'sse'] = 'streamable'
+    httpAuth: Literal['none', 'headers', 'oauth'] = 'none'
+    headers: list[McpSecretEntryRequest] = Field(default_factory=list)
+    oauth: McpOAuthTokensRequest | None = None
+    toolDecisions: dict[str, Literal['allow', 'deny']] = Field(default_factory=dict)
+
+
+class McpOAuthStartRequest(BaseModel):
+    server: McpServerRequest
+
+
 class RuntimeConfigRequest(BaseModel):
     """Full settings payload from the UI; replaces in-memory runtime_config."""
 
@@ -515,6 +554,8 @@ class RuntimeConfigRequest(BaseModel):
     tools: RuntimeToolsRequest | None = None
     contextCompression: RuntimeContextCompressionRequest | None = None
     huggingFaceToken: str = ''
+    mcpServers: list[McpServerRequest] = Field(default_factory=list)
+    activeWorkspacePath: str = ''
 
 
 class LogLevelRequest(BaseModel):

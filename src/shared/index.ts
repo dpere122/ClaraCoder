@@ -168,6 +168,18 @@ export type {
   WorkspaceOpenTabsState,
   WorkspaceOpenTabsByWorkspaceId,
   WorkspaceToolsConfig,
+  McpServerConfig,
+  McpServerTransport,
+  McpHttpTransport,
+  McpHttpAuth,
+  McpTrust,
+  McpToolDecision,
+  McpSecretEntry,
+  McpOAuthTokens,
+  McpDiscoveredTool,
+  McpServerStatus,
+  McpHostStatus,
+  McpRememberDecision,
   ContextCompressionConfig,
   HealthMonitorConfig,
   ModelManagerConfig,
@@ -227,6 +239,7 @@ export {
   retainRendererWorkspaceOpenTabs,
   SecretValue,
   unwrapSecret,
+  createEmptyMcpServer,
 } from './types/app-config';
 export type { LlamaCppEmbeddingManagedLegacy, LlamaCppManagedLegacy, ShellQuotingPlatform } from './llama-cpp-managed';
 export {

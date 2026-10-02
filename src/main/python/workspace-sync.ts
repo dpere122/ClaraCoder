@@ -23,6 +23,42 @@ import {
 import { lmStudioListModels } from '../lm-studio-client';
 import { refreshOpenRouterReasoningCaps } from '../openrouter-reasoning';
 
+function wireMcpServers(config: AppConfig): unknown[] {
+  return (config.mcpServers ?? []).map((server) => ({
+    id: server.id,
+    name: server.name,
+    enabled: server.enabled,
+    trust: server.trust,
+    transport: server.transport,
+    command: server.command,
+    args: server.args,
+    env: (server.env ?? []).map((entry) => ({ key: entry.key, value: unwrapSecret(entry.value) })),
+    url: server.url,
+    httpTransport: server.httpTransport,
+    httpAuth: server.httpAuth,
+    headers: (server.headers ?? []).map((entry) => ({ key: entry.key, value: unwrapSecret(entry.value) })),
+    oauth: server.oauth
+      ? {
+          accessToken: unwrapSecret(server.oauth.accessToken),
+          refreshToken: unwrapSecret(server.oauth.refreshToken),
+          expiresAt: server.oauth.expiresAt,
+          clientId: server.oauth.clientId,
+          clientSecret: unwrapSecret(server.oauth.clientSecret),
+          scopes: server.oauth.scopes ?? [],
+        }
+      : null,
+    toolDecisions: server.toolDecisions ?? {},
+  }));
+}
+
+function activeWorkspacePath(config: AppConfig): string {
+  const id = config.currentWorkspaceId;
+  if (!id) {
+    return '';
+  }
+  return config.workspaces.find((workspace) => workspace.id === id)?.path?.trim() ?? '';
+}
+
 function hasUrlScheme(s: string): boolean {
   return /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(s);
 }
@@ -330,6 +366,8 @@ async function postRuntimeConfigToPython(
           systemReserveRatio: config.contextCompression.systemReserveRatio,
         },
         huggingFaceToken: unwrapSecret(config.modelManager?.huggingFaceToken ?? ''),
+        mcpServers: wireMcpServers(config),
+        activeWorkspacePath: activeWorkspacePath(config),
       }),
     });
 

@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import type { AppConfig } from '../../shared';
+import type { AppConfig, McpServerConfig } from '../../shared';
+import { createEmptyMcpServer, unwrapSecret } from '../../shared';
 import {
   PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   PINNED_OPENROUTER_PROVIDER_ID,
@@ -43,6 +44,44 @@ function sampleConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   };
 }
 
+function mcpServer(overrides: Partial<McpServerConfig> = {}): McpServerConfig {
+  return {
+    ...createEmptyMcpServer('srv-1', 'GitHub'),
+    command: 'npx',
+    args: ['server'],
+    headers: [{ key: 'Authorization', value: 'top-secret' as unknown as McpServerConfig['headers'][number]['value'] }],
+    toolDecisions: { search: 'deny' },
+    ...overrides,
+  };
+}
+
+describe('migrateConfig mcp servers', () => {
+  it('fills a missing list', () => {
+    const raw = sampleConfig();
+    delete (raw as { mcpServers?: McpServerConfig[] }).mcpServers;
+    const migrated = migrateConfig(raw);
+    expect(migrated.mcpServers).toEqual([]);
+  });
+
+  it('round-trips a header secret through save and load', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'nemo-mcp-config-'));
+    process.env.CLARA_TEST_CONFIG_DIR = tempDir;
+    try {
+      writeFileSync(join(tempDir, 'config.json'), JSON.stringify(sampleConfig(), null, 2), 'utf-8');
+      await updateConfig((cfg) => {
+        cfg.mcpServers = [mcpServer()];
+      });
+      const loaded = await loadConfig();
+      expect(loaded.mcpServers).toHaveLength(1);
+      expect(unwrapSecret(loaded.mcpServers[0]?.headers[0]?.value)).toBe('top-secret');
+      expect(loaded.mcpServers[0]?.toolDecisions).toEqual({ search: 'deny' });
+    } finally {
+      delete process.env.CLARA_TEST_CONFIG_DIR;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('mergeSettingsConfigSave', () => {
   it('preserves workspace registry fields from disk', () => {
     const disk = sampleConfig();
@@ -70,6 +109,30 @@ describe('mergeSettingsConfigSave', () => {
     expect(merged.chatFontSizeRem).toBe(1.4);
   });
 
+  it('keeps chat-time MCP decisions when the settings snapshot did not edit them', () => {
+    const disk = sampleConfig({
+      mcpServers: [mcpServer({ trust: 'allow-all', toolDecisions: { search: 'allow' }, oauth: null })],
+    });
+    const client = sampleConfig({
+      mcpServers: [mcpServer({ name: 'Renamed', trust: 'ask', toolDecisions: { search: 'deny' } })],
+    });
+    const merged = mergeSettingsConfigSave(disk, client);
+    expect(merged.mcpServers[0]?.name).toBe('Renamed');
+    expect(merged.mcpServers[0]?.trust).toBe('allow-all');
+    expect(merged.mcpServers[0]?.toolDecisions).toEqual({ search: 'allow' });
+  });
+
+  it('uses MCP decisions the settings window actually edited', () => {
+    const disk = sampleConfig({
+      mcpServers: [mcpServer({ toolDecisions: { search: 'allow' } })],
+    });
+    const client = sampleConfig({
+      mcpServers: [mcpServer({ toolDecisions: { search: 'deny' }, toolDecisionsTouched: true })],
+    });
+    const merged = mergeSettingsConfigSave(disk, client);
+    expect(merged.mcpServers[0]?.toolDecisions).toEqual({ search: 'deny' });
+    expect(merged.mcpServers[0]?.toolDecisionsTouched).toBeUndefined();
+  });
 });
 
 describe('updateConfig serialization', () => {

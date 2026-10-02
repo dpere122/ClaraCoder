@@ -1,7 +1,7 @@
 /** Settings window tab ids and sub-tab catalog. */
 import { THEME_GROUP_CATEGORIES } from '@shared/theme';
 
-export type SettingsTab = 'general' | 'themes' | 'models' | 'modelManager' | 'tools' | 'monaco' | 'audio' | 'workspaces';
+export type SettingsTab = 'general' | 'themes' | 'models' | 'modelManager' | 'tools' | 'mcp' | 'monaco' | 'audio' | 'workspaces';
 
 export type SettingsSubTabEntry = {
   id: string;
@@ -35,6 +35,11 @@ export const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; description:
     id: 'tools',
     label: 'Tools',
     description: 'Workspace agent tool limits and edit modes (synced to the Python backend).',
+  },
+  {
+    id: 'mcp',
+    label: 'MCP',
+    description: 'MCP servers whose tools Clara can call. One client, many server configs.',
   },
   {
     id: 'monaco',

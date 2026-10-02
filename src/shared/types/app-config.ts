@@ -1320,6 +1320,119 @@ export function normalizeWorkspaceOpenTabsByWorkspaceId(raw: unknown): {
   return { openTabsByWorkspaceId, migrated };
 }
 
+/** How a configured MCP server is launched or reached. */
+export type McpServerTransport = 'stdio' | 'http';
+
+/** Remote MCP HTTP transport. Streamable HTTP is the default; SSE is the older fallback. */
+export type McpHttpTransport = 'streamable' | 'sse';
+
+/** How a remote MCP server authenticates. */
+export type McpHttpAuth = 'none' | 'headers' | 'oauth';
+
+/**
+ * `ask` pauses the first call to each tool.
+ * `allow-all` runs every tool from that server without a card.
+ */
+export type McpTrust = 'ask' | 'allow-all';
+
+/** Remembered per-tool choice. Absent means ask again. */
+export type McpToolDecision = 'allow' | 'deny';
+
+/** Env var or HTTP header. The value is a secret. */
+export interface McpSecretEntry {
+  key: string;
+  value: SecretValue<string>;
+}
+
+/** Tokens from an MCP OAuth sign-in. Stored as secrets and refreshed by the Python host. */
+export interface McpOAuthTokens {
+  accessToken: SecretValue<string>;
+  refreshToken: SecretValue<string>;
+  /** Unix seconds. 0 when the server did not report a lifetime. */
+  expiresAt: number;
+  clientId: string;
+  clientSecret: SecretValue<string>;
+  scopes: string[];
+}
+
+/**
+ * One global MCP server entry (Settings → MCP).
+ * `trustTouched`, `toolDecisionsTouched`, and `oauthTouched` are in-memory merge flags.
+ * They are stripped before `config.json` is written.
+ */
+export interface McpServerConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  trust: McpTrust;
+  transport: McpServerTransport;
+  command: string;
+  args: string[];
+  env: McpSecretEntry[];
+  url: string;
+  httpTransport: McpHttpTransport;
+  httpAuth: McpHttpAuth;
+  headers: McpSecretEntry[];
+  oauth: McpOAuthTokens | null;
+  /** Remote tool name → remembered decision. */
+  toolDecisions: Record<string, McpToolDecision>;
+  trustTouched?: boolean;
+  toolDecisionsTouched?: boolean;
+  oauthTouched?: boolean;
+}
+
+/** One tool advertised by a connected MCP server (remote name, not the prefixed agent name). */
+export interface McpDiscoveredTool {
+  name: string;
+  description: string;
+}
+
+/** Live connection row from `GET /mcp/status`. */
+export interface McpServerStatus {
+  id: string;
+  connected: boolean;
+  error: string;
+  needsSignIn: boolean;
+  toolCount: number;
+  schemaTokens: number;
+  schemaWarning: boolean;
+  tools: McpDiscoveredTool[];
+}
+
+/** Host status for the Settings → MCP page. */
+export interface McpHostStatus {
+  servers: McpServerStatus[];
+  schemaTokens: number;
+  schemaWarning: boolean;
+}
+
+/** Chat-card or Settings decision persisted onto one server. */
+export type McpRememberDecision = {
+  serverId: string;
+  decision: 'allow' | 'deny' | 'allow-all';
+  toolName?: string;
+};
+
+/** Blank stdio server row for Settings → MCP. */
+export function createEmptyMcpServer(id: string, name = 'MCP server'): McpServerConfig {
+  return {
+    id,
+    name,
+    enabled: true,
+    trust: 'ask',
+    transport: 'stdio',
+    command: '',
+    args: [],
+    env: [],
+    url: '',
+    httpTransport: 'streamable',
+    httpAuth: 'none',
+    headers: [],
+    oauth: null,
+    toolDecisions: {},
+  };
+}
+
 /** Root persisted settings for the desktop app (config.json). */
 export interface AppConfig {
   /**
@@ -1349,6 +1462,11 @@ export interface AppConfig {
   llmProviders: LlmProviderConfig[];
   audioTranscription: AudioTranscriptionConfig;
   workspaceTools: WorkspaceToolsConfig;
+  /**
+   * Global MCP servers the agent can call. Missing on older files; migration fills `[]`.
+   * Secrets (env, headers, OAuth tokens) use {@link SecretValue}.
+   */
+  mcpServers: McpServerConfig[];
   contextCompression: ContextCompressionConfig;
   healthMonitor: HealthMonitorConfig;
   modelManager: ModelManagerConfig;

@@ -246,6 +246,7 @@ export function createDefaultConfig(): AppConfig {
     llmProviders,
     audioTranscription: getDefaultAudioTranscription(),
     workspaceTools: getDefaultWorkspaceTools(),
+    mcpServers: [],
     contextCompression: getDefaultContextCompression(),
     healthMonitor: getDefaultHealthMonitor(),
     modelManager: getDefaultModelManagerConfig(),

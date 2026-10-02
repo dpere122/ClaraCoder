@@ -23,10 +23,13 @@ export interface AcceptCommandPayload {
   riskLevel?: 'low' | 'medium' | 'high';
   riskDescription?: string;
   riskAssessmentStatus?: 'ok' | 'failed';
+  /** Set when `kind` is `mcp_tool`, so Allow / Deny can be stored on that server. */
+  mcpServerId?: string;
+  mcpToolName?: string;
 }
 
 /** User decision on an accept-command HITL card. */
-export type AcceptCommandAction = 'confirm' | 'confirm_session' | 'cancel';
+export type AcceptCommandAction = 'confirm' | 'confirm_session' | 'cancel' | 'deny';
 
 export interface AcceptCommandFinishedEvent {
   requestId: string;

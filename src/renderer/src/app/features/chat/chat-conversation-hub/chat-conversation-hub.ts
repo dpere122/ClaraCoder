@@ -27,6 +27,7 @@ import { ChatActiveStackComponent } from '../chat-active-stack/chat-active-stack
 import type { ChatMessage } from '../chat-box/chat-box';
 import type { ChatContextFile } from '../chat-context-bar/chat-context-file';
 import type { ChatContextDroppedPath } from '../chat-context-bar/chat-context-drop';
+import type { AcceptCommandFinishedEvent } from '@shared/index';
 
 const NEW_CONV_HUB_SPINNER = {
   fullScreen: false as const,
@@ -92,12 +93,7 @@ export class ChatConversationHubComponent implements OnDestroy {
     requestId: string;
     fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
   }>();
-  readonly acceptCommandFinished = output<{
-    requestId: string;
-    status: 'complete' | 'cancelled';
-    summary?: string;
-    action?: 'confirm' | 'confirm_session' | 'cancel';
-  }>();
+  readonly acceptCommandFinished = output<AcceptCommandFinishedEvent>();
   readonly copyReviewFinished = output<{
     requestId: string;
     status: 'complete' | 'cancelled';

@@ -35,6 +35,7 @@ from clara_coder_backend.routes.conversation_title import router as conversation
 from clara_coder_backend.routes.deps import router as deps_router
 from clara_coder_backend.routes.log import router as log_router
 from clara_coder_backend.routes.lsp import router as lsp_router
+from clara_coder_backend.routes.mcp import router as mcp_router
 from clara_coder_backend.routes.runtime import router as runtime_router
 from clara_coder_backend.routes.session import router as session_router
 
@@ -143,6 +144,12 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
         shutdown_all_lsp_managers()
     except Exception:
         _logger.exception('LSP manager shutdown failed during app lifespan cleanup')
+    try:
+        from clara_coder_backend.mcp.manager import shutdown_mcp
+
+        await shutdown_mcp()
+    except Exception:
+        _logger.exception('MCP manager shutdown failed during app lifespan cleanup')
     await shutdown_graph_checkpointing()
 
 
@@ -156,6 +163,7 @@ app.add_middleware(
 )
 app.add_middleware(SidecarBearerAuthMiddleware)
 app.include_router(runtime_router)
+app.include_router(mcp_router)
 app.include_router(deps_router)
 app.include_router(session_router)
 app.include_router(chat_router)

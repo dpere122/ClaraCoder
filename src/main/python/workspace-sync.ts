@@ -45,6 +45,7 @@ function wireMcpServers(config: AppConfig): unknown[] {
           clientId: server.oauth.clientId,
           clientSecret: unwrapSecret(server.oauth.clientSecret),
           scopes: server.oauth.scopes ?? [],
+          serverUrl: server.oauth.serverUrl ?? '',
         }
       : null,
     toolDecisions: server.toolDecisions ?? {},

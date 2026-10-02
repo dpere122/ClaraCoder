@@ -26,6 +26,7 @@ import {
   journalPreviewPaths,
   journalUserIdsToInvert,
   resolveRestoreUserIndex,
+  acceptCommandGrantsAdminElevation,
   createAdminElevationAcceptPayload,
   isAdminElevationKind,
   DEFAULT_COMPOSER_RUN_MODE,
@@ -1587,10 +1588,7 @@ export class App implements OnInit, OnDestroy {
       return copy;
     });
     this.conversationSession.markMessagesDirtyAndAutoSave();
-    if (
-      event.status === 'complete' &&
-      (isAdminElevationKind(event.kind) || event.action === 'confirm_session')
-    ) {
+    if (acceptCommandGrantsAdminElevation(event)) {
       this.adminElevationGranted.set(true);
     }
   }

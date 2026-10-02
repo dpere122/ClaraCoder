@@ -80,6 +80,26 @@ describe('migrateConfig mcp servers', () => {
       rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it('keeps the URL OAuth tokens were issued for, and leaves it empty on older rows', () => {
+    const secret = (value: string) => value as unknown as McpServerConfig['headers'][number]['value'];
+    const oauth = {
+      accessToken: secret('access'),
+      refreshToken: secret('refresh'),
+      expiresAt: 0,
+      clientId: 'client',
+      clientSecret: secret(''),
+      scopes: [],
+    };
+    const bound = migrateConfig(
+      sampleConfig({ mcpServers: [mcpServer({ oauth: { ...oauth, serverUrl: ' https://a.example/mcp ' } })] }),
+    );
+    expect(bound.mcpServers[0]?.oauth?.serverUrl).toBe('https://a.example/mcp');
+    const legacy = migrateConfig(
+      sampleConfig({ mcpServers: [mcpServer({ oauth: oauth as unknown as McpServerConfig['oauth'] })] }),
+    );
+    expect(legacy.mcpServers[0]?.oauth?.serverUrl).toBe('');
+  });
 });
 
 describe('mergeSettingsConfigSave', () => {

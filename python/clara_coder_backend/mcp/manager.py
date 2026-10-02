@@ -6,13 +6,18 @@ import asyncio
 import hashlib
 import json
 import logging
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from clara_coder_backend.domain import RuntimeMcpServer
-from clara_coder_backend.mcp.oauth import StoredOAuth, build_oauth_provider
+from clara_coder_backend.mcp.oauth import (
+    OAuthLoopback,
+    StoredOAuth,
+    build_oauth_provider,
+    has_usable_oauth_token,
+    stored_from_memory,
+)
 
 logger = logging.getLogger('clara.mcp')
 
@@ -109,15 +114,21 @@ def _format_tool_result(result: Any) -> str:
 
 
 def _env_overlay(server: RuntimeMcpServer) -> dict[str, str] | None:
+    """The server's own env entries only.
+
+    The SDK layers these over its allowlisted default environment (PATH, HOME, ...). Never
+    merge ``os.environ``: it holds the sidecar bearer token and the user's API keys.
+    """
+
     overlay = {key: value for key, value in server.env if key.strip()}
-    if not overlay:
-        return None
-    merged = {key: value for key, value in os.environ.items() if isinstance(value, str)}
-    merged.update(overlay)
-    return merged
+    return overlay or None
 
 
 def _header_map(server: RuntimeMcpServer) -> dict[str, str] | None:
+    """Static headers, sent only while Auth is "Static headers" (Settings hides them otherwise)."""
+
+    if server.http_auth != 'headers':
+        return None
     headers = {key: value for key, value in server.headers if key.strip()}
     return headers or None
 
@@ -158,7 +169,7 @@ class McpManager:
                         server.enabled
                         and server.transport == 'http'
                         and server.http_auth == 'oauth'
-                        and not (server.oauth_access_token or '').strip()
+                        and not has_usable_oauth_token(server)
                         and not (live and live.connected)
                     ),
                     'toolCount': len(tools),
@@ -217,7 +228,7 @@ class McpManager:
                 if (
                     server.transport == 'http'
                     and server.http_auth == 'oauth'
-                    and not (server.oauth_access_token or '').strip()
+                    and not has_usable_oauth_token(server)
                 ):
                     self._remember_idle(server.id, fingerprint, needs_sign_in=True, error='Sign in required')
                     continue
@@ -263,7 +274,7 @@ class McpManager:
             await self._probe(server, auth=provider, workspace=self._workspace)
         finally:
             await loopback.close()
-        stored = stored_from_memory(storage)
+        stored = stored_from_memory(storage, server_url=server.url)
         if not stored.access_token:
             raise RuntimeError('Sign-in finished without an access token.')
         return stored

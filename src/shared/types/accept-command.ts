@@ -39,6 +39,24 @@ export interface AcceptCommandFinishedEvent {
   kind?: string;
 }
 
+/** Deferred tool card (e.g. an elevated `run_command`); Python's `ACCEPT_COMMAND_KIND_DEFERRED_TOOL`. */
+export const ACCEPT_COMMAND_KIND_DEFERRED_TOOL = 'deferred_tool';
+
+/**
+ * Whether a finished card turns the composer Admin chip on. Admin cards do; "for this session"
+ * only on a deferred tool card, matching the Python grant for elevated `run_command`. Other
+ * cards' session action (MCP "Allow all tools from this server") never grants Admin.
+ */
+export function acceptCommandGrantsAdminElevation(event: AcceptCommandFinishedEvent): boolean {
+  if (event.status !== 'complete') {
+    return false;
+  }
+  if (isAdminElevationKind(event.kind)) {
+    return true;
+  }
+  return event.action === 'confirm_session' && event.kind === ACCEPT_COMMAND_KIND_DEFERRED_TOOL;
+}
+
 /** HITL card for turning the composer Admin chip on (agent-wide ability, not one command). */
 export function createAdminElevationAcceptPayload(
   requestId: string,

@@ -30,6 +30,7 @@ def _server_from_request(item: McpOAuthStartRequest) -> RuntimeMcpServer:
         oauth_client_id=(oauth.clientId if oauth else '') or '',
         oauth_client_secret=(oauth.clientSecret if oauth else '') or '',
         oauth_scopes=list(oauth.scopes) if oauth else [],
+        oauth_server_url=((oauth.serverUrl if oauth else '') or '').strip(),
     )
 
 

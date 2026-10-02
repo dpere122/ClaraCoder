@@ -216,7 +216,13 @@ function normalizeMcpOAuth(raw: unknown): { oauth: McpOAuthTokens | null; migrat
   const expiresAt = typeof row.expiresAt === 'number' && Number.isFinite(row.expiresAt) ? row.expiresAt : 0;
   const clientId = typeof row.clientId === 'string' ? row.clientId : '';
   const scopes = Array.isArray(row.scopes) ? row.scopes.filter((s): s is string => typeof s === 'string' && !!s.trim()) : [];
-  let migrated = expiresAt !== row.expiresAt || clientId !== row.clientId || scopes.length !== (Array.isArray(row.scopes) ? row.scopes.length : 0);
+  // Missing on tokens saved before URL binding; Python then treats them as not usable.
+  const serverUrl = typeof row.serverUrl === 'string' ? row.serverUrl.trim() : '';
+  let migrated =
+    expiresAt !== row.expiresAt ||
+    clientId !== row.clientId ||
+    serverUrl !== row.serverUrl ||
+    scopes.length !== (Array.isArray(row.scopes) ? row.scopes.length : 0);
   if (!isSecretValue(row.accessToken) || unwrapSecret(row.accessToken) !== accessToken.unwrap()) {
     migrated = true;
   }
@@ -230,7 +236,7 @@ function normalizeMcpOAuth(raw: unknown): { oauth: McpOAuthTokens | null; migrat
     return { oauth: null, migrated: true };
   }
   return {
-    oauth: { accessToken, refreshToken, expiresAt, clientId, clientSecret, scopes },
+    oauth: { accessToken, refreshToken, expiresAt, clientId, clientSecret, scopes, serverUrl },
     migrated,
   };
 }
@@ -384,6 +390,7 @@ function encryptMcpOAuth(oauth: McpOAuthTokens | null): Record<string, unknown> 
     clientId: oauth.clientId,
     clientSecret: encryptSecretForDisk(unwrapSecret(oauth.clientSecret)),
     scopes: oauth.scopes,
+    serverUrl: oauth.serverUrl ?? '',
   };
 }
 

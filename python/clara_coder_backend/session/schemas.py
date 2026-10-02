@@ -517,6 +517,7 @@ class McpOAuthTokensRequest(BaseModel):
     clientId: str = ''
     clientSecret: str = ''
     scopes: list[str] = Field(default_factory=list)
+    serverUrl: str = ''
 
 
 class McpServerRequest(BaseModel):

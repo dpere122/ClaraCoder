@@ -242,11 +242,13 @@ def worker_tools_and_map(
                 ('staging_review', staging_review_tools(direct=direct)[0]),
             ],
         )
-    from clara_coder_backend.mcp.tools import bound_mcp_tools
+        # MCP tools can have any side effect, and allow-all trust runs them without a card,
+        # so read-only surfaces (Ask mode, plan discovery) never bind them.
+        from clara_coder_backend.mcp.tools import bound_mcp_tools
 
-    for mcp_tool in bound_mcp_tools():
-        tools.append(mcp_tool)
-        mapping[mcp_tool.name] = mcp_tool
+        for mcp_tool in bound_mcp_tools():
+            tools.append(mcp_tool)
+            mapping[mcp_tool.name] = mcp_tool
     return tools, mapping
 
 

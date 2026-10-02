@@ -433,6 +433,8 @@ class RuntimeMcpServer:
     oauth_client_id: str = ''
     oauth_client_secret: str = ''
     oauth_scopes: list[str] = field(default_factory=list)
+    #: Server URL the OAuth tokens and client were issued for. They are not used for any other URL.
+    oauth_server_url: str = ''
     #: Remote tool name → ``allow`` or ``deny``.
     tool_decisions: dict[str, str] = field(default_factory=dict)
 

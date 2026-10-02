@@ -44,6 +44,7 @@ function oauthFromWire(raw: unknown): McpOAuthTokens | null {
     clientId: typeof row.clientId === 'string' ? row.clientId : '',
     clientSecret: SecretValue.of(typeof row.clientSecret === 'string' ? row.clientSecret : ''),
     scopes,
+    serverUrl: typeof row.serverUrl === 'string' ? row.serverUrl.trim() : '',
   };
 }
 
@@ -112,6 +113,7 @@ export function registerMcpIpc(): void {
                     clientSecret:
                       typeof server.oauth.clientSecret === 'string' ? server.oauth.clientSecret : server.oauth.clientSecret.unwrap(),
                     scopes: server.oauth.scopes ?? [],
+                    serverUrl: server.oauth.serverUrl ?? '',
                   }
                 : null,
               toolDecisions: server.toolDecisions ?? {},

@@ -1353,6 +1353,11 @@ export interface McpOAuthTokens {
   clientId: string;
   clientSecret: SecretValue<string>;
   scopes: string[];
+  /**
+   * Server URL the sign-in ran against. The Python host only uses these tokens and this client
+   * for that URL, so editing the server URL can never send them to a different host.
+   */
+  serverUrl: string;
 }
 
 /**

@@ -26,6 +26,8 @@ class StoredOAuth:
     client_id: str = ''
     client_secret: str = ''
     scopes: list[str] | None = None
+    #: Server URL the sign-in ran against; see :func:`oauth_bound_to_url`.
+    server_url: str = ''
 
     def as_public_dict(self) -> dict[str, object]:
         return {
@@ -35,7 +37,27 @@ class StoredOAuth:
             'clientId': self.client_id,
             'clientSecret': self.client_secret,
             'scopes': list(self.scopes or []),
+            'serverUrl': self.server_url,
         }
+
+
+def _comparable_url(url: str) -> str:
+    return (url or '').strip().rstrip('/')
+
+
+def oauth_bound_to_url(server: RuntimeMcpServer) -> bool:
+    """True when the stored OAuth tokens and client were issued for ``server.url``.
+
+    Editing a server's URL keeps the old tokens in config, so without this check the old
+    bearer token (and client credentials) would be sent to the new host.
+    """
+
+    issued_for = _comparable_url(server.oauth_server_url)
+    return bool(issued_for) and issued_for == _comparable_url(server.url)
+
+
+def has_usable_oauth_token(server: RuntimeMcpServer) -> bool:
+    return bool((server.oauth_access_token or '').strip()) and oauth_bound_to_url(server)
 
 
 class OAuthLoopback:
@@ -126,9 +148,9 @@ class MemoryTokenStorage:
 def _token_from_server(server: RuntimeMcpServer) -> object | None:
     from mcp.shared.auth import OAuthToken
 
-    access = (server.oauth_access_token or '').strip()
-    if not access:
+    if not has_usable_oauth_token(server):
         return None
+    access = server.oauth_access_token.strip()
     expires_in = None
     if server.oauth_expires_at:
         expires_in = max(0, int(server.oauth_expires_at - time.time()))
@@ -147,7 +169,7 @@ def _client_info_from_server(server: RuntimeMcpServer, redirect_uri: str) -> obj
     from mcp.shared.auth import OAuthClientInformationFull
 
     client_id = (server.oauth_client_id or '').strip()
-    if not client_id:
+    if not client_id or not oauth_bound_to_url(server):
         return None
     secret = (server.oauth_client_secret or '').strip() or None
     return OAuthClientInformationFull(
@@ -160,7 +182,7 @@ def _client_info_from_server(server: RuntimeMcpServer, redirect_uri: str) -> obj
     )
 
 
-def stored_from_memory(storage: MemoryTokenStorage) -> StoredOAuth:
+def stored_from_memory(storage: MemoryTokenStorage, *, server_url: str) -> StoredOAuth:
     tokens = storage.tokens
     info = storage.client_info
     access = str(getattr(tokens, 'access_token', '') or '')
@@ -176,6 +198,7 @@ def stored_from_memory(storage: MemoryTokenStorage) -> StoredOAuth:
         client_id=str(getattr(info, 'client_id', '') or ''),
         client_secret=str(getattr(info, 'client_secret', '') or ''),
         scopes=scopes,
+        server_url=server_url.strip(),
     )
 
 
@@ -195,7 +218,7 @@ def build_oauth_provider(
         tokens=_token_from_server(server),
         client_info=_client_info_from_server(server, redirect_uri),
     )
-    secret = (server.oauth_client_secret or '').strip()
+    secret = (server.oauth_client_secret or '').strip() if oauth_bound_to_url(server) else ''
     metadata = OAuthClientMetadata(
         redirect_uris=[AnyUrl(redirect_uri)],
         grant_types=['authorization_code', 'refresh_token'],

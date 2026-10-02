@@ -449,6 +449,8 @@ export type { AcceptCommandAction, AcceptCommandFinishedEvent, AcceptCommandPayl
 export {
   ACCEPT_COMMAND_KIND_ADMIN_ELEVATION,
   ACCEPT_COMMAND_KIND_ADMIN_ELEVATION_TOOL,
+  ACCEPT_COMMAND_KIND_DEFERRED_TOOL,
+  acceptCommandGrantsAdminElevation,
   createAdminElevationAcceptPayload,
   isAdminElevationKind,
 } from './types/accept-command';

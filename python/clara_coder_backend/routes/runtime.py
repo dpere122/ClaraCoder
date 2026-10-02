@@ -63,6 +63,7 @@ def _runtime_mcp_server(item: object) -> RuntimeMcpServer:
         oauth_client_id=str(getattr(oauth, 'clientId', '') or '') if oauth else '',
         oauth_client_secret=str(getattr(oauth, 'clientSecret', '') or '') if oauth else '',
         oauth_scopes=[str(scope) for scope in (getattr(oauth, 'scopes', None) or [])] if oauth else [],
+        oauth_server_url=str(getattr(oauth, 'serverUrl', '') or '').strip() if oauth else '',
         tool_decisions={str(key): str(value) for key, value in decisions.items() if value in ('allow', 'deny')},
     )
 

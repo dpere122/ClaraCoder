@@ -92,36 +92,27 @@
         }
         @if (effortVisible()) {
           <div class="composer-mode-wrap composer-reasoning-wrap">
-            <select
+            <app-pill-select
               class="composer-mode-select composer-reasoning-select"
-              [ngModel]="reasoningEffort()"
-              (ngModelChange)="onReasoningEffortChange($event)"
+              [options]="reasoningEffortOptions()"
+              valueKey="value"
+              [value]="reasoningEffort()"
+              (valueChange)="onReasoningEffortChange($any($event))"
               [disabled]="thinkingVisible() && !reasoningEnabled()"
-              title="Reasoning effort"
-              aria-label="Reasoning effort"
-            >
-              @for (opt of reasoningEffortOptions(); track opt.value) {
-                <option [value]="opt.value">{{ opt.label }}</option>
-              }
-            </select>
-            <lucide-icon name="chevron-down" [size]="14" class="composer-mode-chevron" aria-hidden="true"></lucide-icon>
+              ariaLabel="Reasoning effort"
+            />
           </div>
         }
       </div>
     }
     <div class="composer-mode-wrap">
-      <select
+      <app-pill-select
         class="composer-mode-select"
-        [ngModel]="composerMode()"
-        (ngModelChange)="composerMode.set($event)"
-        title="Run mode: Agent executes directly; Ask is read-only; Plan drafts steps first."
-        aria-label="Composer run mode"
-      >
-        @for (mode of composerModes; track mode) {
-          <option [value]="mode">{{ composerModeLabels[mode] }}</option>
-        }
-      </select>
-      <lucide-icon name="chevron-down" [size]="14" class="composer-mode-chevron" aria-hidden="true"></lucide-icon>
+        [options]="composerModeOptions"
+        [value]="composerMode()"
+        (valueChange)="composerMode.set($any($event))"
+        ariaLabel="Composer run mode"
+      />
     </div>
     @if (composerMode() !== 'ask') {
       <div class="composer-toggle-chips">

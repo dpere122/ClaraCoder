@@ -1,12 +1,9 @@
 <div class="speech-module">
-  <select
+  <app-pill-select
     class="voice-select"
+    [options]="voices"
     [value]="selectedVoice()"
-    (change)="onVoiceChange($event)"
-    title="Assistant voice (spoken replies)"
-  >
-    @for (v of voices; track v.id) {
-      <option [value]="v.id" [selected]="v.id === selectedVoice()">{{ v.label }}</option>
-    }
-  </select>
+    (valueChange)="onVoiceChange($event)"
+    ariaLabel="Assistant voice (spoken replies)"
+  />
 </div>

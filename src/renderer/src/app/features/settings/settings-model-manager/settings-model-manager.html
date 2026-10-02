@@ -156,27 +156,23 @@
                   <div class='col-12 col-sm-auto'>
                     <label class='hf-filters-panel__select-field'>
                       <span class='hf-filters-panel__label'>Min downloads</span>
-                      <select
-                        [ngModel]='s.modelManagerHfMinDownloads()'
-                        (ngModelChange)='s.onHfMinDownloadsChange($event)'
-                      >
-                        @for (opt of s.hfMinDownloadsOptions; track opt) {
-                          <option [ngValue]='opt'>{{ opt === 0 ? 'Any' : opt >= 1000 ? (opt >= 1000000 ? (opt / 1000000) + 'M+' : (opt / 1000) + 'k+') : opt + '+' }}</option>
-                        }
-                      </select>
+                      <app-pill-select
+                        [options]='hfCountOptions(s.hfMinDownloadsOptions, true)'
+                        [value]="s.modelManagerHfMinDownloads() + ''"
+                        (valueChange)='s.onHfMinDownloadsChange(+$event)'
+                        ariaLabel='Minimum downloads'
+                      />
                     </label>
                   </div>
                   <div class='col-12 col-sm-auto'>
                     <label class='hf-filters-panel__select-field'>
                       <span class='hf-filters-panel__label'>Min likes</span>
-                      <select
-                        [ngModel]='s.modelManagerHfMinLikes()'
-                        (ngModelChange)='s.onHfMinLikesChange($event)'
-                      >
-                        @for (opt of s.hfMinLikesOptions; track opt) {
-                          <option [ngValue]='opt'>{{ opt === 0 ? 'Any' : opt >= 1000 ? (opt / 1000) + 'k+' : opt + '+' }}</option>
-                        }
-                      </select>
+                      <app-pill-select
+                        [options]='hfCountOptions(s.hfMinLikesOptions, false)'
+                        [value]="s.modelManagerHfMinLikes() + ''"
+                        (valueChange)='s.onHfMinLikesChange(+$event)'
+                        ariaLabel='Minimum likes'
+                      />
                     </label>
                   </div>
                   <div class='col-12 col-sm-auto'>

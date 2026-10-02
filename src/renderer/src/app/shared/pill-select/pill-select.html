@@ -1,0 +1,42 @@
+<div class="pill-select" [class.is-open]="open()" [class.is-up]="openUp()" [class.is-disabled]="disabled()">
+  <button
+    type="button"
+    class="pill-select__trigger"
+    [disabled]="disabled()"
+    [id]="controlId() || null"
+    [attr.aria-label]="ariaLabel()"
+    [attr.aria-expanded]="open()"
+    aria-haspopup="listbox"
+    (click)="toggle($event)"
+  >
+    <span class="pill-select__label">{{ selectedLabel() }}</span>
+    <span class="pill-select__chevron" aria-hidden="true"></span>
+  </button>
+  @if (open()) {
+    <div
+      #menu
+      class="pill-select__menu"
+      popover="manual"
+      role="listbox"
+      [attr.aria-label]="ariaLabel()"
+      [ngStyle]="menuStyle()"
+    >
+      @for (option of options(); track optionId(option); let i = $index) {
+        @if (groupHeading(i); as group) {
+          <div class="pill-select__group">{{ group }}</div>
+        }
+        <button
+          type="button"
+          class="pill-select__option"
+          role="option"
+          [class.is-selected]="optionId(option) === value()"
+          [attr.aria-selected]="optionId(option) === value()"
+          [attr.title]="optionTitle(option)"
+          (click)="pick(optionId(option))"
+        >
+          {{ optionLabel(option) }}
+        </button>
+      }
+    </div>
+  }
+</div>

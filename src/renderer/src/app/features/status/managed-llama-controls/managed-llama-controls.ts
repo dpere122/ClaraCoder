@@ -11,9 +11,9 @@ import {
   signal,
   untracked,
 } from '@angular/core';
-import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
+import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 import type {
   AppConfig,
   LlamaServerLifecycleEvent,
@@ -55,7 +55,7 @@ const INVENTORY_SPINNER = {
  */
 @Component({
   selector: 'app-managed-llama-controls',
-  imports: [FormsModule, NgxSpinnerComponent],
+  imports: [NgxSpinnerComponent, PillSelectComponent],
   templateUrl: './managed-llama-controls.html',
   styleUrl: './managed-llama-controls.css',
 })
@@ -108,6 +108,10 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     }
     return [...head, ...rest];
   });
+
+  protected readonly sourceOptions = computed(() =>
+    this.sources().map((provider) => ({ id: provider.id, label: this.sourceLabel(provider) })),
+  );
 
   protected readonly show = computed(() => this.sources().length > 0);
 

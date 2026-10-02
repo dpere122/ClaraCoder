@@ -15,6 +15,7 @@ import {
   untracked,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 import { Subscription } from 'rxjs';
 import type { AppConfig, HealthLogLevel, HealthLogRecord } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
@@ -25,7 +26,7 @@ const MAX_ENTRIES = 2500;
 
 @Component({
   selector: 'app-health-log-viewer',
-  imports: [FormsModule, HealthLogMessagePipe],
+  imports: [FormsModule, HealthLogMessagePipe, PillSelectComponent],
   templateUrl: './health-log-viewer.html',
   styleUrl: './health-log-viewer.css',
 })

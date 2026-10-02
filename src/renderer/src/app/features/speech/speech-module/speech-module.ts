@@ -1,5 +1,6 @@
 import { Component, model, ViewEncapsulation } from '@angular/core';
 import { DEFAULT_KOKORO_TTS_VOICE } from '@shared/index';
+import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 
 export interface VoiceOption {
   id: string;
@@ -26,6 +27,7 @@ export const VOICE_OPTIONS: VoiceOption[] = [
 
 @Component({
   selector: 'app-speech-module',
+  imports: [PillSelectComponent],
   templateUrl: './speech-module.html',
   styleUrl: './speech-module.css',
   encapsulation: ViewEncapsulation.None
@@ -34,7 +36,7 @@ export class SpeechModule {
   readonly selectedVoice = model(DEFAULT_KOKORO_TTS_VOICE);
   readonly voices = VOICE_OPTIONS;
 
-  onVoiceChange(event: Event): void {
-    this.selectedVoice.set((event.target as HTMLSelectElement).value);
+  onVoiceChange(id: string): void {
+    this.selectedVoice.set(id);
   }
 }

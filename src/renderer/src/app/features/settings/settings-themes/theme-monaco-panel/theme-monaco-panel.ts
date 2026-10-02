@@ -9,6 +9,7 @@ import {
 } from '@shared/theme';
 import { createDomColorResolver } from '../../../../core/theme/theme-dom';
 import { SettingsThemesStore } from '../settings-themes-store';
+import { PillSelectComponent } from '../../../../shared/pill-select/pill-select';
 
 interface MonacoColorRow {
   key: string;
@@ -58,13 +59,21 @@ export const MONACO_PANEL_RULES: readonly MonacoRuleRow[] = [
  */
 @Component({
   selector: 'app-theme-monaco-panel',
-  imports: [FormsModule],
+  imports: [FormsModule, PillSelectComponent],
   templateUrl: './theme-monaco-panel.html',
   encapsulation: ViewEncapsulation.None,
 })
 export class ThemeMonacoPanel {
   protected readonly s = inject(SettingsThemesStore);
   protected readonly bases = THEME_MONACO_BASES;
+  protected readonly baseOptions = THEME_MONACO_BASES.map((base) => ({ id: base, label: base }));
+  protected readonly fontStyleOptions = [
+    { id: '', label: 'normal' },
+    { id: 'italic', label: 'italic' },
+    { id: 'bold', label: 'bold' },
+    { id: 'bold italic', label: 'bold italic' },
+    { id: 'underline', label: 'underline' },
+  ];
   protected readonly colorRows = MONACO_PANEL_COLORS;
   protected readonly ruleRows = MONACO_PANEL_RULES;
 

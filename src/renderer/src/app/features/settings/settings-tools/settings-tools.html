@@ -5,10 +5,14 @@
             <div class='form-grid'>
               <label class='field'>
                 <span>Mode</span>
-                <select [ngModel]='s.editToolsMode()' (ngModelChange)='s.onEditToolsModeChange($event)'>
-                  <option value='standard'>Standard — full file, line range, snippet replace</option>
-                  <option value='strict'>Strict — full file and line range only (no snippet tool)</option>
-                </select>
+                <app-pill-select
+                  [value]='s.editToolsMode()'
+                  (valueChange)='s.onEditToolsModeChange($any($event))'
+                  [options]="[
+                    { id: 'standard', label: 'Standard — full file, line range, snippet replace' },
+                    { id: 'strict', label: 'Strict — full file and line range only (no snippet tool)' }
+                  ]"
+                />
               </label>
               <div class='field field--hint'>
                 <label class='toggle-row'>
@@ -239,31 +243,33 @@
             <div class='form-grid'>
               <label class='field'>
                 <span>Default encoding</span>
-                <select
-                  [ngModel]='s.defaultWorkspaceEncoding()'
-                  (ngModelChange)='s.onDefaultWorkspaceEncodingChange($event)'
-                >
-                  <option value='utf-8'>utf-8</option>
-                  <option value='utf-8-sig'>utf-8-sig (BOM)</option>
-                  <option value='utf-16'>utf-16 (BOM + LE)</option>
-                  <option value='utf-16-le'>utf-16-le</option>
-                  <option value='utf-16-be'>utf-16-be</option>
-                  <option value='latin-1'>latin-1</option>
-                  <option value='cp1252'>cp1252 (Windows-1252)</option>
-                  <option value='ascii'>ascii</option>
-                  <option value='mac-roman'>mac-roman</option>
-                </select>
+                <app-pill-select
+                  [value]='s.defaultWorkspaceEncoding()'
+                  (valueChange)='s.onDefaultWorkspaceEncodingChange($event)'
+                  [options]="[
+                    { id: 'utf-8', label: 'utf-8' },
+                    { id: 'utf-8-sig', label: 'utf-8-sig (BOM)' },
+                    { id: 'utf-16', label: 'utf-16 (BOM + LE)' },
+                    { id: 'utf-16-le', label: 'utf-16-le' },
+                    { id: 'utf-16-be', label: 'utf-16-be' },
+                    { id: 'latin-1', label: 'latin-1' },
+                    { id: 'cp1252', label: 'cp1252 (Windows-1252)' },
+                    { id: 'ascii', label: 'ascii' },
+                    { id: 'mac-roman', label: 'mac-roman' }
+                  ]"
+                />
               </label>
               <label class='field'>
                 <span>Default newline for edits</span>
-                <select
-                  [ngModel]='s.defaultWorkspaceNewline()'
-                  (ngModelChange)='s.onDefaultWorkspaceNewlineChange($event)'
-                >
-                  <option value='lf'>LF (Unix)</option>
-                  <option value='crlf'>CRLF (Windows)</option>
-                  <option value='preserve'>Preserve existing file</option>
-                </select>
+                <app-pill-select
+                  [value]='s.defaultWorkspaceNewline()'
+                  (valueChange)='s.onDefaultWorkspaceNewlineChange($any($event))'
+                  [options]="[
+                    { id: 'lf', label: 'LF (Unix)' },
+                    { id: 'crlf', label: 'CRLF (Windows)' },
+                    { id: 'preserve', label: 'Preserve existing file' }
+                  ]"
+                />
               </label>
             </div>
           </div>

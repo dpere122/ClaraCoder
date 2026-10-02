@@ -85,10 +85,16 @@
         </label>
         <label class="field">
           <span>Mode</span>
-          <select [disabled]="t.readOnly()" [value]="t.selectedTheme().mode" (change)="t.setMode($any($event.target).value)">
-            <option value="dark">dark</option>
-            <option value="light">light</option>
-          </select>
+          <app-pill-select
+            [disabled]="t.readOnly()"
+            [value]="t.selectedTheme().mode"
+            (valueChange)="t.setMode($any($event))"
+            ariaLabel="Mode"
+            [options]="[
+              { id: 'dark', label: 'dark' },
+              { id: 'light', label: 'light' }
+            ]"
+          />
         </label>
         <label class="field field--full">
           <span>Description</span>

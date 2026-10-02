@@ -106,33 +106,28 @@
                 @if (isLlamaServer(dep)) {
                   <label class='deps-inline-select' [attr.for]="'variant-' + dep.id">
                     <span>Build</span>
-                    <select
-                      [id]="'variant-' + dep.id"
+                    <app-pill-select
+                      [controlId]="'variant-' + dep.id"
                       [disabled]='isBusy(dep.id)'
                       [value]='variantFor(dep)'
-                      title='Auto detects your GPU. “Compile from source (CUDA)” builds with CUDA on Linux and needs the NVIDIA CUDA toolkit.'
-                      (change)='setVariant(dep, $any($event.target).value)'
-                    >
-                      @for (v of variantOptions; track v) {
-                        <option [value]='v'>{{ variantLabels[v] }}</option>
-                      }
-                    </select>
+                      [options]='variantPillOptions()'
+                      ariaLabel='llama-server build'
+                      (valueChange)='setVariant(dep, $any($event))'
+                    />
                   </label>
                 }
                 @if (isWhisper(dep)) {
                   <label class='deps-inline-select' [attr.for]="'whisper-size-' + dep.id">
                     <span>Model</span>
-                    <select
-                      [id]="'whisper-size-' + dep.id"
+                    <app-pill-select
+                      [controlId]="'whisper-size-' + dep.id"
                       [disabled]='isBusy(dep.id)'
                       [value]='whisperSizeFor(dep)'
-                      title='Pick a size to download. Use it from Settings → Audio.'
-                      (change)='setWhisperSize(dep, $any($event.target).value)'
-                    >
-                      @for (opt of whisperSizeOptions; track opt.value) {
-                        <option [value]='opt.value'>{{ opt.label }}</option>
-                      }
-                    </select>
+                      [options]='whisperSizeOptions'
+                      valueKey='value'
+                      ariaLabel='Whisper model size'
+                      (valueChange)='setWhisperSize(dep, $event)'
+                    />
                   </label>
                 }
               </div>

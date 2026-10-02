@@ -11,6 +11,7 @@ import {
 } from '@shared/theme';
 import { rendererThemeAssetUrl } from '../../../../core/theme/theme-dom';
 import { ThemeTokenEditor, type ThemeTokenChange } from '../theme-token-editor/theme-token-editor';
+import { PillSelectComponent } from '../../../../shared/pill-select/pill-select';
 
 /**
  * One registered element group: scoped token overrides, advanced CSS, and (when the group
@@ -18,7 +19,7 @@ import { ThemeTokenEditor, type ThemeTokenChange } from '../theme-token-editor/t
  */
 @Component({
   selector: 'app-theme-group-panel',
-  imports: [FormsModule, ThemeTokenEditor],
+  imports: [FormsModule, ThemeTokenEditor, PillSelectComponent],
   templateUrl: './theme-group-panel.html',
   encapsulation: ViewEncapsulation.None,
 })
@@ -60,6 +61,13 @@ export class ThemeGroupPanel {
   );
 
   protected readonly assetKeys = computed(() => Object.keys(this.assets()).sort());
+
+  protected readonly assetOptions = computed(() => [
+    { id: '', label: '— none —' },
+    ...this.assetKeys().map((key) => ({ id: key, label: `${key} (${this.assets()[key]})` })),
+  ]);
+
+  protected readonly fitOptions = this.fits.map((fit) => ({ id: fit, label: fit }));
 
   protected readonly previewUrl = computed(() => {
     const bg = this.background();

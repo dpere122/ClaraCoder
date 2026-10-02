@@ -376,7 +376,7 @@
   align-items: center;
 }
 
-.tgp__asset-row select {
+.tgp__asset-row app-pill-select {
   flex: 1;
   min-width: 0;
 }

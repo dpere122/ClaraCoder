@@ -5,11 +5,15 @@
             <div class='form-grid'>
               <label class='field'>
                 <span>Provider</span>
-                <select [ngModel]='s.audioProvider()' (ngModelChange)='s.onAudioProviderChange($event)'>
-                  <option value='whisper'>Whisper (local)</option>
-                  <option value='openai'>OpenAI-compatible</option>
-                  <option value='disabled'>Disabled</option>
-                </select>
+                <app-pill-select
+                  [value]='s.audioProvider()'
+                  (valueChange)='s.onAudioProviderChange($any($event))'
+                  [options]="[
+                    { id: 'whisper', label: 'Whisper (local)' },
+                    { id: 'openai', label: 'OpenAI-compatible' },
+                    { id: 'disabled', label: 'Disabled' }
+                  ]"
+                />
               </label>
               <label class='field'>
                 <span class='local-model-label'>
@@ -35,15 +39,13 @@
                   </span>
                 </span>
                 @if (s.audioProvider() === 'whisper') {
-                  <select
-                    [ngModel]='s.audioModel()'
+                  <app-pill-select
+                    [options]='s.whisperModelOptions()'
+                    valueKey='value'
+                    [value]='s.audioModel()'
                     [disabled]='s.whisperModelsLoading() || s.whisperModelOptions().length === 0'
-                    (ngModelChange)='s.updateAudioSettings({ model: $event })'
-                  >
-                    @for (opt of s.whisperModelOptions(); track opt.value) {
-                      <option [value]='opt.value'>{{ opt.label }}</option>
-                    }
-                  </select>
+                    (valueChange)='s.updateAudioSettings({ model: $event })'
+                  />
                 } @else {
                   <input
                     type='text'
@@ -105,17 +107,12 @@
             <div class='form-grid'>
               <label class='field'>
                 <span>Microphone input</span>
-                <select
-                  [ngModel]='s.talkInputDeviceId()'
-                  (ngModelChange)='s.onTalkInputDeviceIdChange($event)'
-                  title='Select microphone for talk mode'
-                  class='settings-voice-device-select'
-                >
-                  <option value='default'>Default system microphone</option>
-                  @for (d of s.talkAudioInputDevices(); track d.deviceId) {
-                    <option [value]='d.deviceId'>{{ d.label }}</option>
-                  }
-                </select>
+                <app-pill-select
+                  [options]='talkDeviceOptions()'
+                  [value]='s.talkInputDeviceId()'
+                  (valueChange)='s.onTalkInputDeviceIdChange($event)'
+                  ariaLabel='Microphone for talk mode'
+                />
               </label>
               @if (s.talkAudioInputsLoadError()) {
                 <p class='settings-field-hint'>{{ s.talkAudioInputsLoadError() }}</p>
@@ -143,14 +140,15 @@
             <div class='form-grid'>
               <label class='field'>
                 <span>TTS provider</span>
-                <select
-                  [ngModel]='s.ttsProvider()'
-                  (ngModelChange)='s.updateAudioSettings({ ttsProvider: $event })'
-                  title='Assistant TTS backend'
-                >
-                  <option value='kokoro'>Kokoro (local)</option>
-                  <option value='openai-compatible'>OpenAI-compatible (remote)</option>
-                </select>
+                <app-pill-select
+                  [value]='s.ttsProvider()'
+                  (valueChange)='s.updateAudioSettings({ ttsProvider: $any($event) })'
+                  ariaLabel='Assistant TTS backend'
+                  [options]="[
+                    { id: 'kokoro', label: 'Kokoro (local)' },
+                    { id: 'openai-compatible', label: 'OpenAI-compatible (remote)' }
+                  ]"
+                />
               </label>
 
               @if (s.ttsProvider() === 'openai-compatible') {
@@ -197,16 +195,12 @@
               } @else {
                 <label class='field'>
                   <span>TTS voice</span>
-                  <select
-                    [ngModel]='s.ttsVoice()'
-                    (ngModelChange)='s.updateAudioSettings({ ttsVoice: $event })'
-                    class='settings-voice-device-select'
-                    title='Assistant TTS voice (Kokoro)'
-                  >
-                    @for (v of s.ttsVoiceChoices; track v.id) {
-                      <option [value]='v.id'>{{ v.label }}</option>
-                    }
-                  </select>
+                  <app-pill-select
+                    [options]='s.ttsVoiceChoices'
+                    [value]='s.ttsVoice()'
+                    (valueChange)='s.updateAudioSettings({ ttsVoice: $event })'
+                    ariaLabel='Assistant TTS voice'
+                  />
                 </label>
               }
 

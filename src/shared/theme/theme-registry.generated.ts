@@ -24,7 +24,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Message input, prompt toggle, send/abort, and option row.",
     selector: "[data-theme-group=\"chat.composer\"]",
     component: "app/features/chat/message-box",
-    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-border", "--t-border-subtle", "--t-composer-bg", "--t-confirm", "--t-fg", "--t-hover-bg", "--t-input-bg", "--t-input-fg", "--t-primary", "--t-secondary", "--t-text-muted"],
+    tokens: ["--t-active-bg", "--t-bg", "--t-border", "--t-border-subtle", "--t-composer-bg", "--t-confirm", "--t-fg", "--t-hover-bg", "--t-input-bg", "--t-input-fg", "--t-primary", "--t-secondary", "--t-text-muted"],
     supportsBackground: false,
   },
   {

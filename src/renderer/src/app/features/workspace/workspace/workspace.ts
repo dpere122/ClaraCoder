@@ -16,6 +16,7 @@ import type { AppConfig, PythonInterpreterListItem, Workspace, WorkspaceFilesCha
 import { lspServerKindForWorkspaceRelativePath, RUNTIME_VENV_INTERPRETER_ID } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { ManagedLlamaControlsComponent } from '../../status/managed-llama-controls/managed-llama-controls';
+import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { workspaceEntryDeletePrompt } from '../../../shared/themed-confirm-dialog/format-delete-prompt';
 import { WorkspaceFileChangeStatusService } from '../../../core/workspace-file-change-status.service';
@@ -62,7 +63,7 @@ import {
 
 @Component({
   selector: 'app-workspace',
-  imports: [LucideAngularModule, WorkspaceOutlineDockComponent, ManagedLlamaControlsComponent],
+  imports: [LucideAngularModule, WorkspaceOutlineDockComponent, ManagedLlamaControlsComponent, PillSelectComponent],
   templateUrl: './workspace.html',
   styleUrl: './workspace.css',
   encapsulation: ViewEncapsulation.None,
@@ -369,9 +370,7 @@ export class WorkspaceComponent implements OnDestroy {
     });
   }
 
-  async onPythonInterpreterChange(event: Event): Promise<void> {
-    const select = event.target as HTMLSelectElement;
-    const interpreterId = select.value;
+  async onPythonInterpreterChange(interpreterId: string): Promise<void> {
     const wid = this.currentWorkspaceId();
     const sid = this.activeConversationId();
     if (!wid || !sid || !interpreterId) {
@@ -391,13 +390,11 @@ export class WorkspaceComponent implements OnDestroy {
       });
       if (!res.ok) {
         this.pythonInterpreterError.set(res.error);
-        select.value = prev;
         return;
       }
       this.pythonInterpreterSelectedId.set(interpreterId);
     } catch (e) {
       this.pythonInterpreterError.set(e instanceof Error ? e.message : String(e));
-      select.value = prev;
     } finally {
       this.pythonInterpreterLoading.set(false);
     }

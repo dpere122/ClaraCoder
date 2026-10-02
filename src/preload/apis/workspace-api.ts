@@ -1,4 +1,4 @@
-import { ipcRenderer } from 'electron';
+import type { PreloadIpc } from '../preload-ipc';
 import type {
   WorkspaceContextSyncExtras,
   WorkspaceFileWriteOptions,
@@ -6,7 +6,7 @@ import type {
 } from '../../shared';
 
 /** Workspace file tree, Monaco unsaved paths, and Python interpreter IPC. */
-export const workspaceApi = {
+export const createWorkspaceApi = (ipcRenderer: PreloadIpc) => ({
   writeWorkspaceFile: (
     workspaceRoot: string,
     relativePath: string,
@@ -106,4 +106,4 @@ export const workspaceApi = {
   onWorkspacePtyCwd: (
     callback: (event: unknown, data: { sessionId: string; cwd: string }) => void,
   ) => ipcRenderer.on('workspace-pty-cwd', callback),
-};
+});

@@ -1,4 +1,4 @@
-import { ipcRenderer } from 'electron';
+import type { PreloadIpc } from '../preload-ipc';
 import type {
   AppConfig,
   HealthMonitorConfig,
@@ -9,7 +9,7 @@ import type {
 } from '../../shared';
 
 /** App config, window chrome, scripts, and LLM server IPC. */
-export const appServicesApi = {
+export const createAppServicesApi = (ipcRenderer: PreloadIpc) => ({
   setAlwaysOnTop: (pinned: boolean) => ipcRenderer.invoke('set-always-on-top', pinned),
   loadConfig: () => ipcRenderer.invoke('load-config'),
   saveConfig: (config: unknown) => ipcRenderer.invoke('save-config', config),
@@ -80,4 +80,4 @@ export const appServicesApi = {
   onMenuFileCommand: (callback: (command: MenuFileCommand) => void) => {
     ipcRenderer.on('menu-file-command', (_event, command: MenuFileCommand) => callback(command));
   },
-};
+});

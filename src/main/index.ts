@@ -21,6 +21,7 @@ import { registerAllIpc } from './ipc/register-ipc';
 import { killAllWorkspacePtySessions } from './ipc/handlers/workspace-pty';
 import { envClara } from './env-clara';
 import { configureAppDataDir } from './paths';
+import { captureIpcForBrowserBridge, startBrowserBridge } from './dev/browser-bridge';
 
 /**
  * Chromium GPU process often segfaults on Linux Wayland when Vulkan is enabled.
@@ -78,6 +79,8 @@ const userPathReady = applyResolvedUserPath({ extraUserPath: extraUserPathFromDi
 );
 
 registerPrivilegedSchemes();
+// Dev-only (`npm run dev:bridge`): must see the ipcMain handlers as they register.
+captureIpcForBrowserBridge();
 registerAllIpc();
 
 app
@@ -89,6 +92,9 @@ app
     registerNemoAssetProtocol();
     registerClaraThemeAssetProtocol();
     createMainWindow();
+    void startBrowserBridge().catch((err) => {
+      console.error('[Main] Browser bridge failed to start:', err);
+    });
 
     // Fire-and-forget: each orphan may take the full CTRL_C grace to unload.
     void reapOrphanManagedLlamaServers().catch((err) => {

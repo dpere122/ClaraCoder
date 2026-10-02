@@ -1,8 +1,8 @@
-import { ipcRenderer } from 'electron';
+import type { PreloadIpc } from '../preload-ipc';
 import type { HfDownloadId, HfDownloadProgressEvent } from '../../shared';
 
 /** Local model manager (HF search, rename, delete, GGUF download). */
-export const modelManagerApi = {
+export const createModelManagerApi = (ipcRenderer: PreloadIpc) => ({
   modelManagerPickCustomDir: () => ipcRenderer.invoke('model-manager:pick-custom-dir'),
   modelManagerListCustomModels: (payload: { customDir: string }) =>
     ipcRenderer.invoke('model-manager:list-custom-models', payload),
@@ -23,4 +23,4 @@ export const modelManagerApi = {
     ipcRenderer.invoke('model-manager:cancel-hf-download', payload),
   onModelManagerHfDownloadProgress: (callback: (event: unknown, data: HfDownloadProgressEvent) => void) =>
     ipcRenderer.on('model-manager:hf-download-progress', callback),
-};
+});

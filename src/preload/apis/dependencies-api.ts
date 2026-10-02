@@ -1,7 +1,7 @@
-import { ipcRenderer } from 'electron';
+import type { PreloadIpc } from '../preload-ipc';
 import type { DependencyActionResult, DependencyId, DependencyInfo, DependencyProgressEvent } from '../../shared';
 
-export const dependenciesApi = {
+export const createDependenciesApi = (ipcRenderer: PreloadIpc) => ({
   depsList: () =>
     ipcRenderer.invoke('deps:list') as Promise<{
       ok: boolean;
@@ -21,4 +21,4 @@ export const dependenciesApi = {
     ipcRenderer.on('deps:progress', callback),
   offDepsProgress: (callback: (event: unknown, data: DependencyProgressEvent) => void) =>
     ipcRenderer.removeListener('deps:progress', callback),
-};
+});

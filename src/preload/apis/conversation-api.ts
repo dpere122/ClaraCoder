@@ -1,7 +1,7 @@
-import { ipcRenderer } from 'electron';
+import type { PreloadIpc } from '../preload-ipc';
 
 /** Conversation persistence IPC. */
-export const conversationApi = {
+export const createConversationApi = (ipcRenderer: PreloadIpc) => ({
   getConversations: (workspaceId?: string | null) => ipcRenderer.invoke('get-conversations', workspaceId),
   readConversationFromDisk: (id: string, workspaceId?: string | null) =>
     ipcRenderer.invoke('read-conversation-from-disk', id, workspaceId),
@@ -24,4 +24,4 @@ export const conversationApi = {
     ipcRenderer.invoke('list-conversation-file-journal', conversationId),
   appendConversationFileJournal: (entry: unknown) => ipcRenderer.invoke('append-conversation-file-journal', entry),
   restoreConversationTimeline: (request: unknown) => ipcRenderer.invoke('restore-conversation-timeline', request),
-};
+});

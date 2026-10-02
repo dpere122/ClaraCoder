@@ -544,3 +544,157 @@ def test_build_llm_disable_thinking_qwen_caps_effort_allow_list(
     ctk = (kwargs.get('extra_body') or {}).get('chat_template_kwargs') or {}
     assert ctk.get('enable_thinking') is False
     assert ctk.get('reasoning_effort') == 'none'
+
+
+def _openrouter_conn(**kwargs: object) -> RuntimeConnection:
+    base = dict(
+        id='or',
+        name='OpenRouter',
+        provider='openrouter',
+        base_url='https://openrouter.ai/api',
+        model='anthropic/claude-sonnet-4.5',
+        api_key='sk-or-test',
+        reasoning_effort='low',
+        temperature=0.2,
+        parallel_tool_calls=True,
+        optimization_preset='generic',
+        max_output_tokens=0,
+        top_p=0.9,
+        top_k=40,
+        min_p=0.05,
+        repeat_penalty=1.1,
+    )
+    base.update(kwargs)
+    return RuntimeConnection(**base)
+
+
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
+def test_build_llm_openrouter_headers_reasoning_and_no_llama_extra(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    mock_get.return_value = _openrouter_conn()
+    from clara_coder_backend.llm.factory import OPENROUTER_APP_TITLE, OPENROUTER_HTTP_REFERER, build_llm
+
+    build_llm()
+    kwargs = mock_ctor.call_args.kwargs
+    assert kwargs.get('base_url') == 'https://openrouter.ai/api/v1'
+    assert kwargs.get('api_key') == 'sk-or-test'
+    assert kwargs.get('default_headers') == {
+        'HTTP-Referer': OPENROUTER_HTTP_REFERER,
+        'X-OpenRouter-Title': OPENROUTER_APP_TITLE,
+    }
+    assert OPENROUTER_HTTP_REFERER == 'https://clara.coder'
+    assert OPENROUTER_APP_TITLE == 'Clara Coder'
+    assert 'reasoning_effort' not in kwargs
+    assert kwargs.get('top_p') == 0.9
+    eb = kwargs.get('extra_body') or {}
+    assert eb.get('reasoning') == {'effort': 'low'}
+    assert 'top_k' not in eb
+    assert 'min_p' not in eb
+    assert 'repeat_penalty' not in eb
+    assert 'chat_template_kwargs' not in eb
+
+
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
+def test_build_llm_openrouter_omits_reasoning_when_default(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    mock_get.return_value = _openrouter_conn(reasoning_effort='', top_k=None, min_p=None, repeat_penalty=None, top_p=None)
+    from clara_coder_backend.llm.factory import build_llm
+
+    build_llm()
+    kwargs = mock_ctor.call_args.kwargs
+    assert 'reasoning_effort' not in kwargs
+    eb = kwargs.get('extra_body') or {}
+    assert 'reasoning' not in eb
+    assert 'chat_template_kwargs' not in eb
+
+
+def _build_openrouter_kwargs(mock_get: MagicMock, mock_ctor: MagicMock, *, disable_thinking: bool = False, **conn: object) -> dict:
+    mock_get.return_value = _openrouter_conn(top_k=None, min_p=None, repeat_penalty=None, **conn)
+    from clara_coder_backend.llm.factory import build_llm
+
+    build_llm(disable_thinking=disable_thinking)
+    return mock_ctor.call_args.kwargs
+
+
+_OPTIONAL_CAPS = {'enableThinking': True, 'reasoningEffortValues': ['low', 'medium', 'high']}
+_MANDATORY_CAPS = {'enableThinking': False, 'reasoningEffortValues': ['low', 'medium', 'high', 'xhigh', 'max']}
+
+
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
+def test_build_llm_openrouter_toggle_off_sends_none_when_reasoning_optional(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    kwargs = _build_openrouter_kwargs(
+        mock_get, mock_ctor, thinking_mode='off', reasoning_effort='high', chat_template_reasoning=_OPTIONAL_CAPS
+    )
+    assert (kwargs.get('extra_body') or {}).get('reasoning') == {'effort': 'none'}
+
+
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
+def test_build_llm_openrouter_mandatory_ignores_saved_off_and_keeps_effort(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    kwargs = _build_openrouter_kwargs(
+        mock_get, mock_ctor, thinking_mode='off', reasoning_effort='max', chat_template_reasoning=_MANDATORY_CAPS
+    )
+    assert (kwargs.get('extra_body') or {}).get('reasoning') == {'effort': 'max'}
+
+
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
+def test_build_llm_openrouter_disable_thinking_never_sends_none_to_mandatory(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    kwargs = _build_openrouter_kwargs(
+        mock_get, mock_ctor, disable_thinking=True, reasoning_effort='high', chat_template_reasoning=_MANDATORY_CAPS
+    )
+    assert 'reasoning' not in (kwargs.get('extra_body') or {})
+
+
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
+def test_build_llm_openrouter_toggle_on_with_default_effort_enables_reasoning(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    kwargs = _build_openrouter_kwargs(
+        mock_get, mock_ctor, thinking_mode='on', reasoning_effort='', chat_template_reasoning=_OPTIONAL_CAPS
+    )
+    assert (kwargs.get('extra_body') or {}).get('reasoning') == {'enabled': True}
+
+
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
+def test_build_llm_openrouter_drops_effort_the_model_does_not_advertise(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    kwargs = _build_openrouter_kwargs(
+        mock_get, mock_ctor, reasoning_effort='xhigh', chat_template_reasoning=_OPTIONAL_CAPS
+    )
+    assert 'reasoning' not in (kwargs.get('extra_body') or {})

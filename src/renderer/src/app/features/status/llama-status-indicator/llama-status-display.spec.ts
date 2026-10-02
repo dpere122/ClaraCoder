@@ -1,4 +1,10 @@
-import { computeStatusPollIntervalMs, embeddingsStatusDotState, healthDotState, modelStatusDotState } from './llama-status-display';
+import {
+  computeStatusPollIntervalMs,
+  embeddingsStatusDotState,
+  healthDotState,
+  modelStatusDotState,
+  openRouterModelDotState,
+} from './llama-status-display';
 
 describe('computeStatusPollIntervalMs', () => {
   it('uses short interval when not ok or not running', () => {
@@ -136,5 +142,16 @@ describe('modelStatusDotState', () => {
         chat: { port: 1, health: 'ok' },
       }),
     ).toBe('green');
+  });
+});
+
+describe('openRouterModelDotState', () => {
+  it('is green when a model id and API key are set', () => {
+    expect(openRouterModelDotState('anthropic/claude-sonnet-4.5', 'sk-or-test')).toBe('green');
+  });
+
+  it('is gray until both the model and API key are set', () => {
+    expect(openRouterModelDotState('', 'sk-or-test')).toBe('gray');
+    expect(openRouterModelDotState('anthropic/claude-sonnet-4.5', '  ')).toBe('gray');
   });
 });

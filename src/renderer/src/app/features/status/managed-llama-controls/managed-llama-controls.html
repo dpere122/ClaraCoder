@@ -10,6 +10,7 @@
         ariaLabel="Active LLM source"
         (valueChange)="onSourceChange($event)"
       />
+      @if (showManagedStart()) {
       <button
         type="button"
         class="action-button action-button--primary managed-llama-controls__btn"
@@ -38,6 +39,7 @@
         </span>
         <span class="managed-llama-controls__btn-label">{{ actionLabel() }}</span>
       </button>
+      }
     </div>
   </div>
 }

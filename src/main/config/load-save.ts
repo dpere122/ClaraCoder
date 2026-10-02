@@ -40,6 +40,7 @@ import {
   PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   PINNED_LM_STUDIO_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
+  PINNED_OPENROUTER_PROVIDER_ID,
 } from '../../shared';
 import {
   coerceSecretValue,
@@ -58,6 +59,7 @@ import {
   createPinnedLmStudioProvider,
   createPinnedLlamaServerUrlProvider,
   createPinnedLocalManagedLlamaProvider,
+  createPinnedOpenRouterProvider,
   getDefaultAudioTranscription,
   getDefaultHealthMonitor,
   getDefaultLlmProviders,
@@ -317,6 +319,7 @@ function normalizeLlmModelProfile(model: LlmModelProfile, provider: LlmProviderC
       'medium',
       'high',
       'xhigh',
+      'max',
       'on',
       'off',
     ];
@@ -549,10 +552,21 @@ function normalizeLlmProvidersTree(providers: LlmProviderConfig[]): boolean {
     }
     if (!p.name) {
       p.name =
-        p.provider === 'lmstudio' ? 'LM Studio' : p.provider === 'llamacpp' ? 'llama.cpp' : 'OpenAI';
+        p.provider === 'lmstudio'
+          ? 'LM Studio'
+          : p.provider === 'llamacpp'
+            ? 'llama.cpp'
+            : p.provider === 'openrouter'
+              ? 'OpenRouter'
+              : 'OpenAI';
       migrated = true;
     }
-    if (p.provider !== 'openai' && p.provider !== 'lmstudio' && p.provider !== 'llamacpp') {
+    if (
+      p.provider !== 'openai' &&
+      p.provider !== 'lmstudio' &&
+      p.provider !== 'llamacpp' &&
+      p.provider !== 'openrouter'
+    ) {
       p.provider = 'openai';
       migrated = true;
     }
@@ -562,7 +576,9 @@ function normalizeLlmProvidersTree(providers: LlmProviderConfig[]): boolean {
           ? 'http://127.0.0.1:1234/v1'
           : p.provider === 'llamacpp'
             ? 'http://127.0.0.1:8080/v1'
-            : '';
+            : p.provider === 'openrouter'
+              ? 'https://openrouter.ai/api/v1'
+              : '';
       migrated = true;
     }
     if (p.apiKey === undefined) {
@@ -577,7 +593,11 @@ function normalizeLlmProvidersTree(providers: LlmProviderConfig[]): boolean {
     }
     if (!Array.isArray(p.models) || p.models.length === 0) {
       const mid =
-        p.provider === 'lmstudio' || p.provider === 'llamacpp' ? 'local-model' : 'gpt-4o-mini';
+        p.provider === 'lmstudio' || p.provider === 'llamacpp'
+          ? 'local-model'
+          : p.provider === 'openrouter'
+            ? ''
+            : 'gpt-4o-mini';
       p.models = [
         {
           id: randomUUID(),
@@ -653,6 +673,22 @@ function ensurePinnedLlamaServerUrlProvider(providers: LlmProviderConfig[]): boo
   const at = lmIdx >= 0 ? lmIdx + 1 : 1;
   const insert = Math.min(at, providers.length);
   providers.splice(insert, 0, createPinnedLlamaServerUrlProvider());
+  return true;
+}
+
+/** Ensure the pinned OpenRouter row exists after the local llama source. Does not change the active model. */
+function ensurePinnedOpenRouterProvider(providers: LlmProviderConfig[]): boolean {
+  const existing = providers.find((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID);
+  if (existing) {
+    if (existing.provider !== 'openrouter') {
+      existing.provider = 'openrouter';
+      return true;
+    }
+    return false;
+  }
+  const localIdx = providers.findIndex((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID);
+  const insert = localIdx >= 0 ? localIdx + 1 : providers.length;
+  providers.splice(insert, 0, createPinnedOpenRouterProvider());
   return true;
 }
 
@@ -901,6 +937,10 @@ export function migrateConfig(config: AppConfig): AppConfig {
   }
 
   if (ensurePinnedLocalManagedLlamaProvider(newConfig.llmProviders)) {
+    migrated = true;
+  }
+
+  if (ensurePinnedOpenRouterProvider(newConfig.llmProviders)) {
     migrated = true;
   }
 

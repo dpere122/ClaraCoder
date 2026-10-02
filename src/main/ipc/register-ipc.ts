@@ -15,6 +15,7 @@ import { registerHealthWindowIpc } from '../windows/health-window';
 import { registerWindowChromeIpc } from './handlers/window-chrome';
 import { registerLlamaServerIpc } from './handlers/llama-server';
 import { registerLmStudioIpc } from './handlers/lm-studio';
+import { registerOpenRouterIpc } from './handlers/openrouter';
 import { registerLspStatusIpc } from './handlers/lsp-status';
 import { registerLspEditorExtendedIpc } from './handlers/lsp-editor-extended-ipc';
 import { registerLspDiagnosticsWatchIpc } from './handlers/lsp-diagnostics-watch';
@@ -29,6 +30,7 @@ export function registerAllIpc(): void {
   registerChatIpc();
   registerLlamaServerIpc();
   registerLmStudioIpc();
+  registerOpenRouterIpc();
   registerModelManagerIpc();
   registerDependenciesIpc();
   registerLspStatusIpc();

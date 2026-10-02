@@ -6,7 +6,7 @@ Uses the ``openai`` Python package (via ``langchain-openai``) against OpenAI-com
 :class:`~langchain_core.messages.AIMessage.usage_metadata` (prompt, completion, and total tokens) where the
 server supports it (OpenAI, LM Studio, recent ``llama-server``, etc.).
 
-Supports OpenAI's API, LM Studio, and llama.cpp’s OpenAI-compatible HTTP server. Streaming is
+Supports OpenAI's API, OpenRouter, LM Studio, and llama.cpp’s OpenAI-compatible HTTP server. Streaming is
 enabled for token-by-token :meth:`~langchain_core.language_models.chat_models.BaseChatModel.astream`.
 Optional ``reasoning_effort`` is passed through for models that support it
 (``none|minimal|low|medium|high|xhigh`` on current OpenAI-style APIs). UI values ``on`` / ``off``
@@ -28,7 +28,12 @@ import httpx
 from fastapi import HTTPException
 from langchain_openai import ChatOpenAI
 
-from clara_coder_backend.config import env_clara, DEFAULT_LLAMACPP_BASE_URL, DEFAULT_LM_STUDIO_BASE_URL
+from clara_coder_backend.config import (
+    env_clara,
+    DEFAULT_LLAMACPP_BASE_URL,
+    DEFAULT_LM_STUDIO_BASE_URL,
+    DEFAULT_OPENROUTER_BASE_URL,
+)
 from clara_coder_backend.logging.llm_interaction_logging import log_llm_connection_settings
 from clara_coder_backend.llm.http_transport import acquire_llm_http_clients
 from clara_coder_backend.runtime.http_url_normalize import normalize_openai_api_base
@@ -44,7 +49,14 @@ from clara_coder_backend.session.state import get_active_connection, require_ope
 logger = logging.getLogger('clara.llm')
 
 # OpenAI (and aligned gateways) reject arbitrary strings; ``on``/``off`` are app UI aliases only.
-_REASONING_API_VALUES = frozenset({'none', 'minimal', 'low', 'medium', 'high', 'xhigh'})
+_REASONING_API_VALUES = frozenset({'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'})
+
+# llama.cpp / LM Studio fields. OpenRouter forwards unknown body fields and upstreams reject them.
+_LLAMA_EXTRA_BODY_KEYS = ('top_k', 'min_p', 'repeat_penalty', 'chat_template_kwargs')
+
+# OpenRouter app attribution (rankings). ``HTTP-Referer`` is the app id; title is the display name.
+OPENROUTER_HTTP_REFERER = 'https://clara.coder'
+OPENROUTER_APP_TITLE = 'Clara Coder'
 
 # Idle (inter-token) read timeout so a stalled stream surfaces as an error instead of an infinite
 # silent hang. httpx ``read`` governs the max wait between received chunks, so this does NOT cap the
@@ -122,6 +134,12 @@ def build_llm(*, disable_thinking: bool = False) -> ChatOpenAI:
             normalize_openai_api_base(connection.base_url or DEFAULT_LLAMACPP_BASE_URL) or DEFAULT_LLAMACPP_BASE_URL
         )
         api_key = connection.api_key or os.getenv('LLAMACPP_API_KEY', 'not-needed')
+    elif connection.provider == 'openrouter':
+        api_key = api_key or os.getenv('OPENROUTER_API_KEY', '')
+        require_openai_api_key(api_key, 'OpenRouter')
+        base_url = (
+            normalize_openai_api_base(connection.base_url or DEFAULT_OPENROUTER_BASE_URL) or DEFAULT_OPENROUTER_BASE_URL
+        )
     else:
         logger.error('Unsupported LLM provider: %s', connection.provider)
         raise HTTPException(status_code=500, detail=f'Unsupported LLM provider: {connection.provider}')
@@ -158,10 +176,18 @@ def build_llm(*, disable_thinking: bool = False) -> ChatOpenAI:
 
     # Per-connection UI setting, with env fallback for headless/dev use.
     # Live Jinja caps (when present) decide whether effort is sent; otherwise Gemma omits it.
-    thinking_off = disable_thinking or (
-        (getattr(connection, 'thinking_mode', None) or 'default').strip().lower() == 'off'
-    )
+    thinking_mode = (getattr(connection, 'thinking_mode', None) or 'default').strip().lower()
     effort_caps = getattr(connection, 'chat_template_reasoning', None)
+    # OpenRouter caps come from the model catalog: ``enableThinking`` means reasoning is optional.
+    openrouter_reasoning_optional = (
+        connection.provider == 'openrouter' and isinstance(effort_caps, dict) and bool(effort_caps.get('enableThinking'))
+    )
+    user_thinking_off = thinking_mode == 'off'
+    if connection.provider == 'openrouter' and isinstance(effort_caps, dict) and not openrouter_reasoning_optional:
+        # No off switch for this model (mandatory reasoning, or none): a saved ``off`` must not
+        # also drop the effort the user picked.
+        user_thinking_off = False
+    thinking_off = disable_thinking or user_thinking_off
     allowed = effort_caps.get('reasoningEffortValues') if isinstance(effort_caps, dict) else None
     if not isinstance(allowed, list):
         allowed = None
@@ -198,8 +224,8 @@ def build_llm(*, disable_thinking: bool = False) -> ChatOpenAI:
     ctk_updates: dict[str, Any] = {}
     if disable_thinking:
         # Always pin boolean thinking off for llama.cpp / LM Studio / unknown templates.
-        # Skip OpenAI's strict Chat Completions schema (unknown extra_body fields 400).
-        if connection.provider != 'openai':
+        # Skip OpenAI and OpenRouter (unknown extra_body fields 400).
+        if connection.provider not in ('openai', 'openrouter'):
             ctk_updates['enable_thinking'] = False
     else:
         enable_thinking = gemma_enable_thinking_for_llm(connection)
@@ -214,6 +240,28 @@ def build_llm(*, disable_thinking: bool = False) -> ChatOpenAI:
         ctk.update(ctk_updates)
         base_eb['chat_template_kwargs'] = ctk
         kwargs['extra_body'] = base_eb
+
+    if connection.provider == 'openrouter':
+        effort = kwargs.pop('reasoning_effort', None)
+        eb = dict(kwargs.get('extra_body') or {})
+        for key in _LLAMA_EXTRA_BODY_KEYS:
+            eb.pop(key, None)
+        if thinking_off and openrouter_reasoning_optional:
+            # OpenRouter's off switch; mandatory-reasoning models reject it, hence the guard.
+            effort = 'none'
+        if isinstance(effort, str) and effort.strip():
+            eb['reasoning'] = {'effort': effort.strip()}
+        elif thinking_mode == 'on' and openrouter_reasoning_optional:
+            # Toggle explicitly on with Default effort: some models only reason when asked.
+            eb['reasoning'] = {'enabled': True}
+        if eb:
+            kwargs['extra_body'] = eb
+        else:
+            kwargs.pop('extra_body', None)
+        kwargs['default_headers'] = {
+            'HTTP-Referer': OPENROUTER_HTTP_REFERER,
+            'X-OpenRouter-Title': OPENROUTER_APP_TITLE,
+        }
 
     safe: dict[str, Any] = {
         'provider': connection.provider,

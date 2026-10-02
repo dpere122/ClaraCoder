@@ -28,6 +28,7 @@ import type {
   LlamaServerStatusResult,
   EmbeddingsStatusResult,
   LlamacppManagedListModelsResult,
+  OpenRouterListModelsResult,
   ChatTemplateReasoningCaps,
   LmStudioListModelsResult,
   LmStudioMutationResult,
@@ -1548,6 +1549,10 @@ export class ElectronService {
     return (
       this.api?.llamacppOpenAiListModels(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
     );
+  }
+
+  openRouterListModels(payload: { baseUrl: string; apiKey: string }): Promise<OpenRouterListModelsResult> {
+    return this.api?.openRouterListModels(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
   }
 
   lmStudioListModels(payload: { baseUrl: string; apiKey?: string }): Promise<LmStudioListModelsResult> {

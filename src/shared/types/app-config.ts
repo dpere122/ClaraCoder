@@ -118,7 +118,17 @@ export type GemmaThinkingMode = 'default' | 'on' | 'off';
  * Chat Completions ``reasoning_effort``; empty = omit parameter.
  * UI aliases ``on`` / ``off`` map to medium / none in the backend.
  */
-export type LlmReasoningEffort = '' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'on' | 'off';
+export type LlmReasoningEffort =
+  | ''
+  | 'none'
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max'
+  | 'on'
+  | 'off';
 
 /** Ordered options for Settings and the composer Reasoning dropdown (generic / Qwen). */
 export const LLM_REASONING_EFFORT_OPTIONS: readonly { value: LlmReasoningEffort; label: string }[] = [
@@ -218,8 +228,8 @@ export interface LlmModelProfile {
 export interface LlmProviderConfig {
   id: string;
   name: string;
-  /** ``llamacpp`` targets llama.cpp’s OpenAI-compatible HTTP server (``llama-server``). */
-  provider: 'openai' | 'lmstudio' | 'llamacpp' | 'python-t2i';
+  /** ``llamacpp`` targets llama.cpp’s OpenAI-compatible HTTP server (``llama-server``). ``openrouter`` is OpenRouter’s chat API. */
+  provider: 'openai' | 'lmstudio' | 'llamacpp' | 'openrouter' | 'python-t2i';
   baseUrl: string;
   apiKey: SecretValue<string>;
   /**
@@ -246,7 +256,15 @@ export type LlmConnectionConfig = LlmModelProfile &
   Pick<LlmProviderConfig, 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel' | 'embeddingsBaseUrl'>;
 
 const GEMMA_THINKING_MODE_VALUES = new Set<string>(LLM_THINKING_MODE_OPTIONS.map((o) => o.value));
-const REASONING_EFFORT_VALUES = new Set<string>(LLM_REASONING_EFFORT_OPTIONS.map((o) => o.value));
+/**
+ * Valid when a model advertises it (OpenRouter ``supported_efforts``), but not offered in the
+ * generic list: plain OpenAI-compatible APIs reject it.
+ */
+const ADVERTISED_ONLY_EFFORT_VALUES: readonly LlmReasoningEffort[] = ['max'];
+const REASONING_EFFORT_VALUES = new Set<string>([
+  ...LLM_REASONING_EFFORT_OPTIONS.map((o) => o.value),
+  ...ADVERTISED_ONLY_EFFORT_VALUES,
+]);
 
 function effortOptionsFromValues(values: readonly string[]): { value: string; label: string }[] {
   const byValue = new Map<string, { value: string; label: string }>(

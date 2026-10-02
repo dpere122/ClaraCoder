@@ -28,6 +28,7 @@ import {
   isPinnedLlamaCppLocalProviderId,
   isPinnedLlamaServerUrlProviderId,
   isPinnedLmStudioProviderId,
+  isPinnedOpenRouterProviderId,
   isPinnedLlmSourceId,
   managedLlamaSourceDisplayName,
 } from '@shared/index';
@@ -95,6 +96,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     const pinLm = list.find((p) => isPinnedLmStudioProviderId(p.id));
     const pinUrl = list.find((p) => isPinnedLlamaServerUrlProviderId(p.id));
     const pinLocal = list.find((p) => isPinnedLlamaCppLocalProviderId(p.id));
+    const pinOpenRouter = list.find((p) => isPinnedOpenRouterProviderId(p.id));
     const rest = list.filter((p) => !isPinnedLlmSourceId(p.id));
     const head: LlmProviderConfig[] = [];
     if (pinLm) {
@@ -105,6 +107,9 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     }
     if (pinLocal) {
       head.push(pinLocal);
+    }
+    if (pinOpenRouter) {
+      head.push(pinOpenRouter);
     }
     return [...head, ...rest];
   });
@@ -133,6 +138,19 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
 
   /** Whether the active source is a local llama server (Start/Stop eligible). */
   protected readonly isLocalLlama = computed(() => this.activeLocation() !== null);
+
+  /** Active provider kind, used to hide the managed server button for OpenRouter. */
+  private readonly activeProviderKind = computed(() => {
+    const cfg = this.appConfig();
+    const mid = cfg?.activeLlmModelId?.trim();
+    if (!cfg || !mid) {
+      return null;
+    }
+    return findLlmModelLocation(cfg.llmProviders, mid)?.provider.provider ?? null;
+  });
+
+  /** Start/Stop is the managed local llama-server. Hide it while OpenRouter is the chat source. */
+  protected readonly showManagedStart = computed(() => this.activeProviderKind() !== 'openrouter');
 
   protected readonly modelId = computed(() => this.activeLocation()?.model.id ?? '');
 

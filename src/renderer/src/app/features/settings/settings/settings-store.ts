@@ -18,6 +18,7 @@ import type {
   LlmOptimizationPreset,
   LlmProviderConfig,
   LmStudioModelCard,
+  OpenRouterCatalogModel,
   ModelManagerFileEntry,
   MonacoWorkspaceEditorSettings,
   MonacoWorkspaceEditorThemeId,
@@ -117,6 +118,7 @@ import {
   isPinnedLmStudioProviderId,
   isPinnedLlamaCppLocalProviderId,
   isPinnedLlamaServerUrlProviderId,
+  isPinnedOpenRouterProviderId,
   type ManagedLlamaCacheType,
   type ManagedLlamaFlashAttn,
   type ManagedLlamaModelSource,
@@ -455,12 +457,13 @@ export class SettingsStore {
     const tab = this.tabs.find((t) => t.id === parent) ?? this.tabs[0];
     return { label: tab.label, description: tab.description };
   });
-  /** Pinned sources first: LM Studio, remote llama URL, local managed llama; remaining rows keep file order. */
+  /** Pinned sources first: LM Studio, remote llama URL, local managed llama, OpenRouter; remaining rows keep file order. */
   readonly sourcesOrdered = computed(() => {
     const list = this.llmProviders();
     const pinLm = list.find((p) => isPinnedLmStudioProviderId(p.id));
     const pinUrl = list.find((p) => isPinnedLlamaServerUrlProviderId(p.id));
     const pinLocal = list.find((p) => isPinnedLlamaCppLocalProviderId(p.id));
+    const pinOpenRouter = list.find((p) => isPinnedOpenRouterProviderId(p.id));
     const rest = list.filter((p) => !isPinnedLlmSourceId(p.id));
     const head: LlmProviderConfig[] = [];
     if (pinLm) {
@@ -471,6 +474,9 @@ export class SettingsStore {
     }
     if (pinLocal) {
       head.push(pinLocal);
+    }
+    if (pinOpenRouter) {
+      head.push(pinOpenRouter);
     }
     return [...head, ...rest];
   });
@@ -488,6 +494,9 @@ export class SettingsStore {
     this.lmStudioInventory().filter((c) => c.state === 'loaded' || c.state === 'loading'),
   );
   readonly llamacppManagedModelIds = signal<string[]>([]);
+  readonly openRouterModels = signal<OpenRouterCatalogModel[]>([]);
+  readonly openRouterModelsListInFlight = signal(false);
+  readonly openRouterModelsListError = signal<string | null>(null);
   /** ``GET /v1/models`` from embeddings base URL when it differs from chat (URL-only llama.cpp). */
   readonly llamacppUrlEmbeddingModelIds = signal<string[]>([]);
   readonly llamacppModelsListError = signal<string | null>(null);
@@ -1010,6 +1019,10 @@ export class SettingsStore {
       this.llamacppUrlEmbeddingModelIds.set([]);
       this.llamacppModelsListError.set(null);
     }
+    if (p.provider !== 'openrouter') {
+      this.openRouterModels.set([]);
+      this.openRouterModelsListError.set(null);
+    }
   }
 
   activateSource(providerId: string): void {
@@ -1097,6 +1110,48 @@ export class SettingsStore {
     } finally {
       this.llamacppModelsListInFlight.set(false);
     }
+  }
+
+  async refreshOpenRouterModels(): Promise<void> {
+    const p = this.selectedProvider();
+    if (!p || p.provider !== 'openrouter') {
+      return;
+    }
+    this.openRouterModelsListInFlight.set(true);
+    this.openRouterModelsListError.set(null);
+    try {
+      const res = await this.electron.openRouterListModels({
+        baseUrl: p.baseUrl,
+        apiKey: unwrapSecret(p.apiKey) || '',
+      });
+      if (!res.ok) {
+        this.openRouterModels.set([]);
+        this.openRouterModelsListError.set(res.error);
+        return;
+      }
+      this.openRouterModels.set(res.models);
+    } catch (e) {
+      this.openRouterModels.set([]);
+      this.openRouterModelsListError.set(e instanceof Error ? e.message : String(e));
+    } finally {
+      this.openRouterModelsListInFlight.set(false);
+    }
+  }
+
+  onOpenRouterModelChange(model: string): void {
+    const loc = this.selectedLocation();
+    if (!loc) {
+      return;
+    }
+    const hit = this.openRouterModels().find((row) => row.id === model);
+    const contextWindowTokens =
+      hit && hit.contextLength > 0 ? hit.contextLength : inferContextWindowTokens(model, 'openrouter');
+    this.applyLlmModelPatch(loc.model.id, {
+      model,
+      name: hit?.name || model,
+      contextWindowTokens,
+    });
+    this.markSettingsDirty();
   }
 
   isPinnedSource(providerId: string): boolean {
@@ -1374,6 +1429,9 @@ export class SettingsStore {
     }
     if (kind === 'llamacpp') {
       return 'llama.cpp';
+    }
+    if (kind === 'openrouter') {
+      return 'OpenRouter';
     }
     return 'OpenAI';
   }

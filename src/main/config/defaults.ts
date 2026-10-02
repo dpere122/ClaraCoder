@@ -25,6 +25,7 @@ import {
   PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   PINNED_LM_STUDIO_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
+  PINNED_OPENROUTER_PROVIDER_ID,
   TTS_SPEECH_SPEED_DEFAULT,
 } from '../../shared';
 import { SecretValue } from '../../shared/types/app-config';
@@ -133,11 +134,41 @@ export function createPinnedLlamaServerUrlProvider(): LlmProviderConfig {
   };
 }
 
+function defaultOpenRouterModelProfile(): LlmModelProfile {
+  return {
+    id: 'default-openrouter',
+    name: 'OpenRouter',
+    model: '',
+    contextWindowTokens: inferContextWindowTokens('', 'openrouter'),
+    reasoningEffort: '',
+    thinkingMode: 'default',
+    samplingPreset: 'provider-default',
+    architectureHint: 'auto',
+    temperature: 0,
+    parallelToolCalls: true,
+    optimizationPreset: 'generic',
+    maxOutputTokens: 0,
+  };
+}
+
+/** Pinned OpenRouter row (stable id; never deleted in UI). */
+export function createPinnedOpenRouterProvider(): LlmProviderConfig {
+  return {
+    id: PINNED_OPENROUTER_PROVIDER_ID,
+    name: 'OpenRouter',
+    provider: 'openrouter',
+    baseUrl: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+    apiKey: SecretValue.of(process.env.OPENROUTER_API_KEY || ''),
+    models: [defaultOpenRouterModelProfile()],
+  };
+}
+
 export function getDefaultLlmProviders(): LlmProviderConfig[] {
   return [
     createPinnedLmStudioProvider(),
     createPinnedLlamaServerUrlProvider(),
     createPinnedLocalManagedLlamaProvider(),
+    createPinnedOpenRouterProvider(),
   ];
 }
 

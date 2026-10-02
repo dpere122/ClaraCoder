@@ -3,6 +3,10 @@ import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from 'fs
 import { tmpdir } from 'os';
 import { join } from 'path';
 import type { AppConfig } from '../../shared';
+import {
+  PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
+  PINNED_OPENROUTER_PROVIDER_ID,
+} from '../../shared';
 import { APP_CONFIG_SCHEMA_VERSION, createDefaultConfig } from './defaults';
 
 vi.mock('../paths', () => ({
@@ -65,6 +69,7 @@ describe('mergeSettingsConfigSave', () => {
     });
     expect(merged.chatFontSizeRem).toBe(1.4);
   });
+
 });
 
 describe('updateConfig serialization', () => {
@@ -291,5 +296,42 @@ describe('migrateConfig parallel tool calls', () => {
     first!.parallelToolCalls = false;
     const migrated = migrateConfig(cfg);
     expect(migrated.llmProviders[0]?.models[0]?.parallelToolCalls).toBe(false);
+  });
+});
+
+describe('migrateConfig openrouter pin', () => {
+  it('inserts the pinned OpenRouter source without changing the active model', () => {
+    const cfg = sampleConfig();
+    const local = cfg.llmProviders.find((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID);
+    const active = local?.models[0]?.id ?? '';
+    expect(active).not.toBe('');
+    cfg.activeLlmModelId = active;
+    cfg.llmProviders = cfg.llmProviders.filter((p) => p.id !== PINNED_OPENROUTER_PROVIDER_ID);
+    const migrated = migrateConfig(cfg);
+    const openrouter = migrated.llmProviders.find((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID);
+    expect(openrouter?.provider).toBe('openrouter');
+    expect(openrouter?.name).toBe('OpenRouter');
+    expect(openrouter?.baseUrl).toBe('https://openrouter.ai/api/v1');
+    expect(openrouter?.models[0]?.model).toBe('');
+    expect(migrated.activeLlmModelId).toBe(active);
+    const localIdx = migrated.llmProviders.findIndex((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID);
+    expect(migrated.llmProviders[localIdx + 1]?.id).toBe(PINNED_OPENROUTER_PROVIDER_ID);
+  });
+
+  it('keeps a customized OpenRouter row instead of rewriting it to OpenAI', () => {
+    const cfg = sampleConfig();
+    const row = cfg.llmProviders.find((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID);
+    expect(row).toBeDefined();
+    row!.name = 'My Router';
+    row!.baseUrl = 'https://openrouter.ai/api';
+    row!.models[0]!.model = 'anthropic/claude-sonnet-4.5';
+    const active = cfg.activeLlmModelId;
+    const migrated = migrateConfig(cfg);
+    const openrouter = migrated.llmProviders.find((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID);
+    expect(openrouter?.provider).toBe('openrouter');
+    expect(openrouter?.name).toBe('My Router');
+    expect(openrouter?.baseUrl).toBe('https://openrouter.ai/api');
+    expect(openrouter?.models[0]?.model).toBe('anthropic/claude-sonnet-4.5');
+    expect(migrated.activeLlmModelId).toBe(active);
   });
 });

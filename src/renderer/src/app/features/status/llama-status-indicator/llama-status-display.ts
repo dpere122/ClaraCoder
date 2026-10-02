@@ -66,6 +66,11 @@ export function modelStatusDotState(
   return healthDotState(status.chat.health);
 }
 
+/** OpenRouter has no local server probe. Green once a model id and API key are set. */
+export function openRouterModelDotState(model: string, apiKey: string): LlamaStatusDotState {
+  return model.trim() && apiKey.trim() ? 'green' : 'gray';
+}
+
 /** Map a CPU embeddings load status (from Python ``GET /embeddings/status``) to a dot. */
 export function embeddingsStatusDotState(status: string): LlamaStatusDotState {
   switch (status) {

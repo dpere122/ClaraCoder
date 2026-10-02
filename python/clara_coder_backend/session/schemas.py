@@ -281,7 +281,9 @@ class TtsRequest(BaseModel):
 
 
 class ChatTemplateReasoningCapsRequest(BaseModel):
-    """Live llama-server Jinja scan (Electron ``GET /props``), not a persisted setting."""
+    """Live reasoning caps, not a persisted setting: a llama-server Jinja scan (Electron ``GET /props``)
+    or, for OpenRouter, the model catalog's ``reasoning`` block (``enableThinking`` = can be turned off).
+    """
 
     enableThinking: bool = False
     reasoningEffortValues: list[str] | None = None
@@ -292,7 +294,7 @@ class RuntimeConnectionRequest(BaseModel):
 
     id: str
     name: str
-    provider: Literal['openai', 'lmstudio', 'llamacpp']
+    provider: Literal['openai', 'lmstudio', 'llamacpp', 'openrouter']
     baseUrl: str = ''
     model: str
     apiKey: str = ''

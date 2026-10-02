@@ -21,6 +21,7 @@ import {
   setCachedLlamaServerNctx,
 } from '../chat-template-reasoning-cache';
 import { lmStudioListModels } from '../lm-studio-client';
+import { refreshOpenRouterReasoningCaps } from '../openrouter-reasoning';
 
 function hasUrlScheme(s: string): boolean {
   return /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(s);
@@ -147,7 +148,9 @@ function connectionToRuntimeWire(
   const resolvedBase = c.provider === 'llamacpp' && llamaOverride ? llamaOverride.baseUrl : c.baseUrl;
   const normalizedHost = normalizeBindAllHostToLocalhost(resolvedBase);
   const baseUrl =
-    c.provider === 'lmstudio' || c.provider === 'llamacpp' ? ensureOpenAiV1Base(normalizedHost) : normalizedHost;
+    c.provider === 'lmstudio' || c.provider === 'llamacpp' || c.provider === 'openrouter'
+      ? ensureOpenAiV1Base(normalizedHost)
+      : normalizedHost;
   const rawEmbeddingsBase =
     c.provider === 'llamacpp' && llamaOverride
       ? (llamaOverride.embeddingsBaseUrl || '').trim() || (c.embeddingsBaseUrl ?? '').trim()
@@ -280,7 +283,7 @@ async function postRuntimeConfigToPython(
   llamaManagedEndpoints?: Record<string, LlamaManagedRuntimeEndpoints>,
 ): Promise<void> {
   try {
-    await refreshLmStudioLiveNctx(config);
+    await Promise.all([refreshLmStudioLiveNctx(config), refreshOpenRouterReasoningCaps(config)]);
     const flat = flattenLlmProvidersToConnections(config.llmProviders);
     const reasoningById = getAllCachedChatTemplateReasoning();
     const nCtxById = getAllCachedLlamaServerNctx();

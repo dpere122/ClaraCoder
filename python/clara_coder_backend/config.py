@@ -211,6 +211,7 @@ CLARA_CONTEXT_WINDOW_FALLBACK = _env_int('CLARA_CONTEXT_WINDOW_FALLBACK', 128_00
 # ---------------------------------------------------------------------------
 DEFAULT_LM_STUDIO_BASE_URL = os.getenv('LM_STUDIO_BASE_URL', 'http://127.0.0.1:1234/v1').strip()
 DEFAULT_LLAMACPP_BASE_URL = os.getenv('LLAMACPP_BASE_URL', 'http://127.0.0.1:8080/v1').strip()
+DEFAULT_OPENROUTER_BASE_URL = os.getenv('OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1').strip()
 DEFAULT_OPENAI_BASE_URL = os.getenv('OPENAI_BASE_URL', '').strip()
 DEFAULT_OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
 DEFAULT_LM_STUDIO_MODEL = os.getenv('LM_STUDIO_MODEL', 'local-model')

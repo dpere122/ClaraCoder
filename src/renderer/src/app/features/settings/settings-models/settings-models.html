@@ -325,6 +325,75 @@
                     </label>
                   </div>
                 </div>
+              } @else if (connection.provider === 'openrouter') {
+                <div class='form-section'>
+                  <div class='form-section__header'>
+                    <h5>Connection</h5>
+                  </div>
+                  <div class='form-grid'>
+                    <label class='field field--full'>
+                      <span>Name</span>
+                      <input
+                        type='text'
+                        [ngModel]='s.selectedProvider()!.name'
+                        (ngModelChange)='s.updateSelectedProvider({ name: $event })'
+                      />
+                    </label>
+                    <label class='field field--full'>
+                      <span>Base URL</span>
+                      <input
+                        type='text'
+                        placeholder='https://openrouter.ai/api/v1'
+                        [ngModel]='s.selectedProvider()!.baseUrl'
+                        (ngModelChange)='s.updateSelectedProvider({ baseUrl: $event })'
+                      />
+                    </label>
+                    <label class='field field--full'>
+                      <span>API key</span>
+                      <input
+                        type='password'
+                        [ngModel]='s.selectedProvider()!.apiKey'
+                        (ngModelChange)='s.updateSelectedProvider({ apiKey: $event })'
+                      />
+                    </label>
+                    <div class='field field--full lm-studio-connect-row'>
+                      <button
+                        type='button'
+                        class='action-button action-button--primary'
+                        [disabled]='s.openRouterModelsListInFlight()'
+                        (click)='s.refreshOpenRouterModels()'
+                      >
+                        @if (s.openRouterModelsListInFlight()) {
+                          Connecting…
+                        } @else {
+                          Connect
+                        }
+                      </button>
+                      @if (s.openRouterModelsListError(); as orErr) {
+                        <span class='lm-studio-status lm-studio-status--err'>{{ orErr }}</span>
+                      } @else if (s.openRouterModels().length) {
+                        <span class='lm-studio-status lm-studio-status--ok'>{{ s.openRouterModels().length }} models</span>
+                      }
+                    </div>
+                    <label class='field field--full'>
+                      <span>Chat model</span>
+                      <input
+                        type='text'
+                        list='openrouter-chat-models'
+                        placeholder='model id, e.g. anthropic/claude-sonnet-4.5'
+                        autocomplete='off'
+                        spellcheck='false'
+                        [ngModel]='s.selectedModel()!.model'
+                        (ngModelChange)='s.onOpenRouterModelChange($event)'
+                      />
+                      <datalist id='openrouter-chat-models'>
+                        @for (model of s.openRouterModels(); track model.id) {
+                          <option [value]='model.id'>{{ model.name }}</option>
+                        }
+                      </datalist>
+                    </label>
+                  </div>
+                </div>
               } @else {
                 <div class='form-section'>
                   <div class='form-section__header'>

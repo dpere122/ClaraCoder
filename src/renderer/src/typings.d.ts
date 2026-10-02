@@ -21,6 +21,7 @@ import type {
   LlamaServerStatusResult,
   EmbeddingsStatusResult,
   LlamacppManagedListModelsResult,
+  OpenRouterListModelsResult,
   ChatTemplateReasoningCaps,
   LlmStatus,
   MenuFileCommand,
@@ -413,6 +414,10 @@ declare global {
       baseUrl: string;
       apiKey: string;
     }) => Promise<LlamacppManagedListModelsResult>;
+    openRouterListModels: (payload: {
+      baseUrl: string;
+      apiKey: string;
+    }) => Promise<OpenRouterListModelsResult>;
     lmStudioListModels: (payload: { baseUrl: string; apiKey?: string }) => Promise<LmStudioListModelsResult>;
     lmStudioLoadModel: (payload: { baseUrl: string; model: string; apiKey?: string }) => Promise<LmStudioMutationResult>;
     lmStudioUnloadModel: (payload: {

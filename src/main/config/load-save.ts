@@ -30,6 +30,7 @@ import {
   DEFAULT_OPENAI_TTS_VOICE,
   DEFAULT_TTS_PROVIDER,
   DEFAULT_WHISPER_MODEL,
+  defaultLlmModelId,
   findLlmModelLocation,
   inferContextWindowTokens,
   isLegacyLlamaCppManagedShape,
@@ -616,9 +617,11 @@ function normalizeLlmModelProfile(model: LlmModelProfile, provider: LlmProviderC
     migrated = true;
   }
   if (model.model === undefined || model.model === '') {
-    model.model =
-      provider.provider === 'lmstudio' || provider.provider === 'llamacpp' ? 'local-model' : 'gpt-4o-mini';
-    migrated = true;
+    const fallback = defaultLlmModelId(provider.provider);
+    if (model.model !== fallback) {
+      model.model = fallback;
+      migrated = true;
+    }
   }
   if (typeof model.contextWindowTokens !== 'number' || Number.isNaN(model.contextWindowTokens)) {
     model.contextWindowTokens = inferContextWindowTokens(model.model, provider.provider);
@@ -916,12 +919,7 @@ function normalizeLlmProvidersTree(providers: LlmProviderConfig[]): boolean {
       }
     }
     if (!Array.isArray(p.models) || p.models.length === 0) {
-      const mid =
-        p.provider === 'lmstudio' || p.provider === 'llamacpp'
-          ? 'local-model'
-          : p.provider === 'openrouter'
-            ? ''
-            : 'gpt-4o-mini';
+      const mid = defaultLlmModelId(p.provider);
       p.models = [
         {
           id: randomUUID(),

@@ -61,6 +61,7 @@ import {
   detectShellQuotingPlatform,
   effectiveLmStudioContextTokens,
   countLlmModels,
+  defaultLlmModelId,
   findLlmModelLocation,
   hubCacheFolderToHfId,
   inferContextWindowTokens,
@@ -3070,7 +3071,7 @@ export class SettingsStore {
   }
 
   private buildNewModel(index: number, providerKind: LlmProviderConfig['provider']): LlmModelProfile {
-    const apiModel = providerKind === 'lmstudio' || providerKind === 'llamacpp' ? 'local-model' : 'gpt-4o-mini';
+    const apiModel = defaultLlmModelId(providerKind);
     const base: LlmModelProfile = {
       id: crypto.randomUUID(),
       name: `Model ${index}`,

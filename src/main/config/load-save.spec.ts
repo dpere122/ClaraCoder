@@ -401,6 +401,39 @@ describe('migrateConfig openrouter pin', () => {
     expect(migrated.llmProviders[localIdx + 1]?.id).toBe(PINNED_OPENROUTER_PROVIDER_ID);
   });
 
+  it('keeps the pinned OpenRouter model empty across repeated migrations', () => {
+    const cfg = sampleConfig();
+    cfg.llmProviders = cfg.llmProviders.filter((p) => p.id !== PINNED_OPENROUTER_PROVIDER_ID);
+    // loadConfig migrates the parsed file, then migrates the result again.
+    const twice = migrateConfig(migrateConfig(cfg));
+    const openrouter = twice.llmProviders.find((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID);
+    expect(openrouter?.models[0]?.model).toBe('');
+  });
+
+  it('keeps a cleared OpenRouter model through save and load', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'nemo-openrouter-config-'));
+    process.env.CLARA_TEST_CONFIG_DIR = tempDir;
+    const modelOf = (cfg: AppConfig) =>
+      cfg.llmProviders.find((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID)?.models[0]?.model;
+    try {
+      writeFileSync(join(tempDir, 'config.json'), JSON.stringify(sampleConfig(), null, 2), 'utf-8');
+      expect(modelOf(await loadConfig())).toBe('');
+      await updateConfig((cfg) => {
+        const row = cfg.llmProviders.find((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID);
+        row!.models[0]!.model = 'anthropic/claude-sonnet-4.5';
+      });
+      expect(modelOf(await loadConfig())).toBe('anthropic/claude-sonnet-4.5');
+      await updateConfig((cfg) => {
+        const row = cfg.llmProviders.find((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID);
+        row!.models[0]!.model = '';
+      });
+      expect(modelOf(await loadConfig())).toBe('');
+    } finally {
+      delete process.env.CLARA_TEST_CONFIG_DIR;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('keeps a customized OpenRouter row instead of rewriting it to OpenAI', () => {
     const cfg = sampleConfig();
     const row = cfg.llmProviders.find((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID);

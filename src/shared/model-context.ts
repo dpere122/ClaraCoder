@@ -73,6 +73,20 @@ const MODEL_CONTEXT_WINDOWS: Array<{ pattern: RegExp; tokens: number }> = [
   { pattern: /command/i, tokens: 128_000 },
 ];
 
+/**
+ * Model id for a profile that has none. OpenRouter stays empty: its ids are vendor-prefixed and
+ * picked from the catalog, so any fallback (e.g. `gpt-4o-mini`) would be an invalid id.
+ */
+export function defaultLlmModelId(provider: LlmConnectionConfig['provider']): string {
+  if (provider === 'lmstudio' || provider === 'llamacpp') {
+    return 'local-model';
+  }
+  if (provider === 'openrouter') {
+    return '';
+  }
+  return 'gpt-4o-mini';
+}
+
 export function inferContextWindowTokens(
   model: string,
   provider: LlmConnectionConfig['provider'],

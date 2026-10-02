@@ -277,7 +277,7 @@ export {
   outerAgentBriefEnabled,
   QWEN_PRESET_DEFAULTS,
 } from './types/llm-presets';
-export { inferContextWindowTokens, isGemmaFamily, resolveContextWindowTokens } from './model-context';
+export { defaultLlmModelId, inferContextWindowTokens, isGemmaFamily, resolveContextWindowTokens } from './model-context';
 export {
   PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   PINNED_LM_STUDIO_PROVIDER_ID,

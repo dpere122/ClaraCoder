@@ -52,7 +52,7 @@ export function registerLlamaServerIpc(): void {
     if (modelId) {
       await stopManagedLlamaServers(modelId);
     }
-    await syncWithManagedLlamaOverrides(payload.config);
+    await syncWithManagedLlamaOverrides();
     return { ok: true as const };
   });
 

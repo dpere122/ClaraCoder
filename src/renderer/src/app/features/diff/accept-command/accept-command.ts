@@ -242,9 +242,6 @@ export class AcceptCommandComponent implements OnDestroy {
     if (this.continueSent || this.busy() || this.reviewStatus() !== 'pending') return;
     const req = this.payload().requestId;
     const kind = this.payload().kind;
-    if (kind === 'mcp_tool') {
-      await this.persistMcpDecision(action);
-    }
     if (this.isLocalAdminGrant()) {
       const conversationId = this.conversationId();
       if (!conversationId) return;
@@ -274,8 +271,13 @@ export class AcceptCommandComponent implements OnDestroy {
     }
     const id = this.conversationId();
     if (!id) return;
+    // Lock the card before any await: a second click while the decision is saved would
+    // otherwise send a second (or contradicting) answer.
     this.busy.set(true);
     this.continueSent = true;
+    if (kind === 'mcp_tool') {
+      await this.persistMcpDecision(action);
+    }
     if (this.isAgentAdminGrant()) {
       const grant = await this.electron.syncAdminElevation(id, true);
       if (!grant.ok) {

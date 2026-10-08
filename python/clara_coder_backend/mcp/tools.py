@@ -11,6 +11,7 @@ from langchain_core.tools import StructuredTool
 from clara_coder_backend.domain import RuntimeMcpServer, SessionState
 from clara_coder_backend.mcp.manager import mcp_manager
 from clara_coder_backend.mcp.names import bound_mcp_tool_name
+from clara_coder_backend.session.pause import stage_hitl_request
 from clara_coder_backend.mcp.trust import denial_message, trust_decision
 
 _INJECTED = frozenset({'config', 'callbacks', 'run_manager'})
@@ -63,7 +64,7 @@ def stage_mcp_tool_approval(
             'arguments': arguments,
         },
     }
-    session.pending_accept_command_request = pending
+    stage_hitl_request(session, 'pending_accept_command_request', pending)
     return f'Pending user confirmation for MCP tool `{tool_name}` on `{label}`.'
 
 

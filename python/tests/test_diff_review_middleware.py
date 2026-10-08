@@ -12,12 +12,13 @@ from langchain_core.messages import ToolMessage
 from clara_coder_backend.tools.review_tools import TRANSFER_STAGED_FILE_TO_WORKSPACE_NAME
 from clara_coder_backend.middleware.diff_review_middleware import DiffReviewAfterToolMiddleware
 from clara_coder_backend.tools.staging_edit import STAGE_CREATE_FILE_NAME
+from clara_coder_backend.session.pause import stage_hitl_request
 from clara_coder_backend.session.state import current_session_id, get_session
 
 pytestmark = pytest.mark.asyncio(loop_scope='function')
 
 
-@patch('clara_coder_backend.middleware.diff_review_middleware.await_diff_review_note', new_callable=AsyncMock)
+@patch('clara_coder_backend.middleware.diff_review_middleware.pause_for_tool_review', new_callable=AsyncMock)
 async def test_middleware_queues_diff_with_payload_when_hitl_queue_set_even_if_worker_apply_off(
     mock_pause: AsyncMock,
 ) -> None:
@@ -42,14 +43,14 @@ async def test_middleware_queues_diff_with_payload_when_hitl_queue_set_even_if_w
         'stagedTransferHitl': True,
     }
     pending = PendingStagedTransferHitl(request_id='req-1', relative_paths=['a.py'])
-    session.pending_staged_transfer_hitl = pending
     batch_payload = staged_transfer_batch_sse_payload(pending, [file_payload])
-    session.pending_staged_transfer_batch_payload = batch_payload
     session.pending_diff_payload = None
 
     mw = DiffReviewAfterToolMiddleware()
 
     async def _handler(_req: object) -> ToolMessage:
+        stage_hitl_request(session, 'pending_staged_transfer_hitl', pending)
+        stage_hitl_request(session, 'pending_staged_transfer_batch_payload', batch_payload)
         return ToolMessage(
             content='Awaiting human confirmation…',
             tool_call_id='tc-1',
@@ -64,11 +65,14 @@ async def test_middleware_queues_diff_with_payload_when_hitl_queue_set_even_if_w
     finally:
         current_session_id.reset(token)
 
-    item = await asyncio.wait_for(session.hitl_sse_queue.get(), timeout=1.0)
-    assert item == ('staged_transfer_batch', batch_payload)
+    mock_pause.assert_awaited_once_with(
+        session_id,
+        ('staged_transfer_batch', batch_payload),
+        {'pending_staged_transfer_hitl': pending, 'pending_staged_transfer_batch_payload': batch_payload},
+    )
 
 
-@patch('clara_coder_backend.middleware.diff_review_middleware.await_diff_review_note', new_callable=AsyncMock)
+@patch('clara_coder_backend.middleware.diff_review_middleware.pause_for_tool_review', new_callable=AsyncMock)
 async def test_middleware_queues_staged_transfer_when_direct_mode_tool_set(mock_pause: AsyncMock) -> None:
     """Plan mode binds direct mutators but staged transfer HITL still pauses when flagged."""
     mock_pause.return_value = ''
@@ -91,14 +95,14 @@ async def test_middleware_queues_staged_transfer_when_direct_mode_tool_set(mock_
         'stagedTransferHitl': True,
     }
     pending = PendingStagedTransferHitl(request_id='req-2', relative_paths=['a.py'])
-    session.pending_staged_transfer_hitl = pending
     batch_payload = staged_transfer_batch_sse_payload(pending, [file_payload])
-    session.pending_staged_transfer_batch_payload = batch_payload
     session.pending_diff_payload = None
 
     mw = DiffReviewAfterToolMiddleware()
 
     async def _handler(_req: object) -> ToolMessage:
+        stage_hitl_request(session, 'pending_staged_transfer_hitl', pending)
+        stage_hitl_request(session, 'pending_staged_transfer_batch_payload', batch_payload)
         return ToolMessage(
             content='Awaiting human confirmation…',
             tool_call_id='tc-2',
@@ -113,11 +117,14 @@ async def test_middleware_queues_staged_transfer_when_direct_mode_tool_set(mock_
     finally:
         current_session_id.reset(token)
 
-    item = await asyncio.wait_for(session.hitl_sse_queue.get(), timeout=1.0)
-    assert item == ('staged_transfer_batch', batch_payload)
+    mock_pause.assert_awaited_once_with(
+        session_id,
+        ('staged_transfer_batch', batch_payload),
+        {'pending_staged_transfer_hitl': pending, 'pending_staged_transfer_batch_payload': batch_payload},
+    )
 
 
-@patch('clara_coder_backend.middleware.diff_review_middleware.await_diff_review_note', new_callable=AsyncMock)
+@patch('clara_coder_backend.middleware.diff_review_middleware.pause_for_tool_review', new_callable=AsyncMock)
 async def test_middleware_queues_staged_transfer_after_land_in_workspace_stage_tool(
     mock_pause: AsyncMock,
 ) -> None:
@@ -142,14 +149,14 @@ async def test_middleware_queues_staged_transfer_after_land_in_workspace_stage_t
         'stagedTransferHitl': True,
     }
     pending = PendingStagedTransferHitl(request_id='req-land', relative_paths=['land1.py'])
-    session.pending_staged_transfer_hitl = pending
     batch_payload = staged_transfer_batch_sse_payload(pending, [file_payload])
-    session.pending_staged_transfer_batch_payload = batch_payload
     session.pending_diff_payload = None
 
     mw = DiffReviewAfterToolMiddleware()
 
     async def _handler(_req: object) -> ToolMessage:
+        stage_hitl_request(session, 'pending_staged_transfer_hitl', pending)
+        stage_hitl_request(session, 'pending_staged_transfer_batch_payload', batch_payload)
         return ToolMessage(
             content='Staged `land1.py` for review.\n\n---\n\nAwaiting human confirmation…',
             tool_call_id='tc-land',
@@ -164,11 +171,14 @@ async def test_middleware_queues_staged_transfer_after_land_in_workspace_stage_t
     finally:
         current_session_id.reset(token)
 
-    item = await asyncio.wait_for(session.hitl_sse_queue.get(), timeout=1.0)
-    assert item == ('staged_transfer_batch', batch_payload)
+    mock_pause.assert_awaited_once_with(
+        session_id,
+        ('staged_transfer_batch', batch_payload),
+        {'pending_staged_transfer_hitl': pending, 'pending_staged_transfer_batch_payload': batch_payload},
+    )
 
 
-@patch('clara_coder_backend.middleware.diff_review_middleware.await_diff_review_note', new_callable=AsyncMock)
+@patch('clara_coder_backend.middleware.diff_review_middleware.pause_for_tool_review', new_callable=AsyncMock)
 async def test_staged_transfer_hitl_note_folds_into_tool_message(mock_pause: AsyncMock) -> None:
     """Gemma treats a post-transfer HumanMessage as a new user turn and restarts the request."""
     mock_pause.return_value = 'User approved staged transfer for: `a.py`.'
@@ -183,8 +193,7 @@ async def test_staged_transfer_hitl_note_folds_into_tool_message(mock_pause: Asy
     from clara_coder_backend.tools.review_tools import staged_transfer_batch_sse_payload
 
     pending = PendingStagedTransferHitl(request_id='req-fold', relative_paths=['a.py'])
-    session.pending_staged_transfer_hitl = pending
-    session.pending_staged_transfer_batch_payload = staged_transfer_batch_sse_payload(
+    batch_payload = staged_transfer_batch_sse_payload(
         pending,
         [{'version': 1, 'relativePath': 'a.py', 'stagedTransferHitl': True}],
     )
@@ -193,6 +202,8 @@ async def test_staged_transfer_hitl_note_folds_into_tool_message(mock_pause: Asy
     mw = DiffReviewAfterToolMiddleware()
 
     async def _handler(_req: object) -> ToolMessage:
+        stage_hitl_request(session, 'pending_staged_transfer_hitl', pending)
+        stage_hitl_request(session, 'pending_staged_transfer_batch_payload', batch_payload)
         return ToolMessage(
             content='Awaiting human confirmation…',
             tool_call_id='tc-fold',

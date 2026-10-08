@@ -27,6 +27,7 @@ from clara_coder_backend.lsp.file_policy import (
 from clara_coder_backend.lsp.manager import sync_session_document
 from clara_coder_backend.staging.partial_workspace_edit import line_range_edit_tool_feedback, merge_partial_edit
 from clara_coder_backend.session.file_journal import emit_edit_journal
+from clara_coder_backend.session.pause import stage_hitl_request
 from clara_coder_backend.session.state import (
     agent_formatters_enabled,
     current_session_id,
@@ -125,7 +126,7 @@ def _finalize_workspace_edit(
             summary_bits.append('Diff rows were truncated for display.')
         return ' '.join(summary_bits)
 
-    session.pending_diff_payload = payload
+    stage_hitl_request(session, 'pending_diff_payload', payload)
 
     n_rows = len(payload['rows'])
     trunc = payload.get('truncated')

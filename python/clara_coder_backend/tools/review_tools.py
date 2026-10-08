@@ -57,6 +57,7 @@ from clara_coder_backend.staging.staging_test_overlay import (
 )
 from clara_coder_backend.tools.deferred_hitl import maybe_await_hitl_for_deferred_tool
 from clara_coder_backend.stream_tags import TOOL_OVERLAY_STREAM_TAG
+from clara_coder_backend.session.pause import stage_hitl_request
 from clara_coder_backend.session.state import (
     agent_formatters_enabled,
     current_session_id,
@@ -1246,8 +1247,12 @@ def run_staged_transfer_batch(session: SessionState, paths: list[str]) -> str:
             file_payloads.append(payload)
         request_id = uuid.uuid4().hex
         pending = PendingStagedTransferHitl(request_id=request_id, relative_paths=list(validated))
-        session.pending_staged_transfer_hitl = pending
-        session.pending_staged_transfer_batch_payload = staged_transfer_batch_sse_payload(pending, file_payloads)
+        stage_hitl_request(session, 'pending_staged_transfer_hitl', pending)
+        stage_hitl_request(
+            session,
+            'pending_staged_transfer_batch_payload',
+            staged_transfer_batch_sse_payload(pending, file_payloads),
+        )
         session.pending_diff_payload = None
         quoted = ', '.join(f'`{p}`' for p in validated)
         test_note = (

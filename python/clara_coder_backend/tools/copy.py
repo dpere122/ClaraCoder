@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from clara_coder_backend.domain import SessionState
 from clara_coder_backend.session.file_journal import emit_copy_journal, snapshot_text_file
+from clara_coder_backend.session.pause import stage_hitl_request
 from clara_coder_backend.session.state import current_session_id, get_session, mutation_tools_blocked_reason
 from clara_coder_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
@@ -214,7 +215,7 @@ def copy_workspace_files(copies: list[CopyWorkspaceFileItem], overwrite: bool = 
         ok, msg = _perform_copy(root, copies, overwrite)
         return msg if ok else f'Tool error: {msg}'
 
-    session.pending_copy_request = {
+    copy_request = {
         'request_id': uuid.uuid4().hex,
         'copies': [
             {'source_path': src.relative_to(root).as_posix(), 'destination_path': dest.relative_to(root).as_posix()}
@@ -223,6 +224,7 @@ def copy_workspace_files(copies: list[CopyWorkspaceFileItem], overwrite: bool = 
         'overwrite': overwrite,
         'workspace_root': str(root.resolve()),
     }
+    stage_hitl_request(session, 'pending_copy_request', copy_request)
     return (
         f'Pending user confirmation to copy {len(validated)} file(s)'
         f'{" with overwrite enabled" if overwrite else ""}: {_preview_pairs(preview_pairs)}. '

@@ -17,6 +17,7 @@ from clara_coder_backend.domain import SessionState
 from clara_coder_backend.lsp.file_policy import is_lsp_managed_path
 from clara_coder_backend.lsp.manager import close_session_document
 from clara_coder_backend.session.file_journal import emit_file_journal, snapshot_delete_payload
+from clara_coder_backend.session.pause import stage_hitl_request
 from clara_coder_backend.session.state import current_session_id, get_session, mutation_tools_blocked_reason
 from clara_coder_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
@@ -230,7 +231,7 @@ def delete_workspace_entry(
             edit_staging.delete_snapshot_path(session, rel_display)
         return msg if ok else f'Tool error: {msg}'
 
-    session.pending_delete_request = {
+    delete_request = {
         'request_id': uuid.uuid4().hex,
         'relative_path': rel_display,
         'kind': 'directory' if is_dir else 'file',
@@ -238,6 +239,7 @@ def delete_workspace_entry(
         'workspace_root': str(root.resolve()),
         'session_id': session_id,
     }
+    stage_hitl_request(session, 'pending_delete_request', delete_request)
     return (
         f'Pending user confirmation to delete {"directory" if is_dir else "file"} `{rel_display}`'
         f'{" (recursive)" if recursive and is_dir else ""}. '
@@ -344,13 +346,14 @@ def batch_delete_workspace_entries(
                 return f'Tool error: {msg}'
         return '\n'.join(lines) if lines else 'Nothing to delete.'
 
-    session.pending_delete_request = {
+    delete_request = {
         'request_id': uuid.uuid4().hex,
         'batch': True,
         'entries': entries,
         'workspace_root': str(root.resolve()),
         'session_id': session_id,
     }
+    stage_hitl_request(session, 'pending_delete_request', delete_request)
     n = len(entries)
     return (
         f'Pending user confirmation to delete {n} workspace path(s). '

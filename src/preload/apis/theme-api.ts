@@ -1,9 +1,9 @@
-import { ipcRenderer } from 'electron';
+import type { PreloadIpc } from '../preload-ipc';
 import { THEME_IPC } from '../../shared/theme/theme-ipc';
 import type { ClaraThemeDocument, ThemeMode } from '../../shared/theme/theme-document';
 
 /** Theme library (disk CRUD in main), asset picking, and cross-window live preview. */
-export const themeApi = {
+export const createThemeApi = (ipcRenderer: PreloadIpc) => ({
   listThemes: () => ipcRenderer.invoke(THEME_IPC.list),
   saveTheme: (theme: ClaraThemeDocument) => ipcRenderer.invoke(THEME_IPC.save, theme),
   createTheme: (payload: { name: string; mode: ThemeMode; fromThemeId?: string }) =>
@@ -23,4 +23,4 @@ export const themeApi = {
     ipcRenderer.on(THEME_IPC.libraryUpdated, callback),
   onThemePreview: (callback: (event: unknown, theme: unknown) => void) =>
     ipcRenderer.on(THEME_IPC.previewChanged, callback),
-};
+});

@@ -11,6 +11,7 @@ import {
 } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
+import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 import type {
   AppConfig,
   DependencyId,
@@ -43,7 +44,7 @@ const WHISPER_ID = 'whisper';
 
 @Component({
   selector: 'app-dependencies',
-  imports: [NgxSpinnerComponent],
+  imports: [NgxSpinnerComponent, PillSelectComponent],
   templateUrl: './dependencies.html',
   styleUrl: './dependencies.css',
 })
@@ -75,6 +76,10 @@ export class Dependencies implements OnInit, OnDestroy {
   protected readonly variantOptions = LLAMA_SERVER_VARIANTS;
   protected readonly variantLabels = LLAMA_SERVER_VARIANT_LABELS;
   protected readonly whisperSizeOptions = WHISPER_MODEL_OPTIONS;
+
+  protected variantPillOptions(): { id: string; label: string }[] {
+    return this.variantOptions.map((variant) => ({ id: variant, label: this.variantLabels[variant] }));
+  }
 
   private readonly logBodies = viewChildren<ElementRef<HTMLElement>>('logBody');
 

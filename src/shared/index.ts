@@ -168,6 +168,18 @@ export type {
   WorkspaceOpenTabsState,
   WorkspaceOpenTabsByWorkspaceId,
   WorkspaceToolsConfig,
+  McpServerConfig,
+  McpServerTransport,
+  McpHttpTransport,
+  McpHttpAuth,
+  McpTrust,
+  McpToolDecision,
+  McpSecretEntry,
+  McpOAuthTokens,
+  McpDiscoveredTool,
+  McpServerStatus,
+  McpHostStatus,
+  McpRememberDecision,
   ContextCompressionConfig,
   HealthMonitorConfig,
   ModelManagerConfig,
@@ -227,6 +239,7 @@ export {
   retainRendererWorkspaceOpenTabs,
   SecretValue,
   unwrapSecret,
+  createEmptyMcpServer,
 } from './types/app-config';
 export type { LlamaCppEmbeddingManagedLegacy, LlamaCppManagedLegacy, ShellQuotingPlatform } from './llama-cpp-managed';
 export {
@@ -264,18 +277,22 @@ export {
   outerAgentBriefEnabled,
   QWEN_PRESET_DEFAULTS,
 } from './types/llm-presets';
-export { inferContextWindowTokens, isGemmaFamily, resolveContextWindowTokens } from './model-context';
+export { defaultLlmModelId, inferContextWindowTokens, isGemmaFamily, resolveContextWindowTokens } from './model-context';
 export {
   PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   PINNED_LM_STUDIO_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
+  PINNED_OPENROUTER_PROVIDER_ID,
   isPinnedLmStudioProviderId,
   isPinnedLlamaCppLocalProviderId,
   isPinnedLlamaServerUrlProviderId,
+  isPinnedOpenRouterProviderId,
   isPinnedLlmSourceId,
 } from './llm-provider-ids';
 export { lmStudioOpenAiBaseUrlToRestOrigin } from './lm-studio-url';
 export type { LmStudioModelCard, LmStudioListModelsResult, LmStudioMutationResult } from './lm-studio-ipc';
+export type { OpenRouterCatalogModel, OpenRouterListModelsResult, OpenRouterReasoningInfo } from './openrouter-ipc';
+export { openRouterReasoningCaps } from './openrouter-ipc';
 export { coerceLmStudioContextTokens, effectiveLmStudioContextTokens } from './lm-studio-ipc';
 export type {
   ChatStructuredContentPart,
@@ -432,6 +449,8 @@ export type { AcceptCommandAction, AcceptCommandFinishedEvent, AcceptCommandPayl
 export {
   ACCEPT_COMMAND_KIND_ADMIN_ELEVATION,
   ACCEPT_COMMAND_KIND_ADMIN_ELEVATION_TOOL,
+  ACCEPT_COMMAND_KIND_DEFERRED_TOOL,
+  acceptCommandGrantsAdminElevation,
   createAdminElevationAcceptPayload,
   isAdminElevationKind,
 } from './types/accept-command';

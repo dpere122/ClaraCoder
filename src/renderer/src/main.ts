@@ -1,4 +1,5 @@
 import './monaco-environment';
+import { isDevMode } from '@angular/core';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { appConfig } from './app/app.config';
 import { App } from './app/features/shell/app';
@@ -22,11 +23,23 @@ const routes = [
   { path: 'dependencies', component: Dependencies },
 ];
 
-bootstrapApplication(AppShell, {
-  ...appConfig,
-  providers: [
-    ...(appConfig.providers ?? []),
-    provideRouter(routes, withHashLocation()),
-  ],
-})
+// Dev builds in a plain browser tab: attach to the main process if `npm run dev:bridge` handed
+// this tab a token. Lazy so production bundles never load it; Electron windows have a preload.
+const browserBridgeReady =
+  isDevMode() && !window.electronAPI
+    ? import('./app/core/dev-bridge/browser-bridge')
+        .then((bridge) => bridge.installBrowserBridgeFromLocation())
+        .catch((err) => console.error('[BrowserBridge] Failed to install:', err))
+    : Promise.resolve();
+
+browserBridgeReady
+  .then(() =>
+    bootstrapApplication(AppShell, {
+      ...appConfig,
+      providers: [
+        ...(appConfig.providers ?? []),
+        provideRouter(routes, withHashLocation()),
+      ],
+    }),
+  )
   .catch((err) => console.error(err));

@@ -114,6 +114,7 @@ async def agent_continue(request: AgentContinueRequest) -> dict[str, bool | str]
             confirm=request.accept_command_action in ('confirm', 'confirm_session'),
             request_id=request.accept_command_request_id or None,
             grant_session=request.accept_command_action == 'confirm_session',
+            remember_deny=request.accept_command_action == 'deny',
         )
         note = extra if extra else note
     elif request.staged_transfer_action:

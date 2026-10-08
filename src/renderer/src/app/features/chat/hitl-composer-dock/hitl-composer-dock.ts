@@ -8,6 +8,7 @@ import { DiffApplyComponent } from '../../diff/diff-apply/diff-apply';
 import { PlanConfirmComponent } from '../../diff/plan-confirm/plan-confirm';
 import { StagedTransferBatchReviewComponent } from '../../diff/staged-transfer-batch-review/staged-transfer-batch-review';
 import { ThemeProposalComponent } from '../../diff/theme-proposal/theme-proposal';
+import type { AcceptCommandFinishedEvent } from '@shared/index';
 
 /**
  * Slide-up dock above the INPUT composer for pending HITL review cards.
@@ -49,12 +50,7 @@ export class HitlComposerDockComponent {
     status: 'complete' | 'cancelled';
     summary?: string;
   }>();
-  readonly acceptCommandFinished = output<{
-    requestId: string;
-    status: 'complete' | 'cancelled';
-    summary?: string;
-    action?: 'confirm' | 'confirm_session' | 'cancel';
-  }>();
+  readonly acceptCommandFinished = output<AcceptCommandFinishedEvent>();
   readonly stagedTransferBatchFinished = output<{
     requestId: string;
     status: 'complete' | 'cancelled';

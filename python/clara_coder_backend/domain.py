@@ -408,6 +408,38 @@ class RuntimeToolsConfig:
 
 
 @dataclass
+class RuntimeMcpServer:
+    """One MCP server from Settings, with secrets already unwrapped."""
+
+    id: str
+    name: str = ''
+    enabled: bool = False
+    #: ``ask`` or ``allow-all``.
+    trust: str = 'ask'
+    #: ``stdio`` or ``http``.
+    transport: str = 'stdio'
+    command: str = ''
+    args: list[str] = field(default_factory=list)
+    env: list[tuple[str, str]] = field(default_factory=list)
+    url: str = ''
+    #: ``streamable`` or ``sse``.
+    http_transport: str = 'streamable'
+    #: ``none``, ``headers``, or ``oauth``.
+    http_auth: str = 'none'
+    headers: list[tuple[str, str]] = field(default_factory=list)
+    oauth_access_token: str = ''
+    oauth_refresh_token: str = ''
+    oauth_expires_at: float = 0
+    oauth_client_id: str = ''
+    oauth_client_secret: str = ''
+    oauth_scopes: list[str] = field(default_factory=list)
+    #: Server URL the OAuth tokens and client were issued for. They are not used for any other URL.
+    oauth_server_url: str = ''
+    #: Remote tool name → ``allow`` or ``deny``.
+    tool_decisions: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
 class RuntimeConfig:
     """Full runtime settings chosen in the desktop UI and POSTed to /runtime-config."""
 
@@ -417,3 +449,6 @@ class RuntimeConfig:
     host: RuntimeHostConfig = field(default_factory=RuntimeHostConfig)
     tools: RuntimeToolsConfig = field(default_factory=RuntimeToolsConfig)
     context_compression: RuntimeContextCompressionConfig = field(default_factory=RuntimeContextCompressionConfig)
+    mcp_servers: list[RuntimeMcpServer] = field(default_factory=list)
+    #: Active workspace directory. MCP stdio cwd and the advertised root follow this path.
+    active_workspace_path: str = ''

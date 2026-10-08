@@ -1,9 +1,9 @@
 @if (show()) {
-  <div class="llama-status" role="group" aria-label="llama.cpp server status">
+  <div class="llama-status" role="group" aria-label="Model and embeddings status">
     @if (showModelDot()) {
       <span class="llama-status__item" [attr.title]="modelTitle()">
         <span class="llama-status__dot" [class]="'llama-status__dot--' + modelDot()" aria-hidden="true"></span>
-        <span class="llama-status__label">Model</span>
+        <span class="llama-status__label">{{ modelLabel() }}</span>
       </span>
     }
     <span class="llama-status__item" [attr.title]="embedTitle()">

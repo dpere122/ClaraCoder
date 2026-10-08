@@ -1,4 +1,4 @@
-import { ipcRenderer } from 'electron';
+import type { PreloadIpc } from '../preload-ipc';
 import type {
   HealthLogRecord,
   HealthMetricsSnapshot,
@@ -24,7 +24,7 @@ import type {
 } from '../lsp-types';
 
 /** LSP dashboard, editor features, and health metrics IPC. */
-export const lspHealthApi = {
+export const createLspHealthApi = (ipcRenderer: PreloadIpc) => ({
   healthMetrics: () => ipcRenderer.invoke('health-metrics') as Promise<HealthMetricsSnapshot>,
   listCudaGpus: () => ipcRenderer.invoke('gpu-cuda-inventory') as Promise<CudaGpuDevice[]>,
   healthRuntimeSnapshot: () =>
@@ -411,4 +411,4 @@ export const lspHealthApi = {
     ipcRenderer.on('health-log-record', callback),
   openHealthWindow: () => ipcRenderer.send('open-health-window'),
   closeHealthWindow: () => ipcRenderer.send('close-health-window'),
-};
+});

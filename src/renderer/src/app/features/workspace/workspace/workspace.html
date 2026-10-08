@@ -3,6 +3,7 @@
     @if (currentWorkspaceId()) {
       <div
         class='file-tree'
+        [class.has-tree-cog]='electron.isElectron'
         [class.is-drop-target]='fileTreeDropActive()'
         [class.is-inline-editing]='pendingCreate() || inlineRenamePath()'
         tabindex='0'
@@ -127,6 +128,19 @@
           }
         }
       </div>
+      @if (electron.isElectron) {
+        <button
+          class='workspace-icon-btn workspace-tree-cog'
+          type='button'
+          title='Edit workspace system prompt'
+          aria-label='Edit workspace system prompt'
+          [disabled]='settingsOpening() || !currentWorkspaceHasPath()'
+          [attr.aria-busy]='settingsOpening()'
+          (click)='onOpenWorkspaceSettings()'
+        >
+          <lucide-icon name='settings' [size]='16' />
+        </button>
+      }
     }
   </div>
 
@@ -141,16 +155,15 @@
         />
         @if (pythonInterpreterControlsActive()) {
           <label class='workspace-interpreter-label' for='workspace-python-interpreter'>Python env</label>
-          <select
-            id='workspace-python-interpreter'
+          <app-pill-select
             class='workspace-interpreter-select'
+            controlId='workspace-python-interpreter'
+            [options]='pythonInterpreterRows()'
+            [value]='pythonInterpreterSelectedId()'
             [disabled]='pythonInterpreterLoading() || !pythonInterpreterRows().length'
-            (change)='onPythonInterpreterChange($event)'
-          >
-            @for (opt of pythonInterpreterRows(); track opt.id) {
-              <option [value]='opt.id' [selected]='opt.id === pythonInterpreterSelectedId()'>{{ opt.label }}</option>
-            }
-          </select>
+            ariaLabel='Python env'
+            (valueChange)='onPythonInterpreterChange($event)'
+          />
           @if (pythonInterpreterError()) {
             <p class='workspace-interpreter-error'>{{ pythonInterpreterError() }}</p>
           }
@@ -160,17 +173,6 @@
         <p class='workspace-settings-error' role='alert'>{{ settingsError() }}</p>
       }
       <div class='workspace-footer-model-row' data-theme-group='workspace.footer'>
-        <button
-          class='workspace-icon-btn'
-          type='button'
-          title='Edit workspace system prompt'
-          aria-label='Edit workspace system prompt'
-          [disabled]='!currentWorkspaceId() || settingsOpening() || !currentWorkspaceHasPath()'
-          [attr.aria-busy]='settingsOpening()'
-          (click)='onOpenWorkspaceSettings()'
-        >
-          <lucide-icon name='settings' [size]='16' />
-        </button>
         <app-managed-llama-controls [appConfig]='appConfig()' />
       </div>
     </div>

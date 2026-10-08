@@ -1,18 +1,16 @@
 @if (show()) {
   <div class="managed-llama-controls" role="group" aria-label="LLM source and managed llama-server controls">
     <div class="managed-llama-controls__row">
-      <select
+      <app-pill-select
         class="managed-llama-controls__source-select"
-        [ngModel]="activeProviderId()"
-        (ngModelChange)="onSourceChange($event)"
+        [options]="sourceOptions()"
+        [value]="activeProviderId()"
         [disabled]="running() || busy()"
         [attr.aria-busy]="inventoryLoading() ? 'true' : null"
-        aria-label="Active LLM source"
-      >
-        @for (provider of sources(); track provider.id) {
-          <option [value]="provider.id">{{ sourceLabel(provider) }}</option>
-        }
-      </select>
+        ariaLabel="Active LLM source"
+        (valueChange)="onSourceChange($event)"
+      />
+      @if (showManagedStart()) {
       <button
         type="button"
         class="action-button action-button--primary managed-llama-controls__btn"
@@ -41,6 +39,7 @@
         </span>
         <span class="managed-llama-controls__btn-label">{{ actionLabel() }}</span>
       </button>
+      }
     </div>
   </div>
 }

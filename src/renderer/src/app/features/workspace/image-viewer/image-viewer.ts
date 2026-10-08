@@ -16,6 +16,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { LucideAngularModule } from 'lucide-angular';
 import type { WorkspaceFilesChangedMessage } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
+import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
 import { populateWorkspacePathDragData } from '../../chat/chat-context-bar/chat-context-file';
 import { buildWorkspaceImageAssetUrl } from './image-viewer-asset-url';
@@ -48,7 +49,7 @@ const MAX_THUMB_SIZE_PX = 256;
 
 @Component({
   selector: 'app-image-viewer',
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, PillSelectComponent],
   templateUrl: './image-viewer.html',
   styleUrl: './image-viewer.css',
   encapsulation: ViewEncapsulation.None,
@@ -310,8 +311,15 @@ export class ImageViewerComponent implements OnDestroy {
     }
   }
 
-  protected onAutoPlayIntervalChange(event: Event): void {
-    const value = Number((event.target as HTMLSelectElement).value);
+  protected intervalOptions(): { id: string; label: string }[] {
+    return this.autoPlayIntervalOptions.map((intervalMs) => ({
+      id: String(intervalMs),
+      label: `${intervalMs / 1000}s`,
+    }));
+  }
+
+  protected onAutoPlayIntervalChange(id: string): void {
+    const value = Number(id);
     if (Number.isFinite(value) && value > 0) {
       this.autoPlayIntervalMs.set(value);
     }

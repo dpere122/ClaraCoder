@@ -2,7 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import type { AppConfig } from '../../shared';
+import type { AppConfig, McpServerConfig } from '../../shared';
+import { createEmptyMcpServer, unwrapSecret } from '../../shared';
+import {
+  PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
+  PINNED_OPENROUTER_PROVIDER_ID,
+} from '../../shared';
 import { APP_CONFIG_SCHEMA_VERSION, createDefaultConfig } from './defaults';
 
 vi.mock('../paths', () => ({
@@ -39,6 +44,81 @@ function sampleConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   };
 }
 
+function mcpServer(overrides: Partial<McpServerConfig> = {}): McpServerConfig {
+  return {
+    ...createEmptyMcpServer('srv-1', 'GitHub'),
+    command: 'npx',
+    args: ['server'],
+    headers: [{ key: 'Authorization', value: 'top-secret' as unknown as McpServerConfig['headers'][number]['value'] }],
+    toolDecisions: { search: 'deny' },
+    ...overrides,
+  };
+}
+
+describe('migrateConfig mcp servers', () => {
+  it('fills a missing list', () => {
+    const raw = sampleConfig();
+    delete (raw as { mcpServers?: McpServerConfig[] }).mcpServers;
+    const migrated = migrateConfig(raw);
+    expect(migrated.mcpServers).toEqual([]);
+  });
+
+  it('round-trips a header secret through save and load', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'nemo-mcp-config-'));
+    process.env.CLARA_TEST_CONFIG_DIR = tempDir;
+    try {
+      writeFileSync(join(tempDir, 'config.json'), JSON.stringify(sampleConfig(), null, 2), 'utf-8');
+      await updateConfig((cfg) => {
+        cfg.mcpServers = [mcpServer()];
+      });
+      const loaded = await loadConfig();
+      expect(loaded.mcpServers).toHaveLength(1);
+      expect(unwrapSecret(loaded.mcpServers[0]?.headers[0]?.value)).toBe('top-secret');
+      expect(loaded.mcpServers[0]?.toolDecisions).toEqual({ search: 'deny' });
+    } finally {
+      delete process.env.CLARA_TEST_CONFIG_DIR;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the OAuth issuing URL and refresh settings, and leaves them empty on older rows', () => {
+    const secret = (value: string) => value as unknown as McpServerConfig['headers'][number]['value'];
+    const oauth = {
+      accessToken: secret('access'),
+      refreshToken: secret('refresh'),
+      expiresAt: 0,
+      clientId: 'client',
+      clientSecret: secret(''),
+      scopes: [],
+    };
+    const bound = migrateConfig(
+      sampleConfig({
+        mcpServers: [
+          mcpServer({
+            oauth: {
+              ...oauth,
+              serverUrl: ' https://a.example/mcp ',
+              tokenEndpoint: 'https://auth.example/token',
+              resource: 'https://a.example/mcp',
+              tokenAuthMethod: 'none',
+            },
+          }),
+        ],
+      }),
+    );
+    expect(bound.mcpServers[0]?.oauth).toMatchObject({
+      serverUrl: 'https://a.example/mcp',
+      tokenEndpoint: 'https://auth.example/token',
+      resource: 'https://a.example/mcp',
+      tokenAuthMethod: 'none',
+    });
+    const legacy = migrateConfig(
+      sampleConfig({ mcpServers: [mcpServer({ oauth: oauth as unknown as McpServerConfig['oauth'] })] }),
+    );
+    expect(legacy.mcpServers[0]?.oauth).toMatchObject({ serverUrl: '', tokenEndpoint: '', resource: '', tokenAuthMethod: '' });
+  });
+});
+
 describe('mergeSettingsConfigSave', () => {
   it('preserves workspace registry fields from disk', () => {
     const disk = sampleConfig();
@@ -64,6 +144,31 @@ describe('mergeSettingsConfigSave', () => {
       },
     });
     expect(merged.chatFontSizeRem).toBe(1.4);
+  });
+
+  it('keeps chat-time MCP decisions when the settings snapshot did not edit them', () => {
+    const disk = sampleConfig({
+      mcpServers: [mcpServer({ trust: 'allow-all', toolDecisions: { search: 'allow' }, oauth: null })],
+    });
+    const client = sampleConfig({
+      mcpServers: [mcpServer({ name: 'Renamed', trust: 'ask', toolDecisions: { search: 'deny' } })],
+    });
+    const merged = mergeSettingsConfigSave(disk, client);
+    expect(merged.mcpServers[0]?.name).toBe('Renamed');
+    expect(merged.mcpServers[0]?.trust).toBe('allow-all');
+    expect(merged.mcpServers[0]?.toolDecisions).toEqual({ search: 'allow' });
+  });
+
+  it('uses MCP decisions the settings window actually edited', () => {
+    const disk = sampleConfig({
+      mcpServers: [mcpServer({ toolDecisions: { search: 'allow' } })],
+    });
+    const client = sampleConfig({
+      mcpServers: [mcpServer({ toolDecisions: { search: 'deny' }, toolDecisionsTouched: true })],
+    });
+    const merged = mergeSettingsConfigSave(disk, client);
+    expect(merged.mcpServers[0]?.toolDecisions).toEqual({ search: 'deny' });
+    expect(merged.mcpServers[0]?.toolDecisionsTouched).toBeUndefined();
   });
 });
 
@@ -291,5 +396,75 @@ describe('migrateConfig parallel tool calls', () => {
     first!.parallelToolCalls = false;
     const migrated = migrateConfig(cfg);
     expect(migrated.llmProviders[0]?.models[0]?.parallelToolCalls).toBe(false);
+  });
+});
+
+describe('migrateConfig openrouter pin', () => {
+  it('inserts the pinned OpenRouter source without changing the active model', () => {
+    const cfg = sampleConfig();
+    const local = cfg.llmProviders.find((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID);
+    const active = local?.models[0]?.id ?? '';
+    expect(active).not.toBe('');
+    cfg.activeLlmModelId = active;
+    cfg.llmProviders = cfg.llmProviders.filter((p) => p.id !== PINNED_OPENROUTER_PROVIDER_ID);
+    const migrated = migrateConfig(cfg);
+    const openrouter = migrated.llmProviders.find((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID);
+    expect(openrouter?.provider).toBe('openrouter');
+    expect(openrouter?.name).toBe('OpenRouter');
+    expect(openrouter?.baseUrl).toBe('https://openrouter.ai/api/v1');
+    expect(openrouter?.models[0]?.model).toBe('');
+    expect(migrated.activeLlmModelId).toBe(active);
+    const localIdx = migrated.llmProviders.findIndex((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID);
+    expect(migrated.llmProviders[localIdx + 1]?.id).toBe(PINNED_OPENROUTER_PROVIDER_ID);
+  });
+
+  it('keeps the pinned OpenRouter model empty across repeated migrations', () => {
+    const cfg = sampleConfig();
+    cfg.llmProviders = cfg.llmProviders.filter((p) => p.id !== PINNED_OPENROUTER_PROVIDER_ID);
+    // loadConfig migrates the parsed file, then migrates the result again.
+    const twice = migrateConfig(migrateConfig(cfg));
+    const openrouter = twice.llmProviders.find((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID);
+    expect(openrouter?.models[0]?.model).toBe('');
+  });
+
+  it('keeps a cleared OpenRouter model through save and load', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'nemo-openrouter-config-'));
+    process.env.CLARA_TEST_CONFIG_DIR = tempDir;
+    const modelOf = (cfg: AppConfig) =>
+      cfg.llmProviders.find((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID)?.models[0]?.model;
+    try {
+      writeFileSync(join(tempDir, 'config.json'), JSON.stringify(sampleConfig(), null, 2), 'utf-8');
+      expect(modelOf(await loadConfig())).toBe('');
+      await updateConfig((cfg) => {
+        const row = cfg.llmProviders.find((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID);
+        row!.models[0]!.model = 'anthropic/claude-sonnet-4.5';
+      });
+      expect(modelOf(await loadConfig())).toBe('anthropic/claude-sonnet-4.5');
+      await updateConfig((cfg) => {
+        const row = cfg.llmProviders.find((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID);
+        row!.models[0]!.model = '';
+      });
+      expect(modelOf(await loadConfig())).toBe('');
+    } finally {
+      delete process.env.CLARA_TEST_CONFIG_DIR;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a customized OpenRouter row instead of rewriting it to OpenAI', () => {
+    const cfg = sampleConfig();
+    const row = cfg.llmProviders.find((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID);
+    expect(row).toBeDefined();
+    row!.name = 'My Router';
+    row!.baseUrl = 'https://openrouter.ai/api';
+    row!.models[0]!.model = 'anthropic/claude-sonnet-4.5';
+    const active = cfg.activeLlmModelId;
+    const migrated = migrateConfig(cfg);
+    const openrouter = migrated.llmProviders.find((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID);
+    expect(openrouter?.provider).toBe('openrouter');
+    expect(openrouter?.name).toBe('My Router');
+    expect(openrouter?.baseUrl).toBe('https://openrouter.ai/api');
+    expect(openrouter?.models[0]?.model).toBe('anthropic/claude-sonnet-4.5');
+    expect(migrated.activeLlmModelId).toBe(active);
   });
 });

@@ -151,9 +151,15 @@ app-conversation-manager .conv-context-menu-item {
 
 /* Managed llama-server row in the workspace footer: Start/Stop, source select, settings. */
 app-managed-llama-controls .managed-llama-controls__btn,
-app-managed-llama-controls .managed-llama-controls__source-select,
-app-workspace .workspace-footer-model-row .workspace-icon-btn {
+app-pill-select .pill-select__trigger,
+app-pill-select .pill-select__option,
+app-workspace .workspace-footer-model-row .workspace-icon-btn,
+app-workspace .workspace-tree-cog {
   border-radius: 999px !important;
+}
+
+app-pill-select .pill-select__menu {
+  border-radius: 0.9rem !important;
 }
 
 /* Floating markdown Edit | Preview pill over the Monaco editor. */
@@ -991,7 +997,7 @@ html app-message-box .composer-entry-row .btn-abort {
 html app-message-box .composer-entry-row .btn-voice:hover:not(:disabled),
 html app-message-box .composer-options-row .btn-voice:hover:not(:disabled),
 html app-message-box .composer-options-row .btn-reasoning:hover,
-html app-message-box .composer-options-row .composer-mode-select:hover,
+html app-message-box .composer-options-row .composer-mode-select .pill-select__trigger:hover:not(:disabled),
 html app-message-box .composer-entry-row .composer-prompt:hover,
 html app-message-box .composer-entry-row .btn:hover {
   border: none;

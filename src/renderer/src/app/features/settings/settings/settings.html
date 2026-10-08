@@ -8,7 +8,7 @@
     <div class='settings-nav__header'>
       <p class='settings-eyebrow'>Configuration</p>
       <h2>Settings</h2>
-      <p class='settings-copy'>Manage models, audio, themes, and project folders from one focused workspace.</p>
+      <p class='settings-copy'>Manage models, MCP servers, audio, themes, and project folders from one focused workspace.</p>
     </div>
 
     <hr class='settings-divider settings-divider--nav' />
@@ -40,6 +40,8 @@
                 {{ s.themes.find((t) => t.id === s.themeId())?.label ?? s.themeId() }}
               } @else if (tab.id === 'tools') {
                 {{ s.editToolsMode() === 'strict' ? 'Strict edits' : 'Standard edits' }}
+              } @else if (tab.id === 'mcp') {
+                {{ s.mcpEnabledCount() }} enabled
               } @else if (tab.id === 'audio') {
                 {{ s.audioProvider() === 'disabled' ? 'Disabled' : s.audioProvider() === 'whisper' ? 'Whisper (local)' : 'OpenAI transcription' }}
               } @else if (tab.id === 'monaco') {
@@ -118,6 +120,10 @@
 
     @if (s.selectedSettingsTab() === 'tools') {
       <app-settings-tools />
+    }
+
+    @if (s.selectedSettingsTab() === 'mcp') {
+      <app-settings-mcp />
     }
 
     @if (s.selectedSettingsTab() === 'monaco') {

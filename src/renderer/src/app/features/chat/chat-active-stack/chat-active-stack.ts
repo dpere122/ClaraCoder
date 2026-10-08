@@ -28,6 +28,7 @@ import { type ChatContextFile } from '../chat-context-bar/chat-context-file';
 import { HitlComposerDockComponent } from '../hitl-composer-dock/hitl-composer-dock';
 import { MessageBox } from '../message-box/message-box';
 import { TalkMode } from '../../speech/talk-mode/talk-mode';
+import type { AcceptCommandFinishedEvent } from '@shared/index';
 export type ChatLayoutMode = 'sidebar' | 'expanded';
 
 /** Chat transcript, composer, and status bar — shared by sidebar hub and expanded main overlay. */
@@ -79,12 +80,7 @@ export class ChatActiveStackComponent implements OnDestroy {
     requestId: string;
     fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
   }>();
-  readonly acceptCommandFinished = output<{
-    requestId: string;
-    status: 'complete' | 'cancelled';
-    summary?: string;
-    action?: 'confirm' | 'confirm_session' | 'cancel';
-  }>();
+  readonly acceptCommandFinished = output<AcceptCommandFinishedEvent>();
   readonly copyReviewFinished = output<{
     requestId: string;
     status: 'complete' | 'cancelled';

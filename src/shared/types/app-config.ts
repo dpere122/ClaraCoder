@@ -118,7 +118,17 @@ export type GemmaThinkingMode = 'default' | 'on' | 'off';
  * Chat Completions ``reasoning_effort``; empty = omit parameter.
  * UI aliases ``on`` / ``off`` map to medium / none in the backend.
  */
-export type LlmReasoningEffort = '' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'on' | 'off';
+export type LlmReasoningEffort =
+  | ''
+  | 'none'
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max'
+  | 'on'
+  | 'off';
 
 /** Ordered options for Settings and the composer Reasoning dropdown (generic / Qwen). */
 export const LLM_REASONING_EFFORT_OPTIONS: readonly { value: LlmReasoningEffort; label: string }[] = [
@@ -218,8 +228,8 @@ export interface LlmModelProfile {
 export interface LlmProviderConfig {
   id: string;
   name: string;
-  /** ``llamacpp`` targets llama.cpp’s OpenAI-compatible HTTP server (``llama-server``). */
-  provider: 'openai' | 'lmstudio' | 'llamacpp' | 'python-t2i';
+  /** ``llamacpp`` targets llama.cpp’s OpenAI-compatible HTTP server (``llama-server``). ``openrouter`` is OpenRouter’s chat API. */
+  provider: 'openai' | 'lmstudio' | 'llamacpp' | 'openrouter' | 'python-t2i';
   baseUrl: string;
   apiKey: SecretValue<string>;
   /**
@@ -246,7 +256,15 @@ export type LlmConnectionConfig = LlmModelProfile &
   Pick<LlmProviderConfig, 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel' | 'embeddingsBaseUrl'>;
 
 const GEMMA_THINKING_MODE_VALUES = new Set<string>(LLM_THINKING_MODE_OPTIONS.map((o) => o.value));
-const REASONING_EFFORT_VALUES = new Set<string>(LLM_REASONING_EFFORT_OPTIONS.map((o) => o.value));
+/**
+ * Valid when a model advertises it (OpenRouter ``supported_efforts``), but not offered in the
+ * generic list: plain OpenAI-compatible APIs reject it.
+ */
+const ADVERTISED_ONLY_EFFORT_VALUES: readonly LlmReasoningEffort[] = ['max'];
+const REASONING_EFFORT_VALUES = new Set<string>([
+  ...LLM_REASONING_EFFORT_OPTIONS.map((o) => o.value),
+  ...ADVERTISED_ONLY_EFFORT_VALUES,
+]);
 
 function effortOptionsFromValues(values: readonly string[]): { value: string; label: string }[] {
   const byValue = new Map<string, { value: string; label: string }>(
@@ -1302,6 +1320,133 @@ export function normalizeWorkspaceOpenTabsByWorkspaceId(raw: unknown): {
   return { openTabsByWorkspaceId, migrated };
 }
 
+/** How a configured MCP server is launched or reached. */
+export type McpServerTransport = 'stdio' | 'http';
+
+/** Remote MCP HTTP transport. Streamable HTTP is the default; SSE is the older fallback. */
+export type McpHttpTransport = 'streamable' | 'sse';
+
+/** How a remote MCP server authenticates. */
+export type McpHttpAuth = 'none' | 'headers' | 'oauth';
+
+/**
+ * `ask` pauses the first call to each tool.
+ * `allow-all` runs every tool from that server without a card.
+ */
+export type McpTrust = 'ask' | 'allow-all';
+
+/** Remembered per-tool choice. Absent means ask again. */
+export type McpToolDecision = 'allow' | 'deny';
+
+/** Env var or HTTP header. The value is a secret. */
+export interface McpSecretEntry {
+  key: string;
+  value: SecretValue<string>;
+}
+
+/**
+ * Tokens from an MCP OAuth sign-in. Stored as secrets. Electron main refreshes them before they
+ * expire (`src/main/mcp-oauth-refresh.ts`) and pushes the new access token to the Python host.
+ */
+export interface McpOAuthTokens {
+  accessToken: SecretValue<string>;
+  refreshToken: SecretValue<string>;
+  /** Unix seconds. 0 when the server did not report a lifetime. */
+  expiresAt: number;
+  clientId: string;
+  clientSecret: SecretValue<string>;
+  scopes: string[];
+  /**
+   * Server URL the sign-in ran against. The Python host only uses these tokens and this client
+   * for that URL, so editing the server URL can never send them to a different host.
+   */
+  serverUrl: string;
+  /** Token endpoint discovered at sign-in; refresh requests go here. */
+  tokenEndpoint: string;
+  /** RFC 8707 `resource` to send when refreshing. Empty when the server did not use one. */
+  resource: string;
+  /** Client auth for the token endpoint: `client_secret_basic`, `client_secret_post`, or `none`. */
+  tokenAuthMethod: string;
+}
+
+/**
+ * One global MCP server entry (Settings → MCP).
+ * `trustTouched`, `toolDecisionsTouched`, and `oauthTouched` are in-memory merge flags.
+ * They are stripped before `config.json` is written.
+ */
+export interface McpServerConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  trust: McpTrust;
+  transport: McpServerTransport;
+  command: string;
+  args: string[];
+  env: McpSecretEntry[];
+  url: string;
+  httpTransport: McpHttpTransport;
+  httpAuth: McpHttpAuth;
+  headers: McpSecretEntry[];
+  oauth: McpOAuthTokens | null;
+  /** Remote tool name → remembered decision. */
+  toolDecisions: Record<string, McpToolDecision>;
+  trustTouched?: boolean;
+  toolDecisionsTouched?: boolean;
+  oauthTouched?: boolean;
+}
+
+/** One tool advertised by a connected MCP server (remote name, not the prefixed agent name). */
+export interface McpDiscoveredTool {
+  name: string;
+  description: string;
+}
+
+/** Live connection row from `GET /mcp/status`. */
+export interface McpServerStatus {
+  id: string;
+  connected: boolean;
+  error: string;
+  needsSignIn: boolean;
+  toolCount: number;
+  schemaTokens: number;
+  schemaWarning: boolean;
+  tools: McpDiscoveredTool[];
+}
+
+/** Host status for the Settings → MCP page. */
+export interface McpHostStatus {
+  servers: McpServerStatus[];
+  schemaTokens: number;
+  schemaWarning: boolean;
+}
+
+/** Chat-card or Settings decision persisted onto one server. */
+export type McpRememberDecision = {
+  serverId: string;
+  decision: 'allow' | 'deny' | 'allow-all';
+  toolName?: string;
+};
+
+/** Blank stdio server row for Settings → MCP. */
+export function createEmptyMcpServer(id: string, name = 'MCP server'): McpServerConfig {
+  return {
+    id,
+    name,
+    enabled: true,
+    trust: 'ask',
+    transport: 'stdio',
+    command: '',
+    args: [],
+    env: [],
+    url: '',
+    httpTransport: 'streamable',
+    httpAuth: 'none',
+    headers: [],
+    oauth: null,
+    toolDecisions: {},
+  };
+}
+
 /** Root persisted settings for the desktop app (config.json). */
 export interface AppConfig {
   /**
@@ -1331,6 +1476,11 @@ export interface AppConfig {
   llmProviders: LlmProviderConfig[];
   audioTranscription: AudioTranscriptionConfig;
   workspaceTools: WorkspaceToolsConfig;
+  /**
+   * Global MCP servers the agent can call. Missing on older files; migration fills `[]`.
+   * Secrets (env, headers, OAuth tokens) use {@link SecretValue}.
+   */
+  mcpServers: McpServerConfig[];
   contextCompression: ContextCompressionConfig;
   healthMonitor: HealthMonitorConfig;
   modelManager: ModelManagerConfig;

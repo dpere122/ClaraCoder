@@ -318,8 +318,21 @@ export function getLlamaManagedRuntimeOverrides(config: AppConfig): Record<strin
   return out;
 }
 
-/** Push runtime config with managed overrides (call after start/stop/save). */
-export async function syncWithManagedLlamaOverrides(config: AppConfig): Promise<void> {
+/**
+ * Push runtime config with managed overrides (call after start/stop/save).
+ *
+ * Reads the config from disk here rather than taking one: a start can wait minutes for health
+ * (up to 50 for `-hf` downloads), and the config captured when Start was clicked would revert
+ * anything changed since (workspace, MCP servers and trust, active model) in Python.
+ */
+export async function syncWithManagedLlamaOverrides(): Promise<void> {
+  let config: AppConfig;
+  try {
+    config = loadConfigSync();
+  } catch (err) {
+    console.error('[llama-server] Skipping runtime sync; config unavailable:', err instanceof Error ? err.message : err);
+    return;
+  }
   // Pass a getter so overrides are read at send time (after any in-flight sync completes),
   // reflecting live `running` state rather than a snapshot captured when this was called.
   await syncRuntimeConfigToPython(config, () => getLlamaManagedRuntimeOverrides(config));
@@ -748,11 +761,7 @@ function attachLlamaStreams(
     persistManagedLlamaPids();
     invalidateManagedStatusCache(modelId);
     if (st.ready) {
-      try {
-        void syncWithManagedLlamaOverrides(loadConfigSync());
-      } catch {
-        /* config unavailable */
-      }
+      void syncWithManagedLlamaOverrides();
     }
   });
 }
@@ -973,7 +982,7 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
     if (slotMissingOrAborted(modelId, generation)) {
       return { ok: false, error: STOPPED_DURING_START };
     }
-    await syncWithManagedLlamaOverrides(config);
+    await syncWithManagedLlamaOverrides();
     if (slotMissingOrAborted(modelId, generation)) {
       return { ok: false, error: STOPPED_DURING_START };
     }
@@ -1041,7 +1050,7 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
       return { ok: false, error: STOPPED_DURING_START };
     }
     stDone.ready = true;
-    await syncWithManagedLlamaOverrides(config);
+    await syncWithManagedLlamaOverrides();
     if (slotMissingOrAborted(modelId, generation)) {
       return { ok: false, error: STOPPED_DURING_START };
     }
@@ -1146,21 +1155,13 @@ async function fetchChatTemplateReasoningOnce(
       logLlamaLifecycle('WARNING', `chat template missing modelId=${modelId}`);
       propsFetchFailedAt.set(modelId, Date.now());
       if (nCtx != null) {
-        try {
-          void syncWithManagedLlamaOverrides(loadConfigSync());
-        } catch {
-          /* config unavailable */
-        }
+        void syncWithManagedLlamaOverrides();
       }
       return undefined;
     }
     setCachedChatTemplateReasoning(modelId, parsed.caps);
     propsFetchFailedAt.delete(modelId);
-    try {
-      void syncWithManagedLlamaOverrides(loadConfigSync());
-    } catch {
-      /* config unavailable */
-    }
+    void syncWithManagedLlamaOverrides();
     logLlamaLifecycle(
       'INFO',
       `chat template reasoning modelId=${modelId} ${formatChatTemplateReasoningSummary(parsed.caps)} bytes=${parsed.templateBytes}` +
@@ -1320,11 +1321,7 @@ function detachManagedLlamaSlot(modelId: string): ManagedLlamaSlot | undefined {
   persistManagedLlamaPids();
   // Retract the published runtime overrides so Python stops targeting a dead URL.
   // Every teardown path (manual stop, chat crash, prune, embed-fail) must sync.
-  try {
-    void syncWithManagedLlamaOverrides(loadConfigSync());
-  } catch {
-    /* config unavailable */
-  }
+  void syncWithManagedLlamaOverrides();
   return st;
 }
 

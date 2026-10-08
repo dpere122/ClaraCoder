@@ -127,38 +127,21 @@
   align-items: stretch;
 }
 
-.composer-mode-select {
-  appearance: none;
-  margin: 0;
+:host ::ng-deep app-pill-select.composer-mode-select .pill-select__trigger {
   min-width: 4.5rem;
-  padding: 0.28rem 1.2rem 0.28rem 0.45rem;
+  min-height: 0;
+  padding: 0.28rem 0.7rem 0.28rem 0.45rem;
   background-color: var(--t-input-bg, var(--t-bg));
-  border: 1px solid var(--t-border-subtle);
-  border-radius: 0;
+  border-color: var(--t-border-subtle);
   color: var(--t-input-fg, var(--t-primary));
-  font-family: inherit;
   font-size: 0.78rem;
   font-weight: 500;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
 }
 
-.composer-mode-select:hover {
+:host ::ng-deep app-pill-select.composer-mode-select .pill-select__trigger:hover:not(:disabled) {
   background-color: var(--t-hover-bg);
-}
-
-.composer-mode-select:focus,
-.composer-mode-select:focus-visible,
-.composer-mode-select:active {
-  outline: none;
-  box-shadow: none;
-}
-
-.composer-mode-select option {
-  background-color: var(--t-input-bg, var(--t-bg-deep));
-  color: var(--t-input-fg, var(--t-fg));
 }
 
 .composer-reasoning-cluster {
@@ -192,12 +175,12 @@
   letter-spacing: 0.02em;
 }
 
-.composer-reasoning-select:disabled {
+:host ::ng-deep app-pill-select.composer-mode-select .pill-select__trigger:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
 
-.composer-reasoning-wrap:has(.composer-reasoning-select:disabled) .composer-mode-chevron {
+:host ::ng-deep app-pill-select.composer-mode-select .pill-select__trigger:disabled .pill-select__chevron {
   opacity: 0.4;
 }
 

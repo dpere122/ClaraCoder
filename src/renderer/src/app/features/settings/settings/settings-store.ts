@@ -18,6 +18,7 @@ import type {
   LlmOptimizationPreset,
   LlmProviderConfig,
   LmStudioModelCard,
+  OpenRouterCatalogModel,
   ModelManagerFileEntry,
   MonacoWorkspaceEditorSettings,
   MonacoWorkspaceEditorThemeId,
@@ -60,6 +61,7 @@ import {
   detectShellQuotingPlatform,
   effectiveLmStudioContextTokens,
   countLlmModels,
+  defaultLlmModelId,
   findLlmModelLocation,
   hubCacheFolderToHfId,
   inferContextWindowTokens,
@@ -117,11 +119,19 @@ import {
   isPinnedLmStudioProviderId,
   isPinnedLlamaCppLocalProviderId,
   isPinnedLlamaServerUrlProviderId,
+  isPinnedOpenRouterProviderId,
   type ManagedLlamaCacheType,
   type ManagedLlamaFlashAttn,
   type ManagedLlamaModelSource,
 } from '@shared/index';
-import { SecretValue, unwrapSecret } from '@shared/index';
+import {
+  SecretValue,
+  createEmptyMcpServer,
+  unwrapSecret,
+  type McpHostStatus,
+  type McpServerConfig,
+  type McpToolDecision,
+} from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { ThemedPromptDialogService } from '../../../shared/themed-prompt-dialog/themed-prompt-dialog.service';
@@ -309,6 +319,11 @@ export class SettingsStore {
   readonly ttsApiKey = signal('');
   readonly ttsDefaultInstructions = signal('');
   readonly editToolsMode = signal<'standard' | 'strict'>('standard');
+  readonly mcpServers = signal<McpServerConfig[]>([]);
+  readonly mcpStatus = signal<McpHostStatus | null>(null);
+  readonly mcpStatusError = signal('');
+  readonly mcpOauthBusyId = signal('');
+  readonly mcpEnabledCount = computed(() => this.mcpServers().filter((server) => server.enabled).length);
   readonly maxFileReadLines = signal(400);
   readonly maxSearchResults = signal(40);
   readonly defaultWorkspaceEncoding = signal('utf-8');
@@ -455,12 +470,13 @@ export class SettingsStore {
     const tab = this.tabs.find((t) => t.id === parent) ?? this.tabs[0];
     return { label: tab.label, description: tab.description };
   });
-  /** Pinned sources first: LM Studio, remote llama URL, local managed llama; remaining rows keep file order. */
+  /** Pinned sources first: LM Studio, remote llama URL, local managed llama, OpenRouter; remaining rows keep file order. */
   readonly sourcesOrdered = computed(() => {
     const list = this.llmProviders();
     const pinLm = list.find((p) => isPinnedLmStudioProviderId(p.id));
     const pinUrl = list.find((p) => isPinnedLlamaServerUrlProviderId(p.id));
     const pinLocal = list.find((p) => isPinnedLlamaCppLocalProviderId(p.id));
+    const pinOpenRouter = list.find((p) => isPinnedOpenRouterProviderId(p.id));
     const rest = list.filter((p) => !isPinnedLlmSourceId(p.id));
     const head: LlmProviderConfig[] = [];
     if (pinLm) {
@@ -471,6 +487,9 @@ export class SettingsStore {
     }
     if (pinLocal) {
       head.push(pinLocal);
+    }
+    if (pinOpenRouter) {
+      head.push(pinOpenRouter);
     }
     return [...head, ...rest];
   });
@@ -488,6 +507,9 @@ export class SettingsStore {
     this.lmStudioInventory().filter((c) => c.state === 'loaded' || c.state === 'loading'),
   );
   readonly llamacppManagedModelIds = signal<string[]>([]);
+  readonly openRouterModels = signal<OpenRouterCatalogModel[]>([]);
+  readonly openRouterModelsListInFlight = signal(false);
+  readonly openRouterModelsListError = signal<string | null>(null);
   /** ``GET /v1/models`` from embeddings base URL when it differs from chat (URL-only llama.cpp). */
   readonly llamacppUrlEmbeddingModelIds = signal<string[]>([]);
   readonly llamacppModelsListError = signal<string | null>(null);
@@ -1010,6 +1032,10 @@ export class SettingsStore {
       this.llamacppUrlEmbeddingModelIds.set([]);
       this.llamacppModelsListError.set(null);
     }
+    if (p.provider !== 'openrouter') {
+      this.openRouterModels.set([]);
+      this.openRouterModelsListError.set(null);
+    }
   }
 
   activateSource(providerId: string): void {
@@ -1097,6 +1123,48 @@ export class SettingsStore {
     } finally {
       this.llamacppModelsListInFlight.set(false);
     }
+  }
+
+  async refreshOpenRouterModels(): Promise<void> {
+    const p = this.selectedProvider();
+    if (!p || p.provider !== 'openrouter') {
+      return;
+    }
+    this.openRouterModelsListInFlight.set(true);
+    this.openRouterModelsListError.set(null);
+    try {
+      const res = await this.electron.openRouterListModels({
+        baseUrl: p.baseUrl,
+        apiKey: unwrapSecret(p.apiKey) || '',
+      });
+      if (!res.ok) {
+        this.openRouterModels.set([]);
+        this.openRouterModelsListError.set(res.error);
+        return;
+      }
+      this.openRouterModels.set(res.models);
+    } catch (e) {
+      this.openRouterModels.set([]);
+      this.openRouterModelsListError.set(e instanceof Error ? e.message : String(e));
+    } finally {
+      this.openRouterModelsListInFlight.set(false);
+    }
+  }
+
+  onOpenRouterModelChange(model: string): void {
+    const loc = this.selectedLocation();
+    if (!loc) {
+      return;
+    }
+    const hit = this.openRouterModels().find((row) => row.id === model);
+    const contextWindowTokens =
+      hit && hit.contextLength > 0 ? hit.contextLength : inferContextWindowTokens(model, 'openrouter');
+    this.applyLlmModelPatch(loc.model.id, {
+      model,
+      name: hit?.name || model,
+      contextWindowTokens,
+    });
+    this.markSettingsDirty();
   }
 
   isPinnedSource(providerId: string): boolean {
@@ -1374,6 +1442,9 @@ export class SettingsStore {
     }
     if (kind === 'llamacpp') {
       return 'llama.cpp';
+    }
+    if (kind === 'openrouter') {
+      return 'OpenRouter';
     }
     return 'OpenAI';
   }
@@ -3000,7 +3071,7 @@ export class SettingsStore {
   }
 
   private buildNewModel(index: number, providerKind: LlmProviderConfig['provider']): LlmModelProfile {
-    const apiModel = providerKind === 'lmstudio' || providerKind === 'llamacpp' ? 'local-model' : 'gpt-4o-mini';
+    const apiModel = defaultLlmModelId(providerKind);
     const base: LlmModelProfile = {
       id: crypto.randomUUID(),
       name: `Model ${index}`,
@@ -3055,6 +3126,131 @@ export class SettingsStore {
       baseUrl: '',
       apiKey: SecretValue.of(''),
     };
+  }
+
+  addMcpServer(): void {
+    this.mcpServers.update((list) => [...list, createEmptyMcpServer(crypto.randomUUID())]);
+    this.markSettingsDirty();
+  }
+
+  removeMcpServer(id: string): void {
+    this.mcpServers.update((list) => list.filter((server) => server.id !== id));
+    this.markSettingsDirty();
+  }
+
+  patchMcpServer(
+    id: string,
+    patch: Partial<McpServerConfig>,
+    touch?: 'trust' | 'decisions' | 'oauth',
+  ): void {
+    this.mcpServers.update((list) =>
+      list.map((server) => {
+        if (server.id !== id) {
+          return server;
+        }
+        return {
+          ...server,
+          ...patch,
+          trustTouched: touch === 'trust' ? true : server.trustTouched,
+          toolDecisionsTouched: touch === 'decisions' ? true : server.toolDecisionsTouched,
+          oauthTouched: touch === 'oauth' ? true : server.oauthTouched,
+        };
+      }),
+    );
+    this.markSettingsDirty();
+  }
+
+  setMcpSecretEntry(
+    id: string,
+    field: 'env' | 'headers',
+    index: number,
+    patch: { key?: string; value?: string },
+  ): void {
+    const server = this.mcpServers().find((entry) => entry.id === id);
+    if (!server) {
+      return;
+    }
+    const rows = server[field].map((entry, rowIndex) => {
+      if (rowIndex !== index) {
+        return entry;
+      }
+      return {
+        key: patch.key !== undefined ? patch.key : entry.key,
+        value: patch.value !== undefined ? SecretValue.of(patch.value) : entry.value,
+      };
+    });
+    this.patchMcpServer(id, { [field]: rows });
+  }
+
+  addMcpSecretEntry(id: string, field: 'env' | 'headers'): void {
+    const server = this.mcpServers().find((entry) => entry.id === id);
+    if (!server) {
+      return;
+    }
+    this.patchMcpServer(id, { [field]: [...server[field], { key: '', value: SecretValue.of('') }] });
+  }
+
+  removeMcpSecretEntry(id: string, field: 'env' | 'headers', index: number): void {
+    const server = this.mcpServers().find((entry) => entry.id === id);
+    if (!server) {
+      return;
+    }
+    this.patchMcpServer(id, { [field]: server[field].filter((_, rowIndex) => rowIndex !== index) });
+  }
+
+  setMcpToolDecision(id: string, toolName: string, decision: McpToolDecision | 'ask'): void {
+    const server = this.mcpServers().find((entry) => entry.id === id);
+    if (!server) {
+      return;
+    }
+    const toolDecisions = { ...server.toolDecisions };
+    if (decision === 'ask') {
+      delete toolDecisions[toolName];
+    } else {
+      toolDecisions[toolName] = decision;
+    }
+    this.patchMcpServer(id, { toolDecisions }, 'decisions');
+  }
+
+  async refreshMcpStatus(): Promise<void> {
+    const result = await this.electron.mcpStatus();
+    if (!result.ok) {
+      this.mcpStatusError.set(result.error);
+      return;
+    }
+    this.mcpStatusError.set('');
+    this.mcpStatus.set(result.status);
+  }
+
+  /** Apply first when the list is dirty so Python sees the saved server, then open the browser. */
+  async signInMcp(id: string): Promise<string> {
+    if (this.settingsDirty()) {
+      await this.applySettings();
+    }
+    this.mcpOauthBusyId.set(id);
+    try {
+      const result = await this.electron.mcpOauthStart(id);
+      if (!result.ok) {
+        return result.error;
+      }
+      const saved = result.config.mcpServers?.find((server) => server.id === id);
+      if (saved?.oauth) {
+        this.mcpServers.update((list) =>
+          list.map((server) => (server.id === id ? { ...server, oauth: saved.oauth, httpAuth: 'oauth' } : server)),
+        );
+        if (this.configSnapshot) {
+          this.configSnapshot.mcpServers = this.mcpServers().map((server) => ({ ...server }));
+        }
+      }
+      await this.refreshMcpStatus();
+      return '';
+    } finally {
+      this.mcpOauthBusyId.set('');
+    }
+  }
+
+  mcpStatusFor(id: string) {
+    return this.mcpStatus()?.servers.find((server) => server.id === id) ?? null;
   }
 
   private markSettingsDirty(): void {
@@ -3142,6 +3338,19 @@ export class SettingsStore {
         customModelsDir: this.modelManagerCustomDir(),
         huggingFaceToken: SecretValue.of(this.modelManagerHfToken()),
       },
+      mcpServers: this.mcpServers().map((server) => ({
+        ...server,
+        env: server.env.map((entry) => ({ key: entry.key, value: SecretValue.of(unwrapSecret(entry.value)) })),
+        headers: server.headers.map((entry) => ({ key: entry.key, value: SecretValue.of(unwrapSecret(entry.value)) })),
+        oauth: server.oauth
+          ? {
+              ...server.oauth,
+              accessToken: SecretValue.of(unwrapSecret(server.oauth.accessToken)),
+              refreshToken: SecretValue.of(unwrapSecret(server.oauth.refreshToken)),
+              clientSecret: SecretValue.of(unwrapSecret(server.oauth.clientSecret)),
+            }
+          : null,
+      })),
       monacoWorkspaceEditor: structuredClone(this.monacoWorkspaceEditor()),
     };
   }
@@ -3286,6 +3495,7 @@ export class SettingsStore {
     this.defaultWorkspaceNewline.set(
       nl === 'crlf' || nl === 'preserve' ? nl : 'lf',
     );
+    this.mcpServers.set(config.mcpServers ?? []);
     this.allowStagingOverlayCommands.set(!!(wt.allowStagingOverlayCommands ?? false));
     this.commandLineExplainStep.set(!!(wt.commandLineExplainStep ?? false));
     this.exposeAllWorkspaceFiles.set(!!(wt.exposeAllWorkspaceFiles ?? false));

@@ -32,56 +32,34 @@
                 title='Content width when chat is expanded to the main panel. Sidebar chat is always full width.'
               >
                 <span>Chat container size</span>
-                <select
-                  [ngModel]='s.chatContainerSize()'
-                  (ngModelChange)='s.onChatContainerSizeChange($event)'
-                >
-                  @for (opt of s.chatContainerSizeOptions; track opt.value) {
-                    <option [value]='opt.value'>{{ opt.label }}</option>
-                  }
-                </select>
+                <app-pill-select
+                  [options]='s.chatContainerSizeOptions'
+                  valueKey='value'
+                  [value]='s.chatContainerSize()'
+                  (valueChange)='s.onChatContainerSizeChange($any($event))'
+                />
               </label>
               <label
                 class='field'
                 title='App font: applies to all app UI text — chat messages, buttons, menus, and dialogs — everywhere except the Monaco editor and rendered code blocks, which use the Code font below. Includes your OS-installed fonts under "System fonts".'
               >
                 <span>App font</span>
-                <select
-                  [ngModel]='s.uiFontFamily()'
-                  (ngModelChange)='s.onUiFontFamilyChange($event)'
-                >
-                  @for (opt of s.uiFontFamilyOptions; track opt.stack) {
-                    <option [value]='opt.stack'>{{ opt.label }}</option>
-                  }
-                  @if (s.systemFontOptions().length > 0) {
-                    <optgroup label='System fonts'>
-                      @for (opt of s.systemFontOptions(); track opt.stack) {
-                        <option [value]='opt.stack'>{{ opt.label }}</option>
-                      }
-                    </optgroup>
-                  }
-                </select>
+                <app-pill-select
+                  [options]='fontOptions(s.uiFontFamilyOptions, s.systemFontOptions())'
+                  [value]='s.uiFontFamily()'
+                  (valueChange)='s.onUiFontFamilyChange($event)'
+                />
               </label>
               <label
                 class='field'
                 title='Code font: applies to rendered code blocks in chat and overrides the font family set on the Monaco tab (Settings → Monaco → Typography) when not left on Theme default. Includes your OS-installed fonts under "System fonts".'
               >
                 <span>Code font</span>
-                <select
-                  [ngModel]='s.codeFontFamily()'
-                  (ngModelChange)='s.onCodeFontFamilyChange($event)'
-                >
-                  @for (opt of s.codeFontFamilyOptions; track opt.stack) {
-                    <option [value]='opt.stack'>{{ opt.label }}</option>
-                  }
-                  @if (s.systemFontOptions().length > 0) {
-                    <optgroup label='System fonts'>
-                      @for (opt of s.systemFontOptions(); track opt.stack) {
-                        <option [value]='opt.stack'>{{ opt.label }}</option>
-                      }
-                    </optgroup>
-                  }
-                </select>
+                <app-pill-select
+                  [options]='fontOptions(s.codeFontFamilyOptions, s.systemFontOptions())'
+                  [value]='s.codeFontFamily()'
+                  (valueChange)='s.onCodeFontFamilyChange($event)'
+                />
               </label>
             </div>
           </div>

@@ -40,12 +40,13 @@
               <label class="field">
                 <span>Image</span>
                 <div class="tgp__asset-row">
-                  <select [disabled]="readOnly()" [value]="background().asset" (change)="onAsset($any($event.target).value)">
-                    <option value="">— none —</option>
-                    @for (key of assetKeys(); track key) {
-                      <option [value]="key">{{ key }} ({{ assets()[key] }})</option>
-                    }
-                  </select>
+                  <app-pill-select
+                    [disabled]="readOnly()"
+                    [value]="background().asset"
+                    [options]="assetOptions()"
+                    ariaLabel="Background image"
+                    (valueChange)="onAsset($event)"
+                  />
                   <button type="button" class="action-button action-button--compact" [disabled]="readOnly()" (click)="pickAsset.emit()">
                     Choose
                   </button>
@@ -75,11 +76,13 @@
               </label>
               <label class="field">
                 <span>Fit</span>
-                <select [disabled]="readOnly() || !background().asset" [value]="background().fit" (change)="onFit($any($event.target).value)">
-                  @for (fit of fits; track fit) {
-                    <option [value]="fit">{{ fit }}</option>
-                  }
-                </select>
+                <app-pill-select
+                  [disabled]="readOnly() || !background().asset"
+                  [value]="background().fit"
+                  [options]="fitOptions"
+                  ariaLabel="Background fit"
+                  (valueChange)="onFit($event)"
+                />
               </label>
               @if (override()?.background && !readOnly()) {
                 <button type="button" class="tgp__link" (click)="backgroundClear.emit()">Clear background settings</button>

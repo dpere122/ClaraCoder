@@ -18,7 +18,7 @@ from clara_coder_backend.workspace_index.fastembed_backend import (
 
 logger = logging.getLogger('clara.workspace_index.embeddings')
 
-_CHAT_EMBEDDING_PROVIDERS = frozenset({'openai', 'lmstudio', 'llamacpp'})
+_CHAT_EMBEDDING_PROVIDERS = frozenset({'openai', 'lmstudio', 'llamacpp', 'openrouter'})
 _logged_backend_choice: set[str] = set()
 _preload_lock = threading.Lock()
 _preloaded_key: str | None = None

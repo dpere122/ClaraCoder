@@ -12,7 +12,7 @@ from langgraph.types import Command
 from clara_coder_backend.session.pause import await_diff_review_note
 from clara_coder_backend.llm.messages import stringify_content
 from clara_coder_backend.session.state import current_session_id, get_session
-from clara_coder_backend.hitl.tool_registry import hitl_accept_command_pause_tools
+from clara_coder_backend.hitl.tool_registry import accept_command_pause_applies
 
 
 class AcceptCommandReviewAfterToolMiddleware(AgentMiddleware):
@@ -38,7 +38,7 @@ class AcceptCommandReviewAfterToolMiddleware(AgentMiddleware):
         # when auto-apply is on, but agent-requested Admin elevation still must pause the composer chip.
         if (
             sess.hitl_sse_queue is None
-            or name not in hitl_accept_command_pause_tools()
+            or not accept_command_pause_applies(name)
             or not sess.pending_accept_command_request
         ):
             return result

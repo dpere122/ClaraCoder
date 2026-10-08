@@ -6,13 +6,14 @@ import type {
   LlamaServerStatusResult,
   ManagedServerHealthState,
 } from '@shared/index';
-import { resolveActiveLlmConnection } from '@shared/index';
+import { resolveActiveLlmConnection, unwrapSecret } from '@shared/index';
 import { filter, merge } from 'rxjs';
 import { ElectronService } from '../../../core/electron.service';
 import {
   computeStatusPollIntervalMs,
   embeddingsStatusDotState,
   modelStatusDotState,
+  openRouterModelDotState,
   type LlamaStatusDotState,
 } from './llama-status-display';
 
@@ -70,12 +71,33 @@ export class LlamaStatusIndicator {
     return !!cfg && !!cfg.activeLlmModelId?.trim() && !!this.activeProvider();
   });
 
-  /** Show the Model dot only for managed llama.cpp. */
-  protected readonly showModelDot = computed(() => this.activeProvider() === 'llamacpp');
+  /** Model dot: managed llama.cpp health, or OpenRouter once a model and key are saved. */
+  protected readonly showModelDot = computed(() => {
+    const provider = this.activeProvider();
+    return provider === 'llamacpp' || provider === 'openrouter';
+  });
 
-  protected readonly modelDot = computed((): LlamaStatusDotState =>
-    modelStatusDotState(this.modelWarming(), this.status()),
-  );
+  private readonly activeConnection = computed(() => {
+    const cfg = this.appConfig();
+    return cfg ? resolveActiveLlmConnection(cfg) : null;
+  });
+
+  private readonly openRouterConnected = computed(() => {
+    const conn = this.activeConnection();
+    if (!conn || conn.provider !== 'openrouter') {
+      return false;
+    }
+    return openRouterModelDotState(conn.model, unwrapSecret(conn.apiKey)) === 'green';
+  });
+
+  protected readonly modelDot = computed((): LlamaStatusDotState => {
+    if (this.activeProvider() === 'openrouter') {
+      return this.openRouterConnected() ? 'green' : 'gray';
+    }
+    return modelStatusDotState(this.modelWarming(), this.status());
+  });
+
+  protected readonly modelLabel = computed(() => (this.openRouterConnected() ? 'Connected' : 'Model'));
 
   protected readonly embedDot = computed((): LlamaStatusDotState => {
     const es = this.embedStatus();
@@ -86,6 +108,13 @@ export class LlamaStatusIndicator {
   });
 
   protected readonly modelTitle = computed(() => {
+    if (this.activeProvider() === 'openrouter') {
+      const conn = this.activeConnection();
+      if (this.openRouterConnected() && conn) {
+        return `OpenRouter — connected (${conn.model})`;
+      }
+      return 'OpenRouter — set a model and API key';
+    }
     const warm = this.modelWarming();
     if (warm === 'downloading') {
       return 'Model server — downloading';

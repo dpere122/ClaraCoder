@@ -1,4 +1,4 @@
-import { ipcRenderer } from 'electron';
+import type { PreloadIpc } from '../preload-ipc';
 import type {
   AcceptCommandPayload,
   CopyConfirmPayload,
@@ -11,7 +11,7 @@ import type {
 } from '../../shared';
 
 /** Chat streaming, agent continue, and TTS IPC surface. */
-export const chatApi = {
+export const createChatApi = (ipcRenderer: PreloadIpc) => ({
   onReady: () => ipcRenderer.send('ready'),
   onMessageChunk: (
     callback: (event: unknown, conversationId: string, delta: string, streamTag?: string) => void,
@@ -168,7 +168,7 @@ export const chatApi = {
     deleteRequestId?: string,
     copyAction?: 'confirm' | 'cancel',
     copyRequestId?: string,
-    acceptCommandAction?: 'confirm' | 'confirm_session' | 'cancel',
+    acceptCommandAction?: 'confirm' | 'confirm_session' | 'cancel' | 'deny',
     acceptCommandRequestId?: string,
     stagedTransferAction?: 'confirm' | 're_review',
     stagedTransferRequestId?: string,
@@ -215,4 +215,4 @@ export const chatApi = {
   // Uint8Array survives Electron IPC structured clone more reliably than raw ArrayBuffer.
   transcribe: (audio: ArrayBuffer) => ipcRenderer.invoke('transcribe', new Uint8Array(audio)),
   closeSettingsWindow: () => ipcRenderer.send('close-settings-window'),
-};
+});

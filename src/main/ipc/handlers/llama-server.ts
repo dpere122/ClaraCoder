@@ -10,9 +10,11 @@ import {
   syncWithManagedLlamaOverrides,
 } from '../../llama-server-manager';
 import { getCachedChatTemplateReasoning, getCachedLlamaServerNctx } from '../../chat-template-reasoning-cache';
+import { loadConfig } from '../../config/load-save';
 import { fetchOpenAiCompatibleModelIds } from '../../openai-compatible-models';
+import { findOpenRouterConnection, refreshOpenRouterReasoningForConnection } from '../../openrouter-reasoning';
 import { pythonControlFetch } from '../../python/http-client';
-import { assertTrustedMainRendererOrThrow } from '../assert-trusted-renderer';
+import { assertTrustedAppRenderer, assertTrustedMainRendererOrThrow } from '../assert-trusted-renderer';
 
 export interface LlamaServerIpcPayload {
   modelId: string;
@@ -50,7 +52,7 @@ export function registerLlamaServerIpc(): void {
     if (modelId) {
       await stopManagedLlamaServers(modelId);
     }
-    await syncWithManagedLlamaOverrides(payload.config);
+    await syncWithManagedLlamaOverrides();
     return { ok: true as const };
   });
 
@@ -76,6 +78,12 @@ export function registerLlamaServerIpc(): void {
     const modelId = normalizeLlamaModelId(payload?.modelId);
     if (!modelId) {
       return { ok: false as const, error: 'Missing model id.' };
+    }
+    // Any active connection asks here; OpenRouter caps come from the model catalog, not a template.
+    const openRouter = findOpenRouterConnection(await loadConfig(), modelId);
+    if (openRouter) {
+      const caps = await refreshOpenRouterReasoningForConnection(openRouter);
+      return { ok: true as const, modelId, chatTemplateReasoning: caps ?? null, nCtx: null };
     }
     return {
       ok: true as const,
@@ -111,7 +119,8 @@ export function registerLlamaServerIpc(): void {
 
   ipcMain.handle('llamacpp-openai:list-models', async (event, payload: { baseUrl: string; apiKey: string }) => {
     try {
-      assertTrustedMainRendererOrThrow(event);
+      // Settings is its own window; Connect on Llama server (URL) lists models from there.
+      assertTrustedAppRenderer(event);
     } catch {
       return { ok: false as const, error: 'Untrusted IPC sender' };
     }

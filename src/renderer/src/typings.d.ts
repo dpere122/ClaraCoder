@@ -21,6 +21,7 @@ import type {
   LlamaServerStatusResult,
   EmbeddingsStatusResult,
   LlamacppManagedListModelsResult,
+  OpenRouterListModelsResult,
   ChatTemplateReasoningCaps,
   LlmStatus,
   MenuFileCommand,
@@ -225,7 +226,7 @@ declare global {
       deleteRequestId?: string,
       copyAction?: 'confirm' | 'cancel',
       copyRequestId?: string,
-      acceptCommandAction?: 'confirm' | 'confirm_session' | 'cancel',
+      acceptCommandAction?: 'confirm' | 'confirm_session' | 'cancel' | 'deny',
       acceptCommandRequestId?: string,
       stagedTransferAction?: 'confirm' | 're_review',
       stagedTransferRequestId?: string,
@@ -399,6 +400,17 @@ declare global {
     llamaServerStop: (payload: { modelId: string; config: AppConfig }) => Promise<{ ok: true }>;
     llamaServerStatus: (payload: { modelId: string; config: AppConfig }) => Promise<LlamaServerStatusResult>;
     embeddingsStatus: () => Promise<EmbeddingsStatusResult | { ok: false; error: string }>;
+    mcpStatus: () => Promise<
+      { ok: true; status: import('@shared/index').McpHostStatus } | { ok: false; error: string }
+    >;
+    mcpOauthStart: (
+      serverId: string,
+    ) => Promise<{ ok: true; config: AppConfig } | { ok: false; error: string }>;
+    mcpRememberDecision: (payload: {
+      serverId: string;
+      decision: 'allow' | 'deny' | 'allow-all';
+      toolName?: string;
+    }) => Promise<{ ok: true; config: AppConfig } | { ok: false; error: string }>;
     llamaServerChatTemplateReasoning: (payload: {
       modelId: string;
     }) => Promise<
@@ -413,6 +425,10 @@ declare global {
       baseUrl: string;
       apiKey: string;
     }) => Promise<LlamacppManagedListModelsResult>;
+    openRouterListModels: (payload: {
+      baseUrl: string;
+      apiKey: string;
+    }) => Promise<OpenRouterListModelsResult>;
     lmStudioListModels: (payload: { baseUrl: string; apiKey?: string }) => Promise<LmStudioListModelsResult>;
     lmStudioLoadModel: (payload: { baseUrl: string; model: string; apiKey?: string }) => Promise<LmStudioMutationResult>;
     lmStudioUnloadModel: (payload: {

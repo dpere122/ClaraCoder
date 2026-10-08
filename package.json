@@ -30,6 +30,7 @@
     "render:icon": "python scripts/render_clara_coder_icon.py",
     "start": "node scripts/run-electron.mjs electron dist/main/index.js",
     "dev": "concurrently \"node scripts/run-ng.mjs serve --host 127.0.0.1\" \"tsc -p ./ --watch --preserveWatchOutput\" \"wait-on http://127.0.0.1:4200 && cross-env DEV_SERVER_URL=http://127.0.0.1:4200 node scripts/run-electron.mjs electronmon dist/main/index.js\"",
+    "dev:bridge": "cross-env CLARA_BROWSER_BRIDGE=1 npm run dev",
     "dev:lmstudio": "cross-env NEMO_LLM_PROVIDER=lmstudio NEMO_AUDIO_PROVIDER=openai npm run dev"
   },
   "keywords": [],

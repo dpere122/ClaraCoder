@@ -66,16 +66,13 @@
             <span>Start</span>
           </button>
         }
-        <select
+        <app-pill-select
           class='image-viewer-interval-select'
-          [value]='autoPlayIntervalMs()'
-          (change)='onAutoPlayIntervalChange($event)'
-          title='Auto-play interval'
-        >
-          @for (intervalMs of autoPlayIntervalOptions; track intervalMs) {
-            <option [value]='intervalMs'>{{ intervalMs / 1000 }}s</option>
-          }
-        </select>
+          [options]='intervalOptions()'
+          [value]="autoPlayIntervalMs() + ''"
+          (valueChange)='onAutoPlayIntervalChange($event)'
+          ariaLabel='Auto-play interval'
+        />
       </div>
     } @else if (galleryLoading()) {
       <div class='image-viewer-toolbar-group image-viewer-toolbar-group--gallery'>

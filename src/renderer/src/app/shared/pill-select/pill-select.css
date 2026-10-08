@@ -1,0 +1,111 @@
+:host {
+  display: block;
+  min-width: 0;
+  position: relative;
+}
+
+.pill-select {
+  position: relative;
+}
+
+.pill-select__trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 12px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--t-bg, #1a1a1a) 70%, var(--t-bg-surface, #2a2a2a));
+  border: 1px solid color-mix(in srgb, var(--t-border, #444) 80%, transparent);
+  border-radius: 999px;
+}
+
+.pill-select__trigger:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--t-primary, #a8b89a) 75%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--t-primary, #a8b89a) 25%, transparent);
+}
+
+.pill-select.is-disabled .pill-select__trigger,
+.pill-select__trigger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.pill-select__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pill-select__chevron {
+  flex-shrink: 0;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  opacity: 0.75;
+}
+
+.pill-select.is-open .pill-select__chevron {
+  transform: rotate(180deg);
+}
+
+.pill-select__menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* Drop the popover UA centering; placeMenu() sets the edges inline. */
+  inset: auto;
+  margin: 0;
+  padding: 0.35rem;
+  overflow: auto;
+  color: inherit;
+  background: color-mix(in srgb, var(--t-bg, #1a1a1a) 88%, var(--t-bg-surface, #2a2a2a));
+  border: 1px solid color-mix(in srgb, var(--t-border, #444) 80%, transparent);
+  border-radius: 0.9rem;
+  box-shadow:
+    0 8px 22px color-mix(in srgb, black 32%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--t-primary, #a8b89a) 12%, transparent);
+}
+
+.pill-select__group {
+  padding: 0.35rem 0.7rem 0.15rem;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--t-text-muted, var(--t-primary));
+}
+
+.pill-select__option {
+  display: block;
+  width: 100%;
+  padding: 0.4rem 0.7rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pill-select__option:hover,
+.pill-select__option.is-selected {
+  background: color-mix(in srgb, var(--t-primary, #a8b89a) 18%, transparent);
+}
+
+.pill-select__option:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--t-primary, #a8b89a) 45%, transparent);
+}

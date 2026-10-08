@@ -14,6 +14,7 @@ app-workspace .workspace {
 }
 
 app-workspace .workspace-body {
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -24,6 +25,22 @@ app-workspace .file-tree {
   flex: 1;
   overflow-y: auto;
   outline: none;
+}
+
+app-workspace .file-tree.has-tree-cog {
+  padding-bottom: 2.5rem;
+}
+
+app-workspace .workspace-tree-cog {
+  position: absolute;
+  right: 0.65rem;
+  bottom: 0.4rem;
+  z-index: 3;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--t-bg) 90%, transparent);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, black 28%, transparent),
+    0 4px 12px color-mix(in srgb, black 22%, transparent);
 }
 
 app-workspace .file-tree.is-drop-target {
@@ -55,29 +72,7 @@ app-workspace .workspace-interpreter-label {
 
 app-workspace .workspace-interpreter-select {
   width: 100%;
-  box-sizing: border-box;
-  padding: 0.4rem 0.6rem;
-  background: var(--t-bg);
-  border: 1px solid var(--t-border);
-  color: var(--t-primary);
-  font-family: inherit;
-  font-size: 0.8rem;
-  cursor: pointer;
-  outline: none;
-}
-
-app-workspace .workspace-interpreter-select:focus {
-  border-color: var(--t-primary);
-}
-
-app-workspace .workspace-interpreter-select:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
-}
-
-app-workspace .workspace-interpreter-select option {
-  background: var(--t-bg-deep);
-  color: var(--t-primary);
+  margin-bottom: 0.45rem;
 }
 
 app-workspace .workspace-interpreter-error {

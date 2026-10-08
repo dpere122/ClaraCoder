@@ -28,11 +28,13 @@ import type {
   LlamaServerStatusResult,
   EmbeddingsStatusResult,
   LlamacppManagedListModelsResult,
+  OpenRouterListModelsResult,
   ChatTemplateReasoningCaps,
   LmStudioListModelsResult,
   LmStudioMutationResult,
   LlmStatus,
   MenuFileCommand,
+  McpHostStatus,
   ModelManagerHfFilesResult,
   ModelManagerHfSearchResult,
   ModelManagerListModelsResult,
@@ -103,6 +105,7 @@ const FALLBACK_APP_CONFIG: AppConfig = {
     extraUserPath: '',
     enableAgentFormatters: false,
   },
+  mcpServers: [],
   contextCompression: getDefaultContextCompression(),
   healthMonitor: {
     logLevel: 'info',
@@ -860,7 +863,7 @@ export class ElectronService {
     deleteRequestId?: string,
     copyAction?: 'confirm' | 'cancel',
     copyRequestId?: string,
-    acceptCommandAction?: 'confirm' | 'confirm_session' | 'cancel',
+    acceptCommandAction?: 'confirm' | 'confirm_session' | 'cancel' | 'deny',
     acceptCommandRequestId?: string,
     stagedTransferAction?: 'confirm' | 're_review',
     stagedTransferRequestId?: string,
@@ -1472,6 +1475,22 @@ export class ElectronService {
     );
   }
 
+  mcpStatus(): Promise<{ ok: true; status: McpHostStatus } | { ok: false; error: string }> {
+    return this.api?.mcpStatus() ?? Promise.resolve({ ok: false as const, error: 'API not available' });
+  }
+
+  mcpOauthStart(serverId: string): Promise<{ ok: true; config: AppConfig } | { ok: false; error: string }> {
+    return this.api?.mcpOauthStart(serverId) ?? Promise.resolve({ ok: false as const, error: 'API not available' });
+  }
+
+  mcpRememberDecision(payload: {
+    serverId: string;
+    decision: 'allow' | 'deny' | 'allow-all';
+    toolName?: string;
+  }): Promise<{ ok: true; config: AppConfig } | { ok: false; error: string }> {
+    return this.api?.mcpRememberDecision(payload) ?? Promise.resolve({ ok: false as const, error: 'API not available' });
+  }
+
   async refreshChatTemplateReasoning(modelId: string): Promise<ChatTemplateReasoningCaps | null> {
     const id = modelId.trim();
     if (!id) {
@@ -1548,6 +1567,10 @@ export class ElectronService {
     return (
       this.api?.llamacppOpenAiListModels(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
     );
+  }
+
+  openRouterListModels(payload: { baseUrl: string; apiKey: string }): Promise<OpenRouterListModelsResult> {
+    return this.api?.openRouterListModels(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
   }
 
   lmStudioListModels(payload: { baseUrl: string; apiKey?: string }): Promise<LmStudioListModelsResult> {

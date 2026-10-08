@@ -15,6 +15,7 @@ import { ThemeGroupPanel } from './theme-group-panel/theme-group-panel';
 import { ThemeLibraryList } from './theme-library-list/theme-library-list';
 import { ThemeMonacoPanel } from './theme-monaco-panel/theme-monaco-panel';
 import { ThemeTokenEditor, type ThemeTokenChange } from './theme-token-editor/theme-token-editor';
+import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 
 interface TokenCategoryView {
   id: ThemeTokenCategoryId;
@@ -29,7 +30,7 @@ interface TokenCategoryView {
  */
 @Component({
   selector: 'app-settings-themes',
-  imports: [FormsModule, ThemeLibraryList, ThemeTokenEditor, ThemeGroupPanel, ThemeMonacoPanel],
+  imports: [FormsModule, ThemeLibraryList, ThemeTokenEditor, ThemeGroupPanel, ThemeMonacoPanel, PillSelectComponent],
   templateUrl: './settings-themes.html',
   styleUrl: './settings-themes.css',
   encapsulation: ViewEncapsulation.None,

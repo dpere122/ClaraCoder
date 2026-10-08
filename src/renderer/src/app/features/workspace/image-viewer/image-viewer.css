@@ -90,14 +90,7 @@ app-image-viewer .image-viewer-toolbar-divider {
 }
 
 app-image-viewer .image-viewer-interval-select {
-  padding: 0.28rem 0.4rem;
-  background: var(--t-bg);
-  border: 1px solid var(--t-border);
-  color: var(--t-primary);
-  border-radius: 4px;
-  font-family: inherit;
-  font-size: 0.78rem;
-  cursor: pointer;
+  min-width: 4.5rem;
 }
 
 app-image-viewer .image-viewer-interval-select:hover {

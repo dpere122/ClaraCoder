@@ -132,23 +132,15 @@
                   <div class='form-grid'>
                     <label class='field field--full'>
                       <span>Chat model</span>
-                      <select
-                        [ngModel]='s.selectedModel()!.model'
-                        (ngModelChange)='s.onModelApiIdChange($event)'
-                      >
-                        @if (s.selectedModel()?.model && !s.lmStudioMainModelOptions().some((o) => o.id === s.selectedModel()!.model)) {
-                          <option [value]='s.selectedModel()!.model'>{{ s.selectedModel()!.model }} (current)</option>
-                        }
-                        @for (opt of s.lmStudioMainModelOptions(); track opt.id) {
-                          <option [value]='opt.id'>{{ opt.id }} — {{ opt.state }}</option>
-                        }
-                      </select>
+                      <app-pill-select
+                        [options]='lmStudioChatOptions()'
+                        [value]='s.selectedModel()!.model'
+                        (valueChange)='s.onModelApiIdChange($event)'
+                      />
                     </label>
                     <label class='field field--full'>
                       <span>Embedding model</span>
-                      <select disabled>
-                        <option value=''>Built-in CPU embeddings</option>
-                      </select>
+                      <app-pill-select [disabled]='true' value='' [options]='builtinEmbeddingsOptions' />
                     </label>
                     <div class='field field--full'>
                       <button
@@ -265,23 +257,24 @@
                   <div class='form-grid'>
                     <label class='field field--full'>
                       <span>Chat model</span>
-                      <select
+                      <input
+                        type='text'
+                        list='llamacpp-url-chat-models'
+                        placeholder='model id, e.g. anthropic/claude-sonnet-4.5'
+                        autocomplete='off'
+                        spellcheck='false'
                         [ngModel]='s.selectedModel()!.model'
                         (ngModelChange)='s.onModelApiIdChange($event)'
-                      >
-                        @if (s.selectedModel()?.model && !s.llamacppManagedModelIds().includes(s.selectedModel()!.model)) {
-                          <option [value]='s.selectedModel()!.model'>{{ s.selectedModel()!.model }} (current)</option>
-                        }
+                      />
+                      <datalist id='llamacpp-url-chat-models'>
                         @for (id of s.llamacppManagedModelIds(); track id) {
-                          <option [value]='id'>{{ id }}</option>
+                          <option [value]='id'></option>
                         }
-                      </select>
+                      </datalist>
                     </label>
                     <label class='field field--full'>
                       <span>Embedding model</span>
-                      <select disabled>
-                        <option value=''>Built-in CPU embeddings</option>
-                      </select>
+                      <app-pill-select [disabled]='true' value='' [options]='builtinEmbeddingsOptions' />
                     </label>
                   </div>
                 </div>
@@ -324,20 +317,80 @@
                           </span>
                         </span>
                       </span>
-                      <select
-                        [ngModel]='s.managedPickerValue()'
-                        (ngModelChange)='s.onManagedInventoryPick($event)'
+                      <app-pill-select
+                        [options]='managedModelOptions()'
+                        [value]='s.managedPickerValue()'
+                        (valueChange)='s.onManagedInventoryPick($event)'
+                      />
+                    </label>
+                  </div>
+                </div>
+              } @else if (connection.provider === 'openrouter') {
+                <div class='form-section'>
+                  <div class='form-section__header'>
+                    <h5>Connection</h5>
+                  </div>
+                  <div class='form-grid'>
+                    <label class='field field--full'>
+                      <span>Name</span>
+                      <input
+                        type='text'
+                        [ngModel]='s.selectedProvider()!.name'
+                        (ngModelChange)='s.updateSelectedProvider({ name: $event })'
+                      />
+                    </label>
+                    <label class='field field--full'>
+                      <span>Base URL</span>
+                      <input
+                        type='text'
+                        placeholder='https://openrouter.ai/api/v1'
+                        [ngModel]='s.selectedProvider()!.baseUrl'
+                        (ngModelChange)='s.updateSelectedProvider({ baseUrl: $event })'
+                      />
+                    </label>
+                    <label class='field field--full'>
+                      <span>API key</span>
+                      <input
+                        type='password'
+                        [ngModel]='s.selectedProvider()!.apiKey'
+                        (ngModelChange)='s.updateSelectedProvider({ apiKey: $event })'
+                      />
+                    </label>
+                    <div class='field field--full lm-studio-connect-row'>
+                      <button
+                        type='button'
+                        class='action-button action-button--primary'
+                        [disabled]='s.openRouterModelsListInFlight()'
+                        (click)='s.refreshOpenRouterModels()'
                       >
-                        <option value=''>Select a model</option>
-                        @for (model of s.managedInventoryModels(); track model.absolutePath) {
-                          <option [value]='s.managedInventoryOptionValue(model)'>
-                            {{ model.fileName }} · {{ s.formatModelBytes(model.sizeBytes) }} · {{ s.managedInventoryFamilyLabel(model) }}
-                          </option>
+                        @if (s.openRouterModelsListInFlight()) {
+                          Connecting…
+                        } @else {
+                          Connect
                         }
-                        @if (s.managedPickerValue().startsWith('hf:')) {
-                          <option [value]='s.managedPickerValue()'>{{ s.managedPickerValue().slice(3) }} (HF)</option>
+                      </button>
+                      @if (s.openRouterModelsListError(); as orErr) {
+                        <span class='lm-studio-status lm-studio-status--err'>{{ orErr }}</span>
+                      } @else if (s.openRouterModels().length) {
+                        <span class='lm-studio-status lm-studio-status--ok'>{{ s.openRouterModels().length }} models</span>
+                      }
+                    </div>
+                    <label class='field field--full'>
+                      <span>Chat model</span>
+                      <input
+                        type='text'
+                        list='openrouter-chat-models'
+                        placeholder='model id, e.g. anthropic/claude-sonnet-4.5'
+                        autocomplete='off'
+                        spellcheck='false'
+                        [ngModel]='s.selectedModel()!.model'
+                        (ngModelChange)='s.onOpenRouterModelChange($event)'
+                      />
+                      <datalist id='openrouter-chat-models'>
+                        @for (model of s.openRouterModels(); track model.id) {
+                          <option [value]='model.id'>{{ model.name }}</option>
                         }
-                      </select>
+                      </datalist>
                     </label>
                   </div>
                 </div>
@@ -359,11 +412,15 @@
 
                     <label class='field'>
                       <span>Type</span>
-                      <select [ngModel]='s.selectedProvider()!.provider' (ngModelChange)='s.onProviderKindChange($event)'>
-                        <option value='openai'>OpenAI</option>
-                        <option value='lmstudio'>LM Studio</option>
-                        <option value='llamacpp'>llama.cpp</option>
-                      </select>
+                      <app-pill-select
+                        [value]='s.selectedProvider()!.provider'
+                        (valueChange)='s.onProviderKindChange($any($event))'
+                        [options]="[
+                          { id: 'openai', label: 'OpenAI' },
+                          { id: 'lmstudio', label: 'LM Studio' },
+                          { id: 'llamacpp', label: 'llama.cpp' }
+                        ]"
+                      />
                     </label>
 
                     <label class='field field--full'>
@@ -402,41 +459,34 @@
                 <div class='form-grid'>
                   <label class='field'>
                     <span>Template</span>
-                    <select
-                      [ngModel]='connection.optimizationPreset'
-                      (ngModelChange)='s.onOptimizationPresetChange($event)'
-                      [title]='s.presetDescription(connection)'
-                    >
-                      @for (p of s.presetsFor(connection.provider); track p.id) {
-                        <option [value]='p.id' [title]='p.summary'>{{ p.label }}</option>
-                      }
-                    </select>
+                    <app-pill-select
+                      [options]='presetOptions(connection.provider)'
+                      [value]='connection.optimizationPreset'
+                      (valueChange)='s.onOptimizationPresetChange($any($event))'
+                      [attr.title]='s.presetDescription(connection)'
+                    />
                   </label>
 
                   @if (thinkingVisible()) {
                     <label class='field'>
                       <span>Thinking</span>
-                      <select
-                        [ngModel]='connection.thinkingMode'
-                        (ngModelChange)='s.updateSelectedModel({ thinkingMode: $event })'
-                      >
-                        @for (opt of thinkingModeOptions; track opt.value) {
-                          <option [value]='opt.value'>{{ opt.label }}</option>
-                        }
-                      </select>
+                      <app-pill-select
+                        [options]='thinkingModeOptions'
+                        valueKey='value'
+                        [value]='connection.thinkingMode'
+                        (valueChange)='s.updateSelectedModel({ thinkingMode: $any($event) })'
+                      />
                     </label>
                   }
                   @if (effortVisible()) {
                     <label class='field'>
                       <span>Reasoning</span>
-                      <select
-                        [ngModel]='connection.reasoningEffort || ""'
-                        (ngModelChange)='s.updateSelectedModel({ reasoningEffort: $event })'
-                      >
-                        @for (opt of reasoningEffortOptions(); track opt.value) {
-                          <option [value]='opt.value'>{{ opt.label }}</option>
-                        }
-                      </select>
+                      <app-pill-select
+                        [options]='reasoningEffortOptions()'
+                        valueKey='value'
+                        [value]='connection.reasoningEffort || ""'
+                        (valueChange)='s.updateSelectedModel({ reasoningEffort: $any($event) })'
+                      />
                     </label>
                   }
 
@@ -718,11 +768,11 @@
                                 </span>
                               </span>
                             </span>
-                            <select [ngModel]='s.managedFlashAttn()' (ngModelChange)='s.onManagedFlashAttnChange($event)'>
-                              @for (mode of s.managedFlashAttnModes; track mode) {
-                                <option [value]='mode'>{{ mode }}</option>
-                              }
-                            </select>
+                            <app-pill-select
+                              [options]='labeledIds(s.managedFlashAttnModes)'
+                              [value]='s.managedFlashAttn()'
+                              (valueChange)='s.onManagedFlashAttnChange($any($event))'
+                            />
                           </label>
                           <div class='field'>
                             <span class='sampling-label'>
@@ -811,12 +861,11 @@
                                 </span>
                               </span>
                             </span>
-                            <select [ngModel]='s.managedCacheTypeK()' (ngModelChange)='s.onManagedCacheTypeKChange($event)'>
-                              <option value=''>Default (f16)</option>
-                              @for (t of s.managedCacheTypes; track t) {
-                                <option [value]='t'>{{ t }}</option>
-                              }
-                            </select>
+                            <app-pill-select
+                              [options]='labeledIds(s.managedCacheTypes, "Default (f16)")'
+                              [value]='s.managedCacheTypeK()'
+                              (valueChange)='s.onManagedCacheTypeKChange($event)'
+                            />
                           </label>
                           <label class='field'>
                             <span class='sampling-label'>
@@ -832,12 +881,11 @@
                                 </span>
                               </span>
                             </span>
-                            <select [ngModel]='s.managedCacheTypeV()' (ngModelChange)='s.onManagedCacheTypeVChange($event)'>
-                              <option value=''>Default (f16)</option>
-                              @for (t of s.managedCacheTypes; track t) {
-                                <option [value]='t'>{{ t }}</option>
-                              }
-                            </select>
+                            <app-pill-select
+                              [options]='labeledIds(s.managedCacheTypes, "Default (f16)")'
+                              [value]='s.managedCacheTypeV()'
+                              (valueChange)='s.onManagedCacheTypeVChange($event)'
+                            />
                           </label>
                         </div>
                         <label class='field'>

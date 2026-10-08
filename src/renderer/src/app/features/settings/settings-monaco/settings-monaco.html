@@ -5,14 +5,11 @@
             <div class='form-grid'>
               <label class='field'>
                 <span>Theme</span>
-                <select
-                  [ngModel]='s.monacoWorkspaceEditor().theme'
-                  (ngModelChange)='s.patchMonaco({ theme: $event })'
-                >
-                  @for (opt of s.monacoEditorThemeSelectOptions; track opt.id) {
-                    <option [value]='opt.id'>{{ opt.label }}</option>
-                  }
-                </select>
+                <app-pill-select
+                  [options]='s.monacoEditorThemeSelectOptions'
+                  [value]='s.monacoWorkspaceEditor().theme'
+                  (valueChange)='s.patchMonaco({ theme: $any($event) })'
+                />
               </label>
             </div>
           </div>
@@ -61,15 +58,16 @@
             <div class='form-grid'>
               <label class='field'>
                 <span>Word wrap</span>
-                <select
-                  [ngModel]='s.monacoWorkspaceEditor().wordWrap'
-                  (ngModelChange)='s.patchMonaco({ wordWrap: $event })'
-                >
-                  <option value='off'>Off</option>
-                  <option value='on'>On</option>
-                  <option value='wordWrapColumn'>Wrap at column</option>
-                  <option value='bounded'>Bounded</option>
-                </select>
+                <app-pill-select
+                  [value]='s.monacoWorkspaceEditor().wordWrap'
+                  (valueChange)='s.patchMonaco({ wordWrap: $any($event) })'
+                  [options]="[
+                    { id: 'off', label: 'Off' },
+                    { id: 'on', label: 'On' },
+                    { id: 'wordWrapColumn', label: 'Wrap at column' },
+                    { id: 'bounded', label: 'Bounded' }
+                  ]"
+                />
               </label>
               <label class='field'>
                 <span>Wrap column</span>
@@ -115,13 +113,14 @@
               </div>
               <label class='field'>
                 <span>Minimap slider</span>
-                <select
-                  [ngModel]='s.monacoWorkspaceEditor().minimapShowSlider'
-                  (ngModelChange)='s.patchMonaco({ minimapShowSlider: $event })'
-                >
-                  <option value='mouseover'>Show on mouseover</option>
-                  <option value='always'>Always</option>
-                </select>
+                <app-pill-select
+                  [value]='s.monacoWorkspaceEditor().minimapShowSlider'
+                  (valueChange)='s.patchMonaco({ minimapShowSlider: $any($event) })'
+                  [options]="[
+                    { id: 'mouseover', label: 'Show on mouseover' },
+                    { id: 'always', label: 'Always' }
+                  ]"
+                />
               </label>
             </div>
           </div>
@@ -152,28 +151,30 @@
               </div>
               <label class='field'>
                 <span>Render whitespace</span>
-                <select
-                  [ngModel]='s.monacoWorkspaceEditor().renderWhitespace'
-                  (ngModelChange)='s.patchMonaco({ renderWhitespace: $event })'
-                >
-                  <option value='none'>None</option>
-                  <option value='boundary'>Boundary</option>
-                  <option value='selection'>Selection</option>
-                  <option value='trailing'>Trailing</option>
-                  <option value='all'>All</option>
-                </select>
+                <app-pill-select
+                  [value]='s.monacoWorkspaceEditor().renderWhitespace'
+                  (valueChange)='s.patchMonaco({ renderWhitespace: $any($event) })'
+                  [options]="[
+                    { id: 'none', label: 'None' },
+                    { id: 'boundary', label: 'Boundary' },
+                    { id: 'selection', label: 'Selection' },
+                    { id: 'trailing', label: 'Trailing' },
+                    { id: 'all', label: 'All' }
+                  ]"
+                />
               </label>
               <label class='field'>
                 <span>Render line highlight</span>
-                <select
-                  [ngModel]='s.monacoWorkspaceEditor().renderLineHighlight'
-                  (ngModelChange)='s.patchMonaco({ renderLineHighlight: $event })'
-                >
-                  <option value='all'>All</option>
-                  <option value='line'>Line</option>
-                  <option value='gutter'>Gutter</option>
-                  <option value='none'>None</option>
-                </select>
+                <app-pill-select
+                  [value]='s.monacoWorkspaceEditor().renderLineHighlight'
+                  (valueChange)='s.patchMonaco({ renderLineHighlight: $any($event) })'
+                  [options]="[
+                    { id: 'all', label: 'All' },
+                    { id: 'line', label: 'Line' },
+                    { id: 'gutter', label: 'Gutter' },
+                    { id: 'none', label: 'None' }
+                  ]"
+                />
               </label>
               <div class='field'>
                 <label class='toggle-row'>
@@ -187,15 +188,16 @@
               </div>
               <label class='field'>
                 <span>Line numbers</span>
-                <select
-                  [ngModel]='s.monacoWorkspaceEditor().lineNumbers'
-                  (ngModelChange)='s.patchMonaco({ lineNumbers: $event })'
-                >
-                  <option value='on'>On</option>
-                  <option value='off'>Off</option>
-                  <option value='relative'>Relative</option>
-                  <option value='interval'>Interval</option>
-                </select>
+                <app-pill-select
+                  [value]='s.monacoWorkspaceEditor().lineNumbers'
+                  (valueChange)='s.patchMonaco({ lineNumbers: $any($event) })'
+                  [options]="[
+                    { id: 'on', label: 'On' },
+                    { id: 'off', label: 'Off' },
+                    { id: 'relative', label: 'Relative' },
+                    { id: 'interval', label: 'Interval' }
+                  ]"
+                />
               </label>
               <div class='field'>
                 <label class='toggle-row'>
@@ -316,30 +318,32 @@
             <div class='form-grid'>
               <label class='field'>
                 <span>Cursor blinking</span>
-                <select
-                  [ngModel]='s.monacoWorkspaceEditor().cursorBlinking'
-                  (ngModelChange)='s.patchMonaco({ cursorBlinking: $event })'
-                >
-                  <option value='blink'>Blink</option>
-                  <option value='smooth'>Smooth</option>
-                  <option value='phase'>Phase</option>
-                  <option value='expand'>Expand</option>
-                  <option value='solid'>Solid</option>
-                </select>
+                <app-pill-select
+                  [value]='s.monacoWorkspaceEditor().cursorBlinking'
+                  (valueChange)='s.patchMonaco({ cursorBlinking: $any($event) })'
+                  [options]="[
+                    { id: 'blink', label: 'Blink' },
+                    { id: 'smooth', label: 'Smooth' },
+                    { id: 'phase', label: 'Phase' },
+                    { id: 'expand', label: 'Expand' },
+                    { id: 'solid', label: 'Solid' }
+                  ]"
+                />
               </label>
               <label class='field'>
                 <span>Cursor style</span>
-                <select
-                  [ngModel]='s.monacoWorkspaceEditor().cursorStyle'
-                  (ngModelChange)='s.patchMonaco({ cursorStyle: $event })'
-                >
-                  <option value='line'>Line</option>
-                  <option value='block'>Block</option>
-                  <option value='underline'>Underline</option>
-                  <option value='line-thin'>Line thin</option>
-                  <option value='block-outline'>Block outline</option>
-                  <option value='underline-thin'>Underline thin</option>
-                </select>
+                <app-pill-select
+                  [value]='s.monacoWorkspaceEditor().cursorStyle'
+                  (valueChange)='s.patchMonaco({ cursorStyle: $any($event) })'
+                  [options]="[
+                    { id: 'line', label: 'Line' },
+                    { id: 'block', label: 'Block' },
+                    { id: 'underline', label: 'Underline' },
+                    { id: 'line-thin', label: 'Line thin' },
+                    { id: 'block-outline', label: 'Block outline' },
+                    { id: 'underline-thin', label: 'Underline thin' }
+                  ]"
+                />
               </label>
               <label class='field'>
                 <span>Cursor width</span>
@@ -391,38 +395,41 @@
               </div>
               <label class='field'>
                 <span>Auto-closing brackets</span>
-                <select
-                  [ngModel]='s.monacoWorkspaceEditor().autoClosingBrackets'
-                  (ngModelChange)='s.patchMonaco({ autoClosingBrackets: $event })'
-                >
-                  <option value='always'>Always</option>
-                  <option value='languageDefined'>Language defined</option>
-                  <option value='beforeWhitespace'>Before whitespace</option>
-                  <option value='never'>Never</option>
-                </select>
+                <app-pill-select
+                  [value]='s.monacoWorkspaceEditor().autoClosingBrackets'
+                  (valueChange)='s.patchMonaco({ autoClosingBrackets: $any($event) })'
+                  [options]="[
+                    { id: 'always', label: 'Always' },
+                    { id: 'languageDefined', label: 'Language defined' },
+                    { id: 'beforeWhitespace', label: 'Before whitespace' },
+                    { id: 'never', label: 'Never' }
+                  ]"
+                />
               </label>
               <label class='field'>
                 <span>Auto-closing quotes</span>
-                <select
-                  [ngModel]='s.monacoWorkspaceEditor().autoClosingQuotes'
-                  (ngModelChange)='s.patchMonaco({ autoClosingQuotes: $event })'
-                >
-                  <option value='always'>Always</option>
-                  <option value='languageDefined'>Language defined</option>
-                  <option value='beforeWhitespace'>Before whitespace</option>
-                  <option value='never'>Never</option>
-                </select>
+                <app-pill-select
+                  [value]='s.monacoWorkspaceEditor().autoClosingQuotes'
+                  (valueChange)='s.patchMonaco({ autoClosingQuotes: $any($event) })'
+                  [options]="[
+                    { id: 'always', label: 'Always' },
+                    { id: 'languageDefined', label: 'Language defined' },
+                    { id: 'beforeWhitespace', label: 'Before whitespace' },
+                    { id: 'never', label: 'Never' }
+                  ]"
+                />
               </label>
               <label class='field'>
                 <span>Accept suggestion on Enter</span>
-                <select
-                  [ngModel]='s.monacoWorkspaceEditor().acceptSuggestionOnEnter'
-                  (ngModelChange)='s.patchMonaco({ acceptSuggestionOnEnter: $event })'
-                >
-                  <option value='on'>On</option>
-                  <option value='off'>Off</option>
-                  <option value='smart'>Smart</option>
-                </select>
+                <app-pill-select
+                  [value]='s.monacoWorkspaceEditor().acceptSuggestionOnEnter'
+                  (valueChange)='s.patchMonaco({ acceptSuggestionOnEnter: $any($event) })'
+                  [options]="[
+                    { id: 'on', label: 'On' },
+                    { id: 'off', label: 'Off' },
+                    { id: 'smart', label: 'Smart' }
+                  ]"
+                />
               </label>
               <div class='field'>
                 <label class='toggle-row'>

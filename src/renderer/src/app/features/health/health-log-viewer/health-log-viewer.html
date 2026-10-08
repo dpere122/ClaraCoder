@@ -3,37 +3,47 @@
     <div class='health-log__toolbar-left'>
       <label class='health-log__label'>
         Verbosity
-        <select
+        <app-pill-select
           class='health-log__select'
-          [ngModel]='logVerbosity()'
-          (ngModelChange)='onVerbosityChange($event)'
-        >
-          <option value='debug'>Debug</option>
-          <option value='info'>Info</option>
-          <option value='warning'>Warning</option>
-          <option value='error'>Error</option>
-        </select>
+          [value]='logVerbosity()'
+          (valueChange)='onVerbosityChange($any($event))'
+          ariaLabel='Verbosity'
+          [options]="[
+            { id: 'debug', label: 'Debug' },
+            { id: 'info', label: 'Info' },
+            { id: 'warning', label: 'Warning' },
+            { id: 'error', label: 'Error' }
+          ]"
+        />
       </label>
       <label class='health-log__label'>
         Show in list
-        <select class='health-log__select' [ngModel]='logLevelFilter()' (ngModelChange)='logLevelFilter.set($event)'>
-          <option value='ALL'>All levels</option>
-          <option value='INFO'>Info and above</option>
-          <option value='WARNING'>Warnings and errors</option>
-          <option value='ERROR'>Errors only</option>
-        </select>
+        <app-pill-select
+          class='health-log__select'
+          [value]='logLevelFilter()'
+          (valueChange)='logLevelFilter.set($any($event))'
+          ariaLabel='Show in list'
+          [options]="[
+            { id: 'ALL', label: 'All levels' },
+            { id: 'INFO', label: 'Info and above' },
+            { id: 'WARNING', label: 'Warnings and errors' },
+            { id: 'ERROR', label: 'Errors only' }
+          ]"
+        />
       </label>
       <label class='health-log__label'>
         Message format
-        <select
+        <app-pill-select
           class='health-log__select health-log__select--wide'
-          [ngModel]='messageFormat()'
-          (ngModelChange)='messageFormat.set($event)'
-        >
-          <option value='raw'>Plain text</option>
-          <option value='json'>Pretty JSON (embedded)</option>
-          <option value='xml'>Pretty XML</option>
-        </select>
+          [value]='messageFormat()'
+          (valueChange)='messageFormat.set($any($event))'
+          ariaLabel='Message format'
+          [options]="[
+            { id: 'raw', label: 'Plain text' },
+            { id: 'json', label: 'Pretty JSON (embedded)' },
+            { id: 'xml', label: 'Pretty XML' }
+          ]"
+        />
       </label>
     </div>
     <span class='health-log__toolbar-divider' aria-hidden='true'></span>

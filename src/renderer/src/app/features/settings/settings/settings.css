@@ -968,16 +968,8 @@ button.linkish {
   min-width: 0;
 }
 
-.hf-filters-panel__select-field select {
-  padding: 4px 8px;
-  min-height: 28px;
+.hf-filters-panel__select-field app-pill-select {
   min-width: 8rem;
-  font: inherit;
-  font-size: 12px;
-  color: inherit;
-  background: color-mix(in srgb, var(--t-bg) 70%, var(--t-bg-surface));
-  border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
-  border-radius: 6px;
 }
 
 .hf-filters-panel__reset-btn {
@@ -1711,6 +1703,10 @@ button.linkish {
   border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
   background: color-mix(in srgb, var(--t-bg) 70%, var(--t-bg-surface));
   color: var(--t-fg);
+}
+
+.field app-pill-select {
+  width: 100%;
 }
 
 .field input:focus,

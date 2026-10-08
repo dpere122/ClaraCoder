@@ -4,31 +4,10 @@ app-speech-module .speech-module {
   gap: 0.4em;
 }
 
-app-speech-module .voice-select {
-  background-color: var(--t-bg);
-  color: var(--t-secondary);
-  border: 1px solid var(--t-border);
-  border-radius: 0.35rem;
-  padding: 0.15rem 0.35rem;
+app-speech-module .voice-select .pill-select__trigger {
+  min-height: 0;
+  padding: 0.15rem 0.55rem;
   font-size: 0.7rem;
-  font-family: inherit;
-  cursor: pointer;
-  outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s, color 0.2s;
-}
-
-app-speech-module .voice-select:hover {
-  border-color: var(--t-primary);
-  color: var(--t-fg);
-}
-
-app-speech-module .voice-select:focus {
-  border-color: var(--t-primary);
-  box-shadow: 0 0 4px var(--t-glow);
-  color: var(--t-fg);
-}
-
-app-speech-module .voice-select option {
-  background-color: var(--t-bg);
-  color: var(--t-fg);
+  color: var(--t-secondary);
+  background: var(--t-bg);
 }

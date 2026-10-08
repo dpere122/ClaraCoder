@@ -25,7 +25,7 @@ export const LLM_OPTIMIZATION_PRESET_LIST: readonly LlmOptimizationPresetMeta[] 
     summary: 'Qwen prompt hints, vision tool, and sampling.',
     description:
       'For Qwen-class models (e.g. Qwen 3.5 27B via LM Studio): Extra system prompt hints, and `read_workspace_image` for workspace PNG/JPEG/GIF/WebP/BMP. Managed llama-server uses the GGUF Jinja chat template (--jinja) unless you set a custom --chat-template-file in Advanced.',
-    providers: ['openai', 'lmstudio', 'llamacpp'],
+    providers: ['openai', 'lmstudio', 'llamacpp', 'openrouter'],
   },
   {
     id: 'gemma',

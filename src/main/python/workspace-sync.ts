@@ -3,6 +3,7 @@ import type {
   ChatTemplateReasoningCaps,
   LlamaManagedRuntimeEndpoints,
   LlmConnectionConfig,
+  McpOAuthTokens,
   WorkspaceContextSyncExtras,
 } from '../../shared';
 import {
@@ -21,6 +22,52 @@ import {
   setCachedLlamaServerNctx,
 } from '../chat-template-reasoning-cache';
 import { lmStudioListModels } from '../lm-studio-client';
+import { refreshOpenRouterReasoningCaps } from '../openrouter-reasoning';
+
+/**
+ * OAuth fields Python needs. The refresh token stays in Electron, which is the only refresher
+ * (`mcp-oauth-refresh.ts`).
+ */
+export function wireMcpOAuth(oauth: McpOAuthTokens | null): Record<string, unknown> | null {
+  if (!oauth) {
+    return null;
+  }
+  return {
+    accessToken: unwrapSecret(oauth.accessToken),
+    expiresAt: oauth.expiresAt,
+    clientId: oauth.clientId,
+    clientSecret: unwrapSecret(oauth.clientSecret),
+    scopes: oauth.scopes ?? [],
+    serverUrl: oauth.serverUrl ?? '',
+  };
+}
+
+function wireMcpServers(config: AppConfig): unknown[] {
+  return (config.mcpServers ?? []).map((server) => ({
+    id: server.id,
+    name: server.name,
+    enabled: server.enabled,
+    trust: server.trust,
+    transport: server.transport,
+    command: server.command,
+    args: server.args,
+    env: (server.env ?? []).map((entry) => ({ key: entry.key, value: unwrapSecret(entry.value) })),
+    url: server.url,
+    httpTransport: server.httpTransport,
+    httpAuth: server.httpAuth,
+    headers: (server.headers ?? []).map((entry) => ({ key: entry.key, value: unwrapSecret(entry.value) })),
+    oauth: wireMcpOAuth(server.oauth),
+    toolDecisions: server.toolDecisions ?? {},
+  }));
+}
+
+function activeWorkspacePath(config: AppConfig): string {
+  const id = config.currentWorkspaceId;
+  if (!id) {
+    return '';
+  }
+  return config.workspaces.find((workspace) => workspace.id === id)?.path?.trim() ?? '';
+}
 
 function hasUrlScheme(s: string): boolean {
   return /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(s);
@@ -147,7 +194,9 @@ function connectionToRuntimeWire(
   const resolvedBase = c.provider === 'llamacpp' && llamaOverride ? llamaOverride.baseUrl : c.baseUrl;
   const normalizedHost = normalizeBindAllHostToLocalhost(resolvedBase);
   const baseUrl =
-    c.provider === 'lmstudio' || c.provider === 'llamacpp' ? ensureOpenAiV1Base(normalizedHost) : normalizedHost;
+    c.provider === 'lmstudio' || c.provider === 'llamacpp' || c.provider === 'openrouter'
+      ? ensureOpenAiV1Base(normalizedHost)
+      : normalizedHost;
   const rawEmbeddingsBase =
     c.provider === 'llamacpp' && llamaOverride
       ? (llamaOverride.embeddingsBaseUrl || '').trim() || (c.embeddingsBaseUrl ?? '').trim()
@@ -280,7 +329,7 @@ async function postRuntimeConfigToPython(
   llamaManagedEndpoints?: Record<string, LlamaManagedRuntimeEndpoints>,
 ): Promise<void> {
   try {
-    await refreshLmStudioLiveNctx(config);
+    await Promise.all([refreshLmStudioLiveNctx(config), refreshOpenRouterReasoningCaps(config)]);
     const flat = flattenLlmProvidersToConnections(config.llmProviders);
     const reasoningById = getAllCachedChatTemplateReasoning();
     const nCtxById = getAllCachedLlamaServerNctx();
@@ -327,6 +376,8 @@ async function postRuntimeConfigToPython(
           systemReserveRatio: config.contextCompression.systemReserveRatio,
         },
         huggingFaceToken: unwrapSecret(config.modelManager?.huggingFaceToken ?? ''),
+        mcpServers: wireMcpServers(config),
+        activeWorkspacePath: activeWorkspacePath(config),
       }),
     });
 

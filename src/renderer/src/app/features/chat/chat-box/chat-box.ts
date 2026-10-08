@@ -134,6 +134,7 @@ export {
   type ChatMessage,
   type ToolChainGroup,
 } from './chat-box-display';
+import type { AcceptCommandFinishedEvent } from '@shared/index';
 
 export type ChatLayoutMode = 'sidebar' | 'expanded';
 
@@ -356,12 +357,7 @@ export class ChatBox implements OnDestroy {
     summary?: string;
   }>();
   /** Shell command approval card completed or dismissed. */
-  readonly acceptCommandFinished = output<{
-    requestId: string;
-    status: 'complete' | 'cancelled';
-    summary?: string;
-    action?: 'confirm' | 'confirm_session' | 'cancel';
-  }>();
+  readonly acceptCommandFinished = output<AcceptCommandFinishedEvent>();
   /** Copy-to-workspace confirmation completed or dismissed. */
   readonly copyReviewFinished = output<{
     requestId: string;

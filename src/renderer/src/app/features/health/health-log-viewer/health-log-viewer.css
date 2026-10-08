@@ -58,13 +58,6 @@
 
 .health-log__select {
   min-width: 8rem;
-  padding: 4px 8px;
-  border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
-  background: var(--t-bg);
-  color: var(--t-fg);
-  font-family: var(--t-font);
-  font-size: 12px;
 }
 
 .health-log__select--wide {

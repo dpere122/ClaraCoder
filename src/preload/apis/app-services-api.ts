@@ -1,4 +1,4 @@
-import { ipcRenderer } from 'electron';
+import type { PreloadIpc } from '../preload-ipc';
 import type {
   AppConfig,
   HealthMonitorConfig,
@@ -9,7 +9,7 @@ import type {
 } from '../../shared';
 
 /** App config, window chrome, scripts, and LLM server IPC. */
-export const appServicesApi = {
+export const createAppServicesApi = (ipcRenderer: PreloadIpc) => ({
   setAlwaysOnTop: (pinned: boolean) => ipcRenderer.invoke('set-always-on-top', pinned),
   loadConfig: () => ipcRenderer.invoke('load-config'),
   saveConfig: (config: unknown) => ipcRenderer.invoke('save-config', config),
@@ -42,12 +42,18 @@ export const appServicesApi = {
   llamaServerStatus: (payload: { modelId: string; config: AppConfig }) =>
     ipcRenderer.invoke('llama-server:status', payload),
   embeddingsStatus: () => ipcRenderer.invoke('embeddings:status'),
+  mcpStatus: () => ipcRenderer.invoke('mcp:status'),
+  mcpOauthStart: (serverId: string) => ipcRenderer.invoke('mcp:oauth-start', serverId),
+  mcpRememberDecision: (payload: { serverId: string; decision: 'allow' | 'deny' | 'allow-all'; toolName?: string }) =>
+    ipcRenderer.invoke('mcp:remember-decision', payload),
   llamaServerChatTemplateReasoning: (payload: { modelId: string }) =>
     ipcRenderer.invoke('llama-server:chat-template-reasoning', payload),
   llamacppManagedListModels: (payload: { modelId: string; config: AppConfig }) =>
     ipcRenderer.invoke('llamacpp-managed:list-models', payload),
   llamacppOpenAiListModels: (payload: { baseUrl: string; apiKey: string }) =>
     ipcRenderer.invoke('llamacpp-openai:list-models', payload),
+  openRouterListModels: (payload: { baseUrl: string; apiKey: string }) =>
+    ipcRenderer.invoke('openrouter:list-models', payload),
   lmStudioListModels: (payload: { baseUrl: string; apiKey?: string }) => ipcRenderer.invoke('lm-studio:list-models', payload),
   lmStudioLoadModel: (payload: { baseUrl: string; model: string; apiKey?: string }) =>
     ipcRenderer.invoke('lm-studio:load-model', payload),
@@ -80,4 +86,4 @@ export const appServicesApi = {
   onMenuFileCommand: (callback: (command: MenuFileCommand) => void) => {
     ipcRenderer.on('menu-file-command', (_event, command: MenuFileCommand) => callback(command));
   },
-};
+});

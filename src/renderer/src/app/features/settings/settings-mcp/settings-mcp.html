@@ -1,0 +1,216 @@
+<div class='settings-pane settings-pane--sectioned'>
+  <div class='form-section mcp-toolbar'>
+    <p class='settings-field-hint'>
+      Enabled servers are available in every chat. The first call to a tool asks Allow or Deny unless
+      Allow all is on for that server. Full tool schemas are sent to the model.
+    </p>
+    <button type='button' class='action-button action-button--primary' (click)='s.addMcpServer()'>Add server</button>
+  </div>
+
+  @if (s.mcpStatus()?.schemaWarning) {
+    <p class='mcp-warning'>MCP tool schemas are large. They are still sent in full and will use context on every turn.</p>
+  }
+  @if (s.mcpStatusError()) {
+    <p class='mcp-warning'>{{ s.mcpStatusError() }}</p>
+  }
+  @if (signInError()) {
+    <p class='mcp-warning'>{{ signInError() }}</p>
+  }
+
+  @if (s.mcpServers().length === 0) {
+    <p class='settings-field-hint'>No MCP servers yet. Add one to connect Clara to an app that speaks MCP.</p>
+  }
+
+  @for (server of s.mcpServers(); track server.id) {
+    <section class='form-section mcp-server'>
+      <div class='mcp-server__row'>
+        <label class='toggle-row'>
+          <input
+            type='checkbox'
+            [ngModel]='server.enabled'
+            (ngModelChange)='s.patchMcpServer(server.id, { enabled: $event })'
+          />
+          <span>Enabled</span>
+        </label>
+        <label class='toggle-row'>
+          <input
+            type='checkbox'
+            [ngModel]="server.trust === 'allow-all'"
+            (ngModelChange)="s.patchMcpServer(server.id, { trust: $event ? 'allow-all' : 'ask' }, 'trust')"
+          />
+          <span>Allow all tools</span>
+        </label>
+        <button type='button' class='action-button' (click)='s.removeMcpServer(server.id)'>Remove</button>
+      </div>
+
+      <div class='form-grid'>
+        <label class='field'>
+          <span>Name</span>
+          <input [ngModel]='server.name' (ngModelChange)='s.patchMcpServer(server.id, { name: $event })' />
+        </label>
+        <label class='field'>
+          <span>Transport</span>
+          <select
+            [ngModel]='server.transport'
+            (ngModelChange)='setTransport(server, $event)'
+          >
+            <option value='stdio'>Local process</option>
+            <option value='http'>Remote HTTP</option>
+          </select>
+        </label>
+      </div>
+
+      @if (server.transport === 'stdio') {
+        <div class='form-grid'>
+          <label class='field'>
+            <span>Command</span>
+            <input
+              [ngModel]='server.command'
+              (ngModelChange)='s.patchMcpServer(server.id, { command: $event })'
+              placeholder='npx'
+            />
+          </label>
+          <label class='field'>
+            <span>Arguments (one per line)</span>
+            <textarea rows='3' [ngModel]='argsText(server)' (ngModelChange)='setArgs(server, $event)'></textarea>
+          </label>
+        </div>
+        <div class='mcp-secrets'>
+          <div class='mcp-secrets__head'>
+            <span>Environment</span>
+            <button type='button' class='action-button' (click)="s.addMcpSecretEntry(server.id, 'env')">Add variable</button>
+          </div>
+          @for (entry of server.env; track $index) {
+            <div class='mcp-secrets__row'>
+              <input
+                placeholder='NAME'
+                [ngModel]='entry.key'
+                (ngModelChange)="s.setMcpSecretEntry(server.id, 'env', $index, { key: $event })"
+              />
+              <input
+                type='password'
+                placeholder='value'
+                [ngModel]='unwrapSecret(entry.value)'
+                (ngModelChange)="s.setMcpSecretEntry(server.id, 'env', $index, { value: $event })"
+              />
+              <button type='button' class='action-button' (click)="s.removeMcpSecretEntry(server.id, 'env', $index)">Remove</button>
+            </div>
+          }
+        </div>
+      } @else {
+        <div class='form-grid'>
+          <label class='field'>
+            <span>URL</span>
+            <input
+              [ngModel]='server.url'
+              (ngModelChange)='s.patchMcpServer(server.id, { url: $event })'
+              placeholder='https://example.com/mcp'
+            />
+          </label>
+          <label class='field'>
+            <span>HTTP mode</span>
+            <select
+              [ngModel]='server.httpTransport'
+              (ngModelChange)='setHttpTransport(server, $event)'
+            >
+              <option value='streamable'>Streamable HTTP</option>
+              <option value='sse'>SSE</option>
+            </select>
+          </label>
+          <label class='field'>
+            <span>Auth</span>
+            <select
+              [ngModel]='server.httpAuth'
+              (ngModelChange)='setHttpAuth(server, $event)'
+            >
+              <option value='none'>None</option>
+              <option value='headers'>Static headers</option>
+              <option value='oauth'>OAuth</option>
+            </select>
+          </label>
+        </div>
+        @if (server.httpAuth === 'headers') {
+          <div class='mcp-secrets'>
+            <div class='mcp-secrets__head'>
+              <span>Headers</span>
+              <button type='button' class='action-button' (click)="s.addMcpSecretEntry(server.id, 'headers')">Add header</button>
+            </div>
+            @for (entry of server.headers; track $index) {
+              <div class='mcp-secrets__row'>
+                <input
+                  placeholder='Authorization'
+                  [ngModel]='entry.key'
+                  (ngModelChange)="s.setMcpSecretEntry(server.id, 'headers', $index, { key: $event })"
+                />
+                <input
+                  type='password'
+                  placeholder='value'
+                  [ngModel]='unwrapSecret(entry.value)'
+                  (ngModelChange)="s.setMcpSecretEntry(server.id, 'headers', $index, { value: $event })"
+                />
+                <button type='button' class='action-button' (click)="s.removeMcpSecretEntry(server.id, 'headers', $index)">Remove</button>
+              </div>
+            }
+          </div>
+        }
+        @if (server.httpAuth === 'oauth') {
+          <div class='mcp-server__row'>
+            <span>{{ signedIn(server) ? 'Signed in' : 'Not signed in' }}</span>
+            <button
+              type='button'
+              class='action-button action-button--primary'
+              [disabled]="s.mcpOauthBusyId() === server.id"
+              (click)='signIn(server.id)'
+            >
+              {{ s.mcpOauthBusyId() === server.id ? 'Waiting for browser…' : 'Sign in' }}
+            </button>
+          </div>
+        }
+      }
+
+      @if (s.mcpStatusFor(server.id); as status) {
+        <p class='settings-field-hint'>
+          @if (status.needsSignIn) {
+            Sign-in required.
+          } @else if (status.connected) {
+            Connected · {{ status.toolCount }} tools · {{ status.schemaTokens }} schema tokens
+          } @else if (status.error) {
+            {{ status.error }}
+          } @else if (server.enabled) {
+            Connecting…
+          } @else {
+            Disabled
+          }
+        </p>
+        @if (status.schemaWarning) {
+          <p class='mcp-warning'>This server’s tool schemas are large and are still sent in full.</p>
+        }
+        @if (status.tools.length > 0) {
+          <button type='button' class='action-button' (click)='toggleExpanded(server.id)'>
+            {{ isExpanded(server.id) ? 'Hide tools' : 'Show tools' }}
+          </button>
+          @if (isExpanded(server.id)) {
+            <ul class='mcp-tools'>
+              @for (tool of status.tools; track tool.name) {
+                <li>
+                  <code>{{ tool.name }}</code>
+                  <select
+                    [ngModel]="server.toolDecisions[tool.name] ?? 'ask'"
+                    (ngModelChange)='setToolDecision(server.id, tool.name, $event)'
+                  >
+                    <option value='ask'>Ask</option>
+                    <option value='allow'>Allow</option>
+                    <option value='deny'>Deny</option>
+                  </select>
+                  @if (tool.description) {
+                    <span>{{ tool.description }}</span>
+                  }
+                </li>
+              }
+            </ul>
+          }
+        }
+      }
+    </section>
+  }
+</div>

@@ -20,11 +20,13 @@
   <div class="form-grid tmp__grid">
     <label class="field">
       <span>Base theme</span>
-      <select [disabled]="s.readOnly() || !customized()" [value]="current().base" (change)="setBase($any($event.target).value)">
-        @for (base of bases; track base) {
-          <option [value]="base">{{ base }}</option>
-        }
-      </select>
+      <app-pill-select
+        [disabled]="s.readOnly() || !customized()"
+        [value]="current().base"
+        [options]="baseOptions"
+        ariaLabel="Base theme"
+        (valueChange)="setBase($event)"
+      />
     </label>
   </div>
 
@@ -87,19 +89,14 @@
             placeholder="#rrggbb"
             (change)="setRuleColor(row.scope, $any($event.target).value)"
           />
-          <select
+          <app-pill-select
             class="tmp__style"
             [disabled]="s.readOnly() || !customized()"
             [value]="ruleStyle(row.scope)"
-            (change)="setRuleStyle(row.scope, $any($event.target).value)"
-            [attr.aria-label]="row.label + ' font style'"
-          >
-            <option value="">normal</option>
-            <option value="italic">italic</option>
-            <option value="bold">bold</option>
-            <option value="bold italic">bold italic</option>
-            <option value="underline">underline</option>
-          </select>
+            [options]="fontStyleOptions"
+            [ariaLabel]="row.label + ' font style'"
+            (valueChange)="setRuleStyle(row.scope, $event)"
+          />
         </div>
       </div>
     }

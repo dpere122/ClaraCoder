@@ -23,6 +23,7 @@ import { LucideAngularModule } from 'lucide-angular';
 import { filter, merge } from 'rxjs';
 
 import { ElectronService } from '../../../core/electron.service';
+import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 import { ContextCapacityComponent } from '../../status/context-capacity/context-capacity';
 import { ChatContextBar } from '../chat-context-bar/chat-context-bar';
 import { type ChatContextDroppedPath } from '../chat-context-bar/chat-context-drop';
@@ -32,7 +33,7 @@ type ComposerField = HTMLInputElement | HTMLTextAreaElement;
 
 @Component({
   selector: 'app-message-box',
-  imports: [FormsModule, LucideAngularModule, ContextCapacityComponent, ChatContextBar],
+  imports: [FormsModule, LucideAngularModule, ContextCapacityComponent, ChatContextBar, PillSelectComponent],
   templateUrl: './message-box.html',
   styleUrl: './message-box.css'
 })
@@ -49,6 +50,10 @@ export class MessageBox {
   readonly composerModes = COMPOSER_RUN_MODES;
   /** Human-readable labels keyed by {@link ComposerRunMode}. */
   readonly composerModeLabels = COMPOSER_RUN_MODE_LABELS;
+  protected readonly composerModeOptions = COMPOSER_RUN_MODES.map((mode) => ({
+    id: mode,
+    label: COMPOSER_RUN_MODE_LABELS[mode],
+  }));
 
   /** Mic + spoken replies active (parent syncs `talkEnabled` && `speechEnabled`). */
   readonly voiceActive = input(false);

@@ -2,12 +2,9 @@
 
 Modules
 -------
-``diff_review_middleware`` — pause after diff-emitting tools
-``delete_review_middleware`` — pause after delete HITL
-``copy_review_middleware`` — pause after copy HITL
+``delete_review_middleware`` — pause when a directory delete is too large to journal
 ``accept_command_review_middleware`` — pause after accept-command HITL
 ``empty_response_middleware`` — nudge on empty model turns
-``flush_untransferred_staging_middleware`` — ``after_agent`` node that returns leftover staged drafts to the model until resolved
 ``parallel_tool_middleware`` — inject ``parallel_tool_calls`` from runtime
 ``vision_tool_middleware`` — vision / multimodal tool message shaping
 ``user_event_injection_middleware`` — inject queued user events into the turn

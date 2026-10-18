@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import tempfile
 from pathlib import Path
 
@@ -29,35 +28,28 @@ def _sidecar_auth_optional(monkeypatch):
 
 
 @pytest.fixture()
-def staging_env():
-    saved_staging = os.environ.get('CLARA_STAGING_DIR')
+def workspace_env():
+    """Editor-mode session with a temp workspace for the write-through edit tools."""
     saved_tools = runtime_config.tools
 
     td = tempfile.TemporaryDirectory()
-    td_path = Path(td.name)
-    staging_root = td_path / 'staging'
-    staging_root.mkdir(parents=True)
-    os.environ['CLARA_STAGING_DIR'] = str(staging_root)
-
-    workspace = td_path / 'ws'
+    workspace = Path(td.name) / 'ws'
     workspace.mkdir()
 
-    session_id = 'test-staging-session'
+    session_id = 'test-workspace-session'
     token = current_session_id.set(session_id)
-    # Drop any LSP managers/overlays left by prior tests that reuse this session id.
+    # Drop any LSP managers left by prior tests that reuse this session id.
     shutdown_session_lsp(session_id)
     session = get_session(session_id)
     session.workspace_path = str(workspace.resolve())
-    session.pending_edit_stagings.clear()
-    session.pending_diff_payload = None
     session.auto_apply_mode = False
     session.worker_apply_mode = True
+    session.current_user_message_id = 'turn-1'
+    session.edits.journal_turn_id = ''
+    session.edits.journaled_paths = set()
+    session.hitl_sse_queue = None
     session.abort_event.clear()
     session.planning_nested_events_q = None
-    session.lsp_staging_overlay_root = ''
-    session.lsp_staging_overlay_parent = ''
-    session.active_staging_snapshot_id = ''
-    session.active_staging_snapshot_root = ''
     session.lsp_active_scope = 'workspace'
     session.lsp_diagnostics_by_scope = {'workspace': {}, 'staging': {}}
 
@@ -71,23 +63,13 @@ def staging_env():
         pass
 
     env = _Env()
-    env.staging_root = staging_root  # type: ignore[attr-defined]
     env.workspace = workspace  # type: ignore[attr-defined]
     env.session = session  # type: ignore[attr-defined]
     env.session_id = session_id  # type: ignore[attr-defined]
 
     yield env
 
-    from clara_coder_backend.tools.write_jobs import cancel_write_job, write_jobs
-
-    for job in list(write_jobs().values()):
-        if job.session_id == session_id:
-            cancel_write_job(job)
     shutdown_session_lsp(session_id)
     current_session_id.reset(token)
-    if saved_staging is None:
-        os.environ.pop('CLARA_STAGING_DIR', None)
-    else:
-        os.environ['CLARA_STAGING_DIR'] = saved_staging
     runtime_config.tools = saved_tools
     td.cleanup()

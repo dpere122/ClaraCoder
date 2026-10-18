@@ -1,12 +1,25 @@
-"""Safe delete tool helpers."""
+"""Delete tool: immediate journaled deletes, and a confirm card only for directories too large to restore."""
 
+from __future__ import annotations
+
+import asyncio
+
+from clara_coder_backend.session import file_journal
 from clara_coder_backend.tools.delete import (
     _reject_reason,
-    batch_delete_workspace_entries,
     delete_confirm_sse_payload,
+    delete_workspace_entries,
     execute_pending_delete_decision,
 )
-from clara_coder_backend.session.state import current_session_id, get_session
+
+
+def _journal_rows(session) -> list[dict]:
+    rows = []
+    while not session.hitl_sse_queue.empty():
+        kind, payload = session.hitl_sse_queue.get_nowait()
+        if kind == 'file_journal':
+            rows.append(payload)
+    return rows
 
 
 def test_rejects_workspace_root() -> None:
@@ -19,10 +32,9 @@ def test_rejects_git() -> None:
     assert _reject_reason('.git/config') is not None
 
 
-def test_delete_confirm_sse_payload_batch_entries() -> None:
+def test_delete_confirm_sse_payload_entries() -> None:
     pending = {
         'request_id': 'r1',
-        'batch': True,
         'entries': [
             {'relative_path': 'a.txt', 'kind': 'file', 'recursive': False},
             {'relative_path': 'd', 'kind': 'directory', 'recursive': True},
@@ -38,53 +50,75 @@ def test_delete_confirm_sse_payload_batch_entries() -> None:
     }
 
 
-def test_batch_delete_auto_apply_deletes(tmp_path) -> None:
-    session_id = 'batch-delete-auto'
-    root = tmp_path / 'ws'
-    root.mkdir()
-    (root / 'a.txt').write_text('a', encoding='utf-8')
-    (root / 'b.txt').write_text('b', encoding='utf-8')
-    token = current_session_id.set(session_id)
-    try:
-        sess = get_session(session_id)
-        sess.workspace_path = str(root.resolve())
-        sess.worker_apply_mode = True
-        sess.auto_apply_mode = True
-        out = batch_delete_workspace_entries.invoke({'relative_paths': ['a.txt', 'b.txt'], 'recursive': False})
-        assert 'Deleted' in out
-        assert not (root / 'a.txt').exists()
-        assert not (root / 'b.txt').exists()
-    finally:
-        current_session_id.reset(token)
+def test_deletes_immediately_and_journals_before_content(workspace_env) -> None:
+    ws = workspace_env.workspace
+    session = workspace_env.session
+    session.hitl_sse_queue = asyncio.Queue()
+    (ws / 'a.txt').write_text('a', encoding='utf-8')
+    (ws / 'd').mkdir()
+    (ws / 'd' / 'b.txt').write_text('b', encoding='utf-8')
+
+    out = delete_workspace_entries.invoke({'relative_paths': ['a.txt', 'd'], 'recursive': True})
+
+    assert 'Deleted' in out, out
+    assert not (ws / 'a.txt').exists()
+    assert not (ws / 'd').exists()
+    rows = {r['relativePath']: r for r in _journal_rows(session)}
+    assert rows['a.txt']['op'] == 'delete'
+    assert rows['a.txt']['beforeContent'] == 'a'
+    assert rows['d']['op'] == 'delete-tree'
+    assert rows['d']['treeEntries'][0]['content'] == 'b'
+    assert session.pending_delete_request is None
 
 
-def test_execute_pending_batch_confirm(tmp_path) -> None:
-    session_id = 'batch-delete-pending'
-    root = tmp_path / 'ws'
-    root.mkdir()
-    (root / 'a.txt').write_text('a', encoding='utf-8')
-    (root / 'sub').mkdir()
-    (root / 'sub' / 'c.txt').write_text('c', encoding='utf-8')
-    rid = 'req-batch-1'
-    token = current_session_id.set(session_id)
-    try:
-        sess = get_session(session_id)
-        sess.workspace_path = str(root.resolve())
-        sess.pending_delete_request = {
-            'request_id': rid,
-            'batch': True,
-            'entries': [
-                {'relative_path': 'a.txt', 'kind': 'file', 'recursive': False},
-                {'relative_path': 'sub/c.txt', 'kind': 'file', 'recursive': False},
-            ],
-            'workspace_root': str(root.resolve()),
-            'session_id': session_id,
-        }
-        note = execute_pending_delete_decision(sess, confirm=True, request_id=rid)
-        assert sess.pending_delete_request is None
-        assert not (root / 'a.txt').exists()
-        assert not (root / 'sub' / 'c.txt').exists()
-        assert (root / 'sub').exists()
-        assert 'Deleted' in note
-    finally:
-        current_session_id.reset(token)
+def test_non_empty_directory_needs_recursive(workspace_env) -> None:
+    ws = workspace_env.workspace
+    (ws / 'd').mkdir()
+    (ws / 'd' / 'x.txt').write_text('x', encoding='utf-8')
+    out = delete_workspace_entries.invoke({'relative_paths': ['d']})
+    assert out.startswith('Tool error:')
+    assert (ws / 'd' / 'x.txt').exists()
+
+
+def test_unrestorable_directory_asks_first(workspace_env, monkeypatch) -> None:
+    ws = workspace_env.workspace
+    session = workspace_env.session
+    monkeypatch.setattr(file_journal, 'TREE_SNAPSHOT_MAX_FILES', 1)
+    (ws / 'big').mkdir()
+    for i in range(3):
+        (ws / 'big' / f'{i}.txt').write_text(str(i), encoding='utf-8')
+
+    out = delete_workspace_entries.invoke({'relative_paths': ['big'], 'recursive': True})
+
+    assert 'Pending user confirmation' in out
+    assert (ws / 'big').exists()
+    pending = session.pending_delete_request
+    assert pending is not None
+
+    note = execute_pending_delete_decision(session, confirm=True, request_id=pending['request_id'])
+    assert 'Deleted directory `big`' in note
+    assert not (ws / 'big').exists()
+    assert session.pending_delete_request is None
+
+
+def test_dependency_directory_is_never_journaled(workspace_env) -> None:
+    ws = workspace_env.workspace
+    (ws / 'pkg' / 'node_modules').mkdir(parents=True)
+    out = delete_workspace_entries.invoke({'relative_paths': ['pkg'], 'recursive': True})
+    assert 'Pending user confirmation' in out
+    assert 'node_modules' in out
+
+
+def test_cancel_keeps_files(workspace_env, monkeypatch) -> None:
+    ws = workspace_env.workspace
+    session = workspace_env.session
+    monkeypatch.setattr(file_journal, 'TREE_SNAPSHOT_MAX_FILES', 0)
+    (ws / 'big').mkdir()
+    (ws / 'big' / 'a.txt').write_text('a', encoding='utf-8')
+    delete_workspace_entries.invoke({'relative_paths': ['big'], 'recursive': True})
+    pending = session.pending_delete_request
+
+    note = execute_pending_delete_decision(session, confirm=False, request_id=pending['request_id'])
+
+    assert note == 'User cancelled the delete request.'
+    assert (ws / 'big' / 'a.txt').exists()

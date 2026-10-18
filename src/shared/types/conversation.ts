@@ -10,6 +10,7 @@ import type {
   StagedTransferFileResolution,
 } from './staged-transfer-batch';
 import type { LlmAgentRole, PlannerProgress } from './llm';
+import type { TurnEditedFile } from './turn-edits';
 
 /** One OpenAI-style multimodal block for POST /chat/stream (`structuredContent` / `structured_content`). */
 export type ChatStructuredContentPart = Readonly<Record<string, unknown>>;
@@ -63,6 +64,8 @@ export type ConversationMessage =
       moeStreams?: StreamPart[];
       /** Multiplex order for reasoning + delegated streams (non-primary tags), when available. */
       auxiliaryStreamTimeline?: StreamPart[];
+      /** Files the agent wrote during this turn (end-of-turn review footer). */
+      editedFiles?: TurnEditedFile[];
     }
   | {
       role: 'chain';

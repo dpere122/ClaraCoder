@@ -1,14 +1,29 @@
-import { parseAgentStreamPayload } from '../../../shared';
+import { parseAgentStreamPayload, parseFileJournalSsePayload } from '../../../shared';
+import { appendConversationFileJournal } from '../../conversations-db';
 
 export const parseStreamPayload = parseAgentStreamPayload;
+
+/**
+ * Persist a `file_journal` row here, where the stream's conversation id is known, so the
+ * end-of-turn snapshot at `[DONE]` never races a renderer round-trip.
+ */
+function persistFileJournal(conversationId: string, raw: unknown): void {
+  const parsed = parseFileJournalSsePayload(raw);
+  if (!parsed) {
+    return;
+  }
+  try {
+    appendConversationFileJournal({ conversationId, ...parsed });
+  } catch (err) {
+    console.error('[Chat] Failed to persist file journal row:', err);
+  }
+}
 
 /** Map one SSE `data:` JSON payload to the renderer IPC channel(s) for this conversation. */
 export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: string, payload: string): void {
   const parsed = parseStreamPayload(payload);
   if (parsed.type === 'status') {
     event.reply('message-status', conversationId, parsed.status);
-  } else if (parsed.type === 'diff') {
-    event.reply('message-diff', conversationId, parsed.diff);
   } else if (parsed.type === 'accept_command') {
     event.reply('message-accept-command', conversationId, parsed.acceptCommand);
   } else if (parsed.type === 'copy_confirm') {
@@ -72,9 +87,7 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
     event.reply('message-agent-question', conversationId, parsed.agentQuestion);
   } else if (parsed.type === 'theme_proposal') {
     event.reply('message-theme-proposal', conversationId, parsed.themeProposal);
-  } else if (parsed.type === 'staged_transfer_batch') {
-    event.reply('message-staged-transfer-batch', conversationId, parsed.stagedTransferBatch);
   } else if (parsed.type === 'file_journal') {
-    event.reply('message-file-journal', conversationId, parsed.fileJournal);
+    persistFileJournal(conversationId, parsed.fileJournal);
   }
 }

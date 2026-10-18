@@ -160,19 +160,20 @@ def load_workspace_image(relative_path: str, *, focus: str = '') -> tuple[str, V
             'Use `list_workspace_directory` to inspect directories.'
         ), None
 
+    max_bytes = _max_image_bytes()
     try:
+        size = target.stat().st_size
+        if size > max_bytes:
+            # Check the size before reading so a huge file is never loaded into memory.
+            return (
+                f'Tool note: `{rel_display}` is {_format_size(size)}; '
+                f'maximum allowed is {_format_size(max_bytes)}. '
+                'Use a smaller image or set `CLARA_MAX_WORKSPACE_IMAGE_BYTES`.'
+            ), None
         data = target.read_bytes()
     except OSError as exc:
         logger.warning('read_workspace_image failed for %s: %s', rel_display, exc)
         return f'Tool error: could not read `{rel_display}` ({exc}).', None
-
-    max_bytes = _max_image_bytes()
-    if len(data) > max_bytes:
-        return (
-            f'Tool note: `{rel_display}` is {_format_size(len(data))}; '
-            f'maximum allowed is {_format_size(max_bytes)}. '
-            'Use a smaller image or set `CLARA_MAX_WORKSPACE_IMAGE_BYTES`.'
-        ), None
 
     try:
         with Image.open(io.BytesIO(data)) as im:
@@ -212,18 +213,16 @@ def load_workspace_image(relative_path: str, *, focus: str = '') -> tuple[str, V
 @tool(
     READ_WORKSPACE_IMAGE_NAME,
     description=describe(
-        'Load a workspace image into vision context for description, OCR, or UI/diagram analysis. '
-        'Requires a vision-capable model (e.g. Qwen3.5-27B with the Qwen optimization preset).',
-        when='PNG/JPEG/GIF/WebP/BMP under the workspace (screenshots, mockups, diagrams, photos).',
-        not_='text files (use `read_workspace_file`); PDFs (use `read_workspace_file` text extraction).',
-        shape=f'`relative_path` {RELATIVE_PATH} (e.g. `docs/architecture.png`); optional `focus` steers what to inspect.',
+        'Load a workspace image into vision context for description, OCR, or UI/diagram analysis (vision models only)',
+        when='PNG/JPEG/GIF/WebP/BMP files such as screenshots, mockups and diagrams',
+        not_='text files or PDFs (use `read_workspace_file`)',
     ),
     # Artifact survives the ToolNode thread-pool handoff (ContextVars set inside sync tools do not).
     response_format='content_and_artifact',
 )
 def read_workspace_image(
-    relative_path: Annotated[str, 'workspace-relative POSIX path'],
-    focus: str = '',
+    relative_path: Annotated[str, RELATIVE_PATH],
+    focus: Annotated[str, 'optional: what to look for'] = '',
 ) -> tuple[str, VisionImagePayload | None]:
     """Return ``(summary, vision_payload)``; middleware injects the image into the next model turn."""
     return load_workspace_image(relative_path, focus=focus)

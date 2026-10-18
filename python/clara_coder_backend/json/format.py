@@ -35,7 +35,7 @@ def _tree_lines(graph: JsonGraph, max_depth: int = _TREE_DEPTH) -> list[str]:
         lines.append(f'{indent}{display_path}  ({section.summary})')
     shown, remaining = _truncate_list(lines, _OVERVIEW_PATH_CAP)
     if remaining:
-        shown.append(f'  ... [{remaining} more paths; use search_json or read_json_section]')
+        shown.append(f'  ... [{remaining} more paths; use search_structured or read_json_section]')
     return shown
 
 
@@ -46,17 +46,17 @@ def format_json_overview(graph: JsonGraph) -> str:
         f'Indexed paths: {graph.path_count}',
     ]
     if graph.truncated:
-        lines.append('Note: indexing stopped at path cap; use search_json to locate deeper nodes.')
+        lines.append('Note: indexing stopped at path cap; use search_structured to locate deeper nodes.')
 
     tree = _tree_lines(graph)
     if tree:
         lines.append('')
-        lines.append('Path tree (use section_ref path:... with read_json_section):')
+        lines.append('Path tree (use section_ref path:... with read_structured_section):')
         lines.extend(tree)
 
     lines.append('')
     lines.append('Examples: path:$ (root), path:config.host, path:items[0].id')
-    lines.append('Next: search_json(relative_path, query) or read_json_section(relative_path, section_ref).')
+    lines.append('Next: search_structured(relative_path, query) or read_structured_section(relative_path, section_ref).')
     return '\n'.join(lines)
 
 
@@ -80,7 +80,7 @@ def format_search_results(
         lines.append(f'- section_ref={section.ref!r}')
         lines.append(f'  path={section.path or "$"}  summary={section.summary}')
     lines.append('')
-    lines.append('Zoom with read_json_section(relative_path, section_ref).')
+    lines.append('Zoom with read_structured_section(relative_path, section_ref).')
     return '\n'.join(lines)
 
 

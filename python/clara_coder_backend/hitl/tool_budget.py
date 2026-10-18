@@ -19,10 +19,10 @@ from langchain_core.utils.function_calling import convert_to_openai_tool
 from clara_coder_backend.domain import SessionState
 from clara_coder_backend.hitl.tool_registry import planner_discovery_tools_and_map, worker_tools_and_map
 
-#: Per-mode cap on bound tool schema tokens (cl100k_base). Headroom over the
-#: measured ~10.4k baseline so richer per-tool detail is allowed, but a silent
-#: 2x bloat from duplication or runaway prose fails CI.
-TOOL_BUDGET_CAP = 18_000
+#: Per-mode cap on bound tool schema tokens (cl100k_base), MCP tools excluded. Measured baselines:
+#: read_only ~3.0k, editor ~5.3k, plan ~5.4k, editor + web + formatters ~5.6k. The cap leaves room for
+#: richer per-tool detail, but a reintroduced tool family or runaway prose fails CI.
+TOOL_BUDGET_CAP = 9_000
 
 
 def _tool_name(tool: Any) -> str:

@@ -44,6 +44,8 @@ class SearchCandidate:
 class SearchLineMatch:
     display_path: str
     line_number: int
+    #: Matched line text as printed by rg/grep (long lines arrive pre-clipped by ``--max-columns``).
+    text: str = ''
 
 
 def run_grep_workspace_recursive(
@@ -136,6 +138,7 @@ def run_grep_line_search(
                 '--no-heading',
                 '-0',
                 '--no-config',
+                *_RG_COLUMN_ARGS,
                 '-e',
                 query,
                 *chunk_paths,
@@ -197,6 +200,10 @@ def run_grep_line_search(
     return matches
 
 
+#: Minified bundles can have megabyte-long lines; let rg print a short preview instead of the whole line.
+_RG_COLUMN_ARGS = ('--max-columns', '500', '--max-columns-preview')
+
+
 def _rg_recursive_args(rg_executable: str, query: str, exclude_names: set[str]) -> list[str]:
     args = [
         rg_executable,
@@ -206,6 +213,7 @@ def _rg_recursive_args(rg_executable: str, query: str, exclude_names: set[str]) 
         '-0',
         '--hidden',
         '--no-config',
+        *_RG_COLUMN_ARGS,
         '-e',
         query,
     ]
@@ -256,11 +264,12 @@ def _normalize_match_path(
 ) -> str:
     if not normalize_to_workspace_rel or root_resolved is None:
         return display_by_command_path.get(command_path, command_path)
-    raw = command_path.lstrip('./').replace('\\', '/')
-    try:
-        return Path(raw).resolve().relative_to(root_resolved).as_posix()
-    except ValueError:
-        return raw
+    # rg/grep run with ``cwd=root`` on ``.``, so hits are already root-relative (``./src/a.py``): strip the
+    # prefix instead of resolving every hit (``lstrip('./')`` would also eat the dot of ``.github``).
+    raw = command_path.replace('\\', '/')
+    while raw.startswith('./'):
+        raw = raw[2:]
+    return raw
 
 
 def _parse_match_records_from_buffer(
@@ -301,6 +310,7 @@ def _parse_match_records_from_buffer(
                             normalize_to_workspace_rel=normalize_to_workspace_rel,
                         ),
                         line_number=line_number,
+                        text=payload[first_colon + 1 :].decode('utf-8', errors='replace').rstrip('\r'),
                     )
                 )
         cursor = newline + 1

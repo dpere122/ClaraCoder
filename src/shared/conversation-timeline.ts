@@ -97,7 +97,8 @@ export function truncateMessagesAfterUserTurn(
   return messages.slice(0, keepThroughIndex);
 }
 
-function affectedPath(entry: ConversationFileJournalEntry): string {
+/** Workspace path a journal row mutated (copy rows land on their destination). */
+export function journalAffectedPath(entry: ConversationFileJournalEntry): string {
   if (entry.op === 'copy') {
     return (entry.destRelativePath || entry.relativePath).replace(/\\/g, '/');
   }
@@ -118,7 +119,7 @@ export function invertJournalEntries(
 
   const firstByPath = new Map<string, ConversationFileJournalEntry>();
   for (const entry of filtered) {
-    const path = affectedPath(entry);
+    const path = journalAffectedPath(entry);
     if (!path || firstByPath.has(path)) {
       continue;
     }

@@ -10,7 +10,6 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 
 from clara_coder_backend.domain import SessionState
-from clara_coder_backend.staging.staging_snapshot_session import cleanup_staging_snapshot_session
 from clara_coder_backend.workspace_index.incremental import enqueue_semantic_index_changes, schedule_semantic_index_background
 from clara_coder_backend.workspace_index.embeddings_factory import embeddings_available
 from clara_coder_backend.workspace_index.lifecycle import invalidate_workspace_index_disk
@@ -153,7 +152,6 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
     workspace_path_changed = bool(prev_path and prev_path != new_path)
     if workspace_path_changed:
         shutdown_session_lsp(request.session_id)
-        cleanup_staging_snapshot_session(sess, request.session_id)
         if prev_path:
             try:
                 invalidate_workspace_index_disk(prev_wid, Path(prev_path))

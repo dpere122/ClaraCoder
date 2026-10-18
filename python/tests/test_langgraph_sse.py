@@ -801,32 +801,14 @@ def test_chat_model_end_emits_token_usage_when_usage_metadata_present() -> None:
 
 
 @pytest.mark.asyncio(loop_scope='function')
-async def test_hitl_sse_lines_diff_sentinel_only() -> None:
+async def test_hitl_sse_lines_no_longer_emit_edit_cards() -> None:
     from clara_coder_backend.lang_agent.graph import _hitl_sse_lines
     from clara_coder_backend.domain import SessionState
 
     s = SessionState()
-    payload = {'version': 1, 'rows': []}
-    s.pending_diff_payload = payload
-    lines = await _hitl_sse_lines(s, ('diff',))
-    assert len(lines) == 1
-    assert 'diff' in lines[0]
-    assert s.pending_diff_payload is None
+    assert await _hitl_sse_lines(s, ('diff', {'version': 1, 'rows': []})) == []
+    assert await _hitl_sse_lines(s, ('copy',)) == []
 
-    s1b = SessionState()
-    embedded = {'version': 1, 'rows': [], 'relativePath': 'x.py'}
-    lines_b = await _hitl_sse_lines(s1b, ('diff', embedded))
-    assert len(lines_b) == 1
-    assert 'x.py' in lines_b[0]
-    assert s1b.pending_diff_payload is None
-
-    s2 = SessionState()
-    assert await _hitl_sse_lines(s2, ('diff',)) == []
-
-    s3 = SessionState()
-    s3.pending_diff_payload = {'version': 1, 'rows': []}
-    assert await _hitl_sse_lines(s3, ('unexpected',)) == []
-    assert s3.pending_diff_payload is not None
 
 
 @pytest.mark.asyncio(loop_scope='function')
@@ -835,7 +817,7 @@ async def test_hitl_sse_lines_agent_nudge() -> None:
     from clara_coder_backend.domain import SessionState
 
     s = SessionState()
-    lines = await _hitl_sse_lines(s, ('agent_nudge', {'reason': 'staging'}))
+    lines = await _hitl_sse_lines(s, ('agent_nudge', {'reason': 'empty'}))
     assert len(lines) == 1
     assert '"type": "promote_primary_to_nudge"' in lines[0]
 

@@ -229,6 +229,7 @@
         "--t-code-bg",
         "--t-code-inline-bg",
         "--t-code-text",
+        "--t-danger",
         "--t-edge-darkest",
         "--t-fg",
         "--t-font",
@@ -259,6 +260,7 @@
         "--t-process-a",
         "--t-process-c",
         "--t-secondary",
+        "--t-success",
         "--t-surface-2",
         "--t-text-muted",
         "--t-tui-clara-frame",
@@ -272,6 +274,27 @@
       "backgroundClear": [
         ".chat-box"
       ]
+    },
+    {
+      "id": "chat.turn-edits",
+      "label": "Turn edits",
+      "category": "chat",
+      "categoryLabel": "Chat",
+      "selector": "[data-theme-group=\"chat.turn-edits\"]",
+      "component": "app/features/chat/chat-box/turn-edits-footer",
+      "tokens": [
+        "--t-border-subtle",
+        "--t-danger",
+        "--t-fg",
+        "--t-hover-bg",
+        "--t-log-level-error",
+        "--t-log-level-warning",
+        "--t-secondary",
+        "--t-success",
+        "--t-text-muted"
+      ],
+      "supportsBackground": false,
+      "description": "Files a reply edited, with per-file reset and diff, under the assistant bubble."
     },
     {
       "id": "chat.user-bubble",
@@ -543,7 +566,6 @@
       "tokens": [
         "--t-bg",
         "--t-bg-surface",
-        "--t-border",
         "--t-border-subtle",
         "--t-caution",
         "--t-composer-input-focus-bg",

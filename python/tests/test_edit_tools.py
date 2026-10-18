@@ -1,310 +1,173 @@
-"""Registry wiring for workspace edit tools and outer agent tool surface."""
+"""Write-through workspace edit tools, per-turn journaling, and the bound tool surface."""
+
+from __future__ import annotations
+
+import asyncio
 
 import pytest
 
-from clara_coder_backend.tools.review_tools import staging_review_tools
-from clara_coder_backend.tools.edit import (
-    apply_workspace_full_file,
-    edit_tools_for_strict,
-    replace_workspace_line_range,
-)
-from clara_coder_backend.lsp.file_policy import outer_workspace_edit_guard_error
-from clara_coder_backend.session.state import current_session_id, get_session, runtime_config, sessions
-from clara_coder_backend.domain import RuntimeToolsConfig
+from clara_coder_backend.domain import RuntimeToolsConfig, SessionState
 from clara_coder_backend.hitl.deferred_tool_hitl import DEFERRED_HITL_TOOL_NAMES
 from clara_coder_backend.hitl.tool_registry import (
     hitl_accept_command_pause_tools,
-    hitl_copy_pause_tools,
     hitl_delete_pause_tools,
-    hitl_diff_pause_tools,
-    staging_workspace_write_tools,
     worker_tools_and_map,
 )
-from clara_coder_backend.tools.workspace import TOOLS
+from clara_coder_backend.session.state import runtime_config
+from clara_coder_backend.tools.edit import (
+    edit_tools,
+    replace_workspace_lines,
+    replace_workspace_snippet,
+    write_workspace_file,
+)
 
-_LSP_CREATE_UPDATE_NAMES = {
+_REMOVED_TOOL_NAMES = {
+    'stage_create_file',
+    'stage_workspace_file_overwrite',
+    'stage_line_range_edit',
+    'stage_snippet_edit',
+    'transfer_staged_file_to_workspace',
+    'discard_staged_edits',
+    'list_staged_edits',
+    'read_staged_edit',
+    'wait_for_write',
+    'run_staging_overlay_command',
     'lsp_create_python_file',
-    'lsp_update_python_file',
-    'lsp_create_typescript_file',
     'lsp_update_typescript_file',
-    'lsp_create_gdscript_file',
-    'lsp_update_gdscript_file',
-    'lsp_create_java_file',
-    'lsp_update_java_file',
-}
-_LSP_MUTATION_NAMES = _LSP_CREATE_UPDATE_NAMES | {
-    'lsp_delete_python_file',
-    'lsp_delete_typescript_file',
-    'lsp_delete_gdscript_file',
     'lsp_delete_java_file',
+    'apply_workspace_full_file',
+    'replace_workspace_line_range',
+    'delete_workspace_entry',
+    'batch_delete_workspace_entries',
+    'retrieve_workspace_checkpoint_semantic',
 }
 
 
-@pytest.fixture(autouse=True)
+def _journal_rows(session: SessionState) -> list[dict]:
+    rows = []
+    q = session.hitl_sse_queue
+    while q is not None and not q.empty():
+        kind, payload = q.get_nowait()
+        if kind == 'file_journal':
+            rows.append(payload)
+    return rows
+
+
+@pytest.fixture()
+def journaled(workspace_env):
+    workspace_env.session.hitl_sse_queue = asyncio.Queue()
+    return workspace_env
+
+
+def test_write_creates_file_with_parents_and_journals_create(journaled) -> None:
+    out = write_workspace_file.invoke({'relative_path': 'pkg/sub/new.txt', 'content': 'hello\n'})
+
+    assert out.startswith('Created `pkg/sub/new.txt`'), out
+    assert (journaled.workspace / 'pkg' / 'sub' / 'new.txt').read_text(encoding='utf-8') == 'hello\n'
+    rows = _journal_rows(journaled.session)
+    assert [(r['op'], r['relativePath'], r['userMessageId']) for r in rows] == [('create', 'pkg/sub/new.txt', 'turn-1')]
+    assert 'beforeContent' not in rows[0]
+
+
+def test_only_first_write_per_turn_is_journaled(journaled) -> None:
+    target = journaled.workspace / 'a.txt'
+    target.write_text('one\ntwo\nthree\n', encoding='utf-8')
+
+    replace_workspace_lines.invoke({'relative_path': 'a.txt', 'start_line': 2, 'end_line': 2, 'new_content': 'TWO\n'})
+    replace_workspace_snippet.invoke({'relative_path': 'a.txt', 'old_snippet': 'three', 'new_snippet': 'THREE'})
+
+    assert target.read_text(encoding='utf-8') == 'one\nTWO\nTHREE\n'
+    rows = _journal_rows(journaled.session)
+    assert len(rows) == 1
+    assert rows[0]['op'] == 'modify'
+    assert rows[0]['beforeContent'] == 'one\ntwo\nthree\n'
+
+    # A new turn journals the path again with the bytes that turn started from.
+    journaled.session.current_user_message_id = 'turn-2'
+    write_workspace_file.invoke({'relative_path': 'a.txt', 'content': 'rewritten\n'})
+    rows = _journal_rows(journaled.session)
+    assert [(r['userMessageId'], r['beforeContent']) for r in rows] == [('turn-2', 'one\nTWO\nTHREE\n')]
+
+
+def test_edits_never_pause_even_with_auto_run_off(journaled) -> None:
+    journaled.session.auto_apply_mode = False
+    out = write_workspace_file.invoke({'relative_path': 'x.md', 'content': '# x\n'})
+
+    assert not out.startswith('Tool error'), out
+    assert (journaled.workspace / 'x.md').is_file()
+    assert journaled.session.agent_pause_event is None
+
+
+def test_stale_snippet_error_points_at_reread(journaled) -> None:
+    (journaled.workspace / 'b.txt').write_text('alpha\n', encoding='utf-8')
+    out = replace_workspace_snippet.invoke({'relative_path': 'b.txt', 'old_snippet': 'missing', 'new_snippet': 'x'})
+    assert out.startswith('Tool error:')
+    assert 'read_workspace_file' in out
+    assert (journaled.workspace / 'b.txt').read_text(encoding='utf-8') == 'alpha\n'
+
+
+def test_snippet_requires_existing_file(journaled) -> None:
+    out = replace_workspace_snippet.invoke({'relative_path': 'nope.txt', 'old_snippet': 'a', 'new_snippet': 'b'})
+    assert 'write_workspace_file' in out
+
+
+def test_line_range_rejects_bad_range(journaled) -> None:
+    (journaled.workspace / 'c.txt').write_text('x\n', encoding='utf-8')
+    out = replace_workspace_lines.invoke({'relative_path': 'c.txt', 'start_line': 3, 'end_line': 1, 'new_content': ''})
+    assert out == 'Tool error: need 1 <= start_line <= end_line.'
+
+
+def test_path_escape_is_a_tool_error_not_an_exception(journaled) -> None:
+    out = write_workspace_file.invoke({'relative_path': '../outside.txt', 'content': 'x'})
+    assert out.startswith('Tool error:')
+
+
+def test_editor_off_blocks_edits(journaled) -> None:
+    journaled.session.worker_apply_mode = False
+    out = write_workspace_file.invoke({'relative_path': 'x.txt', 'content': 'x'})
+    assert out.startswith('Tool error: Editor mode is off')
+
+
+@pytest.fixture()
 def _restore_runtime_tools():
     saved = runtime_config.tools
     yield
     runtime_config.tools = saved
 
 
-def test_standard_includes_staging_write_tools() -> None:
-    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False, enable_agent_formatters=True)
-    names = [t.name for t in staging_workspace_write_tools(False)]
-    assert names == [
-        'stage_create_file',
-        'stage_workspace_file_overwrite',
-        'stage_line_range_edit',
-        'stage_snippet_edit',
-    ]
-    lsp_mut = _LSP_CREATE_UPDATE_NAMES
-    transfer_names = {'transfer_staged_file_to_workspace', 'wait_for_write'}
-    staging_review_names = {'format_staging_file_black', 'format_staging_file_prettier'}
-    assert hitl_diff_pause_tools() == frozenset(names) | transfer_names | staging_review_names | lsp_mut
-    assert hitl_delete_pause_tools() == frozenset(
-        {'batch_delete_workspace_entries', 'delete_workspace_entry'}
-    ) | {n for n in _LSP_MUTATION_NAMES if n.startswith('lsp_delete_')}
-    assert hitl_copy_pause_tools() == frozenset({'copy_workspace_files'})
-    assert DEFERRED_HITL_TOOL_NAMES <= hitl_accept_command_pause_tools()
-
-
-def test_strict_omits_snippet_tool() -> None:
-    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=True, enable_agent_formatters=True)
-    names = [t.name for t in staging_workspace_write_tools(True)]
-    assert names == ['stage_create_file', 'stage_workspace_file_overwrite', 'stage_line_range_edit']
-    lsp_mut = _LSP_CREATE_UPDATE_NAMES
-    transfer_names = {'transfer_staged_file_to_workspace', 'wait_for_write'}
-    staging_review_names = {'format_staging_file_black', 'format_staging_file_prettier'}
-    assert hitl_diff_pause_tools() == frozenset(names) | transfer_names | staging_review_names | lsp_mut
-    assert 'stage_snippet_edit' not in hitl_diff_pause_tools()
-    assert hitl_copy_pause_tools() == frozenset({'copy_workspace_files'})
-
-
-def test_hitl_diff_pause_tools_direct_mode() -> None:
-    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False, enable_agent_formatters=True)
-    direct_names = {t.name for t in edit_tools_for_strict(False)}
-    direct_names |= _LSP_CREATE_UPDATE_NAMES
-    direct_names |= {
-        'format_workspace_file_black',
-        'format_workspace_file_prettier',
-        'transfer_staged_file_to_workspace',
-    }
-    assert hitl_diff_pause_tools(direct=True) == frozenset(direct_names)
-
-
-def test_replace_workspace_line_range_accepts_new_content_alias(tmp_path) -> None:
-    """Regression: LM Studio / Qwen sometimes uses `new_content` for line-range replace."""
-    session_id = 'line-range-alias'
-    token = current_session_id.set(session_id)
-    try:
-        root = tmp_path / 'ws'
-        root.mkdir()
-        session = get_session(session_id)
-        session.workspace_path = str(root.resolve())
-        session.worker_apply_mode = True
-        session.auto_apply_mode = True
-        (root / 'data.txt').write_text('a\nb\nc\n', encoding='utf-8')
-        out = replace_workspace_line_range.invoke(
-            {
-                'relative_path': 'data.txt',
-                'start_line': 2,
-                'end_line': 2,
-                'new_snippet': '',
-                'new_content': 'B\n',
-                'encoding': 'utf-8',
-                'newline': 'lf',
-            }
-        )
-        assert 'Auto-applied' in out
-        assert (root / 'data.txt').read_text(encoding='utf-8') == 'a\nB\nc\n'
-    finally:
-        current_session_id.reset(token)
-
-
-def test_outer_agent_tools_staging_mode() -> None:
-    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False, enable_agent_formatters=True)
-    session = get_session('outer-staging')
-    session.auto_apply_mode = False
-    read_names = {t.name for t in TOOLS} | {
-        'activate_context',
-        'lsp_get_diagnostics',
-        'lsp_hover',
-        'lsp_find_definition',
-        'lsp_find_references',
-        'lsp_get_document_symbols',
-    }
-    edit_names = {t.name for t in staging_workspace_write_tools(False)}
-    lsp_mut_names = _LSP_MUTATION_NAMES
-    review_names = {t.name for t in staging_review_tools(direct=False)[0]}
-
-    background_command_names = {
-        'run_command',
-        'wait_for_command',
-        'kill_background_command',
-        'list_background_commands',
-    }
-    write_job_names = {'wait_for_write', 'cancel_write', 'list_write_jobs'}
-    # `propose_theme` never touches the workspace, so it is bound in both modes.
-    theme_names = {'propose_theme'}
-
-    tools_on, map_on = worker_tools_and_map(True, session=session)
-    assert {t.name for t in tools_on} == (
-        read_names
-        | {'copy_workspace_files'}
-        | background_command_names
-        | write_job_names
-        | edit_names
-        | lsp_mut_names
-        | {'java_bootstrap_project'}
-        | {'delete_workspace_entry', 'batch_delete_workspace_entries'}
-        | review_names
-        | theme_names
-    )
-    assert map_on.keys() == {t.name for t in tools_on}
-
-    tools_off, map_off = worker_tools_and_map(False, session=session)
-    assert {t.name for t in tools_off} == read_names | theme_names
-    assert 'plan_and_modify' not in map_off
-    assert 'execute_workspace_mutation' not in map_off
-
-
-def test_outer_agent_tools_direct_mode() -> None:
-    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False, enable_agent_formatters=True)
-    session = get_session('outer-direct')
-    session.auto_apply_mode = True
-    edit_names = {t.name for t in edit_tools_for_strict(False)}
-    review_names = {t.name for t in staging_review_tools(direct=True)[0]}
-    tools_on, _map_on = worker_tools_and_map(True, session=session)
-    tool_names = {t.name for t in tools_on}
-    assert edit_names <= tool_names
-    assert review_names <= tool_names
-    assert 'stage_create_file' not in tool_names
-    assert 'transfer_staged_file_to_workspace' not in tool_names
-
-
-def test_worker_tools_merge_preserves_canonical_objects_for_replaced_names() -> None:
-    """Later merge layers must re-use the same tool objects as LSP reads (no forked descriptions)."""
-    from clara_coder_backend.tools.lsp_tools import lsp_get_diagnostics
-    from clara_coder_backend.tools.run_command import run_command_tool
-
-    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False, enable_agent_formatters=True)
-    session = get_session('merge-canonical')
-    session.auto_apply_mode = False
-    _tools, mapping = worker_tools_and_map(True, session=session)
-    assert mapping['lsp_get_diagnostics'] is lsp_get_diagnostics
-    assert mapping['run_command'] is run_command_tool
-
-
-def test_outer_workspace_edit_guard_blocks_code_extensions() -> None:
-    assert outer_workspace_edit_guard_error('src/foo.py') is not None
-    assert outer_workspace_edit_guard_error('app.tsx') is not None
-    assert outer_workspace_edit_guard_error('docs/readme.md') is None
-    assert outer_workspace_edit_guard_error('package.json') is not None
-    assert outer_workspace_edit_guard_error('helm/values.yaml') is not None
-
-
-def test_apply_workspace_full_file_rejects_python_path_without_auto_apply(tmp_path) -> None:
-    session_id = 'guard-py'
-    token = current_session_id.set(session_id)
-    try:
-        root = tmp_path / 'ws'
-        root.mkdir()
-        session = get_session(session_id)
-        session.workspace_path = str(root.resolve())
-        session.worker_apply_mode = True
-        session.auto_apply_mode = False
-        (root / 'a.py').write_text('x=1\n', encoding='utf-8')
-        out = apply_workspace_full_file.invoke(
-            {'relative_path': 'a.py', 'new_content': 'x = 1\n', 'encoding': 'utf-8', 'newline': 'lf'}
-        )
-        assert 'Tool error:' in out
-        assert 'stage_' in out or 'transfer_staged_file_to_workspace' in out
-    finally:
-        current_session_id.reset(token)
-
-
-def test_apply_workspace_full_file_writes_python_in_direct_mode(tmp_path) -> None:
-    session_id = 'direct-py'
-    token = current_session_id.set(session_id)
-    try:
-        root = tmp_path / 'ws'
-        root.mkdir()
-        session = get_session(session_id)
-        session.workspace_path = str(root.resolve())
-        session.worker_apply_mode = True
-        session.auto_apply_mode = True
-        (root / 'a.py').write_text('x=1\n', encoding='utf-8')
-        out = apply_workspace_full_file.invoke(
-            {'relative_path': 'a.py', 'new_content': 'x = 1\n', 'encoding': 'utf-8', 'newline': 'lf'}
-        )
-        assert 'Auto-applied' in out
-        assert (root / 'a.py').read_text(encoding='utf-8') == 'x = 1\n'
-    finally:
-        current_session_id.reset(token)
-
-
-def test_staging_review_tools_staging_mode() -> None:
-    runtime_config.tools = RuntimeToolsConfig(enable_agent_formatters=True)
-    session = get_session('review-tools-staging')
-    session.worker_apply_mode = True
-    tools, tool_map = staging_review_tools(direct=False)
-    names = {t.name for t in tools}
-    assert names == {
-        'list_staged_edits',
-        'diff_staged_edit_against_baseline',
-        'read_staged_edit',
-        'search_staged_edits',
-        'lsp_get_diagnostics',
-        'format_staging_file_black',
-        'format_staging_file_prettier',
-        'run_staging_overlay_command',
-        'transfer_staged_file_to_workspace',
-        'reject_staged_workspace_edit',
-        'discard_staged_edits',
-    }
-    assert tool_map.keys() == names
-    assert names.isdisjoint({'list_workspace_directory', 'read_workspace_file', 'search_workspace'})
-
-
-def test_staging_review_tools_direct_mode() -> None:
-    runtime_config.tools = RuntimeToolsConfig(enable_agent_formatters=True)
-    tools, tool_map = staging_review_tools(direct=True)
-    names = {t.name for t in tools}
-    assert names == {
-        'lsp_get_diagnostics',
-        'format_workspace_file_black',
-        'format_workspace_file_prettier',
-        'run_staging_overlay_command',
-    }
-    assert tool_map.keys() == names
-    assert 'transfer_staged_file_to_workspace' not in names
-    assert 'discard_staged_edits' not in names
-
-
-def test_source_code_formatting_guidance_follows_settings() -> None:
-    from clara_coder_backend.llm.prompt_blocks import source_code_formatting_guidance
-
-    runtime_config.tools = RuntimeToolsConfig(enable_agent_formatters=True)
-    on_text = source_code_formatting_guidance()
-    assert 'Automatic formatters' in on_text
-    assert 'Black' in on_text
+@pytest.mark.usefixtures('_restore_runtime_tools')
+def test_edit_tool_set_strict_and_formatters() -> None:
     runtime_config.tools = RuntimeToolsConfig(enable_agent_formatters=False)
-    off_text = source_code_formatting_guidance()
-    assert 'format tools are off' in off_text
-    assert 'Do not call `format_staging_file_black`' in off_text
+    assert [t.name for t in edit_tools(strict=False)] == [
+        'write_workspace_file',
+        'replace_workspace_lines',
+        'replace_workspace_snippet',
+    ]
+    assert [t.name for t in edit_tools(strict=True)] == ['write_workspace_file', 'replace_workspace_lines']
+    runtime_config.tools = RuntimeToolsConfig(enable_agent_formatters=True)
+    assert 'format_workspace_file' in {t.name for t in edit_tools(strict=False)}
 
 
-def test_agent_formatters_off_omits_format_tools() -> None:
-    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False, enable_agent_formatters=False)
-    staging_names = {t.name for t in staging_review_tools(direct=False)[0]}
-    direct_names = {t.name for t in staging_review_tools(direct=True)[0]}
-    assert 'format_staging_file_black' not in staging_names
-    assert 'format_staging_file_prettier' not in staging_names
-    assert 'format_workspace_file_black' not in direct_names
-    assert 'format_workspace_file_prettier' not in direct_names
-    assert 'format_staging_file_black' not in hitl_diff_pause_tools()
-    assert 'format_workspace_file_black' not in hitl_diff_pause_tools(direct=True)
-    session = get_session('outer-formatters-off')
-    session.auto_apply_mode = False
-    bound = {t.name for t in worker_tools_and_map(True, session=session)[0]}
-    assert 'format_staging_file_black' not in bound
-    assert 'format_staging_file_prettier' not in bound
+@pytest.mark.usefixtures('_restore_runtime_tools')
+@pytest.mark.parametrize('auto_run', [False, True])
+def test_editor_binding_ignores_auto_run(auto_run: bool) -> None:
+    runtime_config.tools = RuntimeToolsConfig(edit_tools_strict=False)
+    session = SessionState()
+    session.auto_apply_mode = auto_run
+    names = {t.name for t in worker_tools_and_map(True, session=session)[0]}
+
+    assert {'write_workspace_file', 'replace_workspace_lines', 'delete_workspace_entries', 'run_command'} <= names
+    assert not names & _REMOVED_TOOL_NAMES
+
+
+def test_read_only_binding_has_no_mutators() -> None:
+    names = {t.name for t in worker_tools_and_map(False, session=SessionState())[0]}
+    assert 'read_workspace_file' in names
+    assert 'write_workspace_file' not in names
+    assert 'run_command' not in names
+
+
+def test_hitl_pause_sets() -> None:
+    assert hitl_delete_pause_tools() == frozenset({'delete_workspace_entries'})
+    assert DEFERRED_HITL_TOOL_NAMES <= hitl_accept_command_pause_tools()
+    assert 'run_staging_overlay_command' not in DEFERRED_HITL_TOOL_NAMES

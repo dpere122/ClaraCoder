@@ -212,15 +212,6 @@ def parallel_batching_prompt_suffix() -> str:
     )
 
 
-def qwen_specific_prompt_suffix() -> str:
-    """Qwen-family staging/transfer discipline; use with :func:`tool_calling_and_edit_semantics_suffix`."""
-    return (
-        '\nModel note (Qwen): When staging review applies, land approved drafts with '
-        '**`land_in_workspace=true`** on your final stage/LSP call, or `transfer_staged_file_to_workspace` for '
-        'already-staged paths—do not ask the user to approve or apply the diff in the UI instead of using the tool.\n'
-    )
-
-
 def qwen_vision_prompt_suffix(connection: RuntimeConnection) -> str:
     """Hint to use ``read_workspace_image`` when Qwen preset is active on a Qwen3.5 vision model."""
     if not qwen_optimize_profile_active(connection):
@@ -237,8 +228,8 @@ def qwen_vision_prompt_suffix(connection: RuntimeConnection) -> str:
 
 
 def qwen_system_prompt_suffix(connection: RuntimeConnection | None = None) -> str:
-    """Backward-compatible name: full Qwen block equals universal semantics plus Qwen-only lines."""
-    return tool_calling_and_edit_semantics_suffix(connection) + qwen_specific_prompt_suffix()
+    """Backward-compatible name: the universal tool-channel reminder (no Qwen-only edit lines remain)."""
+    return tool_calling_and_edit_semantics_suffix(connection)
 
 
 def combined_model_prompt_suffix(
@@ -258,6 +249,5 @@ def combined_model_prompt_suffix(
     if effective_parallel_tool_calls(connection):
         parts.append(parallel_batching_prompt_suffix())
     if qwen_optimize_profile_active(connection):
-        parts.append(qwen_specific_prompt_suffix())
         parts.append(qwen_vision_prompt_suffix(connection))
     return ''.join(parts)

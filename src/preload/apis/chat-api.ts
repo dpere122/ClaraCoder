@@ -3,10 +3,8 @@ import type {
   AcceptCommandPayload,
   CopyConfirmPayload,
   DeleteConfirmPayload,
-  FileDiffPayload,
-  AppendConversationFileJournalRequest,
-  StagedTransferBatchPayload,
   TtsProvider,
+  TurnEditedFile,
   TtsStreamPacket,
 } from '../../shared';
 
@@ -56,6 +54,7 @@ export const createChatApi = (ipcRenderer: PreloadIpc) => ({
       event: unknown,
       conversationId: string,
       outcome?: 'completed' | 'aborted' | 'error',
+      editedFiles?: TurnEditedFile[],
     ) => void,
   ) => ipcRenderer.on('message-done', callback),
   onMessageTokenUsage: (
@@ -85,8 +84,6 @@ export const createChatApi = (ipcRenderer: PreloadIpc) => ({
     ipcRenderer.on('message-clear-primary-stream', callback),
   onMessagePromotePrimaryToNudge: (callback: (event: unknown, conversationId: string) => void) =>
     ipcRenderer.on('message-promote-primary-to-nudge', callback),
-  onMessageDiff: (callback: (event: unknown, conversationId: string, diff: FileDiffPayload) => void) =>
-    ipcRenderer.on('message-diff', callback),
   onMessageAcceptCommand: (
     callback: (event: unknown, conversationId: string, payload: AcceptCommandPayload) => void,
   ) => ipcRenderer.on('message-accept-command', callback),
@@ -117,16 +114,6 @@ export const createChatApi = (ipcRenderer: PreloadIpc) => ({
   onMessageThemeProposal: (
     callback: (event: unknown, conversationId: string, payload: unknown) => void,
   ) => ipcRenderer.on('message-theme-proposal', callback),
-  onMessageStagedTransferBatch: (
-    callback: (event: unknown, conversationId: string, payload: StagedTransferBatchPayload) => void,
-  ) => ipcRenderer.on('message-staged-transfer-batch', callback),
-  onMessageFileJournal: (
-    callback: (
-      event: unknown,
-      conversationId: string,
-      payload: Omit<AppendConversationFileJournalRequest, 'conversationId'>,
-    ) => void,
-  ) => ipcRenderer.on('message-file-journal', callback),
   sendMessage: (
     conversationId: string,
     msg: string,
@@ -139,6 +126,7 @@ export const createChatApi = (ipcRenderer: PreloadIpc) => ({
     ttsProvider?: TtsProvider,
     userMessageId?: string,
     adminElevationGranted?: boolean,
+    workspaceNotes?: string[],
   ) =>
     ipcRenderer.send(
       'message',
@@ -153,6 +141,7 @@ export const createChatApi = (ipcRenderer: PreloadIpc) => ({
       ttsProvider ?? 'kokoro',
       userMessageId ?? '',
       adminElevationGranted ?? false,
+      workspaceNotes ?? [],
     ),
   abortMessage: (conversationId: string) => ipcRenderer.invoke('abort-message', conversationId),
   cancelBuildPlan: (conversationId: string, planId: string) =>
@@ -170,9 +159,6 @@ export const createChatApi = (ipcRenderer: PreloadIpc) => ({
     copyRequestId?: string,
     acceptCommandAction?: 'confirm' | 'confirm_session' | 'cancel' | 'deny',
     acceptCommandRequestId?: string,
-    stagedTransferAction?: 'confirm' | 're_review',
-    stagedTransferRequestId?: string,
-    stagedTransferPath?: string,
     planConfirmAction?: 'confirm' | 'cancel',
     planConfirmRequestId?: string,
   ) => ipcRenderer.invoke(
@@ -185,9 +171,6 @@ export const createChatApi = (ipcRenderer: PreloadIpc) => ({
     copyRequestId,
     acceptCommandAction,
     acceptCommandRequestId,
-    stagedTransferAction,
-    stagedTransferRequestId,
-    stagedTransferPath,
     planConfirmAction,
     planConfirmRequestId,
   ),

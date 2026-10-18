@@ -9,6 +9,7 @@ import type {
   ConversationFileJournalOp,
   ConversationMeta,
   ConversationSummary,
+  TurnEditedFileStatus,
 } from '../shared';
 import { isConversationFileJournalOp } from '../shared';
 import { FIRST_THEME_ID } from './constants';
@@ -102,6 +103,29 @@ function migrateFileJournalTable(database: SqliteDatabase): void {
     );
     CREATE INDEX IF NOT EXISTS idx_file_journal_conv_seq
       ON conversation_file_journal (conversation_id, seq);
+  `);
+}
+
+function migrateTurnFilesTable(database: SqliteDatabase): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS conversation_turn_files (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      conversation_id TEXT NOT NULL,
+      user_message_id TEXT NOT NULL,
+      relative_path TEXT NOT NULL,
+      op TEXT NOT NULL,
+      before_content TEXT,
+      before_existed INTEGER NOT NULL DEFAULT 0,
+      after_content TEXT,
+      after_exists INTEGER NOT NULL DEFAULT 0,
+      encoding TEXT,
+      newline TEXT,
+      additions INTEGER NOT NULL DEFAULT 0,
+      deletions INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'kept'
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_turn_files_conv_turn_path
+      ON conversation_turn_files (conversation_id, user_message_id, relative_path);
   `);
 }
 
@@ -210,6 +234,7 @@ export function openConversationsDb(): void {
   migrateSchema(database);
   migrateCustomTitleColumn(database);
   migrateFileJournalTable(database);
+  migrateTurnFilesTable(database);
   importLegacyJsonIfNeeded(database);
   db = database;
 }
@@ -307,6 +332,7 @@ export function upsertConversation(conv: ConversationFile): void {
 export function deleteConversationById(id: string): void {
   const database = getDb();
   database.prepare('DELETE FROM conversation_file_journal WHERE conversation_id = ?').run(id);
+  database.prepare('DELETE FROM conversation_turn_files WHERE conversation_id = ?').run(id);
   database.prepare('DELETE FROM conversations WHERE id = ?').run(id);
 }
 
@@ -341,10 +367,12 @@ export function deleteConversationsByWorkspaceId(workspaceId: string): string[] 
   }
   const database = getDb();
   const deleteJournal = database.prepare('DELETE FROM conversation_file_journal WHERE conversation_id = ?');
+  const deleteTurnFiles = database.prepare('DELETE FROM conversation_turn_files WHERE conversation_id = ?');
   const deleteConv = database.prepare('DELETE FROM conversations WHERE id = ?');
   const tx = database.transaction(() => {
     for (const id of ids) {
       deleteJournal.run(id);
+      deleteTurnFiles.run(id);
       deleteConv.run(id);
     }
   });
@@ -452,9 +480,164 @@ export function deleteConversationFileJournalForUserIds(conversationId: string, 
   const stmt = database.prepare(
     'DELETE FROM conversation_file_journal WHERE conversation_id = ? AND user_message_id = ?',
   );
+  const turnFilesStmt = database.prepare(
+    'DELETE FROM conversation_turn_files WHERE conversation_id = ? AND user_message_id = ?',
+  );
   const tx = database.transaction(() => {
     for (const id of userMessageIds) {
       stmt.run(conversationId, id);
+      turnFilesStmt.run(conversationId, id);
+    }
+  });
+  tx();
+}
+
+/** Journal rows for one user turn, oldest first. */
+export function listConversationFileJournalForTurn(
+  conversationId: string,
+  userMessageId: string,
+): ConversationFileJournalEntry[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT conversation_id, user_message_id, seq, relative_path, op, before_content,
+              before_encoding, before_newline, dest_relative_path, tree_entries_json
+       FROM conversation_file_journal
+       WHERE conversation_id = ? AND user_message_id = ?
+       ORDER BY seq ASC`,
+    )
+    .all(conversationId, userMessageId) as FileJournalRow[];
+  return rows.map(rowToJournalEntry);
+}
+
+/** One path a user turn wrote: before/after snapshots for end-of-turn review and reset. */
+export interface ConversationTurnFileRecord {
+  conversationId: string;
+  userMessageId: string;
+  relativePath: string;
+  op: ConversationFileJournalOp;
+  beforeContent: string | null;
+  beforeExisted: boolean;
+  afterContent: string | null;
+  afterExists: boolean;
+  encoding?: string;
+  newline?: 'lf' | 'crlf';
+  additions: number;
+  deletions: number;
+  status: TurnEditedFileStatus;
+}
+
+interface TurnFileRow {
+  conversation_id: string;
+  user_message_id: string;
+  relative_path: string;
+  op: string;
+  before_content: string | null;
+  before_existed: number;
+  after_content: string | null;
+  after_exists: number;
+  encoding: string | null;
+  newline: string | null;
+  additions: number;
+  deletions: number;
+  status: string;
+}
+
+function rowToTurnFileRecord(row: TurnFileRow): ConversationTurnFileRecord {
+  return {
+    conversationId: row.conversation_id,
+    userMessageId: row.user_message_id,
+    relativePath: row.relative_path,
+    op: isConversationFileJournalOp(row.op) ? row.op : 'modify',
+    beforeContent: row.before_content,
+    beforeExisted: row.before_existed === 1,
+    afterContent: row.after_content,
+    afterExists: row.after_exists === 1,
+    encoding: row.encoding ?? undefined,
+    newline: row.newline === 'crlf' ? 'crlf' : row.newline === 'lf' ? 'lf' : undefined,
+    additions: Number(row.additions) || 0,
+    deletions: Number(row.deletions) || 0,
+    status: row.status === 'reset' ? 'reset' : 'kept',
+  };
+}
+
+/** Insert or refresh turn-file rows (a re-finalized path goes back to its given status). */
+export function upsertConversationTurnFiles(records: readonly ConversationTurnFileRecord[]): void {
+  if (records.length === 0) {
+    return;
+  }
+  const database = getDb();
+  const stmt = database.prepare(
+    `INSERT INTO conversation_turn_files
+      (conversation_id, user_message_id, relative_path, op, before_content, before_existed,
+       after_content, after_exists, encoding, newline, additions, deletions, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(conversation_id, user_message_id, relative_path) DO UPDATE SET
+       op = excluded.op,
+       before_content = excluded.before_content,
+       before_existed = excluded.before_existed,
+       after_content = excluded.after_content,
+       after_exists = excluded.after_exists,
+       encoding = excluded.encoding,
+       newline = excluded.newline,
+       additions = excluded.additions,
+       deletions = excluded.deletions,
+       status = excluded.status`,
+  );
+  const tx = database.transaction(() => {
+    for (const r of records) {
+      stmt.run(
+        r.conversationId,
+        r.userMessageId,
+        r.relativePath,
+        r.op,
+        r.beforeContent,
+        r.beforeExisted ? 1 : 0,
+        r.afterContent,
+        r.afterExists ? 1 : 0,
+        r.encoding ?? null,
+        r.newline ?? null,
+        r.additions,
+        r.deletions,
+        r.status,
+      );
+    }
+  });
+  tx();
+}
+
+export function listConversationTurnFiles(
+  conversationId: string,
+  userMessageId: string,
+): ConversationTurnFileRecord[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT conversation_id, user_message_id, relative_path, op, before_content, before_existed,
+              after_content, after_exists, encoding, newline, additions, deletions, status
+       FROM conversation_turn_files
+       WHERE conversation_id = ? AND user_message_id = ?
+       ORDER BY id ASC`,
+    )
+    .all(conversationId, userMessageId) as TurnFileRow[];
+  return rows.map(rowToTurnFileRecord);
+}
+
+export function setConversationTurnFilesStatus(
+  conversationId: string,
+  userMessageId: string,
+  relativePaths: readonly string[],
+  status: TurnEditedFileStatus,
+): void {
+  if (relativePaths.length === 0) {
+    return;
+  }
+  const database = getDb();
+  const stmt = database.prepare(
+    `UPDATE conversation_turn_files SET status = ?
+     WHERE conversation_id = ? AND user_message_id = ? AND relative_path = ?`,
+  );
+  const tx = database.transaction(() => {
+    for (const p of relativePaths) {
+      stmt.run(status, conversationId, userMessageId, p);
     }
   });
   tx();
@@ -506,6 +689,7 @@ export function openConversationsDbForTests(dbPath: string): void {
   migrateSchema(database);
   migrateCustomTitleColumn(database);
   migrateFileJournalTable(database);
+  migrateTurnFilesTable(database);
   db = database;
 }
 

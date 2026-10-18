@@ -400,6 +400,7 @@ export {
   fallbackJournalFromMessages,
   invertJournalEntries,
   isConversationFileJournalOp,
+  journalAffectedPath,
   journalPreviewPaths,
   journalUserIdsToInvert,
   lastUserMessageId,
@@ -407,6 +408,15 @@ export {
   resolveRestoreUserIndex,
   truncateMessagesAfterUserTurn,
 } from './conversation-timeline';
+export type {
+  ResetTurnFilesRequest,
+  ResetTurnFilesResult,
+  TurnEditedFile,
+  TurnEditedFileRow,
+  TurnEditedFileStatus,
+  TurnFileDiffResult,
+} from './types/turn-edits';
+export { firstJournalEntryPerPath, textLineChangeCounts } from './turn-edits';
 export type {
   ClaraAgentMode,
   LlmAgentRole,

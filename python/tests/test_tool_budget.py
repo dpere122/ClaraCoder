@@ -1,4 +1,4 @@
-"""CI guard: each mode's bound tool schemas must stay under the 18k token cap.
+"""CI guard: each mode's bound tool schemas must stay under the token cap (``TOOL_BUDGET_CAP``).
 
 Run:
 
@@ -24,14 +24,18 @@ def test_plan_under_budget() -> None:
     assert_plan_under_budget(cap=TOOL_BUDGET_CAP, session=SessionState())
 
 
-def test_read_only_under_budget_with_web_access(monkeypatch) -> None:
+def test_worst_case_web_and_formatters_under_budget(monkeypatch) -> None:
     from clara_coder_backend.domain import RuntimeToolsConfig
     from clara_coder_backend.session.state import runtime_config
 
     monkeypatch.setattr(
         runtime_config,
         'tools',
-        RuntimeToolsConfig(allow_web_access=True, searxng_base_url='http://127.0.0.1:8080'),
+        RuntimeToolsConfig(
+            allow_web_access=True,
+            searxng_base_url='http://127.0.0.1:8080',
+            enable_agent_formatters=True,
+        ),
     )
     assert_under_budget('read_only', cap=TOOL_BUDGET_CAP, session=SessionState())
     assert_under_budget('editor', cap=TOOL_BUDGET_CAP, session=SessionState())

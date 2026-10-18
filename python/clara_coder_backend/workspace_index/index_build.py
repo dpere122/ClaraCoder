@@ -360,6 +360,19 @@ def _changed_fraction(old_files: dict[str, str], new_files: dict[str, str]) -> f
     return touched / total
 
 
+#: Last loaded index per persist dir, keyed by the manifest file's stat + embedding model. Any build, reconcile
+#: or incremental patch rewrites the manifest, which changes the stamp and forces a reload.
+_LOADED_INDEXES: dict[str, tuple[tuple[int, int, str], VectorStoreIndex]] = {}
+
+
+def _manifest_stamp(persist_dir: Path, model: str) -> tuple[int, int, str]:
+    try:
+        st = (persist_dir / MANIFEST_NAME).stat()
+    except OSError:
+        return (0, 0, model)
+    return (st.st_mtime_ns, st.st_size, model)
+
+
 def load_or_rebuild_workspace_index(
     workspace_root: Path,
     workspace_id: str,
@@ -393,6 +406,12 @@ def load_or_rebuild_workspace_index(
             return build_fresh_workspace_index(root, workspace_id, embed_model, embedding_model_id=model)
         assert manifest is not None
 
+        stamp = _manifest_stamp(pdir, model)
+        cached = _LOADED_INDEXES.get(str(pdir))
+        if cached is not None and cached[0] == stamp and _manifest_workspace_fingerprint(manifest) == fp:
+            # Same on-disk index as last query: skip re-deserializing the docstore / vector store JSON.
+            return cached[1], ''
+
         try:
             storage_context = StorageContext.from_defaults(persist_dir=str(pdir))
             index = load_index_from_storage(storage_context, embed_model=embed_model)
@@ -401,6 +420,7 @@ def load_or_rebuild_workspace_index(
             return build_fresh_workspace_index(root, workspace_id, embed_model, embedding_model_id=model)
 
         if _manifest_workspace_fingerprint(manifest) == fp:
+            _LOADED_INDEXES[str(pdir)] = (stamp, index)
             return index, ''
 
         old_files = _manifest_files(manifest)

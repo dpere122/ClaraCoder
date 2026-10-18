@@ -60,9 +60,6 @@ export class PlanConfirmComponent implements OnDestroy {
       undefined,
       undefined,
       undefined,
-      undefined,
-      undefined,
-      undefined,
       'confirm',
       req,
     );
@@ -93,9 +90,6 @@ export class PlanConfirmComponent implements OnDestroy {
     await this.electron.notifyAgentContinue(
       id,
       '',
-      undefined,
-      undefined,
-      undefined,
       undefined,
       undefined,
       undefined,

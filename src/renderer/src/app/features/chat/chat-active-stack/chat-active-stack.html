@@ -38,6 +38,7 @@
     [bottomInsetElement]="hitlDock"
     (restoreConversation)="restoreConversation.emit($event)"
     (sendResponse)="sendResponse.emit($event)"
+    (openTurnDiff)="openTurnDiff.emit($event)"
     (planConfirmFinished)="planConfirmFinished.emit($event)"
     (agentQuestionFinished)="agentQuestionFinished.emit($event)"
   />
@@ -48,12 +49,9 @@
       <app-hitl-composer-dock
         [artifacts]="pendingHitlDockArtifacts()"
         [conversationId]="conversationId()"
-        (diffReviewFinished)="diffReviewFinished.emit($event)"
         (deleteReviewFinished)="deleteReviewFinished.emit($event)"
         (acceptCommandFinished)="acceptCommandFinished.emit($event)"
         (copyReviewFinished)="copyReviewFinished.emit($event)"
-        (stagedTransferBatchFinished)="stagedTransferBatchFinished.emit($event)"
-        (stagedTransferBatchFileResolved)="stagedTransferBatchFileResolved.emit($event)"
         (planConfirmFinished)="planConfirmFinished.emit($event)"
         (agentQuestionFinished)="agentQuestionFinished.emit($event)"
         (themeProposalFinished)="themeProposalFinished.emit($event)"

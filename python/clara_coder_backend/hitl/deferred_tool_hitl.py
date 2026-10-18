@@ -53,10 +53,6 @@ def _resolve_deferred_tool(tool_name: str) -> Any | None:
         from clara_coder_backend.tools.run_command import run_command_tool
 
         return run_command_tool
-    if tool_name == 'run_staging_overlay_command':
-        from clara_coder_backend.tools.review_tools import run_staging_overlay_command
-
-        return run_staging_overlay_command
     if tool_name == 'web_search':
         from clara_coder_backend.tools.web_search import web_search_tool
 

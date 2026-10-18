@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Annotated
 
 from langchain_core.tools import tool
 
 from clara_coder_backend.config import CLARA_LLAMA_INDEX_MAX_FILES
+from clara_coder_backend.tools.tool_conventions import VERIFY_READ, describe
 from clara_coder_backend.session.state import current_session_id, get_active_connection, get_session
 from clara_coder_backend.workspace_index.embeddings_factory import build_embedding_model, resolve_embedding_model_id
 from clara_coder_backend.workspace_index.incremental import flush_semantic_index_patches
@@ -17,7 +19,6 @@ from clara_coder_backend.workspace_index.lifecycle import cached_workspace_finge
 logger = logging.getLogger('clara.workspace_index.semantic')
 
 RETRIEVE_WORKSPACE_SEMANTIC_NAME = 'retrieve_workspace_semantic'
-RETRIEVE_WORKSPACE_CHECKPOINT_SEMANTIC_NAME = 'retrieve_workspace_checkpoint_semantic'
 
 _MAX_TOOL_CHARS = 24_000
 
@@ -26,7 +27,6 @@ def _header_lines() -> list[str]:
     return [
         'Chunks: on-disk workspace index only.',
         '1. Treat as hints; verify with `read_workspace_file`, LSP, or `search_workspace`.',
-        '2. Staged drafts are not indexed—use `search_staged_edits` or `read_staged_edit` for pending edits.',
         '',
     ]
 
@@ -107,21 +107,17 @@ def _retrieve_semantic_impl(query: str, top_k: int) -> str:
     return out
 
 
-@tool(RETRIEVE_WORKSPACE_SEMANTIC_NAME)
-def retrieve_workspace_semantic(query: str, top_k: int = 8) -> str:
-    """Topical semantic retrieval over the indexed on-disk workspace (chunks, not full files).
-
-    When: unknown targets or repo-wide “where is X?”; broad discovery before precise reads.
-    Not: exact string search (use `search_workspace` on disk or `search_staged_edits` for drafts); literal file text (use `read_workspace_file` / `read_staged_edit` after picking a path).
-    Shape: natural-language `query`; `top_k` capped (default 8). Verify hits with `read_workspace_file`, LSP, or `search_workspace` (see output header). Staged drafts are not indexed."""
-    return _retrieve_semantic_impl(query, top_k)
-
-
-@tool(RETRIEVE_WORKSPACE_CHECKPOINT_SEMANTIC_NAME)
-def retrieve_workspace_checkpoint_semantic(query: str, top_k: int = 8) -> str:
-    """Semantic retrieval over the on-disk workspace index (same corpus as `retrieve_workspace_semantic`).
-
-    When: nested recon / checkpoint-authoritative phase; same discovery as full semantic but disk plane only.
-    Not: staging recall (use `search_staged_edits` or `read_staged_edit`); exact grep (use `search_workspace`).
-    Shape: same as `retrieve_workspace_semantic`; verify hits with `read_workspace_file`, LSP, or `search_workspace` (see output header)."""
+@tool(
+    RETRIEVE_WORKSPACE_SEMANTIC_NAME,
+    description=describe(
+        'Topical semantic retrieval over the indexed workspace (chunks, not full files)',
+        when='unknown targets or repo-wide “where is X?” before precise reads',
+        not_='exact strings (use `search_workspace`); literal file text (use `read_workspace_file`)',
+        verify=VERIFY_READ,
+    ),
+)
+def retrieve_workspace_semantic(
+    query: Annotated[str, 'natural-language description of what to find'],
+    top_k: Annotated[int, 'chunks to return (1-25)'] = 8,
+) -> str:
     return _retrieve_semantic_impl(query, top_k)

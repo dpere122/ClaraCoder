@@ -20,7 +20,8 @@ purpose. When: … Not: … Shape: … Verify: …
 - `Verify:` (optional) — the tool to call afterwards to confirm.
 
 Never paste the template inline as bare prose. Always go through `describe()`
-so the scan pattern stays predictable for the model.
+so the scan pattern stays predictable for the model. `describe()` normalizes
+punctuation (one terminal stop per part, no `..` / `.;`), so pass fragments.
 
 ## 2. Compose, don't duplicate
 
@@ -34,11 +35,14 @@ Do **not** re-state these rules in a tool docstring:
 | `ONE_BASED`         | "lines are 1-based inclusive after `\n` normalization"  |
 | `GUTTER`            | `n │ text` gutter + `include_line_numbers=false` caveat |
 | `RELATIVE_PATH`     | "workspace-relative POSIX path"                         |
-| `STAGE_LAND`        | `land_in_workspace` false-while-iterating / true-on-final |
-| `VERIFY_LSP`        | verify with `lsp_get_diagnostics` (refresh on touched)  |
-| `VERIFY_READ`       | verify hits with `read_workspace_file` / LSP / search    |
+| `VERIFY_LSP`        | `lsp_get_diagnostics` (refresh on touched paths)         |
+| `VERIFY_READ`       | `read_workspace_file` / LSP / search on the hits         |
 
-One token per mention, no drift across tools.
+Constants are fragments without a trailing period. Prefer putting a rule in the
+`Annotated` hint of the parameter it governs over repeating it in `shape=`.
+
+Result size: cap tool output with `tool_output_cap()` and clip single lines with
+`clip_line()` (both in `tool_conventions`) instead of per-tool ad-hoc limits.
 
 ## 3. `Annotated[type, "hint"]` on params models get wrong
 
@@ -50,12 +54,11 @@ on at least these params:
 - `start_line` / `end_line` — `Annotated[int, ONE_BASED]`
 - `encoding` — `Annotated[str, "empty = Settings default"]`
 - `newline` — `Annotated[str, "lf | crlf | preserve (match existing)"]`
-- `section_ref` — `Annotated[str, "from *_overview / search_*"]`
-- `land_in_workspace` — `Annotated[bool, STAGE_LAND]`
-- `relative_paths` — `Annotated[list[str], "list of POSIX paths"]`
-- `old_snippet` / `new_snippet` — distinguish from `new_content` aliasing
-- `command_argv_json` — `Annotated[str, "JSON array of argv strings"]`
-- `command` — `Annotated[str, "shell command for run_command"]`
+- `section_ref` — `Annotated[str, "from structured_overview / search_structured"]`
+- `relative_paths` — `Annotated[list[str], f"list of {RELATIVE_PATH}s"]`
+  (put `| None` **inside** `Annotated[...]` or the hint is dropped from the schema)
+- `old_snippet` / `new_snippet` — one name per meaning; no aliases
+- `command` — `Annotated[str, "shell command line"]`
 
 ## 4. `@tool(NAME, description=describe(...))`
 
@@ -78,12 +81,12 @@ my_tool = tool(
 )(my_tool_impl)
 ```
 
-## 5. 18,000-token budget per mode
+## 5. 9,000-token budget per mode
 
-Bound tool schemas (via `convert_to_openai_tool`, `cl100k_base`) must stay
-≤ **18,000 tokens** per mode. Enforced in CI by
-`clara_coder_backend.tool_budget.assert_under_budget` via
-`tests/test_tool_budget.py`:
+Bound tool schemas (via `convert_to_openai_tool`, `cl100k_base`, MCP tools
+excluded) must stay ≤ **9,000 tokens** per mode (`TOOL_BUDGET_CAP`). Enforced in
+CI by `clara_coder_backend.hitl.tool_budget.assert_under_budget` via
+`tests/test_tool_budget.py` (including the editor + web + formatters worst case):
 
 ```bash
 python -m pytest python/tests/test_tool_budget.py -q
@@ -92,9 +95,10 @@ python -m pytest python/tests/test_tool_budget.py -q
 On failure the assertion prints a per-tool cost table (name + tokens, descending)
 so the bloat source is obvious. Current baselines:
 
-- `read_only` — ~4.1k
-- `editor`    — ~12.6k
-- `plan`      — ~12.7k
+- `read_only` — ~3.0k (15 tools)
+- `editor`    — ~5.3k (25 tools)
+- `plan`      — ~5.4k
+- `editor` + web + formatters — ~5.6k
 
 If a description change pushes a mode over the cap, compose with shared
 constants or move detail into `Annotated` param hints rather than dropping
@@ -111,19 +115,22 @@ This avoids duplicating the schema text in the planner prompt. Each line:
 ```
 
 When adding a tool, add its name to the right `TOOL_FAMILIES` bucket so the
-planner catalog stays organized. The catalog is currently ~7,200 chars
-(≈1.8k tokens) for the full plan-mode set.
+planner catalog stays organized.
 
 ## 7. Single source for edit semantics
 
-The per-extension LSP-mutator map and the `land_in_workspace` policy live in
-**exactly one place**: `edit_semantics_block(direct=...)` in
-`clara_coder_backend/llm/prompt_blocks.py`. It is injected **once** into the
-assembled system prompt via `messages._outer_agent_operational_block`. Model
-suffixes (`tool_calling_and_edit_semantics_suffix`) must not re-embed that
-block—only API tool-channel / family-specific notes. Never re-state the
-LSP-mutator map or staging-vs-direct policy in a tool docstring or another
-prompt block — extend `edit_semantics_block` instead.
+Edits write straight to disk (`clara_coder_backend/tools/edit.py`): no staging,
+landing step or diff card. The first mutation of each path per turn emits a
+`file_journal` row; Electron keeps those per turn so the user can review and
+reset that turn's files after the reply. Auto Run gates only command / web /
+MCP approval cards, never edits.
+
+That policy lives in **exactly one place**: `edit_semantics_block()` in
+`clara_coder_backend/llm/prompt_blocks.py`, injected **once** via
+`messages._outer_agent_operational_block`. Model suffixes must not re-embed it,
+and tool descriptions must not restate it—extend `edit_semantics_block` instead.
+New mutating tools must journal through `session/file_journal.py`
+(`emit_edit_journal` / `emit_file_journal`) so their changes are resettable.
 
 ## 8. Context packs (deferred workflow knowledge)
 

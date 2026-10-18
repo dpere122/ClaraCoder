@@ -18,10 +18,13 @@ from __future__ import annotations
 
 import asyncio
 import codecs
+import os
 import re
+import signal
 import sys
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Annotated
 
@@ -56,6 +59,11 @@ _MAX_REPORT_CHARS = 30_000
 _MAX_RUNNING_JOBS_PER_SESSION = 8
 _READ_BLOCK_BYTES = 65_536
 _KILL_REPORT_TIMEOUT_SEC = 20.0
+#: After the shell exits, keep reading this long for its last output; a background grandchild that inherited
+#: the pipe (dev servers, ``start /b``, daemons) would otherwise keep the job "running" forever.
+_PIPE_DRAIN_GRACE_SEC = 2.0
+#: Finished jobs nobody waited on are dropped this long after they exit (each holds up to 2 MB of output).
+_FINISHED_JOB_TTL_SEC = 30 * 60
 _MAX_COMMAND_CHARS = 8_192
 
 # Structural denylist — reject before HITL / subprocess. Patterns are intentionally coarse.
@@ -165,7 +173,9 @@ class CommandJob:
     cwd_label: str
     proc: asyncio.subprocess.Process | None
     started_at: float  # time.monotonic()
-    buffer: str = ''
+    #: Rolling output as appended chunks (joined on demand); bounded by ``_MAX_CAPTURE_CHARS``.
+    buffer_chunks: deque[str] = field(default_factory=deque)
+    buffer_len: int = 0
     #: Absolute char index of ``buffer[0]`` in the full output stream (grows when old output is dropped).
     buffer_start: int = 0
     #: Absolute char index up to which output was already reported to the model.
@@ -176,6 +186,12 @@ class CommandJob:
     reader_task: asyncio.Task | None = None
     elevated: bool = False
     elevated_handle: ElevatedJobHandle | None = None
+    #: ``time.monotonic()`` when the job finished (for TTL eviction of unreported jobs).
+    finished_at: float | None = None
+
+    @property
+    def buffer(self) -> str:
+        return ''.join(self.buffer_chunks)
 
     def elapsed_sec(self) -> int:
         return max(0, int(time.monotonic() - self.started_at))
@@ -261,13 +277,23 @@ async def _emit_run_command_complete(session_id: str, job: CommandJob) -> None:
 
 
 def _append_output(job: CommandJob, text: str) -> None:
+    """Append without copying the whole buffer; drop the oldest output past ``_MAX_CAPTURE_CHARS``."""
     if not text:
         return
-    job.buffer += text
-    overflow = len(job.buffer) - _MAX_CAPTURE_CHARS
-    if overflow > 0:
-        job.buffer = job.buffer[overflow:]
-        job.buffer_start += overflow
+    job.buffer_chunks.append(text)
+    job.buffer_len += len(text)
+    overflow = job.buffer_len - _MAX_CAPTURE_CHARS
+    while overflow > 0 and job.buffer_chunks:
+        head = job.buffer_chunks[0]
+        if len(head) <= overflow:
+            job.buffer_chunks.popleft()
+            cut = len(head)
+        else:
+            job.buffer_chunks[0] = head[overflow:]
+            cut = overflow
+        job.buffer_len -= cut
+        job.buffer_start += cut
+        overflow -= cut
 
 
 def _consume_new_output(job: CommandJob) -> tuple[str, bool]:
@@ -275,8 +301,83 @@ def _consume_new_output(job: CommandJob) -> tuple[str, bool]:
     dropped = job.read_offset < job.buffer_start
     start = max(job.read_offset - job.buffer_start, 0)
     text = job.buffer[start:]
-    job.read_offset = job.buffer_start + len(job.buffer)
+    job.read_offset = job.buffer_start + job.buffer_len
     return text, dropped
+
+
+async def _deliver(job: CommandJob, decoder: codecs.IncrementalDecoder, block: bytes, *, final: bool = False) -> None:
+    chunk = decoder.decode(block, final)
+    _append_output(job, chunk)
+    await _emit_run_command_chunk(job.session_id, job, chunk)
+
+
+async def _drain_detached(job: CommandJob, read_task: asyncio.Task, decoder: codecs.IncrementalDecoder) -> None:
+    """Keep collecting output a still-running grandchild writes after the shell exited (until EOF)."""
+    stdout = job.proc.stdout if job.proc is not None else None
+    try:
+        block = await read_task
+        while block and stdout is not None:
+            await _deliver(job, decoder, block)
+            block = await stdout.read(_READ_BLOCK_BYTES)
+        await _deliver(job, decoder, b'', final=True)
+    except (asyncio.CancelledError, OSError, ValueError):
+        pass
+
+
+async def _wait_for_returncode(proc: asyncio.subprocess.Process, poll_sec: float = 0.2) -> int:
+    while proc.returncode is None:
+        await asyncio.sleep(poll_sec)
+    return proc.returncode
+
+
+async def _pump_pipe(job: CommandJob, decoder: codecs.IncrementalDecoder) -> None:
+    """Read stdout until EOF, or until the shell exited and the pipe stayed quiet for the drain grace."""
+    proc = job.proc
+    stdout = proc.stdout if proc is not None else None
+    if proc is None or stdout is None:
+        return
+    # ``proc.wait()`` only resolves once every pipe is closed too, so it cannot detect "shell exited, pipe still
+    # held"; ``proc.returncode`` is set as soon as the process itself exits.
+    exit_task = asyncio.ensure_future(_wait_for_returncode(proc))
+    read_task: asyncio.Task | None = None
+    try:
+        while True:
+            if read_task is None:
+                read_task = asyncio.ensure_future(stdout.read(_READ_BLOCK_BYTES))
+            if exit_task.done():
+                done, _ = await asyncio.wait({read_task}, timeout=_PIPE_DRAIN_GRACE_SEC)
+                if not done:
+                    # Inherited pipe still open: report the exit now, keep draining in the background.
+                    asyncio.create_task(_drain_detached(job, read_task, decoder))
+                    read_task = None
+                    return
+            else:
+                await asyncio.wait({read_task, exit_task}, return_when=asyncio.FIRST_COMPLETED)
+                if not read_task.done():
+                    continue
+            block = read_task.result()
+            read_task = None
+            if not block:
+                break
+            await _deliver(job, decoder, block)
+        await _deliver(job, decoder, b'', final=True)
+    finally:
+        if read_task is not None and not read_task.done():
+            read_task.cancel()
+        if not exit_task.done():
+            exit_task.cancel()
+
+
+def _evict_finished_jobs(now: float | None = None) -> None:
+    """Drop finished jobs whose output nobody collected within ``_FINISHED_JOB_TTL_SEC``."""
+    ts = time.monotonic() if now is None else now
+    stale = [
+        job_id
+        for job_id, job in _JOBS.items()
+        if job.status != STATUS_RUNNING and job.finished_at is not None and ts - job.finished_at > _FINISHED_JOB_TTL_SEC
+    ]
+    for job_id in stale:
+        _JOBS.pop(job_id, None)
 
 
 async def _pump_output(job: CommandJob) -> None:
@@ -293,28 +394,18 @@ async def _pump_output(job: CommandJob) -> None:
             _append_output(job, tail)
             await _emit_run_command_chunk(job.session_id, job, tail)
         else:
-            stdout = job.proc.stdout if job.proc is not None else None
-            if stdout is not None:
-                while True:
-                    block = await stdout.read(_READ_BLOCK_BYTES)
-                    if not block:
-                        break
-                    chunk = decoder.decode(block)
-                    _append_output(job, chunk)
-                    await _emit_run_command_chunk(job.session_id, job, chunk)
-                tail = decoder.decode(b'', True)
-                _append_output(job, tail)
-                await _emit_run_command_chunk(job.session_id, job, tail)
+            await _pump_pipe(job, decoder)
     finally:
         if job.elevated_handle is not None:
             code = await job.elevated_handle.wait()
         elif job.proc is not None:
-            code = await job.proc.wait()
+            code = job.proc.returncode if job.proc.returncode is not None else await job.proc.wait()
         else:
             code = 1
         job.exit_code = code
         if job.status == STATUS_RUNNING:
             job.status = STATUS_EXITED
+        job.finished_at = time.monotonic()
         job.done.set()
         await _emit_run_command_complete(job.session_id, job)
 
@@ -397,6 +488,22 @@ async def _kill_job(job: CommandJob) -> None:
         return
     if job.proc is not None:
         await _terminate_subprocess_tree(job.proc)
+        _kill_orphaned_group(job.proc)
+
+
+def _kill_orphaned_group(proc: asyncio.subprocess.Process) -> None:
+    """POSIX: the shell may be gone while children it started live on in its session's process group.
+
+    Jobs spawn with ``start_new_session=True``, so the group id is the shell's pid and never ours.
+    """
+    if sys.platform.startswith('win') or not isinstance(proc.pid, int) or proc.pid <= 0:
+        return
+    try:
+        if os.getpgid(0) == proc.pid:
+            return
+        os.killpg(proc.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
 
 
 async def _start_job(
@@ -418,8 +525,10 @@ async def _start_job(
             stderr=asyncio.subprocess.STDOUT,
             start_new_session=True,
         )
-    except OSError as exc:
-        return None, f'Tool error: command failed to start: {exc}'
+    except (OSError, NotImplementedError) as exc:
+        # NotImplementedError: a SelectorEventLoop on Windows (e.g. uvicorn reload) cannot spawn subprocesses.
+        return None, f'Tool error: command failed to start: {exc!r}'
+    _evict_finished_jobs()
     job = CommandJob(
         job_id=uuid.uuid4().hex[:8],
         session_id=session_id,
@@ -497,31 +606,20 @@ def _find_session_job(session_id: str, command_id: str) -> tuple[CommandJob | No
 
 
 @tool(RUN_COMMAND_NAME, description=describe(
-    'Run a shell command in the workspace as a managed background job.',
-    when=(
-        'builds, tests, git, scripts, app/runtime smoke checks, and long-lived dev servers '
-        '(npm/pnpm/yarn start/dev/serve/preview, python entrypoints) — anything without a dedicated tool. '
-        'Set `elevate` for package installs, services, hosts/firewall, and other admin/root work.'
-    ),
-    not_=(
-        'interactive commands (stdin is closed; no password prompt); '
-        'use `kill_background_command` for jobs started here.'
-    ),
+    'Run a shell command in the workspace as a managed background job (stdout+stderr merged)',
+    when='builds, tests, git, scripts, smoke checks and long-lived dev servers—anything without a dedicated tool',
+    not_='interactive commands (stdin is closed)',
     shape=(
-        'requires user confirmation unless auto-apply is on; `elevate=true` without Admin '
-        'asks the user to grant administrator access (same HITL as the composer Admin chip); '
-        'after Admin is on, auto-apply off still asks Run/Cancel; '
-        'waits `wait_seconds` '
-        f'(default {CLARA_RUN_COMMAND_DEFAULT_WAIT_SEC}s, 0 = return immediately, max {CLARA_RUN_COMMAND_MAX_WAIT_SEC}s); '
-        'if still running, returns a command id for `wait_for_command` / `kill_background_command`; '
-        'prefer this over one-shot runners for servers so the process stays in the background framework; '
-        'stdout+stderr merged; `cwd` is workspace-relative; a leading `sudo` is treated as `elevate`.'
+        'asks the user to approve unless Auto Run is on; `elevate` (or a leading `sudo`) for admin work asks for '
+        f'Admin first; waits `wait_seconds` (default {CLARA_RUN_COMMAND_DEFAULT_WAIT_SEC}s, max '
+        f'{CLARA_RUN_COMMAND_MAX_WAIT_SEC}s), then returns a command id for `wait_for_command` / '
+        '`kill_background_command` if still running'
     ),))
 async def run_command_tool(
     command: Annotated[str, 'shell command line, e.g. `npm run build`'],
     cwd: Annotated[str, 'workspace-relative working directory (empty = workspace root)'] = '',
     wait_seconds: Annotated[float | None, 'seconds to wait before reporting; 0 = fire and forget'] = None,
-    elevate: Annotated[bool, 'run with administrator/root privileges; user must enable Admin in the composer first'] = False,
+    elevate: Annotated[bool, 'administrator/root privileges (needs Admin)'] = False,
 ) -> str:
 
     sid = (current_session_id.get() or '').strip()

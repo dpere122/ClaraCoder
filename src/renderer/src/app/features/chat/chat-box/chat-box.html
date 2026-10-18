@@ -79,6 +79,17 @@
             />
           }
 
+          @if (row.assistant?.editedFiles?.length) {
+            @let turnCtx = turnContexts()[slot.index];
+            <app-turn-edits-footer
+              [conversationId]="conversationId()"
+              [userMessageId]="turnCtx?.userMessageId ?? null"
+              [turnNumber]="turnCtx?.turnNumber ?? 1"
+              [files]="row.assistant?.editedFiles ?? []"
+              (openDiff)="openTurnDiff.emit($event)"
+            />
+          }
+
           @if (ttsLoading() && isLastPersistedRow(slot.index)) {
             <div class="tts-loading" role="status" aria-live="polite">
               <div class="tts-ngx-host" aria-hidden="true">

@@ -1,18 +1,15 @@
-"""LangChain tool: copy one or more workspace files with optional HITL confirmation."""
+"""LangChain tool: copy one or more workspace files (journaled per turn so the user can reset them)."""
 
 from __future__ import annotations
 
 import logging
 import shutil
-import uuid
 from pathlib import Path
 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from clara_coder_backend.domain import SessionState
 from clara_coder_backend.session.file_journal import emit_copy_journal, snapshot_text_file
-from clara_coder_backend.session.pause import stage_hitl_request
 from clara_coder_backend.session.state import current_session_id, get_session, mutation_tools_blocked_reason
 from clara_coder_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
@@ -24,9 +21,7 @@ COPY_WORKSPACE_FILES_NAME = 'copy_workspace_files'
 __all__ = [
     'COPY_WORKSPACE_FILES_NAME',
     'CopyWorkspaceFileItem',
-    'copy_confirm_sse_payload',
     'copy_workspace_files',
-    'execute_pending_copy_decision',
 ]
 
 
@@ -155,78 +150,18 @@ def _perform_copy(root: Path, copies: list[CopyWorkspaceFileItem | dict], overwr
     return True, f'Copied {len(copy_pairs)} file(s). {summary}'
 
 
-def copy_confirm_sse_payload(pending: dict) -> dict:
-    """Shape for SSE `copyConfirm` / frontend `CopyConfirmPayload`."""
-
-    return {
-        'version': 1,
-        'requestId': pending['request_id'],
-        'copies': [
-            {'sourcePath': item['source_path'], 'destinationPath': item['destination_path']}
-            for item in pending['copies']
-        ],
-        'overwrite': bool(pending.get('overwrite')),
-    }
-
-
-def execute_pending_copy_decision(session: SessionState, *, confirm: bool, request_id: str | None) -> str:
-    """Run after user confirms/cancels in UI. Clears ``pending_copy_request`` and returns the resume note."""
-
-    pending = session.pending_copy_request
-    if not pending:
-        return ''
-    if request_id and pending.get('request_id') != request_id:
-        session.pending_copy_request = None
-        return 'Copy confirmation ignored (stale or mismatched request).'
-    session.pending_copy_request = None
-    if not confirm:
-        return 'User cancelled the copy request.'
-    root = Path(pending.get('workspace_root') or '')
-    if not root.is_dir():
-        return 'Copy failed: workspace root unavailable.'
-    ok, msg = _perform_copy(root, pending.get('copies') or [], bool(pending.get('overwrite')))
-    return msg if ok else f'Copy failed: {msg}'
-
-
 @tool(COPY_WORKSPACE_FILES_NAME, description=describe(
-    'Batch duplicate existing workspace files to new workspace-relative destinations.',
-    when='copying files without rewriting content.',
-    not_='moving/renaming in place (use copy then delete) or directory trees.',
+    'Copy existing workspace files to new destinations; runs immediately',
+    when='duplicating files without rewriting content',
+    not_='directory trees; moves (copy, then `delete_workspace_entries`)',
     shape=(
-        f'each `copies` item needs `source_path` + `destination_path` ({RELATIVE_PATH}); '
-        'sources must exist as files; parent dirs created; HITL confirm when auto-apply off.'
+        f'each `copies` item has `source_path` + `destination_path` ({RELATIVE_PATH}); parent folders created; '
+        '`overwrite=true` to replace existing destinations'
     ),
 ))
 def copy_workspace_files(copies: list[CopyWorkspaceFileItem], overwrite: bool = False) -> str:
-
-    session_id = current_session_id.get()
-    blocked = mutation_tools_blocked_reason(session_id)
+    blocked = mutation_tools_blocked_reason(current_session_id.get())
     if blocked:
         return blocked
-
-    session = get_session(session_id)
-    root = get_active_workspace_root()
-    validated, detail = _validate_copy_batch(root, copies)
-    if validated is None:
-        return f'Tool error: {detail}'
-
-    preview_pairs = detail
-    if session.auto_apply_mode:
-        ok, msg = _perform_copy(root, copies, overwrite)
-        return msg if ok else f'Tool error: {msg}'
-
-    copy_request = {
-        'request_id': uuid.uuid4().hex,
-        'copies': [
-            {'source_path': src.relative_to(root).as_posix(), 'destination_path': dest.relative_to(root).as_posix()}
-            for src, dest in validated
-        ],
-        'overwrite': overwrite,
-        'workspace_root': str(root.resolve()),
-    }
-    stage_hitl_request(session, 'pending_copy_request', copy_request)
-    return (
-        f'Pending user confirmation to copy {len(validated)} file(s)'
-        f'{" with overwrite enabled" if overwrite else ""}: {_preview_pairs(preview_pairs)}. '
-        'The UI will ask the user to confirm before any files are copied.'
-    )
+    ok, msg = _perform_copy(get_active_workspace_root(), copies, overwrite)
+    return msg if ok else f'Tool error: {msg}'

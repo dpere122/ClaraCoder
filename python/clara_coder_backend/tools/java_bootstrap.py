@@ -2,9 +2,9 @@
 
 Without a build file the Java language server has no classpath beyond the JDK, so any third-party import
 (JavaFX, Gson, …) shows as an error. This tool writes the smallest build that declares those dependencies,
-keeping the existing source layout. Every file goes through the same staging (or Auto-apply direct) path as
-``stage_create_file`` / ``apply_workspace_full_file``. Nothing touches PATH, JAVA_HOME, ``~/.m2/settings.xml``
-or ``~/.gradle``.
+keeping the existing source layout. Every file goes through the same write-through path as
+``write_workspace_file``, so it is journaled and resettable after the turn. Nothing touches PATH, JAVA_HOME,
+``~/.m2/settings.xml`` or ``~/.gradle``.
 
 Maven gets the script-only Maven Wrapper (``mvnw`` / ``mvnw.cmd``, no jar). Gradle's ``gradlew`` cannot run
 without the binary ``gradle-wrapper.jar``, so only ``gradle/wrapper/gradle-wrapper.properties`` is written: it
@@ -18,19 +18,13 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 from xml.sax.saxutils import escape as _xml_escape
 
 from langchain_core.tools import tool
 
-from clara_coder_backend.session.state import (
-    current_session_id,
-    direct_workspace_edits_active,
-    get_session,
-    mutation_tools_blocked_reason,
-)
-from clara_coder_backend.tools.edit import apply_workspace_full_file
-from clara_coder_backend.tools.staging_edit import stage_create_file
+from clara_coder_backend.session.state import mutation_tools_blocked_reason
+from clara_coder_backend.tools.edit import write_workspace_text
 from clara_coder_backend.tools.tool_conventions import describe
 from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
 
@@ -403,16 +397,8 @@ def plan_bootstrap_files(
     ]
 
 
-def _write_planned_file(planned: PlannedFile, *, direct: bool) -> str:
-    payload: dict[str, Any] = {
-        'relative_path': planned.relative_path,
-        'new_content': planned.content,
-        'encoding': 'utf-8',
-        'newline': planned.newline,
-    }
-    if direct:
-        return str(apply_workspace_full_file.invoke(payload))
-    return str(stage_create_file.invoke(payload))
+def _write_planned_file(planned: PlannedFile) -> str:
+    return write_workspace_text(planned.relative_path, planned.content, encoding='utf-8', newline=planned.newline)
 
 
 def _mark_executable(path: Path) -> None:
@@ -525,23 +511,12 @@ def _bootstrap(
             'Remove or rename them first if they are leftovers.'
         )
 
-    sid = (current_session_id.get() or '').strip()
-    session = get_session(sid) if sid else None
-    direct = bool(session and session.worker_apply_mode and direct_workspace_edits_active(session, apply_mode=True))
-
     written: list[str] = []
-    notes: list[str] = []
     for item in planned:
-        result = _write_planned_file(item, direct=direct)
+        result = _write_planned_file(item)
         if result.lower().startswith('tool error'):
             done = ', '.join(f'`{p}`' for p in written) or 'none'
-            undo = (
-                ' Call `discard_staged_edits` on those paths to restore them.'
-                if written and not direct else ''
-            )
-            return f'Tool error while writing `{item.relative_path}`: {result}\nAlready written: {done}.{undo}'
-        if 'wait_for_write' in result:
-            notes.append(f'`{item.relative_path}`: {result.strip()}')
+            return f'Tool error while writing `{item.relative_path}`: {result}\nAlready written: {done}.'
         if item.executable:
             _mark_executable(root / item.relative_path)
         written.append(item.relative_path)
@@ -554,42 +529,24 @@ def _bootstrap(
         f'{", JavaFX plugin" if has_javafx else ""}).',
         'Files: ' + ', '.join(f'`{p}`' for p in written) + '.',
     ]
-    if direct:
-        summary.append('Written directly to disk (Auto-apply).')
-    else:
-        summary.append(
-            'All files are staged drafts (already on disk, journaled). Review them, then keep them together with '
-            '`transfer_staged_file_to_workspace` (`relative_paths` batch) or restore with `discard_staged_edits`.'
-        )
     summary.append(_next_steps(tool_kind, folder_rel, has_javafx))
     summary.append(
         'The Java language server re-imports the folder as a build project once the build file is on disk; then '
         'check `lsp_get_diagnostics` on a source file.'
     )
-    summary += notes
     return '\n'.join(summary)
 
 
 @tool(JAVA_BOOTSTRAP_PROJECT_NAME, description=describe(
-    'Set up a minimal dependency-managed Java project (Maven `pom.xml` + script-only Maven Wrapper, or Gradle '
-    '`settings.gradle.kts` + `build.gradle.kts`) in a workspace folder that has no build file, so the Java '
-    'language server can resolve third-party jars.',
-    when=(
-        'Java sources (existing or about to be created) need libraries beyond the JDK and neither the folder nor '
-        'any parent up to the workspace root has `pom.xml`, `build.gradle(.kts)` or `settings.gradle(.kts)`. '
-        'Ask the user Gradle vs Maven when nothing in the workspace hints at one.'
-    ),
-    not_=(
-        'folders that already have a build file (refused; edit that file instead); hard-coding jar paths such as '
-        '`~/.gradle/caches/...` or `~/.m2/repository/...` into scripts or build files.'
-    ),
+    'Write a minimal Maven (`pom.xml` + script-only wrapper) or Gradle (`*.gradle.kts`) build into a Java '
+    'folder that has none, so the Java language server can resolve third-party jars',
+    when='Java sources need libraries beyond the JDK and no build file exists up to the workspace root',
+    not_='folders that already have a build file (refused; edit that file instead)',
     shape=(
-        '`build_tool` "gradle"|"maven"; `main_class` fully qualified (e.g. `journal.JournalApp`); `dependencies` '
-        'list of `group:artifact:version` (`org.openjfx:javafx-*` adds the JavaFX plugin); `java_release` default '
-        '21; `source_dir` empty keeps the current layout (e.g. `src`) instead of moving files to `src/main/java`; '
-        '`folder` workspace-relative, empty = workspace root. Writes go through staging like `stage_create_file`.'
+        '`dependencies` as `group:artifact:version` (`org.openjfx:javafx-*` adds the JavaFX plugin); empty '
+        '`source_dir` keeps the current layout'
     ),
-    verify='`lsp_get_diagnostics` on a `.java` file after the files are kept.',
+    verify='`lsp_get_diagnostics` on a `.java` file',
 ))
 def java_bootstrap_project(
     build_tool: Annotated[str, '"gradle" or "maven"'],

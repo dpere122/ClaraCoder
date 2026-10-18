@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import uuid
 from contextvars import ContextVar
 from typing import Any
@@ -18,7 +17,6 @@ deferred_tool_hitl_bypass: ContextVar[bool] = ContextVar('deferred_tool_hitl_byp
 
 DEFERRED_HITL_TOOL_NAMES: frozenset[str] = frozenset(
     {
-        'run_staging_overlay_command',
         'run_command',
         'web_search',
         'fetch_url',
@@ -46,23 +44,6 @@ def _presentation(tool_name: str, tool_input: dict[str, Any]) -> tuple[str, str,
             'Run terminal command',
             'Run a shell command in the workspace as a managed background job.',
             command or '(empty command)',
-            details,
-        )
-    if tool_name == 'run_staging_overlay_command':
-        argv_json = str(tool_input.get('command_argv_json') or '[]')
-        cwd = str(tool_input.get('cwd_relative') or '').strip()
-        try:
-            argv = json.loads(argv_json)
-            rendered = ' '.join(str(a) for a in argv) if isinstance(argv, list) else argv_json
-        except json.JSONDecodeError:
-            rendered = argv_json
-        details = []
-        if cwd:
-            details.append(f'Working directory: `{cwd}`')
-        return (
-            'Run staging overlay command',
-            'Execute a command in the staging overlay (workspace + pending drafts) or workspace when in direct mode.',
-            rendered,
             details,
         )
     if tool_name == 'web_search':
@@ -150,6 +131,7 @@ def maybe_await_hitl_for_deferred_tool(
         return None
     inp = dict(tool_input or {})
     if session.auto_apply_mode:
+        # Auto Run: the one toggle that skips approval cards (edits never ask; they are reset after the turn).
         return None
     title, message, command_text, details = _presentation(tool_name, inp)
     pending: dict[str, Any] = {

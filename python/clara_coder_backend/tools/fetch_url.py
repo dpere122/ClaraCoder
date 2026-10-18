@@ -81,6 +81,18 @@ def html_to_text(html: str) -> str:
     return parser.text()
 
 
+class _PublicOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Validate every redirect hop *before* following it, so a private target is never requested."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, D401
+        if assert_public_http_url(newurl):
+            raise urllib.error.URLError('redirect target is not a public http(s) URL (blocked)')
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_PublicOnlyRedirectHandler)
+
+
 def fetch_http_url_text(url: str) -> tuple[str | None, str | None]:
     """Fetch ``url`` and return ``(text, error)``. One of the two is set."""
 
@@ -96,7 +108,7 @@ def fetch_http_url_text(url: str) -> tuple[str | None, str | None]:
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT_SEC) as resp:
+        with _OPENER.open(req, timeout=_REQUEST_TIMEOUT_SEC) as resp:
             content_type = str(resp.headers.get('Content-Type') or '').lower()
             raw = resp.read(_MAX_BYTES + 1)
             final_url = str(resp.geturl() or url)
@@ -107,7 +119,7 @@ def fetch_http_url_text(url: str) -> tuple[str | None, str | None]:
     except TimeoutError:
         return None, 'Tool error: fetch timed out.'
 
-    # Re-check final URL after redirects.
+    # Belt and braces: each hop was already checked by ``_PublicOnlyRedirectHandler``.
     redirect_err = assert_public_http_url(final_url)
     if redirect_err:
         return None, 'Tool error: redirect target is not a public http(s) URL (blocked).'

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import codecs
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -29,7 +31,7 @@ class RollingTextBuffer:
     """Bounded in-memory capture; drops oldest chars once past ``max_chars``."""
 
     max_chars: int = _MAX_CAPTURE_CHARS
-    _parts: list[str] = field(default_factory=list)
+    _parts: deque[str] = field(default_factory=deque)
     _size: int = 0
 
     def append(self, text: str) -> None:
@@ -41,7 +43,7 @@ class RollingTextBuffer:
             overflow = self._size - self.max_chars
             first = self._parts[0]
             if len(first) <= overflow:
-                self._parts.pop(0)
+                self._parts.popleft()
                 self._size -= len(first)
             else:
                 self._parts[0] = first[overflow:]
@@ -117,16 +119,20 @@ async def _pump_subprocess_stream(
 ) -> None:
     if stream is None:
         return
+    # Incremental: a multi-byte UTF-8 character split across two reads must not turn into two U+FFFD.
+    decoder = codecs.getincrementaldecoder('utf-8')('replace')
     while True:
         block = await stream.read(_SUBPROCESS_READ_SIZE)
-        if not block:
+        text = decoder.decode(block, not block)
+        if not block and not text:
             break
-        text = block.decode('utf-8', errors='replace')
         capture.append(text)
         if on_text is not None:
             on_text(text)
         rendered = f'{emit_prefix}{text}' if emit_prefix else text
         await _emit_project_review_chunk(session_id, rendered, stream_tag=stream_tag, label=label)
+        if not block:
+            break
 
 
 async def _terminate_process(proc: asyncio.subprocess.Process) -> int | None:

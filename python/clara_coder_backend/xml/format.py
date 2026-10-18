@@ -23,7 +23,7 @@ def _tree_lines(graph: XmlGraph, max_depth: int = _TREE_DEPTH) -> list[str]:
         lines.append(f'{indent}{section.path}  ({section.summary})')
     shown, remaining = _truncate_list(lines, _OVERVIEW_PATH_CAP)
     if remaining:
-        shown.append(f'  ... [{remaining} more paths; use search_xml or read_xml_section]')
+        shown.append(f'  ... [{remaining} more paths; use search_structured or read_xml_section]')
     return shown
 
 
@@ -34,7 +34,7 @@ def format_xml_overview(graph: XmlGraph) -> str:
         f'Indexed nodes: {graph.node_count}',
     ]
     if graph.truncated:
-        lines.append(f'Note: indexing stopped at node cap; use search_xml to locate deeper nodes.')
+        lines.append(f'Note: indexing stopped at node cap; use search_structured to locate deeper nodes.')
     if graph.namespaces:
         ns_items = [f'{k}={v!r}' for k, v in sorted(graph.namespaces.items()) if k.startswith('{') or k.startswith('xmlns')]
         if ns_items:
@@ -43,11 +43,11 @@ def format_xml_overview(graph: XmlGraph) -> str:
     tree = _tree_lines(graph)
     if tree:
         lines.append('')
-        lines.append('Path tree (use section_ref path:/... with read_xml_section):')
+        lines.append('Path tree (use section_ref path:/... with read_structured_section):')
         lines.extend(tree)
 
     lines.append('')
-    lines.append('Next: search_xml(relative_path, query) or read_xml_section(relative_path, section_ref).')
+    lines.append('Next: search_structured(relative_path, query) or read_structured_section(relative_path, section_ref).')
     return '\n'.join(lines)
 
 
@@ -71,7 +71,7 @@ def format_search_results(
         lines.append(f'- section_ref={section.ref!r}')
         lines.append(f'  path={section.path}  summary={section.summary}')
     lines.append('')
-    lines.append('Zoom with read_xml_section(relative_path, section_ref).')
+    lines.append('Zoom with read_structured_section(relative_path, section_ref).')
     return '\n'.join(lines)
 
 

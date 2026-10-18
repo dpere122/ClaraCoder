@@ -15,9 +15,7 @@ def test_read_workspace_file_missing_returns_string_not_raise(tmp_path) -> None:
         out = read_workspace_file.invoke({'relative_path': 'main.py'})
         assert isinstance(out, str)
         assert 'main.py' in out
-        assert 'list_staged_edits' in out
-        assert 'read_staged_edit' in out
-        assert 'transfer_staged_file_to_workspace' in out
+        assert 'write_workspace_file' in out
     finally:
         current_session_id.reset(token)
 

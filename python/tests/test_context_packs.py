@@ -48,9 +48,11 @@ def test_builtin_packs_registered() -> None:
     assert get_pack('wsdl') is not None
 
 
-def test_packs_for_tool_prefix_and_pdf_path() -> None:
-    assert [p.id for p in packs_for_tool('wsdl_overview')] == ['wsdl']
-    assert [p.id for p in packs_for_tool('json_overview')] == ['json']
+def test_packs_for_tool_structured_suffix_and_pdf_path() -> None:
+    assert [p.id for p in packs_for_tool('structured_overview', relative_path='api/svc.wsdl')] == ['wsdl']
+    assert [p.id for p in packs_for_tool('search_structured', relative_path='app.json')] == ['json']
+    assert [p.id for p in packs_for_tool('read_structured_section', relative_path='a/b.xsd')] == ['xml']
+    assert packs_for_tool('structured_overview') == []
     assert packs_for_tool('read_workspace_file', relative_path='docs/a.pdf')[0].id == 'pdf'
     assert packs_for_tool('read_workspace_file', relative_path='src/main.py') == []
     assert packs_for_tool('read_workspace_file') == []
@@ -68,11 +70,11 @@ def test_format_context_catalog_summaries_only() -> None:
 
 def test_auto_activate_once_then_unchanged() -> None:
     session = SessionState()
-    first = maybe_activate_for_tool(session, 'wsdl_overview', 'OVERVIEW')
+    first = maybe_activate_for_tool(session, 'structured_overview', 'OVERVIEW', relative_path='svc.wsdl')
     assert 'Context pack `wsdl`' in first
     assert 'OVERVIEW' in first
     assert 'wsdl' in session.activated_context_packs
-    second = maybe_activate_for_tool(session, 'search_wsdl', 'SEARCH')
+    second = maybe_activate_for_tool(session, 'search_structured', 'SEARCH', relative_path='svc.wsdl')
     assert second == 'SEARCH'
 
 

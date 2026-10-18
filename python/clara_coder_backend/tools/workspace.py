@@ -18,14 +18,16 @@ logger = logging.getLogger('clara.tools.workspace')
 from langchain_core.tools import tool
 
 from clara_coder_backend.workspace.search_backend import SearchCandidate, run_grep_line_search, run_grep_workspace_recursive
-from clara_coder_backend.tools.semantic import retrieve_workspace_checkpoint_semantic, retrieve_workspace_semantic
+from clara_coder_backend.tools.semantic import retrieve_workspace_semantic
 from clara_coder_backend.tools.tool_conventions import (
-    ENCODING_NEWLINE,
     GUTTER,
     ONE_BASED,
     RELATIVE_PATH,
     clamp_line_window,
+    clip_line,
     describe,
+    tool_errors_as_text,
+    tool_output_cap,
 )
 from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
 from clara_coder_backend.workspace.workspace_text_io import (
@@ -63,6 +65,9 @@ def _effective_max_search_results() -> int:
 
 # U+2502: separates line numbers from file text; distinct from ASCII "|" often used in code.
 _READ_FILE_GUTTER_SEP = ' \u2502 '
+#: One read line longer than this is clipped (minified bundles); the whole read result is capped too.
+_READ_LINE_MAX_CHARS = 2_000
+_READ_OUTPUT_MAX_CHARS = 60_000
 
 
 def _read_workspace_file_missing_on_disk_message(relative_path: str) -> str:
@@ -70,9 +75,7 @@ def _read_workspace_file_missing_on_disk_message(relative_path: str) -> str:
     return (
         f'Tool note: `{relative_path}` is not on the workspace disk yet. '
         '`read_workspace_file` only reads files already written under the workspace root. '
-        'If the file exists only as a **staged** draft, use `list_staged_edits` and `read_staged_edit`; '
-        'after `transfer_staged_file_to_workspace`, read it here again. '
-        'If it was never created, use `stage_create_file` (or the appropriate stage tool) then transfer when ready.'
+        'Check the path with `list_workspace_directory`, or create it with `write_workspace_file`.'
     )
 
 
@@ -220,6 +223,7 @@ def write_workspace_file_utf8(relative_path: str, content: str) -> None:
             '(same as `search_workspace`). For gitignored paths, read that path directly with `read_workspace_file`.'
         ),
     ))
+@tool_errors_as_text
 def list_workspace_directory(
     relative_path: Annotated[str, 'workspace-relative POSIX path'] = '.',
 ) -> str:
@@ -247,7 +251,11 @@ def list_workspace_directory(
     root_resolved = root.resolve()
     visible: list[Path] = []
     for entry in entries:
-        rel_from_root = entry.resolve().relative_to(root_resolved).as_posix()
+        try:
+            rel_from_root = entry.resolve().relative_to(root_resolved).as_posix()
+        except (ValueError, OSError):
+            # Symlink / junction pointing outside the workspace (e.g. pnpm ``node_modules``): show it by name.
+            rel_from_root = entry.relative_to(root).as_posix()
         if should_ignore_workspace_entry(entry.name, rel_from_root, ignore_rules):
             continue
         visible.append(entry)
@@ -334,7 +342,7 @@ def _search_workspace_python(
         for line_number, line in enumerate(text.splitlines(), start=1):
             if pattern.search(line):
                 rel_display = path.relative_to(root_resolved).as_posix()
-                matches.append(f'[{rel_display} line {line_number}]{_READ_FILE_GUTTER_SEP}{line}')
+                matches.append(f'[{rel_display} line {line_number}]{_READ_FILE_GUTTER_SEP}{clip_line(line)}')
                 if len(matches) >= limit:
                     return matches, skipped
     return matches, skipped
@@ -369,13 +377,9 @@ def _search_workspace_grep(
     )
     if grep_matches is None:
         candidates: list[SearchCandidate] = []
-        path_by_display: dict[str, Path] = {}
         for path in iter_workspace_search_files(root_resolved, ignore_rules):
             rel_path = path.relative_to(root_resolved)
-            rel_command_path = str(rel_path)
-            rel_display = rel_path.as_posix()
-            candidates.append(SearchCandidate(command_path=rel_command_path, display_path=rel_display))
-            path_by_display[rel_display] = path
+            candidates.append(SearchCandidate(command_path=str(rel_path), display_path=rel_path.as_posix()))
         grep_matches = run_grep_line_search(
             query,
             candidates,
@@ -389,59 +393,30 @@ def _search_workspace_grep(
         grep_matches = [m for m in grep_matches if not _search_match_ignored(m.display_path, ignore_rules)][
             :limit
         ]
-        path_by_display = {
-            match.display_path: root_resolved / match.display_path for match in grep_matches
-        }
 
-    rendered: list[str] = []
-    skipped = 0
-    lines_cache: dict[Path, list[str]] = {}
-    for match in grep_matches:
-        path = path_by_display.get(match.display_path)
-        if path is None:
-            continue
-        try:
-            file_lines = lines_cache.get(path)
-            if file_lines is None:
-                text = read_file_for_search_tools(path, encoding)
-                if text is None:
-                    skipped += 1
-                    continue
-                file_lines = text.splitlines()
-                lines_cache[path] = file_lines
-        except OSError as exc:
-            logger.debug('search grep reread skip unreadable path=%s err=%s', path, exc)
-            skipped += 1
-            continue
-        if 1 <= match.line_number <= len(file_lines):
-            rendered.append(
-                f'[{match.display_path} line {match.line_number}]{_READ_FILE_GUTTER_SEP}{file_lines[match.line_number - 1]}'
-            )
-    return rendered, skipped
+    rendered = [
+        f'[{match.display_path} line {match.line_number}]{_READ_FILE_GUTTER_SEP}{clip_line(match.text)}'
+        for match in grep_matches
+    ]
+    return rendered, 0
 
 
 @tool(description=describe(
-        'Read a **window** of literal on-disk workspace text or PDF extract (not staging, not semantic).',
-        when='need exact bytes-as-text for a known path; LSP insufficient for spans or non-LSP files.',
-        not_=(
-            'pending drafts (use `read_staged_edit` / diff tools); unknown locations '
-            '(use `retrieve_workspace_semantic` then verify); line grep across repo (use `search_workspace`).'
-        ),
+        'Read a window of on-disk workspace text (or PDF text) by line range',
+        when='you need exact text of a known path',
+        not_='unknown locations (use `search_workspace` / `retrieve_workspace_semantic`)',
         shape=(
-            f'`relative_path` {RELATIVE_PATH} {ENCODING_NEWLINE} '
-            'codec must pass `validate_workspace_encoding` (invalid bytes → U+FFFD). '
-            f'Plain text: `start_line`/`end_line` {ONE_BASED} '
-            'output capped by `maxFileReadLines` (not EOF—widen range or call again; header shows total lines and excerpt hints). '
-            'PDF: same args are **1-based inclusive page numbers**; `include_line_numbers` and `encoding` ignored. '
-            f'{GUTTER}'
+            f'{ONE_BASED}; the window is capped (header shows total lines; call again past the cap); very long '
+            f'lines are clipped. PDF: the range is 1-based pages. {GUTTER}'
         ),
     ))
+@tool_errors_as_text
 def read_workspace_file(
-    relative_path: Annotated[str, 'workspace-relative POSIX path'],
-    start_line: Annotated[int, '1-based inclusive'] = 1,
-    end_line: Annotated[int, '1-based inclusive'] = 220,
-    include_line_numbers: Annotated[bool, 'false for raw lines / snippet matches'] = True,
-    encoding: Annotated[str, 'empty = Settings default'] = '',
+    relative_path: Annotated[str, RELATIVE_PATH],
+    start_line: Annotated[int, ONE_BASED] = 1,
+    end_line: Annotated[int, ONE_BASED] = 220,
+    include_line_numbers: Annotated[bool, 'false for raw lines / snippet anchors'] = True,
+    encoding: Annotated[str, 'empty = Settings default; invalid bytes → U+FFFD'] = '',
 ) -> str:
 
     root = get_active_workspace_root()
@@ -475,30 +450,28 @@ def read_workspace_file(
         n_lines=n_lines,
         include_line_numbers=include_line_numbers,
     )
+    excerpt = [clip_line(line, _READ_LINE_MAX_CHARS) for line in excerpt]
     if include_line_numbers:
         body = _format_read_excerpt_with_gutter(excerpt, shown_start, shown_end) if excerpt else ''
     else:
         body = '\n'.join(excerpt) if excerpt else ''
-    return header + (body if body else '[empty range]')
+    return tool_output_cap(header + (body if body else '[empty range]'), _READ_OUTPUT_MAX_CHARS)
 
 
 @tool(description=describe(
-        'Grep the **on-disk workspace** for a literal or regex (case-insensitive), returning matching lines with path:line.',
-        when='known needle or pattern across tracked-ish files; need line-precise disk hits.',
-        not_='staging drafts (use `search_staged_edits`); fuzzy/topic discovery (use `retrieve_workspace_semantic` then verify).',
+        'Grep the on-disk workspace (case-insensitive regex) and return matching lines as `[path line N] │ text`',
+        when='you can name a symbol, string, key or pattern',
+        not_='fuzzy/topic discovery (use `retrieve_workspace_semantic`)',
         shape=(
-            f'{ENCODING_NEWLINE} one encoding per call—mixed trees may need multiple calls. '
-            'Hits `[path line N] │ full line` (indent preserved). Same ignore rules as `list_workspace_directory`; '
-            'for gitignored files read with `read_workspace_file`. `query` is a **regex**: a literal code snippet '
-            'containing `( ) [ ] { } . * + ? ^ $ |` (e.g. a call like `foo("bar"`) is parsed as a pattern and can '
-            'error on unbalanced brackets/parens—escape those characters (`\\(`, `\\)`, …) or search a shorter, '
-            'metacharacter-free substring instead.'
+            '`query` is a regex: escape `( ) [ ] { } . * + ? ^ $ |`; skips gitignored and built-in ignored paths '
+            '(read those directly)'
         ),
     ))
+@tool_errors_as_text
 def search_workspace(
-    query: str,
-    max_matches: int = 20,
-    encoding: Annotated[str, 'empty = Settings default'] = '',
+    query: Annotated[str, 'regex (case-insensitive)'],
+    max_matches: Annotated[int, 'cap on matching lines'] = 20,
+    encoding: Annotated[str, 'empty = Settings default; one encoding per call'] = '',
 ) -> str:
 
     root = get_active_workspace_root()
@@ -540,24 +513,19 @@ def search_workspace(
     summary = '\n'.join(matches)
     if skipped:
         summary += f'\n\nSkipped unreadable files: {skipped}'
-    return summary
+    return tool_output_cap(summary)
 
 
 from clara_coder_backend.tools.workspace_image import read_workspace_image
-from clara_coder_backend.tools.wsdl_tools import WSDL_TOOLS
-from clara_coder_backend.tools.xml_tools import XML_TOOLS
-from clara_coder_backend.tools.json_tools import JSON_TOOLS
+from clara_coder_backend.tools.structured_tools import STRUCTURED_TOOLS
 
 TOOLS = [
     list_workspace_directory,
     retrieve_workspace_semantic,
-    retrieve_workspace_checkpoint_semantic,
     search_workspace,
     read_workspace_file,
     read_workspace_image,
-    *WSDL_TOOLS,
-    *XML_TOOLS,
-    *JSON_TOOLS,
+    *STRUCTURED_TOOLS,
 ]
 TOOL_MAP = {tool_.name: tool_ for tool_ in TOOLS}
 #: Base read-tool names from ``TOOLS`` (registry may union extra assembled tools).

@@ -124,9 +124,9 @@ async def test_parallel_delete_cards_are_shown_one_at_a_time() -> None:
                 {'request_id': f'req-{call_id}', 'relative_path': f'{call_id}.txt', 'kind': 'file'},
             )
             await asyncio.sleep(0)
-            return ToolMessage(content=f'pending {call_id}', tool_call_id=call_id, name='delete_workspace_entry')
+            return ToolMessage(content=f'pending {call_id}', tool_call_id=call_id, name='delete_workspace_entries')
 
-        request = SimpleNamespace(tool_call={'name': 'delete_workspace_entry', 'id': call_id})
+        request = SimpleNamespace(tool_call={'name': 'delete_workspace_entries', 'id': call_id})
         return await mw.awrap_tool_call(request, handler)
 
     token = current_session_id.set(session_id)

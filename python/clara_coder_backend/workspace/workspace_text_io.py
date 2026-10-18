@@ -286,55 +286,32 @@ class FileLineWindowResult:
     excerpt_lines: list[str]
 
 
-def _feed_decoded_chunk(decoded: str, pending_cr: list[bool]) -> Iterator[str]:
-    i = 0
-    n = len(decoded)
-    while i < n:
-        if pending_cr[0]:
-            if decoded[i] == '\n':
-                i += 1
-                pending_cr[0] = False
-                yield '\n'
-                continue
-            pending_cr[0] = False
-            yield '\n'
-            # process same index again for character after lone CR
-            continue
-        c = decoded[i]
-        i += 1
-        if c == '\r':
-            pending_cr[0] = True
-        else:
-            yield c
-
-
 def _iter_logical_lines_from_path(path: Path, encoding: str) -> Iterator[str]:
-    """Yield logical lines (``splitlines()`` semantics on newline-normalized text) in one streaming pass."""
+    """Yield logical lines (CRLF / lone CR normalized to LF) in one streaming pass.
+
+    Works on whole decoded chunks with ``str`` methods (C speed) instead of per character. A trailing ``\r``
+    is held back one chunk so a ``\r\n`` split across chunk boundaries still counts as one break.
+    """
     enc = validate_workspace_encoding(encoding)
     decoder = codecs.getincrementaldecoder(enc)(errors='replace')
-    pending_cr: list[bool] = [False]
-    incomplete = ''
+    carry = ''
 
     with path.open('rb') as f:
         while True:
             raw = f.read(_READ_FILE_STREAM_CHUNK)
             final = not raw
-            decoded = decoder.decode(raw, final)
-            for ch in _feed_decoded_chunk(decoded, pending_cr):
-                if ch == '\n':
-                    yield incomplete
-                    incomplete = ''
-                else:
-                    incomplete += ch
+            text = carry + decoder.decode(raw, final)
+            held_cr = ''
+            if not final and text.endswith('\r'):
+                text, held_cr = text[:-1], '\r'
+            parts = text.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+            carry = parts.pop() + held_cr
+            yield from parts
             if final:
                 break
 
-    if pending_cr[0]:
-        pending_cr[0] = False
-        yield incomplete
-        incomplete = ''
-    if incomplete:
-        yield incomplete
+    if carry:
+        yield carry
 
 
 def read_file_line_window_for_tools(path: Path, encoding: str, start_line: int, end_line: int) -> FileLineWindowResult:

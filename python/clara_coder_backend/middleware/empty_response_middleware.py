@@ -9,13 +9,8 @@ Qwen templates. Recoverable XML is promoted by
 :class:`~clara_coder_backend.middleware.pseudo_tool_xml_middleware.PseudoToolXmlMiddleware`
 instead of a re-prompt.
 
-Leftover staged drafts in Editor mode are returned after the agent would otherwise END by
-:class:`~clara_coder_backend.middleware.flush_untransferred_staging_middleware.FlushUntransferredStagingMiddleware`.
-The after-model staging-continuation re-prompt is **legacy** (off unless
-:data:`clara_coder_backend.config.MAX_AGENT_STAGING_CONTINUATION_NUDGES` is set above 0).
-
-The Gemma and Qwen optimization presets skip empty, pseudo-tool, and after-model
-staging re-prompts so those profiles keep a base model→tools loop. Gemma native
+The Gemma and Qwen optimization presets skip empty and pseudo-tool re-prompts so those
+profiles keep a base model→tools loop. Gemma native
 ``<|tool_call>`` markup is promoted by
 :class:`~clara_coder_backend.middleware.gemma_native_tool_middleware.GemmaNativeToolMiddleware`
 instead of a re-prompt. Recoverable Qwen XML is still promoted by
@@ -39,12 +34,7 @@ from langgraph.runtime import Runtime
 from langgraph.typing import ContextT
 from typing_extensions import NotRequired, override
 
-from clara_coder_backend.tools.review_tools import pending_untransferred_staging_paths
-from clara_coder_backend.config import (
-    MAX_AGENT_EMPTY_NUDGES,
-    MAX_AGENT_PSEUDO_TOOL_NUDGES,
-    MAX_AGENT_STAGING_CONTINUATION_NUDGES,
-)
+from clara_coder_backend.config import MAX_AGENT_EMPTY_NUDGES, MAX_AGENT_PSEUDO_TOOL_NUDGES
 from clara_coder_backend.llm.messages import (
     extract_pseudo_tool_calls,
     final_assistant_text,
@@ -76,37 +66,6 @@ _PSEUDO_TOOL_MARKUP_NUDGE_TEXT = (
 def _has_recent_tool_results(msgs: list[Any]) -> bool:
     """True when the conversation already contains ToolMessage results."""
     return any(isinstance(m, ToolMessage) for m in msgs)
-
-
-def staging_continuation_nudge_text(paths: list[str], *, auto_apply: bool) -> str:
-    """Legacy after-model nudge when staged drafts still need ``transfer_staged_file_to_workspace``."""
-    quoted = ', '.join(f'`{p}`' for p in paths)
-    hitl = (
-        ' Auto-apply is off—the diff card appears only after `transfer_staged_file_to_workspace` runs.'
-        if not auto_apply
-        else ''
-    )
-    return (
-        f'You have staged draft(s) {quoted} not yet transferred to the workspace. '
-        f'Call `transfer_staged_file_to_workspace` with `relative_paths` listing every pending path '
-        f'in one batch (do not summarize and stop).{hitl}'
-    )
-
-
-def _staging_continuation_paths() -> list[str] | None:
-    """Pending untransferred staging paths when Editor mode may nudge for transfer; else None."""
-    sid = (current_session_id.get() or '').strip()
-    if not sid:
-        return None
-    session = get_session(sid)
-    if not session.worker_apply_mode:
-        return None
-    if session.agent_pause_event is not None:
-        return None
-    if session.pending_staged_transfer_hitl is not None:
-        return None
-    paths = pending_untransferred_staging_paths(session)
-    return paths if paths else None
 
 
 def empty_response_nudge_enabled() -> bool:
@@ -143,13 +102,12 @@ class _EmptyResponseNudgeState(AgentState[ResponseT]):
 
     empty_response_nudge_streak: NotRequired[Annotated[int, PrivateStateAttr]]
     pseudo_tool_markup_nudge_streak: NotRequired[Annotated[int, PrivateStateAttr]]
-    staging_continuation_nudge_streak: NotRequired[Annotated[int, PrivateStateAttr]]
 
 
 class EmptyResponseNudgeMiddleware(AgentMiddleware):
     """After an empty assistant message with no tools, append a user nudge and call the model again.
 
-    Gemma and Qwen skip after-model nudges. Staging continuation is legacy (off).
+    Gemma and Qwen skip after-model nudges.
     """
 
     state_schema = _EmptyResponseNudgeState  # type: ignore[assignment]
@@ -172,7 +130,6 @@ class EmptyResponseNudgeMiddleware(AgentMiddleware):
             return {
                 'empty_response_nudge_streak': 0,
                 'pseudo_tool_markup_nudge_streak': 0,
-                'staging_continuation_nudge_streak': 0,
             }
         inv = getattr(last, 'invalid_tool_calls', None) or ()
         if inv:
@@ -180,30 +137,6 @@ class EmptyResponseNudgeMiddleware(AgentMiddleware):
         fat = (final_assistant_text(last) or '').strip()
         if not empty_response_nudge_enabled():
             return None
-        pending_paths = _staging_continuation_paths()
-        # Legacy after-model staging continuation (off unless MAX_AGENT_STAGING_CONTINUATION_NUDGES > 0).
-        if pending_paths and MAX_AGENT_STAGING_CONTINUATION_NUDGES > 0:
-            s_streak = int(state.get('staging_continuation_nudge_streak') or 0)
-            if s_streak < MAX_AGENT_STAGING_CONTINUATION_NUDGES:
-                sid = (current_session_id.get() or '').strip()
-                session = get_session(sid) if sid else None
-                auto_apply = bool(session and session.auto_apply_mode)
-                logger.info(
-                    'Nudging for untransferred staged draft(s) (%s/%s LLM steps): %s',
-                    s_streak + 1,
-                    MAX_AGENT_STAGING_CONTINUATION_NUDGES,
-                    pending_paths,
-                )
-                await emit_agent_nudge_event(reason='staging')
-                return {
-                    'messages': [
-                        HumanMessage(content=staging_continuation_nudge_text(pending_paths, auto_apply=auto_apply))
-                    ],
-                    'jump_to': 'model',
-                    'staging_continuation_nudge_streak': s_streak + 1,
-                    'empty_response_nudge_streak': 0,
-                    'pseudo_tool_markup_nudge_streak': 0,
-                }
         if (
             text_uses_pseudo_tool_markup(fat)
             and not extract_pseudo_tool_calls(fat)
@@ -228,10 +161,7 @@ class EmptyResponseNudgeMiddleware(AgentMiddleware):
             return {
                 'empty_response_nudge_streak': 0,
                 'pseudo_tool_markup_nudge_streak': 0,
-                'staging_continuation_nudge_streak': 0,
             }
-        if pending_paths and MAX_AGENT_STAGING_CONTINUATION_NUDGES <= 0:
-            return None
         streak = int(state.get('empty_response_nudge_streak') or 0)
         if streak >= MAX_AGENT_EMPTY_NUDGES:
             return None
@@ -240,13 +170,7 @@ class EmptyResponseNudgeMiddleware(AgentMiddleware):
             streak + 1,
             MAX_AGENT_EMPTY_NUDGES,
         )
-        if pending_paths:
-            # Legacy overflow after the after-model continuation cap is exhausted.
-            sid = (current_session_id.get() or '').strip()
-            session = get_session(sid) if sid else None
-            auto_apply = bool(session and session.auto_apply_mode)
-            nudge = staging_continuation_nudge_text(pending_paths, auto_apply=auto_apply)
-        elif _has_recent_tool_results(msgs):
+        if _has_recent_tool_results(msgs):
             nudge = _EMPTY_NUDGE_TEXT_HAS_TOOL_RESULTS
         else:
             nudge = _EMPTY_NUDGE_TEXT

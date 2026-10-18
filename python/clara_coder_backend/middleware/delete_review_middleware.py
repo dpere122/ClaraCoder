@@ -38,7 +38,6 @@ class DeleteReviewAfterToolMiddleware(AgentMiddleware):
             not sess.worker_apply_mode
             or name not in hitl_delete_pause_tools()
             or not pending
-            or sess.auto_apply_mode
             or sess.hitl_sse_queue is None
         ):
             if pending:

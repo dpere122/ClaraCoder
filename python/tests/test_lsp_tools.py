@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from clara_coder_backend.logging.app_logging import configure_logging, get_recent_records, reset_logging_handlers
-from clara_coder_backend.domain import EditStagingEntry, RuntimeToolsConfig
+from clara_coder_backend.domain import RuntimeToolsConfig
 from clara_coder_backend.lsp.manager import (
     activate_session_lsp_scope,
     get_session_lsp_manager,
@@ -18,22 +18,12 @@ from clara_coder_backend.lsp.manager import (
     shutdown_session_lsp,
     sync_session_document,
 )
-from clara_coder_backend.staging.staging_snapshot_session import prepare_new_staging_snapshot_session
-from clara_coder_backend.lsp.file_policy import suggest_edit_tool_for_path
 from clara_coder_backend.tools.lsp_tools import (
     lsp_find_definition,
     lsp_find_references,
-    lsp_create_gdscript_file,
-    lsp_create_java_file,
-    lsp_create_python_file,
-    lsp_create_typescript_file,
     lsp_get_diagnostics,
     lsp_get_document_symbols,
     lsp_hover,
-    lsp_update_gdscript_file,
-    lsp_update_java_file,
-    lsp_update_python_file,
-    lsp_update_typescript_file,
 )
 from clara_coder_backend.routes.session import clear_session, set_workspace_context
 from clara_coder_backend.routes.lsp import lsp_diagnostics
@@ -212,19 +202,6 @@ def test_lsp_scope_managers_coexist_for_workspace_and_staging(lsp_env) -> None:
     assert staging_manager._client is not None
 
 
-def test_prepare_new_staging_snapshot_session_resets_lsp_and_seeds_snapshot(lsp_env) -> None:
-    lsp_env.manager.sync_workspace_document('pkg/mod.py')
-
-    snapshot_id = prepare_new_staging_snapshot_session(lsp_env.session, lsp_env.session_id)
-
-    assert snapshot_id == lsp_env.session.active_staging_snapshot_id
-    assert lsp_env.session.lsp_diagnostics_by_scope == {'workspace': {}, 'staging': {}}
-    assert lsp_env.session.lsp_workspace_root == ''
-    snapshot_root = Path(lsp_env.session.active_staging_snapshot_root)
-    assert snapshot_root.is_dir()
-    assert (snapshot_root / 'pkg' / 'mod.py').read_text(encoding='utf-8') == 'value = "TODO"\nprint(value)\n'
-
-
 def test_typescript_lsp_read_tools(monkeypatch, lsp_env) -> None:
     (lsp_env.workspace / 'app.ts').write_text('const x = 1;\n', encoding='utf-8')
 
@@ -314,324 +291,6 @@ def test_sync_session_document_retry_restarts_only_failed_server(monkeypatch, ls
     assert shutdown_calls == [(lsp_env.session_id, 'python')]
 
 
-def test_lsp_get_diagnostics_refresh_uses_on_disk_workspace_file(lsp_env) -> None:
-    lsp_env.session.pending_edit_stagings['pkg/mod.py'] = EditStagingEntry(
-        temp_path='',
-        old_text='value = "TODO"\nprint(value)\n',
-        merged_text='value = "done"\nprint(value)\n',
-        disk_encoding='utf-8',
-        disk_newline='lf',
-        edit_mode='full-file',
-    )
-    activate_session_lsp_scope(lsp_env.session_id, scope='staging')
-    workspace_manager = get_session_lsp_manager(
-        lsp_env.session_id, client_factory=lsp_env.factory, scope='workspace'
-    )
-
-    diag_text = lsp_get_diagnostics.invoke({'relative_path': 'pkg/mod.py', 'refresh_active_document': True})
-
-    assert 'analyzed=workspace_file' in diag_text
-    assert workspace_manager._client is not None
-    assert list(workspace_manager._client.docs.values()) == [lsp_env.sample.read_text(encoding='utf-8')]
-
-
-def test_lsp_get_diagnostics_auto_refreshes_workspace_file_for_pending_journal(monkeypatch, lsp_env) -> None:
-    lsp_env.session.pending_edit_stagings['pkg/mod.py'] = EditStagingEntry(
-        temp_path='',
-        old_text='value = "TODO"\nprint(value)\n',
-        merged_text='value = "done"\nprint(value)\n',
-        disk_encoding='utf-8',
-        disk_newline='lf',
-        edit_mode='full-file',
-    )
-    activate_session_lsp_scope(lsp_env.session_id, scope='staging')
-
-    def _inject(*a, **kwargs):
-        kwargs.setdefault('client_factory', lsp_env.factory)
-        return get_session_lsp_manager(*a, **kwargs)
-
-    monkeypatch.setattr('clara_coder_backend.tools.lsp_tools.get_session_lsp_manager', _inject)
-    diag_text = lsp_get_diagnostics.invoke({'relative_path': 'pkg/mod.py'})
-    workspace_manager = get_session_lsp_manager(
-        lsp_env.session_id, client_factory=lsp_env.factory, scope='workspace'
-    )
-    assert workspace_manager._client is not None
-    assert list(workspace_manager._client.docs.values()) == [lsp_env.sample.read_text(encoding='utf-8')]
-    assert 'No LSP diagnostics for `pkg/mod.py`.' in diag_text or 'Found TODO marker' in diag_text
-
-
-def test_lsp_get_diagnostics_scope_param_works_regardless_of_auto_apply(monkeypatch, lsp_env) -> None:
-    """Agent can query staging and workspace diagnostics even when auto-apply keeps default scope=workspace."""
-    lsp_env.session.auto_apply_mode = True
-    activate_session_lsp_scope(lsp_env.session_id, scope='workspace')
-    lsp_env.session.pending_edit_stagings['pkg/mod.py'] = EditStagingEntry(
-        temp_path=str(lsp_env.sample),
-        old_text='value = "TODO"\nprint(value)\n',
-        merged_text='value = "done"\nprint(value)\n',
-        disk_encoding='utf-8',
-        disk_newline='lf',
-        edit_mode='full-file',
-    )
-
-    def _inject(*a, **kwargs):
-        kwargs.setdefault('client_factory', lsp_env.factory)
-        return get_session_lsp_manager(*a, **kwargs)
-
-    monkeypatch.setattr('clara_coder_backend.tools.lsp_tools.get_session_lsp_manager', _inject)
-
-    workspace_text = lsp_get_diagnostics.invoke(
-        {'relative_path': 'pkg/mod.py', 'refresh_active_document': True, 'scope': 'workspace'}
-    )
-    staging_text = lsp_get_diagnostics.invoke(
-        {'relative_path': 'pkg/mod.py', 'refresh_active_document': True, 'scope': 'staging'}
-    )
-    both_text = lsp_get_diagnostics.invoke(
-        {'relative_path': 'pkg/mod.py', 'refresh_active_document': True, 'scope': 'both'}
-    )
-
-    assert 'scope=workspace' in workspace_text
-    assert 'analyzed=workspace_file' in workspace_text
-    assert 'Found TODO marker' in workspace_text
-    assert 'scope=staging' in staging_text
-    assert 'analyzed=workspace_file' in staging_text
-    assert 'Found TODO marker' in staging_text or 'No LSP diagnostics' in staging_text
-    assert 'scope=staging' in both_text and 'scope=workspace' in both_text
-    # Diagnostics queries must not flip the session default scope.
-    assert lsp_env.session.lsp_active_scope == 'workspace'
-
-
-def test_lsp_create_python_file_selects_staging_scope_and_labels_response(monkeypatch, lsp_env) -> None:
-    lsp_env.session.auto_apply_mode = False
-    captured: dict[str, object] = {}
-
-    def _fake_stage_create(payload: dict[str, object]) -> str:
-        captured['payload'] = payload
-        return (
-            'Staged `pkg/new_mod.py` for code review. The workspace file on disk is **unchanged** until '
-            '`transfer_staged_file_to_workspace` succeeds. Python LSP diagnostics: 0 issue(s).'
-        )
-
-    monkeypatch.setattr('clara_coder_backend.tools.lsp_tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
-
-    result = lsp_create_python_file.invoke({'relative_path': 'pkg/new_mod.py', 'new_content': 'value = 1\n'})
-
-    assert result.startswith('Python LSP staging path selected for `pkg/new_mod.py`.')
-    assert 'Staged `pkg/new_mod.py` for code review' in result
-    assert captured['payload'] == {
-        'relative_path': 'pkg/new_mod.py',
-        'new_content': 'value = 1\n',
-        'encoding': '',
-        'newline': '',
-        'land_in_workspace': False,
-    }
-    assert lsp_env.session.lsp_active_scope == 'staging'
-
-
-def test_lsp_update_python_file_passes_through_tool_errors(monkeypatch, lsp_env) -> None:
-    lsp_env.session.auto_apply_mode = False
-    monkeypatch.setattr(
-        'clara_coder_backend.tools.lsp_tools.stage_workspace_file_overwrite',
-        SimpleNamespace(invoke=lambda payload: f"Tool error: staged overwrite failed for {payload['relative_path']}"),
-    )
-
-    result = lsp_update_python_file.invoke({'relative_path': 'pkg/mod.py', 'new_content': 'value = 2\n'})
-
-    assert result == 'Tool error: staged overwrite failed for pkg/mod.py'
-
-
-def test_lsp_create_typescript_file_selects_staging_scope_and_labels_response(monkeypatch, lsp_env) -> None:
-    lsp_env.session.auto_apply_mode = False
-    captured: dict[str, object] = {}
-
-    def _fake_stage_create(payload: dict[str, object]) -> str:
-        captured['payload'] = payload
-        return (
-            'Staged `src/app.ts` for code review. The workspace file on disk is **unchanged** until '
-            '`transfer_staged_file_to_workspace` succeeds. TypeScript LSP diagnostics: 0 issue(s).'
-        )
-
-    monkeypatch.setattr('clara_coder_backend.tools.lsp_tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
-
-    result = lsp_create_typescript_file.invoke({'relative_path': 'src/app.ts', 'new_content': 'const x = 1;\n'})
-
-    assert result.startswith('TypeScript/JavaScript LSP staging path selected for `src/app.ts`.')
-    assert 'Staged `src/app.ts` for code review' in result
-    assert captured['payload'] == {
-        'relative_path': 'src/app.ts',
-        'new_content': 'const x = 1;\n',
-        'encoding': '',
-        'newline': '',
-        'land_in_workspace': False,
-    }
-    assert lsp_env.session.lsp_active_scope == 'staging'
-
-
-def test_lsp_update_typescript_file_passes_through_tool_errors(monkeypatch, lsp_env) -> None:
-    lsp_env.session.auto_apply_mode = False
-    monkeypatch.setattr(
-        'clara_coder_backend.tools.lsp_tools.stage_workspace_file_overwrite',
-        SimpleNamespace(invoke=lambda payload: f"Tool error: staged overwrite failed for {payload['relative_path']}"),
-    )
-
-    result = lsp_update_typescript_file.invoke({'relative_path': 'src/app.ts', 'new_content': 'const x = 2;\n'})
-
-    assert result == 'Tool error: staged overwrite failed for src/app.ts'
-
-
-def test_suggest_edit_tool_for_path() -> None:
-    assert 'lsp_create_python_file' in suggest_edit_tool_for_path('pkg/mod.py')
-    assert 'lsp_create_typescript_file' in suggest_edit_tool_for_path('src/app.ts')
-    assert 'stage_create_file' in suggest_edit_tool_for_path('src/app.component.html')
-    assert 'stage_create_file' in suggest_edit_tool_for_path('config.json')
-    assert 'lsp_create_gdscript_file' in suggest_edit_tool_for_path('game/Main.gd')
-    assert 'lsp_create_java_file' in suggest_edit_tool_for_path('src/App.java')
-
-
-def test_lsp_read_tools_suggest_edit_tool_on_html() -> None:
-    html_path = 'src/app.component.html'
-    diag = lsp_get_diagnostics.invoke({'relative_path': html_path})
-    hover = lsp_hover.invoke({'relative_path': html_path, 'line': 1, 'character': 1})
-
-    for result in (diag, hover):
-        assert result.startswith('Tool error:')
-        assert 'only support' in result.lower()
-        assert 'stage_create_file' in result
-
-
-def test_typescript_path_guard_rejects_python_extension() -> None:
-    result = lsp_create_typescript_file.invoke({'relative_path': 'pkg/mod.py', 'new_content': 'value = 1\n'})
-
-    assert result.startswith('Tool error:')
-    assert 'TypeScript/JavaScript LSP mutation tools' in result
-    assert 'lsp_create_python_file' in result
-
-
-def test_lsp_mutation_tools_return_tool_error_for_html() -> None:
-    result = lsp_update_typescript_file.invoke(
-        {'relative_path': 'src/app.component.html', 'new_content': '<p>hi</p>\n'}
-    )
-
-    assert result.startswith('Tool error:')
-    assert 'TypeScript/JavaScript LSP mutation tools' in result
-    assert 'stage_create_file' in result
-
-
-def test_lsp_create_python_file_on_html_suggests_staging() -> None:
-    result = lsp_create_python_file.invoke(
-        {'relative_path': 'src/app.component.html', 'new_content': '<p>hi</p>\n'}
-    )
-
-    assert result.startswith('Tool error:')
-    assert 'Python LSP mutation tools' in result
-    assert 'stage_create_file' in result
-
-
-def test_lsp_update_python_file_on_ts_suggests_typescript_lsp() -> None:
-    result = lsp_update_python_file.invoke({'relative_path': 'src/app.ts', 'new_content': 'const x = 1;\n'})
-
-    assert result.startswith('Tool error:')
-    assert 'Python LSP mutation tools' in result
-    assert 'lsp_create_typescript_file' in result
-
-
-def test_lsp_create_gdscript_file_selects_staging_scope_and_labels_response(monkeypatch, lsp_env) -> None:
-    lsp_env.session.auto_apply_mode = False
-    captured: dict[str, object] = {}
-
-    def _fake_stage_create(payload: dict[str, object]) -> str:
-        captured['payload'] = payload
-        return (
-            'Staged `game/Main.gd` for code review. The workspace file on disk is **unchanged** until '
-            '`transfer_staged_file_to_workspace` succeeds. GDScript LSP diagnostics: 0 issue(s).'
-        )
-
-    monkeypatch.setattr('clara_coder_backend.tools.lsp_tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
-
-    result = lsp_create_gdscript_file.invoke({'relative_path': 'game/Main.gd', 'new_content': 'extends Node\n'})
-
-    assert result.startswith('GDScript LSP staging path selected for `game/Main.gd`.')
-    assert 'Staged `game/Main.gd` for code review' in result
-    assert captured['payload'] == {
-        'relative_path': 'game/Main.gd',
-        'new_content': 'extends Node\n',
-        'encoding': '',
-        'newline': '',
-        'land_in_workspace': False,
-    }
-    assert lsp_env.session.lsp_active_scope == 'staging'
-
-
-def test_lsp_update_gdscript_file_passes_through_tool_errors(monkeypatch, lsp_env) -> None:
-    lsp_env.session.auto_apply_mode = False
-    monkeypatch.setattr(
-        'clara_coder_backend.tools.lsp_tools.stage_workspace_file_overwrite',
-        SimpleNamespace(invoke=lambda payload: f"Tool error: staged overwrite failed for {payload['relative_path']}"),
-    )
-
-    result = lsp_update_gdscript_file.invoke({'relative_path': 'game/Main.gd', 'new_content': 'extends Node2D\n'})
-
-    assert result == 'Tool error: staged overwrite failed for game/Main.gd'
-
-
-def test_gdscript_path_guard_rejects_typescript_extension() -> None:
-    result = lsp_create_gdscript_file.invoke({'relative_path': 'src/app.ts', 'new_content': 'const x = 1;\n'})
-
-    assert result.startswith('Tool error:')
-    assert 'GDScript LSP mutation tools' in result
-    assert 'lsp_create_typescript_file' in result
-
-
-def test_lsp_create_java_file_selects_staging_scope_and_labels_response(monkeypatch, lsp_env) -> None:
-    lsp_env.session.auto_apply_mode = False
-    captured: dict[str, object] = {}
-
-    def _fake_stage_create(payload: dict[str, object]) -> str:
-        captured['payload'] = payload
-        return (
-            'Staged `src/App.java` for code review. The workspace file on disk is **unchanged** until '
-            '`transfer_staged_file_to_workspace` succeeds. Java LSP diagnostics: 0 issue(s).'
-        )
-
-    monkeypatch.setattr('clara_coder_backend.tools.lsp_tools.stage_create_file', SimpleNamespace(invoke=_fake_stage_create))
-
-    result = lsp_create_java_file.invoke(
-        {'relative_path': 'src/App.java', 'new_content': 'public class App {}\n'}
-    )
-
-    assert result.startswith('Java LSP staging path selected for `src/App.java`.')
-    assert 'Staged `src/App.java` for code review' in result
-    assert captured['payload'] == {
-        'relative_path': 'src/App.java',
-        'new_content': 'public class App {}\n',
-        'encoding': '',
-        'newline': '',
-        'land_in_workspace': False,
-    }
-    assert lsp_env.session.lsp_active_scope == 'staging'
-
-
-def test_lsp_update_java_file_passes_through_tool_errors(monkeypatch, lsp_env) -> None:
-    lsp_env.session.auto_apply_mode = False
-    monkeypatch.setattr(
-        'clara_coder_backend.tools.lsp_tools.stage_workspace_file_overwrite',
-        SimpleNamespace(invoke=lambda payload: f"Tool error: staged overwrite failed for {payload['relative_path']}"),
-    )
-
-    result = lsp_update_java_file.invoke(
-        {'relative_path': 'src/App.java', 'new_content': 'public class App { }\n'}
-    )
-
-    assert result == 'Tool error: staged overwrite failed for src/App.java'
-
-
-def test_java_path_guard_rejects_typescript_extension() -> None:
-    result = lsp_create_java_file.invoke({'relative_path': 'src/app.ts', 'new_content': 'const x = 1;\n'})
-
-    assert result.startswith('Tool error:')
-    assert 'Java LSP mutation tools' in result
-    assert 'lsp_create_typescript_file' in result
-
-
 def test_diagnostics_route_returns_cached_python_results(lsp_env) -> None:
     lsp_env.manager.sync_workspace_document('pkg/mod.py')
     payload = asyncio.run(lsp_diagnostics(session_id=lsp_env.session_id, relative_path='pkg/mod.py'))
@@ -707,13 +366,12 @@ def test_post_edit_checks_footer_steers_on_indent_diagnostics() -> None:
         out = post_edit_checks_footer(
             'pkg/x.py',
             diags,
-            lsp_scope='staging',
+            lsp_scope='workspace',
             server_kind='python',
-            formatter_lines=['Formatter (Black): applied to the staged draft.'],
+            formatter_lines=['Formatter (Black): applied.'],
         )
         assert 'Steer (indentation-like diagnostics detected)' in out
-        assert 'format_staging_file_black' in out
-        assert 'refresh_active_document=true' in out
+        assert 'Black already ran' in out
     finally:
         runtime_config.tools = saved
 
@@ -741,13 +399,13 @@ def test_post_edit_checks_footer_omits_format_tools_when_disabled() -> None:
         out = post_edit_checks_footer(
             'pkg/x.py',
             diags,
-            lsp_scope='staging',
+            lsp_scope='workspace',
             server_kind='python',
-            formatter_lines=['Formatter: skipped (Black and Prettier are disabled in Settings → Tools).'],
+            formatter_lines=[],
         )
-        assert 'format_staging_file_black' not in out
+        assert 'Black already ran' not in out
         assert 'formatters disabled' in out.lower()
-        assert 'Fix whitespace' in out
+        assert 'Correct indentation' in out
     finally:
         runtime_config.tools = saved
 
@@ -869,22 +527,6 @@ def test_sync_epoch_advances_across_manager_recreate(lsp_env) -> None:
     shutdown_session_lsp(lsp_env.session_id)
     revived = get_session_lsp_manager(lsp_env.session_id, client_factory=lsp_env.factory)
     assert revived.get_sync_epoch() > first
-
-
-def test_cleanup_staging_snapshot_session_keeps_workspace_lsp(lsp_env) -> None:
-    from clara_coder_backend.staging.staging_snapshot_session import cleanup_staging_snapshot_session
-
-    lsp_env.manager.sync_workspace_document('pkg/mod.py')
-    workspace_client = lsp_env.manager._client
-    assert workspace_client is not None
-    lsp_env.session.typescript_lsp_resolved_root = str(lsp_env.workspace)
-    staging = get_session_lsp_manager(lsp_env.session_id, client_factory=lsp_env.factory, scope='staging')
-    staging.sync_document('pkg/mod.py', 'value = 1\n')
-    cleanup_staging_snapshot_session(lsp_env.session, lsp_env.session_id)
-    assert lsp_env.manager._client is workspace_client
-    assert not workspace_client.closed
-    assert lsp_env.session.typescript_lsp_resolved_root == str(lsp_env.workspace)
-    assert lsp_env.session.lsp_diagnostics_by_scope.get('staging') == {}
 
 
 def test_workspace_resync_updates_open_peer_from_disk(lsp_env) -> None:

@@ -120,14 +120,14 @@ def test_load_session_deletes_checkpoint_threads(
     from clara_coder_backend.session import state
 
     state.sessions['ld'] = SessionState()
-    state.sessions['ld'].pending_diff_payload = {'path': 'x'}
+    state.sessions['ld'].pending_delete_request = {'request_id': 'x'}
 
     with TestClient(app) as client:
         r = client.post('/load', json={'session_id': 'ld', 'messages': [{'role': 'user', 'content': 'a'}]})
         assert r.status_code == 200
     mock_delete.assert_awaited_once_with('ld')
     assert state.sessions['ld'].history == [{'role': 'user', 'content': 'a'}]
-    assert state.sessions['ld'].pending_diff_payload is None
+    assert state.sessions['ld'].pending_delete_request is None
 
 
 @patch('clara_coder_backend.session.lifecycle.delete_outer_threads_for_session', new_callable=AsyncMock)

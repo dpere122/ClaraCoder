@@ -1,13 +1,11 @@
-"""LangChain tools for JSON search-and-zoom reading."""
+"""Format backend (behind :mod:`clara_coder_backend.tools.structured_tools`) for JSON search-and-zoom reading."""
 
 from __future__ import annotations
 
-from typing import Annotated
-
-from langchain_core.tools import tool
+from functools import lru_cache
+from pathlib import Path
 
 from clara_coder_backend.session.state import runtime_config
-from clara_coder_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from clara_coder_backend.json.format import format_json_overview, format_search_results, format_section_detail
 from clara_coder_backend.json.namespaces import SEARCH_SCOPES
 from clara_coder_backend.json.parser import (
@@ -18,9 +16,6 @@ from clara_coder_backend.json.parser import (
     search_sections,
 )
 
-JSON_OVERVIEW_NAME = 'json_overview'
-SEARCH_JSON_NAME = 'search_json'
-READ_JSON_SECTION_NAME = 'read_json_section'
 
 _MAX_OUTPUT_CHARS = 80_000
 _MAX_SEARCH_MATCHES = 200
@@ -44,28 +39,26 @@ def _workspace_root():
     return get_active_workspace_root()
 
 
+@lru_cache(maxsize=16)
+def _cached_graph(root: str, target: str, rel_display: str, _mtime_ns: int, _size: int):
+    """Parse once per (file, mtime, size): overview → search → read on one file reuses the graph."""
+    return build_json_graph(Path(root), Path(target), rel_display)
+
+
 def _load_graph(relative_path: str):
     root = _workspace_root()
     target, err = resolve_json_path(root, relative_path)
     if err or target is None:
         return None, None, err
     rel_display = target.relative_to(root.resolve()).as_posix()
-    graph = build_json_graph(root.resolve(), target, rel_display)
+    st = target.stat()
+    graph = _cached_graph(str(root.resolve()), str(target), rel_display, st.st_mtime_ns, st.st_size)
     if graph.parse_error:
         return None, rel_display, f'could not parse JSON `{rel_display}`: {graph.parse_error}'
     return graph, rel_display, None
 
 
-@tool(JSON_OVERVIEW_NAME, description=describe(
-        'Index a JSON/JSONC file by paths (root type, key tree, array indices).',
-        when='starting work on `.json` or `.jsonc`; need structure before raw reads.',
-        not_='fuzzy file discovery (use `search_workspace`); line-level grep (use `search_workspace`).',
-        shape=(
-            f'`relative_path` {RELATIVE_PATH} JSON path. Returns `section_ref` like `path:config.host`. '
-            'Next: `search_json` or `read_json_section`.'
-        ),
-    ))
-def json_overview(relative_path: Annotated[str, 'workspace-relative POSIX path']) -> str:
+def json_overview(relative_path: str) -> str:
 
     graph, _rel_display, err = _load_graph(relative_path)
     if err:
@@ -74,15 +67,8 @@ def json_overview(relative_path: Annotated[str, 'workspace-relative POSIX path']
     return _truncate_output(format_json_overview(graph))
 
 
-@tool(SEARCH_JSON_NAME, description=describe(
-        'Search indexed JSON by key path, key name, or scalar value (case-insensitive).',
-        when='locating fields after `json_overview`.',
-        not_='repo-wide file discovery.',
-        shape='`scope` one of all|keys|values. Returns `section_ref` for zoom. '
-        'Next: `read_json_section(relative_path, section_ref)`.',
-    ))
 def search_json(
-    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+    relative_path: str,
     query: str,
     scope: str = 'all',
     max_matches: int = 20,
@@ -107,15 +93,9 @@ def search_json(
     return _truncate_output(out)
 
 
-@tool(READ_JSON_SECTION_NAME, description=describe(
-        'Zoom into one JSON subtree by `section_ref` (pretty-printed JSON).',
-        when='you have `section_ref` from `json_overview` or `search_json`.',
-        not_='first pass on unknown JSON (use `json_overview` first).',
-        shape='`section_ref` like `path:$`, `path:users[0].profile`, `path:items[2]`.',
-    ))
 def read_json_section(
-    relative_path: Annotated[str, 'workspace-relative POSIX path'],
-    section_ref: Annotated[str, 'from *_overview or search_*'],
+    relative_path: str,
+    section_ref: str,
 ) -> str:
 
     graph, _rel_display, err = _load_graph(relative_path)
@@ -136,12 +116,9 @@ def read_json_section(
         hint = ', '.join(known) if known else '(none indexed)'
         return (
             f'Tool note: section_ref `{section_ref}` not found. '
-            f'Run `json_overview` or `search_json`. Examples: {hint}'
+            f'Run `structured_overview` or `search_structured`. Examples: {hint}'
         )
 
     json_body = render_section_json(section)
     out = format_section_detail(graph, section, json_body)
     return _truncate_output(out)
-
-
-JSON_TOOLS = [json_overview, search_json, read_json_section]

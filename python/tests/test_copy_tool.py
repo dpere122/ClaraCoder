@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from clara_coder_backend.tools.copy import copy_confirm_sse_payload, copy_workspace_files, execute_pending_copy_decision
+from clara_coder_backend.tools.copy import copy_workspace_files
 from clara_coder_backend.session.state import current_session_id, get_session
 
 
@@ -23,7 +23,6 @@ def copy_env():
     session.workspace_path = str(workspace.resolve())
     session.worker_apply_mode = True
     session.auto_apply_mode = False
-    session.pending_copy_request = None
 
     class _Env:
         pass
@@ -38,10 +37,8 @@ def copy_env():
     td.cleanup()
 
 
-def test_copy_workspace_files_auto_apply_creates_subdirectories(copy_env) -> None:
+def test_copy_workspace_files_creates_subdirectories(copy_env) -> None:
     ws = copy_env.workspace
-    session = copy_env.session
-    session.auto_apply_mode = True
     (ws / 'src').mkdir()
     (ws / 'src' / 'one.txt').write_text('one', encoding='utf-8')
     (ws / 'src' / 'two.txt').write_text('two', encoding='utf-8')
@@ -60,69 +57,33 @@ def test_copy_workspace_files_auto_apply_creates_subdirectories(copy_env) -> Non
     assert (ws / 'dist' / 'two-copy.txt').read_text(encoding='utf-8') == 'two'
 
 
-def test_copy_workspace_files_requires_confirmation_when_auto_apply_off(copy_env) -> None:
+def test_copy_runs_immediately_with_auto_run_off(copy_env) -> None:
     ws = copy_env.workspace
-    session = copy_env.session
+    copy_env.session.auto_apply_mode = False
     (ws / 'src.txt').write_text('copy me', encoding='utf-8')
 
     out = copy_workspace_files.invoke(
         {'copies': [{'source_path': 'src.txt', 'destination_path': 'copies/subdir/dst.txt'}]}
     )
 
-    assert 'Pending user confirmation' in out
-    pending = session.pending_copy_request
-    assert pending is not None
-    payload = copy_confirm_sse_payload(pending)
-    assert payload == {
-        'version': 1,
-        'requestId': pending['request_id'],
-        'copies': [{'sourcePath': 'src.txt', 'destinationPath': 'copies/subdir/dst.txt'}],
-        'overwrite': False,
-    }
-    assert not (ws / 'copies' / 'subdir' / 'dst.txt').exists()
+    assert 'Copied 1 file(s)' in out
+    assert (ws / 'copies' / 'subdir' / 'dst.txt').read_text(encoding='utf-8') == 'copy me'
 
 
-def test_execute_pending_copy_decision_confirm_copies_files(copy_env) -> None:
+def test_copy_refuses_existing_destination_without_overwrite(copy_env) -> None:
     ws = copy_env.workspace
-    session = copy_env.session
     (ws / 'a.txt').write_text('a', encoding='utf-8')
     (ws / 'b.txt').write_text('b', encoding='utf-8')
 
-    copy_workspace_files.invoke(
-        {
-            'copies': [
-                {'source_path': 'a.txt', 'destination_path': 'copied/a.txt'},
-                {'source_path': 'b.txt', 'destination_path': 'copied/nested/b.txt'},
-            ]
-        }
+    out = copy_workspace_files.invoke({'copies': [{'source_path': 'a.txt', 'destination_path': 'b.txt'}]})
+    assert out.startswith('Tool error:')
+    assert (ws / 'b.txt').read_text(encoding='utf-8') == 'b'
+
+    out = copy_workspace_files.invoke(
+        {'copies': [{'source_path': 'a.txt', 'destination_path': 'b.txt'}], 'overwrite': True}
     )
-    pending = session.pending_copy_request
-    assert pending is not None
-
-    msg = execute_pending_copy_decision(session, confirm=True, request_id=pending['request_id'])
-
-    assert 'Copied 2 file(s)' in msg
-    assert session.pending_copy_request is None
-    assert (ws / 'copied' / 'a.txt').read_text(encoding='utf-8') == 'a'
-    assert (ws / 'copied' / 'nested' / 'b.txt').read_text(encoding='utf-8') == 'b'
-
-
-def test_execute_pending_copy_decision_cancel_keeps_files_unchanged(copy_env) -> None:
-    ws = copy_env.workspace
-    session = copy_env.session
-    (ws / 'src.txt').write_text('hello', encoding='utf-8')
-
-    copy_workspace_files.invoke(
-        {'copies': [{'source_path': 'src.txt', 'destination_path': 'copy.txt'}]}
-    )
-    pending = session.pending_copy_request
-    assert pending is not None
-
-    msg = execute_pending_copy_decision(session, confirm=False, request_id=pending['request_id'])
-
-    assert msg == 'User cancelled the copy request.'
-    assert session.pending_copy_request is None
-    assert not (ws / 'copy.txt').exists()
+    assert 'Copied 1 file(s)' in out
+    assert (ws / 'b.txt').read_text(encoding='utf-8') == 'a'
 
 
 def test_copy_workspace_files_rejects_duplicate_destinations(copy_env) -> None:

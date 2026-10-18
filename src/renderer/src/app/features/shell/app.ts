@@ -9,8 +9,6 @@ import type {
   ChatStructuredContentPart,
   ConversationFileJournalEntry,
   ComposerRunMode,
-  FileDiffPayload,
-  StagedTransferBatchPayload,
   Workspace,
   WorkspaceFilesChangedMessage,
   WorkspaceOpenTabsState,
@@ -83,6 +81,7 @@ import {
   replaceFileTabAfterSaveAs,
   retargetFileTabPath,
   type ChatFileTab,
+  turnDiffChatFileTab,
   workspaceChatFileTab,
   buildPlanChatFileTab,
 } from './app-chat-file-tabs';
@@ -105,7 +104,12 @@ import {
 } from './editor-grid/editor-grid-layout';
 import { editorGridLayoutFromPersistedState, serializeEditorGridOpenTabs } from './editor-grid/editor-grid-persistence';
 import { EditorGridComponent, type EditorGridFileDrop } from './editor-grid/editor-grid';
-import { relativePathFromModelKey, type OpenEditorFileRef } from '../workspace/open-editor-file-ref';
+import {
+  isTurnDiffModelKey,
+  relativePathFromModelKey,
+  TURN_DIFF_MODEL_KEY_PREFIX,
+  type OpenEditorFileRef,
+} from '../workspace/open-editor-file-ref';
 import {
   WorkspaceMonacoModelStore,
   type WorkspaceMonacoSaveAsResult,
@@ -121,7 +125,11 @@ import { EditorLspStatusComponent } from './editor-lsp-status/editor-lsp-status'
 import { LlamaStatusIndicator } from '../status/llama-status-indicator/llama-status-indicator';
 import { MainPanelEmptyStateComponent } from './main-panel-empty-state/main-panel-empty-state';
 import { WorkspaceComponent } from '../workspace/workspace/workspace';
-import { WorkspaceMonacoComponent } from '../workspace/workspace-monaco/workspace-monaco';
+import {
+  WorkspaceMonacoComponent,
+  type WorkspaceMonacoReadOnlyDiff,
+} from '../workspace/workspace-monaco/workspace-monaco';
+import type { TurnDiffOpenRequest } from '../chat/chat-box/turn-edits-footer/turn-edits-footer';
 import type { EditorOutlineSymbol } from '../workspace/editor-outline/editor-outline';
 import { editorModelKeyForRelativePath } from '../workspace/open-editor-file-ref';
 import { ImageViewerComponent } from '../workspace/image-viewer/image-viewer';
@@ -131,7 +139,6 @@ import { WorkspaceTerminalDockComponent } from '../workspace-terminal/workspace-
 import { ElectronService } from '../../core/electron.service';
 import { TtsPlaybackService } from '../../core/tts-playback.service';
 import { ThemedConfirmDialogService } from '../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
-import { PendingDiffReviewService } from '../diff/pending-diff-review.service';
 import { ThemedConfirmDialogComponent } from '../../shared/themed-confirm-dialog/themed-confirm-dialog';
 import { ThemedPromptDialogComponent } from '../../shared/themed-prompt-dialog/themed-prompt-dialog';
 import {
@@ -181,7 +188,11 @@ export interface EditorGridSlotView {
 
 export function editorGridSlotView(slot: EditorGridSlot): EditorGridSlotView {
   const activeTabId = slot.activeTabId;
-  const activeModelKey = activeTabId?.startsWith('file:') ? activeTabId.slice(5) || null : null;
+  const activeModelKey = activeTabId?.startsWith('file:')
+    ? activeTabId.slice(5) || null
+    : isTurnDiffModelKey(activeTabId)
+      ? activeTabId
+      : null;
   const activeRelativePath = activeModelKey ? relativePathFromModelKey(activeModelKey) : null;
   const activeIsImage = !!activeRelativePath && isViewableImagePath(activeRelativePath);
   const monacoOpenEditorFiles = slot.tabs
@@ -553,61 +564,17 @@ export class App implements OnInit, OnDestroy {
     return this.appConfig()?.workspaceMonacoScrollByWorkspaceId?.[wsId] ?? {};
   });
 
-  /** Latest pending file diff for the currently focused editor tab (Monaco inline review). */
-  protected readonly pendingDiffForActiveEditor = computed((): FileDiffPayload | null => {
-    const path = this.activeFileRelativePath();
-    if (!path?.trim()) {
-      return null;
-    }
-    const norm = normalizePathSlashes(path.trim());
-    const msgs = this.messages();
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      const m = msgs[i];
-      if (m.role === 'staged_transfer_batch' && (m.reviewStatus ?? 'pending') === 'pending') {
-        const resolutions = this.mergedStagedTransferBatchResolutions(m.payload, m.fileResolutions);
-        for (const file of m.payload.files) {
-          if (normalizePathSlashes(file.relativePath) === norm) {
-            const res = resolutions[file.relativePath] ?? 'pending';
-            if (res === 'pending') {
-              return file;
-            }
-          }
-        }
-      }
-      if (m.role === 'diff' && (m.reviewStatus ?? 'pending') === 'pending') {
-        if (normalizePathSlashes(m.payload.relativePath) === norm) {
-          return m.payload;
-        }
-      }
-    }
-    return null;
-  });
+  /** Loaded before/after text per open turn-diff tab, keyed by its `turn-diff:` model key. */
+  protected readonly turnDiffContents = signal<ReadonlyMap<string, WorkspaceMonacoReadOnlyDiff>>(new Map());
 
-  /** Batch context when the active editor tab is reviewing one file in a staged-transfer batch. */
-  protected readonly pendingStagedTransferBatchForActiveEditor = computed((): StagedTransferBatchPayload | null => {
-    const path = this.activeFileRelativePath();
-    if (!path?.trim()) {
+  /** Read-only diff for a slot whose active tab is a turn-diff tab (null until loaded). */
+  protected turnDiffForSlot(view: EditorGridSlotView): WorkspaceMonacoReadOnlyDiff | null {
+    const key = view.monacoActiveModelKey;
+    if (!key?.startsWith(TURN_DIFF_MODEL_KEY_PREFIX)) {
       return null;
     }
-    const norm = normalizePathSlashes(path.trim());
-    const msgs = this.messages();
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      const m = msgs[i];
-      if (m.role !== 'staged_transfer_batch' || (m.reviewStatus ?? 'pending') !== 'pending') {
-        continue;
-      }
-      const resolutions = this.mergedStagedTransferBatchResolutions(m.payload, m.fileResolutions);
-      for (const file of m.payload.files) {
-        if (normalizePathSlashes(file.relativePath) === norm) {
-          const res = resolutions[file.relativePath] ?? 'pending';
-          if (res === 'pending') {
-            return m.payload;
-          }
-        }
-      }
-    }
-    return null;
-  });
+    return this.turnDiffContents().get(key) ?? null;
+  }
 
   protected readonly activeLlmConnection = computed(() => {
     const config = this.appConfig();
@@ -675,7 +642,6 @@ export class App implements OnInit, OnDestroy {
     private zone: NgZone,
     protected readonly tts: TtsPlaybackService,
     private readonly themedConfirm: ThemedConfirmDialogService,
-    private readonly pendingDiffReview: PendingDiffReviewService,
   ) {
     this.electron.windowMaximized$
       .pipe(takeUntilDestroyed())
@@ -835,11 +801,6 @@ export class App implements OnInit, OnDestroy {
       } else {
         this.workspaceContextText.set('');
       }
-    });
-
-    effect(() => {
-      this.activeConversationId();
-      untracked(() => this.pendingDiffReview.clearAllSessions());
     });
 
     effect(() => {
@@ -1393,6 +1354,7 @@ export class App implements OnInit, OnDestroy {
       );
       const workspaceId = this.conversationSession.getActiveConversation()?.workspaceId ?? this.currentWorkspaceId();
       const mode = this.composerMode();
+      const workspaceNotes = this.conversationSession.takeWorkspaceNotes(convId);
       this.electron.sendMessage(
         convId,
         normalized,
@@ -1407,6 +1369,7 @@ export class App implements OnInit, OnDestroy {
           : DEFAULT_TTS_PROVIDER,
         userMessageId,
         this.adminElevationGranted(),
+        workspaceNotes,
       );
       this.conversationSession.markMessagesDirtyAndAutoSave();
     } catch (err) {
@@ -1694,92 +1657,6 @@ export class App implements OnInit, OnDestroy {
     this.conversationSession.markMessagesDirtyAndAutoSave();
   }
 
-  onDiffReviewFinished(event: { relativePath: string; status: 'complete' | 'cancelled'; summary?: string }): void {
-    this.messages.update((prev) => {
-      const copy = [...prev];
-      for (let i = copy.length - 1; i >= 0; i--) {
-        const m = copy[i];
-        if (
-          m.role === 'diff' &&
-          m.payload.relativePath === event.relativePath &&
-          (m.reviewStatus ?? 'pending') === 'pending'
-        ) {
-          copy[i] = {
-            ...m,
-            reviewStatus: event.status,
-            reviewSummary: event.summary,
-          };
-          break;
-        }
-      }
-      return copy;
-    });
-    this.conversationSession.markMessagesDirtyAndAutoSave();
-  }
-
-  onStagedTransferBatchFinished(event: {
-    requestId: string;
-    status: 'complete' | 'cancelled';
-    summary?: string;
-    fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
-  }): void {
-    this.applyStagedTransferBatchMessageUpdate(event.requestId, {
-      reviewStatus: event.status,
-      reviewSummary: event.summary,
-      fileResolutions: event.fileResolutions,
-    });
-  }
-
-  onStagedTransferBatchFileResolved(event: {
-    requestId: string;
-    fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
-  }): void {
-    this.applyStagedTransferBatchMessageUpdate(event.requestId, {
-      fileResolutions: event.fileResolutions,
-    });
-  }
-
-  private mergedStagedTransferBatchResolutions(
-    payload: StagedTransferBatchPayload,
-    persisted: Record<string, 'pending' | 'approved' | 're_review'> | undefined,
-  ): Record<string, 'pending' | 'approved' | 're_review'> {
-    return {
-      ...(persisted ?? {}),
-      ...this.pendingDiffReview.batchSessionFor(payload).resolutions(),
-    };
-  }
-
-  private applyStagedTransferBatchMessageUpdate(
-    requestId: string,
-    patch: {
-      reviewStatus?: 'complete' | 'cancelled';
-      reviewSummary?: string;
-      fileResolutions?: Record<string, 'pending' | 'approved' | 're_review'>;
-    },
-  ): void {
-    this.messages.update((prev) => {
-      const copy = [...prev];
-      for (let i = copy.length - 1; i >= 0; i--) {
-        const m = copy[i];
-        if (
-          m.role === 'staged_transfer_batch' &&
-          m.payload.requestId === requestId &&
-          (m.reviewStatus ?? 'pending') === 'pending'
-        ) {
-          copy[i] = {
-            ...m,
-            ...(patch.reviewStatus !== undefined ? { reviewStatus: patch.reviewStatus } : {}),
-            ...(patch.reviewSummary !== undefined ? { reviewSummary: patch.reviewSummary } : {}),
-            ...(patch.fileResolutions !== undefined ? { fileResolutions: patch.fileResolutions } : {}),
-          };
-          break;
-        }
-      }
-      return copy;
-    });
-    this.conversationSession.markMessagesDirtyAndAutoSave();
-  }
-
   async onSelectConversation(id: string): Promise<void> {
     await this.conversationSession.onSelectConversation(id, this.currentWorkspaceId());
   }
@@ -1944,6 +1821,54 @@ export class App implements OnInit, OnDestroy {
     );
   }
 
+  /**
+   * Open (or focus) a read-only diff tab for one file a past turn edited, with the before /
+   * after text from main's turn-file snapshot. Modeled on {@link openOrFocusFileTab}.
+   */
+  protected async openTurnDiffTab(req: TurnDiffOpenRequest): Promise<void> {
+    const convId = this.activeConversationId();
+    const root = this.currentWorkspacePath().trim();
+    const norm = normalizePathSlashes(req.relativePath);
+    if (!convId || !root || !norm || !req.userMessageId) {
+      return;
+    }
+    const tab = turnDiffChatFileTab({ userMessageId: req.userMessageId, relativePath: norm, turnNumber: req.turnNumber });
+    const id = chatFileTabId(tab);
+
+    const res = await this.electron.getTurnFileDiff(convId, req.userMessageId, norm);
+    if (!res.ok) {
+      console.error('[App] get-turn-file-diff failed:', res.error);
+      return;
+    }
+    this.turnDiffContents.update((prev) => {
+      const next = new Map(prev);
+      next.set(id, {
+        modelKey: id,
+        relativePath: norm,
+        label: `Turn ${req.turnNumber}`,
+        original: res.before,
+        modified: res.after,
+      });
+      return next;
+    });
+
+    const focusedId = this.ensureFocusedSlotId();
+    const layout = this.editorGrid();
+    const focusedSlot = slotById(layout, focusedId);
+    if (focusedSlot?.tabs.some((t) => chatFileTabId(t) === id)) {
+      this.editorGrid.set(setActiveTab(layout, focusedId, id));
+    } else {
+      const elsewhere = slotIdsContainingModelKey(layout, id)[0];
+      if (elsewhere) {
+        this.focusedSlotId.set(elsewhere);
+        this.editorGrid.set(setActiveTab(layout, elsewhere, id));
+      } else {
+        this.editorGrid.set(addTabToSlot(layout, focusedId, tab));
+      }
+    }
+    this.chatExpanded.set(false);
+  }
+
   protected openOrFocusFileTab(relativePath: string): void {
     const root = this.currentWorkspacePath().trim();
     if (!root) {
@@ -2047,7 +1972,7 @@ export class App implements OnInit, OnDestroy {
   protected onEditorGridTabSelect(ev: { slotId: string; tabId: string }): void {
     this.focusedSlotId.set(ev.slotId);
     this.editorGrid.update((layout) => setActiveTab(layout, ev.slotId, ev.tabId));
-    if (ev.tabId.startsWith('file:')) {
+    if (ev.tabId.startsWith('file:') || isTurnDiffModelKey(ev.tabId)) {
       this.chatExpanded.set(false);
     }
   }
@@ -2388,6 +2313,17 @@ export class App implements OnInit, OnDestroy {
 
   /** @param slotId slot the close came from; defaults to the focused slot. */
   private async tryCloseFileTabById(tabId: string, slotId?: string): Promise<boolean> {
+    if (isTurnDiffModelKey(tabId)) {
+      this.removeFileTabByModelKey(tabId, slotId);
+      if (!slotIdsContainingModelKey(this.editorGrid(), tabId).length) {
+        this.turnDiffContents.update((prev) => {
+          const next = new Map(prev);
+          next.delete(tabId);
+          return next;
+        });
+      }
+      return true;
+    }
     if (!tabId.startsWith('file:')) {
       return false;
     }
@@ -2614,7 +2550,7 @@ export class App implements OnInit, OnDestroy {
   protected selectMainTab(tabId: string): void {
     const focusedId = this.ensureFocusedSlotId();
     this.editorGrid.update((layout) => setActiveTab(layout, focusedId, tabId));
-    if (tabId.startsWith('file:')) {
+    if (tabId.startsWith('file:') || isTurnDiffModelKey(tabId)) {
       // Focusing an editor file tab collapses the expanded chat overlay so the
       // selected file is actually visible.
       this.chatExpanded.set(false);

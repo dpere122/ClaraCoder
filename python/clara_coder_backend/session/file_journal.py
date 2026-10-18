@@ -1,4 +1,9 @@
-"""Emit non-chat SSE events when a workspace mutation lands on disk."""
+"""Emit ``file_journal`` SSE events when a workspace mutation lands on disk.
+
+Edits write straight to disk; Electron persists one journal row per path per turn (the pre-turn bytes) so the
+user can review and reset each turn's files afterwards. Only the **first** mutation of a path in a turn is
+journaled—later writes in the same turn would otherwise overwrite the restore baseline.
+"""
 
 from __future__ import annotations
 
@@ -12,15 +17,19 @@ from clara_coder_backend.workspace.workspace_text_io import decode_for_tools, de
 logger = logging.getLogger('clara.session.file_journal')
 
 FILE_JOURNAL_MAX_CHARS = 2_000_000
+#: Directory deletes above these caps cannot be restored, so they still ask the user first.
+TREE_SNAPSHOT_MAX_FILES = 2_000
+TREE_SNAPSHOT_MAX_BYTES = 20_000_000
+_TREE_SNAPSHOT_SKIP_DIRS = frozenset({'.git', 'node_modules', '.venv', 'venv', '__pycache__'})
 
 FileJournalOp = Literal['create', 'modify', 'delete', 'delete-tree', 'copy']
 
 
 def snapshot_text_file(path: Path) -> dict[str, str] | None:
     """Read a text file for journal before-content. None if missing, binary, or too large."""
-    if not path.is_file():
-        return None
     try:
+        if not path.is_file() or path.stat().st_size > FILE_JOURNAL_MAX_CHARS * 4:
+            return None
         raw = path.read_bytes()
     except OSError as exc:
         logger.warning('file journal snapshot read failed path=%s err=%s', path, exc)
@@ -40,15 +49,35 @@ def snapshot_text_file(path: Path) -> dict[str, str] | None:
     }
 
 
+class TreeTooLargeError(Exception):
+    """Raised when a directory is too large to journal for undo."""
+
+
 def snapshot_tree(root: Path, directory: Path) -> list[dict[str, str]]:
-    """Snapshot text files under *directory* as workspace-relative entries."""
+    """Snapshot text files under *directory* as workspace-relative entries.
+
+    Raises :class:`TreeTooLargeError` past :data:`TREE_SNAPSHOT_MAX_FILES` / :data:`TREE_SNAPSHOT_MAX_BYTES`
+    (sizes come from ``stat`` before any read) or when the tree holds a dependency/VCS directory.
+    """
     entries: list[dict[str, str]] = []
     if not directory.is_dir():
         return entries
     root_resolved = root.resolve()
+    files: list[Path] = []
+    total_bytes = 0
     for child in directory.rglob('*'):
-        if not child.is_file():
+        if child.is_dir():
+            if child.name in _TREE_SNAPSHOT_SKIP_DIRS:
+                raise TreeTooLargeError(f'contains `{child.name}/`')
             continue
+        try:
+            total_bytes += child.stat().st_size
+        except OSError:
+            continue
+        files.append(child)
+        if len(files) > TREE_SNAPSHOT_MAX_FILES or total_bytes > TREE_SNAPSHOT_MAX_BYTES:
+            raise TreeTooLargeError(f'more than {TREE_SNAPSHOT_MAX_FILES} files or {TREE_SNAPSHOT_MAX_BYTES} bytes')
+    for child in files:
         snap = snapshot_text_file(child)
         if snap is None:
             continue
@@ -96,10 +125,26 @@ def file_journal_payload(
     return payload
 
 
+def first_mutation_this_turn(session: SessionState, relative_path: str) -> bool:
+    """Record *relative_path* for the current turn; True only on its first mutation in this turn."""
+    turn_id = (getattr(session, 'current_user_message_id', '') or '').strip()
+    edits = session.edits
+    if edits.journal_turn_id != turn_id:
+        edits.journal_turn_id = turn_id
+        edits.journaled_paths = set()
+    key = (relative_path or '').strip().replace('\\', '/')
+    if key in edits.journaled_paths:
+        return False
+    edits.journaled_paths.add(key)
+    return True
+
+
 def emit_file_journal(session: SessionState, payload: dict[str, Any]) -> None:
-    """Queue a ``file_journal`` HITL SSE item when a user turn id is known."""
+    """Queue a ``file_journal`` HITL SSE item for the first mutation of a path in the current turn."""
     turn_id = (getattr(session, 'current_user_message_id', '') or '').strip()
     if not turn_id:
+        return
+    if not first_mutation_this_turn(session, str(payload.get('relativePath') or '')):
         return
     body = dict(payload)
     body['userMessageId'] = turn_id

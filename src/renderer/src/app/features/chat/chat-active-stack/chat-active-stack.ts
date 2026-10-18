@@ -29,6 +29,7 @@ import { HitlComposerDockComponent } from '../hitl-composer-dock/hitl-composer-d
 import { MessageBox } from '../message-box/message-box';
 import { TalkMode } from '../../speech/talk-mode/talk-mode';
 import type { AcceptCommandFinishedEvent } from '@shared/index';
+import type { TurnDiffOpenRequest } from '../chat-box/turn-edits-footer/turn-edits-footer';
 export type ChatLayoutMode = 'sidebar' | 'expanded';
 
 /** Chat transcript, composer, and status bar — shared by sidebar hub and expanded main overlay. */
@@ -65,21 +66,8 @@ export class ChatActiveStackComponent implements OnDestroy {
 
   readonly restoreConversation = output<{ userMessageId?: string; userMessageIndex: number }>();
   readonly sendResponse = output<string>();
-  readonly diffReviewFinished = output<{
-    relativePath: string;
-    status: 'complete' | 'cancelled';
-    summary?: string;
-  }>();
-  readonly stagedTransferBatchFinished = output<{
-    requestId: string;
-    status: 'complete' | 'cancelled';
-    summary?: string;
-    fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
-  }>();
-  readonly stagedTransferBatchFileResolved = output<{
-    requestId: string;
-    fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
-  }>();
+  /** Edited-files footer row clicked: open that file's read-only turn diff. */
+  readonly openTurnDiff = output<TurnDiffOpenRequest>();
   readonly acceptCommandFinished = output<AcceptCommandFinishedEvent>();
   readonly copyReviewFinished = output<{
     requestId: string;

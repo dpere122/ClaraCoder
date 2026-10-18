@@ -3,8 +3,12 @@ import { ipcMain } from 'electron';
 import type {
   AppendConversationFileJournalRequest,
   ConversationFile,
+  ResetTurnFilesRequest,
+  ResetTurnFilesResult,
   RestoreConversationTimelineRequest,
   RestoreConversationTimelineResult,
+  TurnEditedFileRow,
+  TurnFileDiffResult,
 } from '../../../shared';
 import {
   fallbackJournalFromMessages,
@@ -26,6 +30,7 @@ import {
 } from '../../conversations-db';
 import { ensurePythonReady } from '../../python/server';
 import { pythonControlFetch } from '../../python/http-client';
+import { getTurnFileDiff, listTurnFiles, resetTurnFiles } from '../../turn-edits';
 import { assertTrustedMainRenderer } from '../assert-trusted-renderer';
 
 function pythonHistoryMessages(messages: ConversationFile['messages']): unknown[] {
@@ -57,13 +62,27 @@ async function resyncPythonHistory(conversationId: string, messages: Conversatio
   }
 }
 
-function workspacePathForConversation(conv: ConversationFile): string | null {
-  const wid = conv.workspaceId;
+/** Absolute root of a configured workspace id, or null. */
+export function workspacePathForWorkspaceId(workspaceId: string | null | undefined): string | null {
+  const wid = workspaceId?.trim();
   if (!wid) {
     return null;
   }
   const ws = loadConfigSync().workspaces.find((w) => w.id === wid);
   return ws?.path?.trim() || null;
+}
+
+function workspacePathForConversation(conv: ConversationFile): string | null {
+  return workspacePathForWorkspaceId(conv.workspaceId);
+}
+
+function workspacePathForConversationId(conversationId: string): string | null {
+  const conv = getConversationById(conversationId);
+  return conv ? workspacePathForConversation(conv) : null;
+}
+
+function nonEmptyString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 export function registerConversationTimelineIpc(): void {
@@ -100,6 +119,65 @@ export function registerConversationTimelineIpc(): void {
       }
       const entry = appendConversationFileJournal({ conversationId, ...parsed });
       return { ok: true as const, entry };
+    },
+  );
+
+  ipcMain.handle(
+    'list-turn-files',
+    async (event, conversationId: unknown, userMessageId: unknown): Promise<TurnEditedFileRow[]> => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        return [];
+      }
+      const convId = nonEmptyString(conversationId);
+      const turnId = nonEmptyString(userMessageId);
+      if (!convId || !turnId) {
+        return [];
+      }
+      return listTurnFiles(convId, turnId, workspacePathForConversationId(convId));
+    },
+  );
+
+  ipcMain.handle(
+    'get-turn-file-diff',
+    async (event, conversationId: unknown, userMessageId: unknown, relativePath: unknown): Promise<TurnFileDiffResult> => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        return { ok: false, error: 'Forbidden' };
+      }
+      const convId = nonEmptyString(conversationId);
+      const turnId = nonEmptyString(userMessageId);
+      const rel = nonEmptyString(relativePath);
+      if (!convId || !turnId || !rel) {
+        return { ok: false, error: 'Invalid turn file request.' };
+      }
+      return getTurnFileDiff(convId, turnId, rel);
+    },
+  );
+
+  ipcMain.handle(
+    'reset-turn-files',
+    async (event, request: ResetTurnFilesRequest | unknown): Promise<ResetTurnFilesResult> => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        return { ok: false, error: 'Forbidden' };
+      }
+      const raw = (request && typeof request === 'object' ? request : {}) as Record<string, unknown>;
+      const convId = nonEmptyString(raw['conversationId']);
+      const turnId = nonEmptyString(raw['userMessageId']);
+      if (!convId || !turnId) {
+        return { ok: false, error: 'Invalid reset request.' };
+      }
+      const paths = Array.isArray(raw['paths'])
+        ? raw['paths'].filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+        : undefined;
+      return resetTurnFiles(
+        { conversationId: convId, userMessageId: turnId, paths, force: raw['force'] === true },
+        workspacePathForConversationId(convId),
+      );
     },
   );
 

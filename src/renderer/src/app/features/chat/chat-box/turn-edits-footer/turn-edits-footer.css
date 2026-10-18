@@ -91,7 +91,7 @@ app-turn-edits-footer .turn-edits__op {
 }
 
 app-turn-edits-footer .turn-edits__name {
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-family: var(--t-font-mono, monospace);
   white-space: nowrap;
 }
 

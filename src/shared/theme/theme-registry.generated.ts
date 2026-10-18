@@ -91,7 +91,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Files a reply edited, with per-file reset and diff, under the assistant bubble.",
     selector: "[data-theme-group=\"chat.turn-edits\"]",
     component: "app/features/chat/chat-box/turn-edits-footer",
-    tokens: ["--t-border-subtle", "--t-danger", "--t-fg", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-secondary", "--t-success", "--t-text-muted"],
+    tokens: ["--t-border-subtle", "--t-danger", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-secondary", "--t-success", "--t-text-muted"],
     supportsBackground: false,
   },
   {
@@ -210,7 +210,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     label: "Review cards",
     category: "hitl",
     categoryLabel: "Review cards",
-    description: "Command approvals, file diffs, copy/delete confirmations, plan confirmations, and agent questions.",
+    description: "Command approvals, folder delete confirmations, plan confirmations, agent questions, and theme proposals.",
     selector: "[data-theme-group=\"hitl.cards\"]",
     component: "app/features/chat/hitl-composer-dock",
     tokens: ["--t-bg", "--t-bg-surface", "--t-border-subtle", "--t-caution", "--t-composer-input-focus-bg", "--t-confirm", "--t-edge-darkest", "--t-edge-light", "--t-fg", "--t-hover-bg", "--t-input-bg", "--t-input-fg", "--t-log-level-error", "--t-log-level-warning", "--t-process-c", "--t-secondary", "--t-text-muted"],

@@ -6,7 +6,7 @@
     },
     "hitl.cards": {
       "label": "Review cards",
-      "description": "Command approvals, file diffs, copy/delete confirmations, plan confirmations, and agent questions.",
+      "description": "Command approvals, folder delete confirmations, plan confirmations, agent questions, and theme proposals.",
       "styleSources": ["features/diff", "features/chat/hitl-btn-shared.css"]
     }
   }

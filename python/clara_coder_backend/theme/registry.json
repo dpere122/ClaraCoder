@@ -286,6 +286,7 @@
         "--t-border-subtle",
         "--t-danger",
         "--t-fg",
+        "--t-font-mono",
         "--t-hover-bg",
         "--t-log-level-error",
         "--t-log-level-warning",
@@ -583,7 +584,7 @@
         "--t-text-muted"
       ],
       "supportsBackground": false,
-      "description": "Command approvals, file diffs, copy/delete confirmations, plan confirmations, and agent questions."
+      "description": "Command approvals, folder delete confirmations, plan confirmations, agent questions, and theme proposals."
     },
     {
       "id": "hitl.dock",

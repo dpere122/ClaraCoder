@@ -346,17 +346,14 @@ def build_theme_proposal_payload(doc: dict[str, Any], summary: str, warnings: li
 
 
 _TOOL_DESCRIPTION = describe(
-    'Propose a complete app theme (colors, per-element-group overrides, optional Monaco palette) that the user can '
-    'preview live and save from a card in chat. Does not pause; keep working or finish your reply after calling it.',
-    when='the user asks for a new look, color scheme, theme, or wants an element group restyled.',
-    not_='changing editor behaviour settings; that is Settings → Editor.',
+    'Propose a complete app theme the user can preview live and save from a card in chat; does not pause',
+    when='the user asks for a new look, color scheme or theme, or wants an element group restyled',
+    not_='editor behaviour settings (Settings → Editor)',
     shape=(
-        '`theme` = {name, mode: dark|light, description?, tokens: {"--t-…": cssValue}, '
-        'groups?: {"<category>.<name>": {tokens?, css?, background?: {opacity 0–1, fit}}}, '
-        'monaco?: {base, colors: {id: "#rrggbb"}, rules: [{token, foreground: "rrggbb", fontStyle?}]}}. '
-        'Only catalog tokens and registered group ids are kept; group css is scoped to the group root '
-        '(`&` = root). Give every color token a value for a complete theme. `summary` = 1–2 sentences for the card. '
-        + theme_registry_summary()
+        '`theme` = {name, mode: dark|light, description?, tokens: {"--t-…": cssValue}, groups?: {"<category>.<name>": '
+        '{tokens?, css?, background?: {opacity 0–1, fit}}}, monaco?: {base, colors: {id: "#rrggbb"}, rules: [{token, '
+        'foreground: "rrggbb", fontStyle?}]}}; `summary` = 1–2 sentences for the card. Load the valid token names and '
+        "group ids with `activate_context('theme')` first"
     ),
 )
 

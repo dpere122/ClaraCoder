@@ -13,7 +13,7 @@ from clara_coder_backend.config import MAX_READ_TOOL_STREAM_CHARS, MAX_TOOL_STAT
 from clara_coder_backend.hitl.tool_registry import WORKSPACE_READ_TOOL_NAMES
 
 # Staged reads use the same multiplex preview lane as workspace reads in the UI.
-_READ_TOOL_STREAM_PREVIEW_NAMES = WORKSPACE_READ_TOOL_NAMES | frozenset({'read_staged_edit'})
+_READ_TOOL_STREAM_PREVIEW_NAMES = WORKSPACE_READ_TOOL_NAMES
 from clara_coder_backend.tools.workspace import truncate_text
 
 

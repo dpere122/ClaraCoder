@@ -8,25 +8,17 @@ from typing import Any
 from langchain.agents.middleware import AgentMiddleware
 
 from clara_coder_backend.llm.model_tuning import effective_parallel_tool_calls
-from clara_coder_backend.session.state import current_session_id, get_active_connection, get_session
+from clara_coder_backend.session.state import get_active_connection
 
 
 def _parallel_tool_calls_for_agent_request() -> bool:
-    """Honor connection parallel-tool preference except when HITL review is active.
+    """Honor the connection's parallel-tool preference.
 
-    Diff / copy / delete / accept-command pauses share single ``SessionState`` pending fields; concurrent
-    tool execution can clobber payloads or emit duplicate queue signals before the UI confirms.
+    Approval cards from parallel calls are staged per tool call and shown one at a time
+    (:func:`~clara_coder_backend.session.pause.pause_for_tool_review`), and edits no longer pause, so parallel
+    calls are safe in every mode.
     """
-    conn = get_active_connection()
-    if not effective_parallel_tool_calls(conn):
-        return False
-    sid = (current_session_id.get() or '').strip()
-    if not sid:
-        return True
-    sess = get_session(sid)
-    if sess.worker_apply_mode and not sess.auto_apply_mode:
-        return False
-    return True
+    return effective_parallel_tool_calls(get_active_connection())
 
 
 class ConnectionParallelToolCallsMiddleware(AgentMiddleware):

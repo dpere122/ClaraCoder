@@ -1,6 +1,6 @@
 """Tests for partial workspace edit merge."""
 
-from clara_coder_backend.staging.partial_workspace_edit import line_range_edit_tool_feedback, merge_partial_edit
+from clara_coder_backend.workspace.partial_edit import line_range_edit_tool_feedback, merge_partial_edit
 
 
 def test_full_file() -> None:
@@ -194,7 +194,7 @@ def test_ambiguous_snippet_error() -> None:
     assert out is None
     assert err is not None
     assert 'appears 2 times' in err
-    assert 'stage_line_range_edit' in err
+    assert 'replace_workspace_lines' in err
     assert 'Occurrences at line(s):' in err
 
 
@@ -212,7 +212,7 @@ def test_snippet_not_found() -> None:
     assert err is not None
     assert 'old_snippet not found' in err
     assert 'Merge base has' in err
-    assert 'stage_line_range_edit' in err
+    assert 'replace_workspace_lines' in err
 
 
 def test_trailing_ws_relaxed_unique_match() -> None:

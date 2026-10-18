@@ -1,4 +1,4 @@
-"""Shared human-in-the-loop pause for diff review (classic loop + LangGraph worker).
+"""Shared human-in-the-loop pause for approval cards (LangGraph worker).
 
 Parallel tool calls can each need an approval card. Every card kind keeps its request in a
 single session slot (``pending_accept_command_request``, ``pending_delete_request``, ...), so
@@ -33,7 +33,7 @@ def hitl_tool_call_scope(key: str) -> Iterator[dict[str, Any]]:
     """Collect the approval requests the wrapped tool call stages.
 
     Review middlewares around the same call share one scope; parallel calls (and tool calls of
-    nested specialists inside a call) each get their own, so a request is never overwritten by
+    nested tool calls inside a call) each get their own, so a request is never overwritten by
     another call's before its card is shown.
     """
 

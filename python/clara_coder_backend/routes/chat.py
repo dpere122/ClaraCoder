@@ -36,6 +36,7 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
         request.tts_provider,
         request.user_message_id,
         request.admin_elevation_granted,
+        request.workspace_notes,
     )
     return StreamingResponse(generator, media_type='text/event-stream')
 
@@ -90,7 +91,6 @@ def _answers_another_request(sess: SessionState, request: AgentContinueRequest) 
 
     for action, request_id, pending in (
         (request.delete_action, request.delete_request_id, sess.pending_delete_request),
-        (request.copy_action, request.copy_request_id, sess.pending_copy_request),
         (request.accept_command_action, request.accept_command_request_id, sess.pending_accept_command_request),
     ):
         if action:
@@ -101,13 +101,8 @@ def _answers_another_request(sess: SessionState, request: AgentContinueRequest) 
 
 @router.post('/chat/agent-continue')
 async def agent_continue(request: AgentContinueRequest) -> dict[str, bool | str]:
-    """Unblock an agent stream that is waiting after a diff or approval/confirmation step."""
+    """Unblock an agent stream that is waiting on an approval/confirmation card."""
     from clara_coder_backend.hitl.accept_command import execute_pending_accept_command_decision
-    from clara_coder_backend.tools.review_tools import (
-        finalize_staged_transfer_after_hitl,
-        resolve_staged_transfer_batch_file,
-    )
-    from clara_coder_backend.tools.copy import execute_pending_copy_decision
     from clara_coder_backend.tools.delete import execute_pending_delete_decision
 
     sess = state.get_session(request.session_id)
@@ -115,19 +110,11 @@ async def agent_continue(request: AgentContinueRequest) -> dict[str, bool | str]
         # A late or duplicate answer must not resolve (or clear) the card that is waiting now.
         return {'ok': False, 'batchComplete': True, 'detail': 'This request is no longer waiting for an answer.'}
     note = (request.note or '').strip()
-    batch_complete = True
     if request.delete_action:
         extra = execute_pending_delete_decision(
             sess,
             confirm=request.delete_action == 'confirm',
             request_id=request.delete_request_id or None,
-        )
-        note = extra if extra else note
-    elif request.copy_action:
-        extra = execute_pending_copy_decision(
-            sess,
-            confirm=request.copy_action == 'confirm',
-            request_id=request.copy_request_id or None,
         )
         note = extra if extra else note
     elif request.accept_command_action:
@@ -139,34 +126,6 @@ async def agent_continue(request: AgentContinueRequest) -> dict[str, bool | str]
             remember_deny=request.accept_command_action == 'deny',
         )
         note = extra if extra else note
-    elif request.staged_transfer_action:
-        rel_path = (request.staged_transfer_path or '').strip().replace('\\', '/')
-        req_id = (request.staged_transfer_request_id or '').strip()
-        if rel_path and req_id:
-            batch_complete, extra = resolve_staged_transfer_batch_file(
-                sess,
-                request_id=req_id,
-                relative_path=rel_path,
-                action=request.staged_transfer_action,
-                user_note=note,
-                session_id=request.session_id,
-            )
-            if extra and not batch_complete:
-                return {'ok': False, 'batchComplete': False}
-            if extra:
-                note = extra
-        else:
-            extra = finalize_staged_transfer_after_hitl(
-                sess,
-                request.staged_transfer_action,
-                note,
-                session_id=request.session_id,
-            )
-            if extra:
-                if request.staged_transfer_action == 're_review':
-                    note = extra
-                else:
-                    note = f'{extra}\n\n{note}'.strip() if note else extra
     elif request.plan_confirm_action:
         from clara_coder_backend.plan.plan_confirm import execute_pending_plan_confirm_decision
 
@@ -176,9 +135,8 @@ async def agent_continue(request: AgentContinueRequest) -> dict[str, bool | str]
             request_id=request.plan_confirm_request_id or None,
         )
         note = extra if extra else note
-    if batch_complete:
-        sess.agent_pause_note = note
-        ev = sess.agent_pause_event
-        if ev is not None:
-            ev.set()
-    return {'ok': True, 'batchComplete': batch_complete}
+    sess.agent_pause_note = note
+    ev = sess.agent_pause_event
+    if ev is not None:
+        ev.set()
+    return {'ok': True, 'batchComplete': True}

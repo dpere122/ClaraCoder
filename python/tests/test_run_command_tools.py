@@ -262,3 +262,55 @@ async def test_granted_session_still_hitl_when_auto_apply_off(command_session) -
     finally:
         command_session.pending_accept_command_request = None
         await _cleanup('run-command-test-session')
+
+
+@pytest.mark.asyncio(loop_scope='function')
+async def test_exit_is_reported_when_a_grandchild_keeps_the_pipe_open(command_session) -> None:
+    """A shell that starts a background child (dev server style) must not stay "running" forever."""
+    import sys
+    import time
+
+    py = sys.executable.replace('\\', '/')
+    child = "import time; time.sleep(8)"
+    # The grandchild runs outside the temp workspace so its cwd does not block the fixture's cleanup on Windows.
+    parent = (
+        "import os, subprocess, sys; "
+        f"subprocess.Popen([sys.executable, '-c', '{child}'], cwd=os.path.dirname(sys.executable)); "
+        "print('parent-done')"
+    )
+    started = time.monotonic()
+    try:
+        out = await run_command_tool.ainvoke({'command': f'"{py}" -c "{parent}"', 'wait_seconds': 15})
+        assert 'exited with code 0' in out, out
+        assert 'parent-done' in out
+        assert time.monotonic() - started < 7
+    finally:
+        await _cleanup('run-command-test-session')
+
+
+def test_output_buffer_trims_oldest_chunks(monkeypatch) -> None:
+    from clara_coder_backend.tools import run_command as rc
+
+    monkeypatch.setattr(rc, '_MAX_CAPTURE_CHARS', 10)
+    job = rc.CommandJob(
+        job_id='j', session_id='s', command_text='x', cwd_label='.', proc=None, started_at=0.0
+    )
+    for piece in ('abcd', 'efgh', 'ijkl'):
+        rc._append_output(job, piece)
+    assert job.buffer == 'cdefghijkl'
+    assert job.buffer_start == 2
+    text, dropped = rc._consume_new_output(job)
+    assert (text, dropped) == ('cdefghijkl', True)
+    rc._append_output(job, 'mn')
+    assert rc._consume_new_output(job) == ('mn', False)
+
+
+def test_finished_unreported_jobs_are_evicted() -> None:
+    from clara_coder_backend.tools import run_command as rc
+
+    job = rc.CommandJob(job_id='old', session_id='s', command_text='x', cwd_label='.', proc=None, started_at=0.0)
+    job.status = rc.STATUS_EXITED
+    job.finished_at = 100.0
+    rc._JOBS['old'] = job
+    rc._evict_finished_jobs(now=100.0 + rc._FINISHED_JOB_TTL_SEC + 1)
+    assert 'old' not in rc._JOBS

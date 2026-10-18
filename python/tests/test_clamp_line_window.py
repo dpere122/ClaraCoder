@@ -1,6 +1,6 @@
 """Regression coverage for the read-window pagination bug.
 
-Tools like ``read_workspace_file`` and ``read_staged_edit`` default ``end_line`` to a small fixed
+Tools like ``read_workspace_file`` default ``end_line`` to a small fixed
 number (sane when ``start_line`` defaults to 1). When a model continues pagination by passing only a
 later ``start_line`` and omitting ``end_line``, the unchanged small default used to be *less than*
 ``start_line``, which collapsed the returned window to a single line per call and could drive the
@@ -9,9 +9,7 @@ agent loop into a one-line-at-a-time read loop until it hit the recursion limit.
 
 from __future__ import annotations
 
-from clara_coder_backend.domain import EditStagingEntry
 from clara_coder_backend.session.state import current_session_id, get_session
-from clara_coder_backend.tools.review_tools import read_staged_edit
 from clara_coder_backend.tools.tool_conventions import clamp_line_window
 from clara_coder_backend.tools.workspace import read_workspace_file
 
@@ -50,41 +48,3 @@ def test_read_workspace_file_pagination_past_default_end_line_reads_a_window(tmp
         assert 'line 300' in out
     finally:
         current_session_id.reset(token)
-
-
-def test_read_staged_edit_pagination_past_default_end_line_reads_a_window() -> None:
-    session_id = 'read-staged-pagination'
-    token = current_session_id.set(session_id)
-    session = get_session(session_id)
-    session.worker_apply_mode = True
-    temp_path = None
-    try:
-        import tempfile
-
-        content = ''.join(f'line {i}\n' for i in range(1, 301))
-        with tempfile.NamedTemporaryFile('w', suffix='.txt', delete=False, encoding='utf-8') as fh:
-            fh.write(content)
-            temp_path = fh.name
-        session.pending_edit_stagings['big.txt'] = EditStagingEntry(
-            temp_path=temp_path,
-            old_text='',
-            merged_text=content,
-            disk_encoding='utf-8',
-            disk_newline='lf',
-            edit_mode='full-file',
-            workspace_applied=False,
-        )
-
-        out = read_staged_edit.invoke({'relative_path': 'big.txt', 'start_line': 281})
-        # The staged-edit header reports the requested (clamped) window rather than the actual excerpt
-        # length, but the body must contain the full run of lines through the end of the file—not just
-        # the single line 281 the pre-fix collapse would have returned.
-        for i in range(281, 301):
-            assert f'line {i}' in out
-    finally:
-        session.pending_edit_stagings.clear()
-        current_session_id.reset(token)
-        if temp_path:
-            import os
-
-            os.unlink(temp_path)

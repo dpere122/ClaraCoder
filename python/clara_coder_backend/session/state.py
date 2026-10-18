@@ -152,7 +152,6 @@ def prune_idle_sessions(*, now: float | None = None) -> list[str]:
     if not to_evict:
         return []
 
-    from clara_coder_backend.staging.staging_snapshot_session import cleanup_staging_snapshot_session
     from clara_coder_backend.workspace_index.lifecycle import invalidate_staging_index_disk
 
     loop: asyncio.AbstractEventLoop | None
@@ -171,11 +170,6 @@ def prune_idle_sessions(*, now: float | None = None) -> list[str]:
                 invalidate_staging_index_disk(sid)
             except Exception:
                 logger.debug('invalidate staging index on idle eviction failed', exc_info=True)
-            try:
-                # Cleanup may call get_session (e.g. LSP shutdown); pop only after that returns.
-                cleanup_staging_snapshot_session(sess, sid)
-            except Exception:
-                logger.debug('staging cleanup on idle eviction failed', exc_info=True)
             sessions.pop(sid, None)
             if loop is not None:
                 loop.create_task(_async_teardown_after_evict(sid))
@@ -194,11 +188,6 @@ def get_session(session_id: str) -> SessionState:
     return sess
 
 
-def direct_workspace_edits_active(session: SessionState, *, apply_mode: bool) -> bool:
-    """True when Editor and Auto-apply are both on: bind direct workspace mutators, not staging."""
-    return bool(apply_mode and session.auto_apply_mode)
-
-
 def agent_formatters_enabled() -> bool:
     """True when Settings → Tools allows Black/Prettier in the agent flow (auto + format tools)."""
     return bool(getattr(runtime_config.tools, 'enable_agent_formatters', False))
@@ -211,7 +200,7 @@ def mutation_tools_blocked_reason(session_id: str | None = None) -> str | None:
         return 'Tool error: no active session.'
     sess = get_session(sid)
     if not sess.worker_apply_mode:
-        return 'Tool error: Editor mode is off; workspace mutation and staging tools are unavailable.'
+        return 'Tool error: Editor mode is off; workspace mutation tools are unavailable.'
     return None
 
 

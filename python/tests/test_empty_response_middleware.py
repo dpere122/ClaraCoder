@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
-from clara_coder_backend.domain import EditStagingEntry, PendingStagedTransferHitl, RuntimeConnection
+from clara_coder_backend.domain import RuntimeConnection
 from clara_coder_backend.middleware.empty_response_middleware import (
     EmptyResponseNudgeMiddleware,
     empty_response_nudge_enabled,
@@ -36,7 +36,6 @@ async def test_empty_response_nudge_resets_after_tool_call() -> None:
     assert result == {
         'empty_response_nudge_streak': 0,
         'pseudo_tool_markup_nudge_streak': 0,
-        'staging_continuation_nudge_streak': 0,
     }
 
 
@@ -103,7 +102,6 @@ async def test_parseable_pseudo_tool_markup_does_not_nudge() -> None:
     assert result == {
         'empty_response_nudge_streak': 0,
         'pseudo_tool_markup_nudge_streak': 0,
-        'staging_continuation_nudge_streak': 0,
     }
 
 
@@ -147,163 +145,6 @@ async def test_prose_only_resets_pseudo_streak() -> None:
     assert result == {
         'empty_response_nudge_streak': 0,
         'pseudo_tool_markup_nudge_streak': 0,
-        'staging_continuation_nudge_streak': 0,
-    }
-
-
-async def test_prose_with_pending_staging_does_not_nudge_after_model() -> None:
-    middleware = EmptyResponseNudgeMiddleware()
-    session_id = 'empty-mw-staging-prose'
-    token = current_session_id.set(session_id)
-    session = get_session(session_id)
-    session.worker_apply_mode = True
-    session.auto_apply_mode = False
-    session.hitl_sse_queue = asyncio.Queue()
-    session.pending_edit_stagings['src/app.html'] = EditStagingEntry(
-        temp_path='/tmp/staged.html',
-        old_text='',
-        merged_text='<p>hi</p>\n',
-        disk_encoding='utf-8',
-        disk_newline='lf',
-        edit_mode='full-file',
-        workspace_applied=False,
-    )
-    try:
-        result = await middleware.aafter_model(
-            {
-                'messages': [AIMessage(content='Done staging.')],
-                'staging_continuation_nudge_streak': 0,
-            },
-            MagicMock(),
-        )
-        assert session.hitl_sse_queue.empty()
-    finally:
-        session.pending_edit_stagings.clear()
-        session.hitl_sse_queue = None
-        current_session_id.reset(token)
-
-    assert result == {
-        'empty_response_nudge_streak': 0,
-        'pseudo_tool_markup_nudge_streak': 0,
-        'staging_continuation_nudge_streak': 0,
-    }
-
-
-@patch('clara_coder_backend.middleware.empty_response_middleware.MAX_AGENT_STAGING_CONTINUATION_NUDGES', 2)
-async def test_legacy_staging_continuation_nudges_transfer() -> None:
-    middleware = EmptyResponseNudgeMiddleware()
-    session_id = 'empty-mw-staging-legacy'
-    token = current_session_id.set(session_id)
-    session = get_session(session_id)
-    session.worker_apply_mode = True
-    session.auto_apply_mode = False
-    session.hitl_sse_queue = asyncio.Queue()
-    session.pending_edit_stagings['src/app.html'] = EditStagingEntry(
-        temp_path='/tmp/staged.html',
-        old_text='',
-        merged_text='<p>hi</p>\n',
-        disk_encoding='utf-8',
-        disk_newline='lf',
-        edit_mode='full-file',
-        workspace_applied=False,
-    )
-    try:
-        result = await middleware.aafter_model(
-            {
-                'messages': [AIMessage(content='Done staging.')],
-                'staging_continuation_nudge_streak': 0,
-            },
-            MagicMock(),
-        )
-        queued = session.hitl_sse_queue.get_nowait()
-    finally:
-        session.pending_edit_stagings.clear()
-        session.hitl_sse_queue = None
-        current_session_id.reset(token)
-
-    assert result is not None
-    assert result.get('jump_to') == 'model'
-    assert result.get('staging_continuation_nudge_streak') == 1
-    assert 'transfer_staged_file_to_workspace' in result['messages'][0].content
-    assert 'Auto-apply is off' in result['messages'][0].content
-    assert queued == ('agent_nudge', {'reason': 'staging'})
-
-
-async def test_empty_after_stage_tool_does_not_nudge_do_not_call_tools() -> None:
-    middleware = EmptyResponseNudgeMiddleware()
-    session_id = 'empty-mw-staging-empty'
-    token = current_session_id.set(session_id)
-    session = get_session(session_id)
-    session.worker_apply_mode = True
-    session.auto_apply_mode = False
-    session.pending_edit_stagings['src/app.html'] = EditStagingEntry(
-        temp_path='/tmp/staged.html',
-        old_text='',
-        merged_text='<p>hi</p>\n',
-        disk_encoding='utf-8',
-        disk_newline='lf',
-        edit_mode='full-file',
-        workspace_applied=False,
-    )
-    try:
-        result = await middleware.aafter_model(
-            {
-                'messages': [
-                    ToolMessage(
-                        content='Staged `src/app.html` for review. Next: transfer_staged_file_to_workspace',
-                        tool_call_id='tool-1',
-                        name='stage_create_file',
-                    ),
-                    AIMessage(content=''),
-                ],
-                'staging_continuation_nudge_streak': 0,
-            },
-            MagicMock(),
-        )
-    finally:
-        session.pending_edit_stagings.clear()
-        current_session_id.reset(token)
-
-    assert result is None
-
-
-async def test_staging_continuation_skipped_when_transfer_hitl_pending() -> None:
-    middleware = EmptyResponseNudgeMiddleware()
-    session_id = 'empty-mw-staging-hitl'
-    token = current_session_id.set(session_id)
-    session = get_session(session_id)
-    session.worker_apply_mode = True
-    session.auto_apply_mode = False
-    session.pending_staged_transfer_hitl = PendingStagedTransferHitl(
-        request_id='hitl-test',
-        relative_paths=['src/app.html'],
-    )
-    session.pending_edit_stagings['src/app.html'] = EditStagingEntry(
-        temp_path='/tmp/staged.html',
-        old_text='',
-        merged_text='<p>hi</p>\n',
-        disk_encoding='utf-8',
-        disk_newline='lf',
-        edit_mode='full-file',
-        workspace_applied=False,
-    )
-    try:
-        result = await middleware.aafter_model(
-            {
-                'messages': [AIMessage(content='Done staging.')],
-                'staging_continuation_nudge_streak': 0,
-            },
-            MagicMock(),
-        )
-    finally:
-        session.pending_edit_stagings.clear()
-        session.pending_staged_transfer_hitl = None
-        current_session_id.reset(token)
-
-    assert result == {
-        'empty_response_nudge_streak': 0,
-        'pseudo_tool_markup_nudge_streak': 0,
-        'staging_continuation_nudge_streak': 0,
     }
 
 
@@ -348,42 +189,6 @@ async def test_gemma_preset_skips_empty_and_pseudo_tool_nudges(mock_conn: MagicM
 
 
 @patch('clara_coder_backend.session.state.get_active_connection')
-async def test_gemma_preset_skips_staging_continuation_nudge(mock_conn: MagicMock) -> None:
-    mock_conn.return_value = _conn(optimization_preset='gemma')
-    middleware = EmptyResponseNudgeMiddleware()
-    session_id = 'empty-mw-gemma-staging'
-    token = current_session_id.set(session_id)
-    session = get_session(session_id)
-    session.worker_apply_mode = True
-    session.auto_apply_mode = False
-    session.hitl_sse_queue = asyncio.Queue()
-    session.pending_edit_stagings['src/app.html'] = EditStagingEntry(
-        temp_path='/tmp/staged.html',
-        old_text='',
-        merged_text='<p>hi</p>\n',
-        disk_encoding='utf-8',
-        disk_newline='lf',
-        edit_mode='full-file',
-        workspace_applied=False,
-    )
-    try:
-        result = await middleware.aafter_model(
-            {
-                'messages': [AIMessage(content='Done staging.')],
-                'staging_continuation_nudge_streak': 0,
-            },
-            MagicMock(),
-        )
-        assert session.hitl_sse_queue.empty()
-    finally:
-        session.pending_edit_stagings.clear()
-        session.hitl_sse_queue = None
-        current_session_id.reset(token)
-
-    assert result is None
-
-
-@patch('clara_coder_backend.session.state.get_active_connection')
 async def test_qwen_preset_skips_empty_and_pseudo_tool_nudges(mock_conn: MagicMock) -> None:
     mock_conn.return_value = _conn(optimization_preset='qwen')
     middleware = EmptyResponseNudgeMiddleware()
@@ -404,40 +209,3 @@ async def test_qwen_preset_skips_empty_and_pseudo_tool_nudges(mock_conn: MagicMo
     )
     assert empty is None
     assert leftover is None
-
-
-@patch('clara_coder_backend.session.state.get_active_connection')
-@patch('clara_coder_backend.middleware.empty_response_middleware.MAX_AGENT_STAGING_CONTINUATION_NUDGES', 2)
-async def test_qwen_preset_skips_staging_continuation_nudge(mock_conn: MagicMock) -> None:
-    mock_conn.return_value = _conn(optimization_preset='qwen')
-    middleware = EmptyResponseNudgeMiddleware()
-    session_id = 'empty-mw-qwen-staging'
-    token = current_session_id.set(session_id)
-    session = get_session(session_id)
-    session.worker_apply_mode = True
-    session.auto_apply_mode = False
-    session.hitl_sse_queue = asyncio.Queue()
-    session.pending_edit_stagings['src/app.html'] = EditStagingEntry(
-        temp_path='/tmp/staged.html',
-        old_text='',
-        merged_text='<p>hi</p>\n',
-        disk_encoding='utf-8',
-        disk_newline='lf',
-        edit_mode='full-file',
-        workspace_applied=False,
-    )
-    try:
-        result = await middleware.aafter_model(
-            {
-                'messages': [AIMessage(content='Done staging.')],
-                'staging_continuation_nudge_streak': 0,
-            },
-            MagicMock(),
-        )
-        assert session.hitl_sse_queue.empty()
-    finally:
-        session.pending_edit_stagings.clear()
-        session.hitl_sse_queue = None
-        current_session_id.reset(token)
-
-    assert result is None

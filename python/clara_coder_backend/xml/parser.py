@@ -213,7 +213,7 @@ def resolve_xml_path(workspace_root: Path, relative_path: str) -> tuple[Path | N
         return None, 'relative_path is required'
     suffix = Path(cleaned).suffix.lower()
     if suffix == WSDL_EXTENSION:
-        return None, 'use wsdl_overview/search_wsdl/read_wsdl_section for `.wsdl` SOAP contracts'
+        return None, '`.wsdl` SOAP contracts use the WSDL reader (same `structured_*` tools)'
     if suffix not in XML_EXTENSIONS:
         allowed = ', '.join(sorted(XML_EXTENSIONS))
         return None, f'path must use a supported XML extension ({allowed})'

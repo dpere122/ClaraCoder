@@ -1,13 +1,11 @@
-"""LangChain tools for generic XML search-and-zoom reading."""
+"""Format backend (behind :mod:`clara_coder_backend.tools.structured_tools`) for generic XML search-and-zoom reading."""
 
 from __future__ import annotations
 
-from typing import Annotated
-
-from langchain_core.tools import tool
+from functools import lru_cache
+from pathlib import Path
 
 from clara_coder_backend.session.state import runtime_config
-from clara_coder_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from clara_coder_backend.xml.format import format_search_results, format_section_detail, format_xml_overview
 from clara_coder_backend.xml.namespaces import SEARCH_SCOPES
 from clara_coder_backend.xml.parser import (
@@ -18,9 +16,6 @@ from clara_coder_backend.xml.parser import (
     search_sections,
 )
 
-XML_OVERVIEW_NAME = 'xml_overview'
-SEARCH_XML_NAME = 'search_xml'
-READ_XML_SECTION_NAME = 'read_xml_section'
 
 _MAX_OUTPUT_CHARS = 80_000
 _MAX_SEARCH_MATCHES = 200
@@ -44,28 +39,26 @@ def _workspace_root():
     return get_active_workspace_root()
 
 
+@lru_cache(maxsize=16)
+def _cached_graph(root: str, target: str, rel_display: str, _mtime_ns: int, _size: int):
+    """Parse once per (file, mtime, size): overview → search → read on one file reuses the graph."""
+    return build_xml_graph(Path(root), Path(target), rel_display)
+
+
 def _load_graph(relative_path: str):
     root = _workspace_root()
     target, err = resolve_xml_path(root, relative_path)
     if err or target is None:
         return None, None, err
     rel_display = target.relative_to(root.resolve()).as_posix()
-    graph = build_xml_graph(root.resolve(), target, rel_display)
+    st = target.stat()
+    graph = _cached_graph(str(root.resolve()), str(target), rel_display, st.st_mtime_ns, st.st_size)
     if graph.parse_error:
         return None, rel_display, f'could not parse XML `{rel_display}`: {graph.parse_error}'
     return graph, rel_display, None
 
 
-@tool(XML_OVERVIEW_NAME, description=describe(
-        'Index a generic XML file by element paths (root, tree outline, node count).',
-        when='starting work on `.xml`/`.xsd`/`.xsl`/`.svg`/etc.; need structure before raw reads.',
-        not_='`.wsdl` SOAP contracts (use `wsdl_overview`); fuzzy file discovery (use `search_workspace`).',
-        shape=(
-            f'`relative_path` {RELATIVE_PATH} XML path. Returns `section_ref` values like `path:/root/child`. '
-            'Next: `search_xml` or `read_xml_section`.'
-        ),
-    ))
-def xml_overview(relative_path: Annotated[str, 'workspace-relative POSIX path']) -> str:
+def xml_overview(relative_path: str) -> str:
 
     graph, rel_display, err = _load_graph(relative_path)
     if err:
@@ -74,15 +67,8 @@ def xml_overview(relative_path: Annotated[str, 'workspace-relative POSIX path'])
     return _truncate_output(format_xml_overview(graph))
 
 
-@tool(SEARCH_XML_NAME, description=describe(
-        'Search indexed XML by element name, path, attribute, or text snippet (case-insensitive).',
-        when='locating nodes after `xml_overview`.',
-        not_='repo-wide file discovery; `.wsdl` (use `search_wsdl`).',
-        shape='`scope` one of all|elements|attributes|text. Returns `section_ref` for zoom. '
-        'Next: `read_xml_section(relative_path, section_ref)`.',
-    ))
 def search_xml(
-    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+    relative_path: str,
     query: str,
     scope: str = 'all',
     max_matches: int = 20,
@@ -107,15 +93,9 @@ def search_xml(
     return _truncate_output(out)
 
 
-@tool(READ_XML_SECTION_NAME, description=describe(
-        'Zoom into one XML element by `section_ref` (pretty-printed XML snippet).',
-        when='you have `section_ref` from `xml_overview` or `search_xml`.',
-        not_='first pass on unknown XML (use `xml_overview` first).',
-        shape='`section_ref` like `path:/Envelope/Body/GetCustomer` or `path:/root/item[2]`.',
-    ))
 def read_xml_section(
-    relative_path: Annotated[str, 'workspace-relative POSIX path'],
-    section_ref: Annotated[str, 'from *_overview or search_*'],
+    relative_path: str,
+    section_ref: str,
 ) -> str:
 
     graph, _rel_display, err = _load_graph(relative_path)
@@ -136,12 +116,9 @@ def read_xml_section(
         hint = ', '.join(known) if known else '(none indexed)'
         return (
             f'Tool note: section_ref `{section_ref}` not found. '
-            f'Run `xml_overview` or `search_xml`. Examples: {hint}'
+            f'Run `structured_overview` or `search_structured`. Examples: {hint}'
         )
 
     xml_body = render_section_xml(section)
     out = format_section_detail(graph, section, xml_body)
     return _truncate_output(out)
-
-
-XML_TOOLS = [xml_overview, search_xml, read_xml_section]

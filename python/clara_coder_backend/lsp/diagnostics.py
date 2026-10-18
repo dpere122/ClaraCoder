@@ -89,41 +89,20 @@ def indentation_followup_guidance(
         return ''
 
     rel = normalize_relative_posix_path(relative_path).lower()
-    scope = (lsp_scope or 'workspace').strip().lower()
     lines = [
         '',
         'Steer (indentation-like diagnostics detected):',
     ]
     formatters_on = agent_formatters_enabled()
-    if scope == 'staging':
-        if formatters_on and rel.endswith('.py'):
-            lines.append(
-                '- Call `format_staging_file_black` for this path, then `lsp_get_diagnostics` with '
-                '`refresh_active_document=true` on the same path to verify the on-disk draft.'
-            )
-        elif formatters_on and is_prettier_managed_path(rel):
-            lines.append(
-                '- Call `format_staging_file_prettier` for this path, then `lsp_get_diagnostics` with '
-                '`refresh_active_document=true` when the TypeScript/JavaScript server applies '
-                '(`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`); for `.html`/`.htm`/`.css`, use `read_staged_edit` '
-                'to verify the draft.'
-            )
-        else:
-            lines.append(
-                '- Fix whitespace with another accurate staging edit; refresh LSP for this path if the language '
-                'server is available.'
-            )
-    elif formatters_on and rel.endswith('.py'):
+    if formatters_on and rel.endswith('.py'):
         lines.append(
-            '- Black already ran on the merged `.py` text before this listing. If indentation errors remain, '
-            'correct the source and retry the workspace edit tool, or route the path through nested staging so '
-            '`format_staging_file_black` is available after each stage.'
+            '- Black already ran on the `.py` text before it was written. If indentation errors remain, '
+            'correct the source with another edit.'
         )
     elif formatters_on and is_prettier_managed_path(rel):
         lines.append(
-            '- Prettier already ran on merged text for this extension when the edit path used automatic formatting. '
-            'If indentation errors remain, correct the source and retry the workspace edit tool, or route through '
-            'nested staging so `format_staging_file_prettier` is available after each stage.'
+            '- Prettier already ran on this text before it was written. If indentation errors remain, correct the '
+            'source with another edit.'
         )
     else:
         lines.append(

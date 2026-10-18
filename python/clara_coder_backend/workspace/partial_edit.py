@@ -15,7 +15,7 @@ from clara_coder_backend.config import (
 
 __all__ = ['merge_partial_edit', 'line_range_edit_tool_feedback', 'snippet_unique_on_text']
 
-logger = logging.getLogger('clara.partial_workspace_edit')
+logger = logging.getLogger('clara.partial_edit')
 
 # Legacy read_workspace_file gutter "N: text"; current gutter uses U+2502 or ASCII "|" after padded line number.
 _LINE_NUMBER_LEGACY_COLON = re.compile(r'^(\d+):\s?(.*)$')
@@ -27,9 +27,8 @@ SNIPPET_FUZZY_MIN_LENGTH = 4
 _SNIPPET_DIAG_MAX_CHARS = 1600
 
 _LINE_RANGE_TOOL_HINT = (
-    'If you know line numbers from a numbered read, call `stage_line_range_edit` '
-    '(or `replace_workspace_line_range` in direct/auto-apply mode) with `start_line`/`end_line` '
-    'and `new_snippet` instead of retrying the snippet tool.'
+    'If you know line numbers from a numbered read, call `replace_workspace_lines` with `start_line`/`end_line` '
+    'instead of retrying the snippet tool.'
 )
 
 
@@ -393,7 +392,7 @@ def _snippet_replace(old_text: str, old_snippet: str, new_snippet: str) -> tuple
             None,
             'old_snippet looks like a partial paste of numbered read output (some lines have `N │` / `N |` / `N:` '
             'gutters, others do not). Re-copy the anchor with `include_line_numbers=false`, or call '
-            '`stage_line_range_edit` / `replace_workspace_line_range` with `start_line`/`end_line` instead.',
+            '`replace_workspace_lines` with `start_line`/`end_line` instead.',
         )
 
     dmp = diff_match_patch()

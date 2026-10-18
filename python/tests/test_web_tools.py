@@ -195,7 +195,7 @@ async def test_fetch_url_happy_path(enable_web) -> None:
     try:
         with (
             patch('clara_coder_backend.tools.fetch_url.assert_public_http_url', return_value=None),
-            patch('clara_coder_backend.tools.fetch_url.urllib.request.urlopen', return_value=_Resp()),
+            patch('clara_coder_backend.tools.fetch_url._OPENER.open', return_value=_Resp()),
         ):
             out = await fetch_url_tool.ainvoke({'url': 'https://example.com/page'})
     finally:
@@ -239,3 +239,15 @@ def test_maybe_await_hitl_presentation_for_web_search() -> None:
     assert pending is not None
     assert pending['title'] == 'Web search (SearXNG)'
     assert pending['command_text'] == 'q'
+
+
+def test_fetch_url_redirect_to_private_host_is_blocked_before_request() -> None:
+    import urllib.error
+
+    import pytest as _pytest
+
+    from clara_coder_backend.tools.fetch_url import _PublicOnlyRedirectHandler
+
+    handler = _PublicOnlyRedirectHandler()
+    with _pytest.raises(urllib.error.URLError):
+        handler.redirect_request(None, None, 302, 'Found', {}, 'http://127.0.0.1:8080/admin')

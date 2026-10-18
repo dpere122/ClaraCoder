@@ -23,10 +23,7 @@ from clara_coder_backend.workspace_index.incremental import (
     flush_semantic_index_patches,
     schedule_semantic_index_background,
 )
-from clara_coder_backend.tools.semantic import (
-    retrieve_workspace_checkpoint_semantic,
-    retrieve_workspace_semantic,
-)
+from clara_coder_backend.tools.semantic import retrieve_workspace_semantic
 from clara_coder_backend.workspace_index.walk import iter_index_workspace_files
 
 
@@ -136,35 +133,6 @@ def test_retrieve_workspace_semantic_invocation(tmp_path: Path, monkeypatch: pyt
     assert 'notes.md' in out
     assert 'frobnitz' in out.lower() or 'handler' in out.lower()
     assert 'no indexable workspace content' not in out
-    assert 'on-disk workspace index only' in out
-    assert 'read_workspace_file' in out
-
-
-def test_retrieve_workspace_checkpoint_semantic_invocation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from clara_coder_backend.tools import semantic as st
-
-    monkeypatch.setenv('CLARA_WORKSPACE_INDEX_DIR', str(tmp_path / 'semantic-root'))
-    (tmp_path / 'notes.md').write_text('# Project\nUse the frobnitz handler for IO.\n', encoding='utf-8')
-
-    def _fake_build(_connection: object) -> tuple[_FakeEmb, str]:
-        return _FakeEmb(), ''
-
-    monkeypatch.setattr(st, 'build_embedding_model', _fake_build)
-
-    sid = 'test-semantic-checkpoint-session'
-    sess = SessionState()
-    sess.workspace_path = str(tmp_path)
-    sess.workspace_id = 'ws-card-test'
-    from clara_coder_backend.session import state as st_state
-    st_state.sessions[sid] = sess
-    token = current_session_id.set(sid)
-    try:
-        out = retrieve_workspace_checkpoint_semantic.invoke({'query': 'frobnitz IO', 'top_k': 3})
-    finally:
-        current_session_id.reset(token)
-        st_state.sessions.pop(sid, None)
-
-    assert 'notes.md' in out
     assert 'on-disk workspace index only' in out
     assert 'read_workspace_file' in out
 

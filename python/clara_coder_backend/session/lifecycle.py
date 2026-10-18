@@ -6,8 +6,6 @@ import logging
 
 from clara_coder_backend.domain import SessionState
 from clara_coder_backend.session.checkpointing import delete_outer_threads_for_session
-from clara_coder_backend.session import state
-from clara_coder_backend.staging.staging_snapshot_session import cleanup_staging_snapshot_session
 from clara_coder_backend.workspace_index.lifecycle import invalidate_staging_index_disk
 
 logger = logging.getLogger('clara.session.lifecycle')
@@ -20,11 +18,7 @@ def clear_session_hitl_fields(sess: SessionState) -> None:
     grant (composer Admin chip), not a pending approval card.
     """
     hitl = sess.hitl
-    hitl.pending_diff_payload = None
-    hitl.pending_staged_transfer_hitl = None
-    hitl.pending_staged_transfer_batch_payload = None
     hitl.pending_delete_request = None
-    hitl.pending_copy_request = None
     hitl.pending_accept_command_request = None
     hitl.pending_plan_confirm_request = None
     hitl.plan_execute_aborted = False
@@ -41,7 +35,7 @@ def clear_session_hitl_fields(sess: SessionState) -> None:
 
 
 async def teardown_session(sid: str) -> None:
-    """Release staging, background commands, write jobs, and outer checkpoints for a session id.
+    """Release background commands and outer checkpoints for a session id.
 
     Does not mutate ``state.sessions`` — callers reset (``/clear``) or pop (``/dispose``).
     """
@@ -49,12 +43,7 @@ async def teardown_session(sid: str) -> None:
         invalidate_staging_index_disk(sid)
     except Exception:
         logger.debug('invalidate staging semantic index on teardown failed', exc_info=True)
-    sess = state.sessions.get(sid)
-    if sess is not None:
-        cleanup_staging_snapshot_session(sess, sid)
     from clara_coder_backend.tools.run_command import kill_session_background_commands
-    from clara_coder_backend.tools.write_jobs import cancel_session_write_jobs
 
     await kill_session_background_commands(sid)
-    await cancel_session_write_jobs(sid)
     await delete_outer_threads_for_session(sid)

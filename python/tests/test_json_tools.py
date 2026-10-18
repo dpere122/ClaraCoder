@@ -9,7 +9,7 @@ import pytest
 
 from clara_coder_backend.session.state import current_session_id, get_session
 from clara_coder_backend.json.parser import clear_json_cache_for_tests
-from clara_coder_backend.tools.json_tools import json_overview, read_json_section, search_json
+from clara_coder_backend.tools.structured_tools import read_structured_section, search_structured, structured_overview
 
 SAMPLE_JSON = """{
   "service": "customer-api",
@@ -59,14 +59,14 @@ def json_env():
 
 
 def test_json_overview_lists_paths(json_env) -> None:
-    out = json_overview.invoke({'relative_path': 'app.json'})
+    out = structured_overview.invoke({'relative_path': 'app.json'})
     assert 'Root type: object' in out
     assert 'config.host' in out
     assert 'users[0].name' in out
 
 
 def test_search_json_finds_key(json_env) -> None:
-    out = search_json.invoke(
+    out = search_structured.invoke(
         {'relative_path': 'app.json', 'query': 'host', 'scope': 'keys'}
     )
     assert 'section_ref=' in out
@@ -74,7 +74,7 @@ def test_search_json_finds_key(json_env) -> None:
 
 
 def test_read_json_section_returns_subtree(json_env) -> None:
-    out = read_json_section.invoke(
+    out = read_structured_section.invoke(
         {'relative_path': 'app.json', 'section_ref': 'path:users[0]'}
     )
     assert '"name": "Ada"' in out
@@ -82,24 +82,24 @@ def test_read_json_section_returns_subtree(json_env) -> None:
 
 
 def test_json_overview_jsonc(json_env) -> None:
-    out = json_overview.invoke({'relative_path': 'flags.jsonc'})
+    out = structured_overview.invoke({'relative_path': 'flags.jsonc'})
     assert 'enabled' in out
     assert 'retries' in out
 
 
 def test_json_missing_file(json_env) -> None:
-    out = json_overview.invoke({'relative_path': 'missing.json'})
+    out = structured_overview.invoke({'relative_path': 'missing.json'})
     assert 'not on the workspace disk' in out
 
 
 def test_json_invalid_extension(json_env) -> None:
     (json_env.root / 'data.txt').write_text('{}', encoding='utf-8')
-    out = json_overview.invoke({'relative_path': 'data.txt'})
-    assert 'supported JSON extension' in out
+    out = structured_overview.invoke({'relative_path': 'data.txt'})
+    assert 'not a structured file' in out
 
 
 def test_json_invalid_section_ref(json_env) -> None:
-    out = read_json_section.invoke(
+    out = read_structured_section.invoke(
         {'relative_path': 'app.json', 'section_ref': 'path:$missing'}
     )
     assert 'not found' in out

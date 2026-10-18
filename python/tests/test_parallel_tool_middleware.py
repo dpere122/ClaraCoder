@@ -20,25 +20,6 @@ def hitl_session_id() -> str:
     state.sessions.pop(sid, None)
 
 
-def test_parallel_disabled_when_worker_apply_and_not_auto_apply(hitl_session_id: str) -> None:
-    conn = RuntimeConnection(
-        id='c1',
-        name='c1',
-        provider='openai',
-        base_url='http://x',
-        model='m',
-        api_key='k',
-        parallel_tool_calls=True,
-    )
-    prev = state.runtime_config.active_connection_id
-    state.runtime_config.connections = [conn]
-    state.runtime_config.active_connection_id = conn.id
-    try:
-        assert _parallel_tool_calls_for_agent_request() is False
-    finally:
-        state.runtime_config.active_connection_id = prev
-
-
 def test_parallel_honored_when_auto_apply(hitl_session_id: str) -> None:
     state.get_session(hitl_session_id).auto_apply_mode = True
     conn = RuntimeConnection(

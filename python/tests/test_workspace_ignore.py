@@ -147,7 +147,7 @@ def test_search_workspace_uses_grep_when_available(workspace_session: Path, monk
         del kwargs
         seen.append(tuple(candidate.display_path for candidate in candidates))
         assert query == 'needle'
-        return [SearchLineMatch(display_path='keep.py', line_number=1)]
+        return [SearchLineMatch(display_path='keep.py', line_number=1, text='needle here')]
 
     # Prefer the candidate/line-search path (recursive rg/grep is covered elsewhere).
     monkeypatch.setattr(

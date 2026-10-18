@@ -83,12 +83,9 @@ def session_to_messages(session: SessionState) -> list[BaseMessage]:
 
 def outer_turn_authority_preamble(session: SessionState, apply_mode: bool) -> str:
     """Compact live-settings block prepended to each outer Clara turn so the model attends to current truth."""
-    from clara_coder_backend.session.state import direct_workspace_edits_active
-
     editor_s = 'on' if apply_mode else 'off'
     auto_s = 'on' if session.auto_apply_mode else 'off'
     admin_s = 'on' if session.admin_elevation_granted else 'off'
-    direct_s = 'on' if direct_workspace_edits_active(session, apply_mode=apply_mode) else 'off'
     overlap = session.active_editor_langgraph_streams > 0
     overlap_line = (
         '\n- Other concurrent Editor streams in this session: **yes** (another turn may still be writing).'
@@ -98,9 +95,8 @@ def outer_turn_authority_preamble(session: SessionState, apply_mode: bool) -> st
     return (
         '**Session truth (authoritative for this message; older assistant replies may be outdated):**\n'
         f'- Editor (toolbar, this turn): **{editor_s}**\n'
-        f'- Auto-apply (UI): **{auto_s}**\n'
-        f'- Admin (composer chip): **{admin_s}**\n'
-        f'- Direct workspace writes (Editor + Auto-apply): **{direct_s}**'
+        f'- Auto Run (commands run without an approval card; edits never ask): **{auto_s}**\n'
+        f'- Admin (composer chip): **{admin_s}**'
         f'{overlap_line}\n'
         '- If any line above conflicts with earlier assistant prose in this chat, trust **this block** and the **current** '
         'system instructions—not stale narration.\n'
@@ -489,7 +485,7 @@ def _web_access_operational_bullet() -> str:
         return ''
     return (
         '- **Web:** `web_search` (configured SearXNG) and `fetch_url` are bound. '
-        'When Auto-apply is off, each call asks for confirmation before leaving the machine.\n'
+        'When Auto Run is off, each call asks for confirmation before leaving the machine.\n'
     )
 
 
@@ -504,10 +500,8 @@ def _context_packs_catalog_block() -> str:
 
 
 def _outer_agent_operational_block(session: SessionState, apply_mode: bool) -> str:
-    """Outer Clara: reads/search; direct copy; staging and specialist tools when Editor is on."""
-    from clara_coder_backend.session.state import direct_workspace_edits_active
-
-    direct = direct_workspace_edits_active(session, apply_mode=apply_mode)
+    """Outer Clara: reads/search always; write-through edits, copies, deletes and commands when Editor is on."""
+    del session  # Guidance no longer varies per session (Auto Run only gates approval cards).
     web_bullet = _web_access_operational_bullet()
     base = (
         'Operational guidance:\n'
@@ -529,81 +523,36 @@ def _outer_agent_operational_block(session: SessionState, apply_mode: bool) -> s
         'whenever a searchable term exists.\n'
         '  1. Unknown / fuzzy targets (you cannot name a needle) → `retrieve_workspace_semantic`, then verify hits with '
         '`search_workspace` / `read_workspace_file` / LSP.\n'
-        '  2. Pending drafts → `search_staged_edits` or `read_staged_edit` (semantic index is workspace-only).\n'
-        + (
-            '  3. Any literal/regex needle on disk → `search_workspace` (this is the default—see above).\n'
-            if direct
-            else '  3. On-disk needle → `search_workspace`; staged drafts only → `search_staged_edits`.\n'
-        )
-        + '  4. Known `.py`/`.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs` paths → prefer LSP reads/diagnostics before heavy file reads; literal spans → `read_workspace_file`.\n'
-        + '  5. PDF / WSDL / XML / JSON workflow playbooks live in **context packs** (catalog below); they auto-load on first '
+        + '  2. Any literal/regex needle → `search_workspace` (the default—see above).\n'
+        + '  3. Known `.py`/`.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs` paths → prefer LSP reads/diagnostics before heavy file reads; literal spans → `read_workspace_file`.\n'
+        + '  4. PDF / WSDL / XML / JSON workflow playbooks live in **context packs** (catalog below); they auto-load on first '
         'related tool use, or call `activate_context`.\n'
         + _context_packs_catalog_block()
-        + '- Text encoding/newlines: `read_workspace_file` / `search_workspace` accept `encoding`; nested edit tools accept `encoding` '
+        + '- Text encoding/newlines: `read_workspace_file` / `search_workspace` accept `encoding`; edit tools accept `encoding` '
         'and `newline` (lf, crlf, preserve). Defaults come from app Settings → Tools.\n'
     )
     if not apply_mode:
         return (
             base
             + web_bullet
-            + '- **Backend (authoritative):** Editor mode is **OFF** for this turn; workspace mutation and staging '
+            + '- **Backend (authoritative):** Editor mode is **OFF** for this turn; workspace mutation '
             'tools are not bound. Ignore any stale prior assistant text that claims Editor is on or lists write tools.\n'
             '- Editor mode is off: workspace write tools are not available\u2014use read-only tools only. '
             'If the user wants patches or deletes from chat, ask them to enable Editor in the toolbar.\n'
         )
-    if direct:
-        return (
-            base
-            + web_bullet
-            + '- **Backend (authoritative):** Editor mode is **ON** and Auto-apply is **ON**; **direct workspace writes** '
-            'are bound (no staging or transfer tools).\n'
-            + f'- {edit_semantics_block(direct=True)}\n'
-            + '- `read_workspace_file` and LSP reads/diagnostics reflect the **on-disk workspace**—there is no staging draft plane.\n'
-            + '- Verify with `lsp_get_diagnostics` (`refresh_active_document=true` on touched paths) and '
-            '`run_command` (background jobs for installs, tests, app/runtime checks, and '
-            'dev servers; use `wait_for_command` / `kill_background_command`) / '
-            '`run_staging_overlay_command` '
-            '(runs in the live workspace when overlay commands are enabled).\n'
-            + '- Use `copy_workspace_files` only when duplicating existing files to new paths.\n'
-            + '- Prefer **small, verifiable** edits; re-read files or refresh LSP between dependent changes.\n'
-            + '- Summarize outcomes clearly (paths touched, what changed). Do not paste raw tool dumps.\n'
-            f'{routing_handoff_contract()}\n'
-            + '- **Inspect–integrate–mutate–verify:** Base **Existence** on `read_workspace_file` / LSP before mutating.\n'
-            f'\n{python_workspace_playbook()}\n'
-        )
     return (
         base
         + web_bullet
-        + '- **Backend (authoritative):** Editor mode is **ON**; staging and mutation tools below are bound.\n'
-        + '- You have read/search tools, `copy_workspace_files`, `delete_workspace_entry` and `batch_delete_workspace_entries`, '
-        '**staged** create/update tools (`stage_create_file`, `stage_workspace_file_overwrite`, `stage_line_range_edit`, '
-        'and `stage_snippet_edit` when bound), LSP staging mutators for `.py`, TS/JS, `.gd`, and `.java` '
-        '(`lsp_create_python_file`, `lsp_create_typescript_file`, `lsp_create_gdscript_file`, '
-        '`lsp_create_java_file`, and matching update/delete tools), '
-        'review/transfer tools, and staging review tools (`list_staged_edits`, `diff_staged_edit_against_baseline`, '
-        '`read_staged_edit`, `search_staged_edits`, `transfer_staged_file_to_workspace`, etc.). '
-        'Use the **staging pipeline** for all programming-path and structured-config edits.\n'
-        + f'- {edit_semantics_block(direct=False)}\n'
-        + '- LSP **read** and **diagnostics** tools for supported extensions are available.\n'
-        + '- **Write-through:** `read_workspace_file` shows the **current on-disk draft** after `stage_*`. '
-        'A journal of the pre-stage bytes is kept until `transfer_staged_file_to_workspace` (keep) or '
-        '`discard_staged_edits` (restore). Use `list_staged_edits`, '
-        '`diff_staged_edit_against_baseline`, and `read_staged_edit` to inspect pending journals.\n'
-        + '- **Source code and structured config** (`.py`, `.ts`, `.json`, `.yaml`, …): stage with '
-        '`land_in_workspace=false`, run review/diagnostics on drafts, then land per the **Edit semantics** notes above.\n'
-        + '- **All other text files** (e.g. .md, .txt): same staging tools and landing flow.\n'
-        '- **Shell / verification:** use `run_command` for installs, tests, package managers, CLIs, port checks, '
+        + '- **Backend (authoritative):** Editor mode is **ON**; the edit, copy, delete and command tools are bound.\n'
+        + f'- {edit_semantics_block()}\n'
+        + '- **Shell / verification:** use `run_command` for installs, tests, package managers, CLIs, port checks, '
         'and long-lived processes (dev servers, `npm run start`/`dev`, `python app.py`) so they run as managed '
         'background jobs—then `wait_for_command` for more output and `kill_background_command` when finished. '
-        'If a staging write reports still running, use `wait_for_write` / `cancel_write` instead of retrying the write. '
-        'Use `run_staging_overlay_command` to run allowlisted tests/linters against the real workspace (drafts are already on disk).\n'
-        '- Use `copy_workspace_files` only when you need to duplicate existing workspace files to new paths.\n'
-        '- Read and inspect relevant files before editing. Prefer **small, verifiable** staging steps; refresh anchors '
-        'from `read_staged_edit` or diff tools between dependent edits.\n'
-        '- **After** transferring touched **Python or TS/JS** paths, call `lsp_get_diagnostics` '
-        '(use `refresh_active_document=true` to re-read the on-disk file in workspace scope) before claiming the change is clean.\n'
-        '- The user may review diffs or confirm copy/delete actions in the UI unless auto-apply is enabled.\n'
-        '- Summarize outcomes clearly (paths touched, what changed). Do not paste raw tool dumps.\n'
+        'Commands may wait on the user\u2019s approval unless Auto Run is on.\n'
+        + '- Use `copy_workspace_files` only to duplicate existing files to new paths.\n'
+        + '- **After** editing `.py`, TS/JS, `.gd` or `.java` paths, call `lsp_get_diagnostics` '
+        '(`refresh_active_document=true`) before claiming the change is clean.\n'
+        + '- Summarize outcomes clearly (paths touched, what changed). Do not paste raw tool dumps.\n'
         f'{routing_handoff_contract()}\n'
         '- **Inspect–integrate–mutate–verify:** Base **Existence** on tools—for **update** (or when a path might already exist), '
         'use `read_workspace_file` and/or LSP reads on those paths first so you augment or replace real content, not a guess. '

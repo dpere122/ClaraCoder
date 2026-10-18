@@ -14,49 +14,6 @@ from typing import Any
 
 
 @dataclass
-class EditStagingEntry:
-    """Pending write-through edit: current bytes are on the real workspace file; ``old_text`` is the undo journal."""
-
-    #: Unused leftover (was a sidecar draft path). Write-through keeps the draft on the workspace file.
-    temp_path: str = ''
-    #: Workspace bytes from the first stage on this path in the current chain (restore baseline).
-    old_text: str = ''
-    #: Last staged/formatted text (also written to the workspace file until discard restores ``old_text``).
-    merged_text: str = ''
-    disk_encoding: str = 'utf-8'
-    #: ``lf`` or ``crlf`` for disk writes.
-    disk_newline: str = 'lf'
-    #: ``full-file`` | ``line-range`` | ``snippet``
-    edit_mode: str = 'full-file'
-    #: True once transfer/HITL keep dropped the journal (discard must not restore).
-    workspace_applied: bool = False
-    #: Whether the workspace file existed on disk before this staged edit (empty files count as existed).
-    before_existed: bool = True
-
-
-@dataclass
-class WorkspaceTestMaterializationEntry:
-    """Legacy alias for a journal snapshot; write-through uses :class:`EditStagingEntry.old_text`."""
-
-    existed: bool
-    original_text: str
-    disk_encoding: str
-    #: ``lf`` or ``crlf`` for disk writes.
-    disk_newline: str
-
-
-@dataclass
-class PendingStagedTransferHitl:
-    """While user reviews staged→workspace transfer(s) in the chat diff UI (auto_apply off)."""
-
-    request_id: str
-    relative_paths: list[str]
-    #: path -> ``confirm`` | ``re_review`` once the user decides per file.
-    resolved: dict[str, str] = field(default_factory=dict)
-    feedback: dict[str, str] = field(default_factory=dict)
-
-
-@dataclass
 class SessionWorkspaceState:
     """Workspace attachment, semantic index batching, and Python env resolution."""
 
@@ -90,16 +47,8 @@ class SessionWorkspaceState:
 class SessionHitlState:
     """Human-in-the-loop pause fields, pending approvals, and SSE bridging."""
 
-    # Set by workspace edit tools; consumed by SSE diff event after tool success.
-    pending_diff_payload: dict | None = None
-    # Staged transfer awaiting human confirm (``transfer_staged_file_to_workspace`` / approve when auto_apply off).
-    pending_staged_transfer_hitl: PendingStagedTransferHitl | None = None
-    # Batch diff payloads for staged transfer HITL; consumed by SSE ``staged_transfer_batch``.
-    pending_staged_transfer_batch_payload: dict | None = None
-    # Set by delete_workspace_entry when auto_apply is false; cleared after confirm/cancel via agent-continue.
+    # Set by delete_workspace_entries for a directory too large to journal; cleared after confirm/cancel.
     pending_delete_request: dict | None = None
-    # Set by copy_workspace_files when auto_apply is false; cleared after confirm/cancel via agent-continue.
-    pending_copy_request: dict | None = None
     # Generic HITL command approval request (for example, deferred Python dependency actions).
     pending_accept_command_request: dict | None = None
     #: True after the composer Admin chip HITL; not cleared on ``/load``.
@@ -127,17 +76,13 @@ class SessionHitlState:
 
 
 @dataclass
-class SessionStagingState:
-    """Write-through journals for staged paths (undo until transfer keep)."""
+class SessionEditJournalState:
+    """Per-turn record of which paths already have a pre-edit journal row (edits write straight to disk)."""
 
-    # Nested create/update: keyed by workspace-relative POSIX path; cleared on approve/reject or planning error.
-    pending_edit_stagings: dict[str, EditStagingEntry] = field(default_factory=dict)
-    # Unused snapshot namespace (full-tree mirrors are no longer seeded in production).
-    active_staging_snapshot_id: str = ''
-    # Unused snapshot root (full-tree mirrors are no longer seeded in production).
-    active_staging_snapshot_root: str = ''
-    # Legacy map; write-through journals live on ``pending_edit_stagings``.
-    test_run_materializations: dict[str, WorkspaceTestMaterializationEntry] = field(default_factory=dict)
+    #: ``current_user_message_id`` the ``journaled_paths`` set belongs to; a new turn resets the set.
+    journal_turn_id: str = ''
+    #: Workspace-relative POSIX paths whose pre-turn bytes were already journaled this turn.
+    journaled_paths: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -172,7 +117,7 @@ class SessionLspState:
 class SessionStreamState:
     """Streaming flags, nested LangGraph workers, and abort signaling."""
 
-    # Live mirror of the UI toggle; POST /session/auto-apply updates this during an in-flight stream.
+    # Live mirror of the Auto Run toggle (skips command/web/MCP approval cards); POST /session/auto-apply updates it.
     auto_apply_mode: bool = False
     #: Concurrent :func:`~clara_coder_backend.lang_agent.graph._stream_langgraph_tool_agent` runs per session (nested SSE workers).
     active_langgraph_agent_streams: int = 0
@@ -226,7 +171,7 @@ def _nest_prop(nest: str, attr: str):
 _NEST_CLASSES: dict[str, type] = {
     'workspace': SessionWorkspaceState,
     'hitl': SessionHitlState,
-    'staging': SessionStagingState,
+    'edits': SessionEditJournalState,
     'lsp': SessionLspState,
     'stream': SessionStreamState,
     'plans': SessionPlanState,
@@ -245,7 +190,7 @@ class SessionState:
     last_touched: float
     workspace: SessionWorkspaceState
     hitl: SessionHitlState
-    staging: SessionStagingState
+    edits: SessionEditJournalState
     lsp: SessionLspState
     stream: SessionStreamState
     plans: SessionPlanState

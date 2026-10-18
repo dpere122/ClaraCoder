@@ -9,7 +9,7 @@ import pytest
 
 from clara_coder_backend.session.state import current_session_id, get_session
 from clara_coder_backend.wsdl.parser import clear_wsdl_cache_for_tests
-from clara_coder_backend.tools.wsdl_tools import read_wsdl_section, search_wsdl, wsdl_overview
+from clara_coder_backend.tools.structured_tools import read_structured_section, search_structured, structured_overview
 MINIMAL_WSDL = """<?xml version="1.0"?>
 <definitions xmlns="http://schemas.xmlsoap.org/wsdl/"
              xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/"
@@ -120,7 +120,7 @@ def wsdl_env():
 
 
 def test_wsdl_overview_lists_core_sections(wsdl_env) -> None:
-    out = wsdl_overview.invoke({'relative_path': 'service.wsdl'})
+    out = structured_overview.invoke({'relative_path': 'service.wsdl'})
     assert 'CustomerService' in out
     assert 'section_ref=service:CustomerService' not in out
     assert 'service:CustomerService' in out
@@ -132,7 +132,7 @@ def test_wsdl_overview_lists_core_sections(wsdl_env) -> None:
 
 
 def test_search_wsdl_finds_operation(wsdl_env) -> None:
-    out = search_wsdl.invoke(
+    out = search_structured.invoke(
         {'relative_path': 'service.wsdl', 'query': 'GetCustomer', 'scope': 'operations'}
     )
     assert 'section_ref=' in out
@@ -140,7 +140,7 @@ def test_search_wsdl_finds_operation(wsdl_env) -> None:
 
 
 def test_read_wsdl_section_returns_xml(wsdl_env) -> None:
-    out = read_wsdl_section.invoke(
+    out = read_structured_section.invoke(
         {
             'relative_path': 'service.wsdl',
             'section_ref': 'operation:CustomerPortType/GetCustomer',
@@ -152,13 +152,13 @@ def test_read_wsdl_section_returns_xml(wsdl_env) -> None:
 
 
 def test_read_wsdl_section_message_and_type(wsdl_env) -> None:
-    msg_out = read_wsdl_section.invoke(
+    msg_out = read_structured_section.invoke(
         {'relative_path': 'service.wsdl', 'section_ref': 'message:GetCustomerRequest'}
     )
     assert 'message:GetCustomerRequest' in msg_out
     assert 'GetCustomerRequest' in msg_out
 
-    type_out = read_wsdl_section.invoke(
+    type_out = read_structured_section.invoke(
         {'relative_path': 'service.wsdl', 'section_ref': 'type:CustomerType'}
     )
     assert 'type:CustomerType' in type_out
@@ -166,41 +166,41 @@ def test_read_wsdl_section_message_and_type(wsdl_env) -> None:
 
 
 def test_wsdl_import_indexes_imported_type(wsdl_env) -> None:
-    out = wsdl_overview.invoke({'relative_path': 'imported/main.wsdl', 'import_depth': 1})
+    out = structured_overview.invoke({'relative_path': 'imported/main.wsdl', 'import_depth': 1})
     assert 'imported/types/types.xsd' in out
     assert 'type:ImportedType' in out
 
-    search_out = search_wsdl.invoke(
+    search_out = search_structured.invoke(
         {'relative_path': 'imported/main.wsdl', 'query': 'ImportedType', 'scope': 'types'}
     )
     assert 'type:ImportedType' in search_out
 
 
 def test_wsdl_missing_file(wsdl_env) -> None:
-    out = wsdl_overview.invoke({'relative_path': 'missing.wsdl'})
+    out = structured_overview.invoke({'relative_path': 'missing.wsdl'})
     assert 'not on the workspace disk' in out
 
 
 def test_wsdl_non_wsdl_extension(wsdl_env) -> None:
     (wsdl_env.root / 'notes.txt').write_text('hello', encoding='utf-8')
-    out = wsdl_overview.invoke({'relative_path': 'notes.txt'})
-    assert 'must end with .wsdl' in out
+    out = structured_overview.invoke({'relative_path': 'notes.txt'})
+    assert 'not a structured file' in out
 
 
 def test_wsdl_invalid_section_ref(wsdl_env) -> None:
-    out = read_wsdl_section.invoke(
+    out = read_structured_section.invoke(
         {'relative_path': 'service.wsdl', 'section_ref': 'not-a-valid-ref'}
     )
     assert 'invalid `section_ref`' in out
 
 
 def test_wsdl_unknown_section_ref(wsdl_env) -> None:
-    out = read_wsdl_section.invoke(
+    out = read_structured_section.invoke(
         {'relative_path': 'service.wsdl', 'section_ref': 'operation:Missing/Op'}
     )
     assert 'not found' in out
 
 
 def test_wsdl_path_escape_blocked(wsdl_env) -> None:
-    out = wsdl_overview.invoke({'relative_path': '../outside.wsdl'})
+    out = structured_overview.invoke({'relative_path': '../outside.wsdl'})
     assert 'outside the active workspace' in out

@@ -137,7 +137,7 @@ def test_prune_idle_sessions_is_reentrant_when_cleanup_calls_get_session(
 
     from clara_coder_backend.domain import SessionState
     from clara_coder_backend.session import state
-    from clara_coder_backend.staging import staging_snapshot_session
+    from clara_coder_backend.workspace_index import lifecycle as index_lifecycle
 
     state.sessions.clear()
     state.current_session_id.set('')
@@ -149,12 +149,12 @@ def test_prune_idle_sessions_is_reentrant_when_cleanup_calls_get_session(
 
     cleanup_calls: list[str] = []
 
-    def _cleanup_via_get_session(_sess: SessionState, sid: str) -> None:
+    def _cleanup_via_get_session(sid: str) -> None:
         cleanup_calls.append(sid)
-        # Mirrors LSP shutdown during eviction: re-enters get_session while pruning.
+        # Eviction cleanup that re-enters get_session while pruning.
         state.get_session(sid)
 
-    monkeypatch.setattr(staging_snapshot_session, 'cleanup_staging_snapshot_session', _cleanup_via_get_session)
+    monkeypatch.setattr(index_lifecycle, 'invalidate_staging_index_disk', _cleanup_via_get_session)
     try:
         fresh = state.get_session('fresh')
         assert fresh is state.sessions['fresh']

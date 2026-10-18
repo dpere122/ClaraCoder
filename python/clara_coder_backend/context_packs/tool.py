@@ -21,7 +21,7 @@ ACTIVATE_CONTEXT_NAME = 'activate_context'
             'Packs also auto-activate on first matching tool use.'
         ),
         not_='re-reading tool schemas (bound tools already describe args).',
-        shape='`pack_id` e.g. pdf|wsdl|xml|json. Unknown ids list available packs.',
+        shape='`pack_id` e.g. pdf|wsdl|xml|json|theme; unknown ids list available packs',
     ),
 )
 def activate_context(pack_id: Annotated[str, 'context pack id from the system catalog']) -> str:

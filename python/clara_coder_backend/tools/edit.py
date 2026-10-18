@@ -1,33 +1,26 @@
-"""LangChain tools: propose workspace edits via separate full-file, line-range, and optional snippet tools.
+"""Workspace edit tools. Every edit is written straight to disk.
 
-When the session's :attr:`~clara_coder_backend.domain.SessionState.auto_apply_mode` is true, successful proposals are written
-immediately under the workspace root and no ``pending_diff_payload`` is stored.
+There is no staging or landing step. The first mutation of each path in a turn is journaled (the pre-turn
+bytes) via :mod:`clara_coder_backend.session.file_journal`. Electron keeps those rows per turn, so the user
+reviews the turn's edited files after the reply and can reset any of them. Auto Run does not apply to edits.
 
-**Future edit-capable tools:** must respect Editor mode (``apply_mode`` when binding tools), ``SessionState.auto_apply_mode``,
-and the diff / pause contract in :mod:`clara_coder_backend.composer` (see :func:`clara_coder_backend.hitl.tool_registry.hitl_diff_pause_tools`).
+Each write runs the in-memory formatter (Black / Prettier, when enabled in Settings → Tools), writes the file,
+journals it, and syncs the language server. The result ends with the post-edit diagnostics footer.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Annotated, Any
 
 from langchain_core.tools import tool
 
-from clara_coder_backend.staging.diff_payload import build_file_diff_payload
-from clara_coder_backend.domain import EditStagingEntry, SessionState
-from clara_coder_backend.staging.edit_staging import format_python_source_str, format_source_via_prettier
 from clara_coder_backend.lsp.diagnostics import post_edit_checks_footer
-from clara_coder_backend.lsp.file_policy import (
-    is_lsp_managed_path,
-    is_prettier_managed_path,
-    lsp_server_for_path,
-    outer_workspace_edit_guard_error,
-)
+from clara_coder_backend.lsp.file_policy import is_lsp_managed_path, is_prettier_managed_path, lsp_server_for_path
 from clara_coder_backend.lsp.manager import sync_session_document
-from clara_coder_backend.staging.partial_workspace_edit import line_range_edit_tool_feedback, merge_partial_edit
 from clara_coder_backend.session.file_journal import emit_edit_journal
-from clara_coder_backend.session.pause import stage_hitl_request
 from clara_coder_backend.session.state import (
     agent_formatters_enabled,
     current_session_id,
@@ -35,6 +28,11 @@ from clara_coder_backend.session.state import (
     mutation_tools_blocked_reason,
     runtime_config,
 )
+from clara_coder_backend.domain import SessionState
+from clara_coder_backend.tools.tool_conventions import ONE_BASED, RELATIVE_PATH, VERIFY_LSP, describe, tool_output_cap
+from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
+from clara_coder_backend.workspace.formatters import format_python_source_str, format_source_via_prettier
+from clara_coder_backend.workspace.partial_edit import line_range_edit_tool_feedback, merge_partial_edit
 from clara_coder_backend.workspace.workspace_text_io import (
     DiskNewline,
     NewlineMode,
@@ -44,16 +42,30 @@ from clara_coder_backend.workspace.workspace_text_io import (
     validate_workspace_encoding,
     write_file_resolved,
 )
-from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path, truncate_text_head_tail
 
 logger = logging.getLogger('clara.tools.edit')
 
+WRITE_WORKSPACE_FILE_NAME = 'write_workspace_file'
+REPLACE_WORKSPACE_LINES_NAME = 'replace_workspace_lines'
+REPLACE_WORKSPACE_SNIPPET_NAME = 'replace_workspace_snippet'
+FORMAT_WORKSPACE_FILE_NAME = 'format_workspace_file'
+
+_DIAGNOSTICS_FOOTER_MAX_CHARS = 14_000
+
+_ENCODING_HINT = 'empty = Settings default'
+_NEWLINE_HINT = 'lf | crlf | preserve (match existing); empty = Settings default'
+
 __all__ = [
-    'apply_workspace_full_file',
-    'replace_workspace_line_range',
+    'FORMAT_WORKSPACE_FILE_NAME',
+    'REPLACE_WORKSPACE_LINES_NAME',
+    'REPLACE_WORKSPACE_SNIPPET_NAME',
+    'WRITE_WORKSPACE_FILE_NAME',
+    'edit_tools',
+    'format_workspace_file',
+    'replace_workspace_lines',
     'replace_workspace_snippet',
-    'edit_tools_for_strict',
-    'finalize_staged_edit',
+    'write_workspace_file',
+    'write_workspace_text',
 ]
 
 
@@ -71,373 +83,261 @@ def _tool_newline_param(newline: str) -> NewlineMode:
     return parse_newline_mode(raw)
 
 
-def _finalize_workspace_edit(
-    session: SessionState,
-    rel_display: str,
-    old_text: str,
-    merged: str,
-    mode: str,
-    disk_encoding: str,
-    disk_newline: DiskNewline,
-    *,
-    before_existed: bool,
-) -> str:
-    payload, err = build_file_diff_payload(
-        rel_display,
-        old_text,
-        merged,
-        disk_encoding=disk_encoding,
-        disk_newline=disk_newline,
-    )
-    if err:
-        return f'Tool error: {err}'
-
-    if session.auto_apply_mode:
-        try:
-            root = get_active_workspace_root()
-            target = normalize_relative_path(root, rel_display)
-            write_file_resolved(target, merged, disk_encoding, disk_newline)
-            emit_edit_journal(
-                session,
-                rel_display,
-                old_text,
-                before_existed=before_existed,
-                encoding=disk_encoding,
-                newline=disk_newline,
-            )
-        except UnicodeEncodeError as uexc:
-            logger.warning('auto-apply encode failed path=%s err=%s', rel_display, uexc)
-            session.pending_diff_payload = None
-            return (
-                f'Tool error: content cannot be encoded as {disk_encoding!r} ({uexc}). '
-                'Adjust characters or choose another encoding.'
-            )
-        except Exception as wexc:
-            logger.warning('auto-apply write failed path=%s err=%s', rel_display, wexc)
-            session.pending_diff_payload = None
-            return f'Tool error: auto-apply failed: {wexc}'
-        session.pending_diff_payload = None
-        n_rows = len(payload['rows'])
-        trunc = payload.get('truncated')
-        summary_bits = [
-            f'Auto-applied {mode} edit for `{rel_display}` ({n_rows} diff row(s) in preview; file written on disk).'
-        ]
-        if trunc:
-            summary_bits.append('Diff rows were truncated for display.')
-        return ' '.join(summary_bits)
-
-    stage_hitl_request(session, 'pending_diff_payload', payload)
-
-    n_rows = len(payload['rows'])
-    trunc = payload.get('truncated')
-
-    summary_bits = [f'Proposed {mode} edit for `{rel_display}`: {n_rows} diff row(s).']
-    if trunc:
-        summary_bits.append('Diff rows were truncated for display; content in the viewer may be partial.')
-    summary_bits.append('The user can review the diff in the chat and apply it (e.g. Accept change / Apply entire file).')
-    return ' '.join(summary_bits)
+@dataclass
+class _EditTarget:
+    session: SessionState
+    session_id: str
+    rel: str
+    path: Path
+    old_text: str
+    encoding: str
+    newline: DiskNewline
+    existed: bool
 
 
-def finalize_staged_edit(session: SessionState, rel_display: str, entry: EditStagingEntry) -> str:
-    """Apply a staged merged file through the normal diff/auto-apply path (used by code review transfer flow)."""
-    nl: DiskNewline = 'crlf' if entry.disk_newline == 'crlf' else 'lf'
-    return _finalize_workspace_edit(
-        session,
-        rel_display,
-        entry.old_text,
-        entry.merged_text,
-        entry.edit_mode,
-        entry.disk_encoding,
-        nl,
-        before_existed=entry.before_existed,
-    )
-
-
-def _after_merge_workspace_edit(
-    session: SessionState,
-    rel_display: str,
-    old_text: str,
-    merged: str,
-    mode: str,
-    disk_encoding: str,
-    disk_newline: DiskNewline,
-    *,
-    before_existed: bool,
-    formatter_lines: list[str] | None = None,
-) -> str:
-    """Finalize a workspace edit via diff or auto-apply (staging is handled by dedicated staging tools)."""
-    fl = list(formatter_lines or [])
-    if not fl:
-        fl = ['Formatter: (no automatic formatter for this extension in workspace edit tools).']
-
-    diagnostics_note = ''
-    session_id = current_session_id.get() or None
-    srv = lsp_server_for_path(rel_display)
-
-    finalized = _finalize_workspace_edit(
-        session,
-        rel_display,
-        old_text,
-        merged,
-        mode,
-        disk_encoding,
-        disk_newline,
-        before_existed=before_existed,
-    )
-
-    if is_lsp_managed_path(rel_display) and srv:
-        try:
-            diagnostics = sync_session_document(rel_display, merged, session_id=session_id, scope='workspace')
-            logger.info('%s LSP sync path=%s diagnostics=%s', srv, rel_display, len(diagnostics))
-            diagnostics_note = truncate_text_head_tail(
-                post_edit_checks_footer(
-                    rel_display,
-                    diagnostics,
-                    lsp_scope='workspace',
-                    server_kind=srv,
-                    formatter_lines=fl,
-                ),
-                14_000,
-            )
-        except Exception as exc:
-            logger.warning('%s LSP sync failed path=%s err=%s', srv, rel_display, exc)
-            diagnostics_note = truncate_text_head_tail(
-                '\n---\nPost-edit checks:\n' + '\n'.join(fl) + f'\nLSP sync failed: {exc}.',
-                14_000,
-            )
-    else:
-        diagnostics_note = '\n---\nPost-edit checks:\n' + '\n'.join(fl)
-
-    return finalized + diagnostics_note
-
-
-def _edit_preamble(
-    relative_path: str,
-    *,
-    disk_encoding: str,
-    newline_mode: NewlineMode,
-) -> tuple[SessionState, str, str, str, DiskNewline, bool] | str:
-    """Return (session, rel_display, old_text, disk_encoding, resolved_disk_newline, before_existed) or error string."""
-    session_id = current_session_id.get()
-    if not session_id:
-        return 'Tool error: no active session.'
-
-    session = get_session(session_id)
-    session.pending_diff_payload = None
-
-    root = get_active_workspace_root()
-    target = normalize_relative_path(root, relative_path)
-    rel_display = target.relative_to(root).as_posix()
-
-    before_existed = target.is_file()
-    raw_existing: bytes | None = None
-    old_text = ''
-    if before_existed:
-        try:
-            raw_existing = target.read_bytes()
-            old_text = decode_for_tools(raw_existing, disk_encoding)
-        except OSError as exc:
-            return f'Tool error: could not read file ({exc}).'
-
-    disk_nl = resolve_newline_for_write(newline_mode, path=target, raw_existing=raw_existing)
-
-    return session, rel_display, old_text, disk_encoding, disk_nl, before_existed
-
-
-def _run_edit_tool(
-    relative_path: str,
-    encoding: str,
-    newline: str,
-    *,
-    mode: str,
-    new_content: str = '',
-    old_snippet: str = '',
-    new_snippet: str = '',
-    start_line: int = 0,
-    end_line: int = 0,
-) -> str:
-    """Shared body for all three edit tools: validate params, read file, merge, finalize."""
+def _prepare(relative_path: str, encoding: str, newline: str) -> _EditTarget | str:
+    """Validate params and read the current file once. Returns the target or a ``Tool error:`` string."""
     blocked = mutation_tools_blocked_reason()
     if blocked:
         return blocked
+    session_id = (current_session_id.get() or '').strip()
     try:
         enc = _tool_encoding_param(encoding)
         nm = _tool_newline_param(newline)
+        root = get_active_workspace_root()
+        path = normalize_relative_path(root, relative_path)
+        rel = path.relative_to(root).as_posix()
     except ValueError as exc:
         return f'Tool error: {exc}'
+    existed = path.is_file()
+    raw: bytes | None = None
+    old_text = ''
+    if existed:
+        try:
+            raw = path.read_bytes()
+            old_text = decode_for_tools(raw, enc)
+        except OSError as exc:
+            return f'Tool error: could not read `{rel}` ({exc}).'
+        except UnicodeDecodeError as exc:
+            return f'Tool error: `{rel}` is not valid {enc} ({exc}); pass the right `encoding`.'
+    disk_nl = resolve_newline_for_write(nm, path=path, raw_existing=raw)
+    return _EditTarget(get_session(session_id), session_id, rel, path, old_text, enc, disk_nl, existed)
 
-    pre = _edit_preamble(relative_path, disk_encoding=enc, newline_mode=nm)
-    if isinstance(pre, str):
-        return pre
-    session, rel_display, old_text, disk_enc, disk_nl, before_existed = pre
 
-    if not (session.worker_apply_mode and session.auto_apply_mode):
-        guarded = outer_workspace_edit_guard_error(rel_display)
-        if guarded:
-            return guarded
-
-    merged, merge_err = merge_partial_edit(
-        old_text,
-        new_content=new_content,
-        old_snippet=old_snippet,
-        new_snippet=new_snippet,
-        start_line=start_line,
-        end_line=end_line,
-    )
-    if merge_err:
-        return f'Tool error: {merge_err}'
-    assert merged is not None
-
-    formatter_lines: list[str] = []
+def _format_in_memory(rel: str, text: str, encoding: str) -> tuple[str, str]:
+    """Format with Black / Prettier when enabled. Returns ``(text, one-line formatter note)``."""
     if not agent_formatters_enabled():
-        formatter_lines.append(
-            'Formatter: skipped (Black and Prettier are disabled in Settings → Tools).'
+        return text, ''
+    if rel.lower().endswith('.py'):
+        formatted, err = format_python_source_str(text)
+        label = 'Black'
+    elif is_prettier_managed_path(rel):
+        formatted, err = format_source_via_prettier(
+            text,
+            workspace_root=get_active_workspace_root(),
+            relative_posix=rel,
+            source_encoding=encoding or 'utf-8',
         )
-    elif rel_display.lower().endswith('.py'):
-        fmt, err = format_python_source_str(merged)
-        if fmt is not None:
-            merged = fmt
-            formatter_lines.append('Formatter (Black): applied before diff/LSP.')
-        else:
-            formatter_lines.append(f'Formatter (Black): skipped ({err}).')
-    elif is_prettier_managed_path(rel_display):
-        ws_root = get_active_workspace_root()
-        fmt, err = format_source_via_prettier(
-            merged,
-            workspace_root=ws_root,
-            relative_posix=rel_display,
-            source_encoding=disk_enc or 'utf-8',
-        )
-        if fmt is not None:
-            merged = fmt
-            formatter_lines.append('Formatter (Prettier): applied before diff/LSP.')
-        else:
-            formatter_lines.append(f'Formatter (Prettier): skipped ({err}).')
+        label = 'Prettier'
     else:
-        formatter_lines.append(
-            'Formatter: no automatic formatter for this extension (Black: `.py`; Prettier: `.ts`, `.tsx`, `.js`, '
-            '`.jsx`, `.mjs`, `.cjs`, `.html`, `.htm`, `.css`).'
-        )
+        return text, ''
+    if formatted is None:
+        logger.info('%s skipped path=%s detail=%s', label, rel, err)
+        return text, f'Formatter ({label}): skipped ({err}).'
+    return formatted, f'Formatter ({label}): applied.'
 
-    out = _after_merge_workspace_edit(
-        session,
-        rel_display,
-        old_text,
-        merged,
-        mode,
-        disk_enc,
-        disk_nl,
-        before_existed=before_existed,
+
+def _lsp_footer(t: _EditTarget, text: str, formatter_note: str) -> str:
+    formatter_lines = [formatter_note] if formatter_note else []
+    srv = lsp_server_for_path(t.rel)
+    if not (srv and is_lsp_managed_path(t.rel)):
+        return ('\n---\nPost-edit checks:\n' + formatter_note) if formatter_note else ''
+    try:
+        diagnostics = sync_session_document(t.rel, text, session_id=t.session_id or None, scope='workspace')
+    except Exception as exc:
+        logger.warning('%s LSP sync failed path=%s err=%s', srv, t.rel, exc)
+        return '\n---\nPost-edit checks:\n' + '\n'.join([*formatter_lines, f'LSP sync failed: {exc}.'])
+    footer = post_edit_checks_footer(
+        t.rel,
+        diagnostics,
+        lsp_scope='workspace',
+        server_kind=srv,
         formatter_lines=formatter_lines,
     )
-    if mode == 'line-range' and start_line > 0 and end_line >= start_line:
-        out += line_range_edit_tool_feedback(old_text, start_line, end_line, new_snippet)
-    return out
+    return tool_output_cap(footer, _DIAGNOSTICS_FOOTER_MAX_CHARS)
 
 
-@tool
-def apply_workspace_full_file(
-    relative_path: str,
-    new_content: str,
-    encoding: str = '',
-    newline: str = '',
-) -> str:
-    """Use for brand-new files or whole-file rewrites of an existing path; parent directories are created automatically.
+def _write_through(t: _EditTarget, merged: str, mode: str) -> str:
+    """Format, write, journal (first write of this path per turn), and LSP-sync one edit."""
+    text, formatter_note = _format_in_memory(t.rel, merged, t.encoding)
+    try:
+        write_file_resolved(t.path, text, t.encoding, t.newline)
+    except UnicodeEncodeError as exc:
+        return f'Tool error: content cannot be encoded as {t.encoding!r} ({exc}). Adjust characters or `encoding`.'
+    except OSError as exc:
+        return f'Tool error: could not write `{t.rel}` ({exc}).'
+    emit_edit_journal(
+        t.session,
+        t.rel,
+        t.old_text,
+        before_existed=t.existed,
+        encoding=t.encoding,
+        newline=t.newline,
+    )
+    before_lines = t.old_text.count('\n') + (1 if t.old_text and not t.old_text.endswith('\n') else 0)
+    after_lines = text.count('\n') + (1 if text and not text.endswith('\n') else 0)
+    verb = 'Updated' if t.existed else 'Created'
+    logger.info('edit written path=%s mode=%s', t.rel, mode)
+    return f'{verb} `{t.rel}` ({mode}; {before_lines} → {after_lines} lines).' + _lsp_footer(t, text, formatter_note)
 
-    Replaces the entire workspace file with `new_content`; opens a side-by-side diff in the UI.
 
-    `encoding` is a text codec (default from app Settings → Tools): utf-8, utf-8-sig, utf-16, utf-16-le, utf-16-be,
-    latin-1, cp1252, ascii, mac-roman.
-    `newline` is `lf`, `crlf`, or `preserve` (match existing file line endings when the file exists; new files use LF).
-
-    For small localized changes on existing files, prefer `replace_workspace_line_range`.
-
-    Relative paths only (e.g. docs/readme.md). The user applies changes in the UI unless auto-apply is enabled."""
-
-    return _run_edit_tool(
-        relative_path, encoding, newline,
-        mode='full-file',
-        new_content=new_content or '',
+def _merge_error(t: _EditTarget, err: str) -> str:
+    return (
+        f'Tool error: {err} If an earlier edit this turn already changed `{t.rel}`, your anchors are stale: '
+        're-read it with `read_workspace_file` and retry with the current text.'
     )
 
 
-@tool
-def replace_workspace_line_range(
-    relative_path: str,
-    start_line: int,
-    end_line: int,
-    new_snippet: str = '',
-    new_content: str = '',
-    encoding: str = '',
-    newline: str = '',
+def write_workspace_text(relative_path: str, content: str, *, encoding: str = '', newline: str = '') -> str:
+    """Internal (non-tool) whole-file write through the same journal/format/LSP path, e.g. for bootstraps."""
+    t = _prepare(relative_path, encoding, newline)
+    if isinstance(t, str):
+        return t
+    return _write_through(t, content or '', 'full-file')
+
+
+@tool(
+    WRITE_WORKSPACE_FILE_NAME,
+    description=describe(
+        'Create a file or replace its whole content; written to disk immediately (parent folders created)',
+        when='new files or whole-file rewrites',
+        not_='small changes to an existing file (use `replace_workspace_lines` or `replace_workspace_snippet`)',
+        shape=(
+            'before rewriting an existing file, read it whole with `read_workspace_file` (no line range) so '
+            'headers and imports survive'
+        ),
+        verify=VERIFY_LSP,
+    ),
+)
+def write_workspace_file(
+    relative_path: Annotated[str, RELATIVE_PATH],
+    content: Annotated[str, 'full new file text'],
+    encoding: Annotated[str, _ENCODING_HINT] = '',
+    newline: Annotated[str, _NEWLINE_HINT] = '',
 ) -> str:
-    """Replace an inclusive block of lines (1-based, same numbering as `read_workspace_file`) with `new_snippet`.
+    return write_workspace_text(relative_path, content, encoding=encoding, newline=newline)
 
-    Some models wrongly pass replacement text as `new_content`; if `new_snippet` is empty, that value is used instead.
 
-    `new_snippet` may be empty to delete those lines. Prefer this for localized edits so the diff stays accurate.
-    Use `apply_workspace_full_file` for new files or whole-file rewrites. `start_line=end_line=n+1` appends after
-    the last line, and `1,1` can seed an empty file.
-    On success, the tool result includes a **Line-range edit detail** footer (1-based lines/columns, LSP UTF-16 range,
-    verbatim removed/inserted excerpts).
-    See `apply_workspace_full_file` for `encoding` and `newline`.
-
-    Relative paths only. The user applies changes in the UI unless auto-apply is enabled."""
-
-    ns = '' if new_snippet is None else new_snippet
-    nc = '' if new_content is None else new_content
-    snippet = ns if ns != '' else nc
-    return _run_edit_tool(
-        relative_path, encoding, newline,
-        mode='line-range',
-        new_snippet=snippet,
-        start_line=int(start_line) if start_line else 0,
-        end_line=int(end_line) if end_line else 0,
+@tool(
+    REPLACE_WORKSPACE_LINES_NAME,
+    description=describe(
+        'Replace an inclusive line range of an existing file with `new_content`; written to disk immediately',
+        when='localized edits when you know line numbers from a `read_workspace_file` gutter',
+        not_='new files (use `write_workspace_file`); unique text anchors (use `replace_workspace_snippet`)',
+        shape=(
+            f'{ONE_BASED}; empty `new_content` deletes the lines; `start_line=end_line=n+1` appends after the '
+            'last line. Line numbers shift after each edit, so re-read before the next one on the same file'
+        ),
+        verify=VERIFY_LSP,
+    ),
+)
+def replace_workspace_lines(
+    relative_path: Annotated[str, RELATIVE_PATH],
+    start_line: Annotated[int, ONE_BASED],
+    end_line: Annotated[int, ONE_BASED],
+    new_content: Annotated[str, 'replacement lines; empty deletes'] = '',
+    encoding: Annotated[str, _ENCODING_HINT] = '',
+    newline: Annotated[str, _NEWLINE_HINT] = '',
+) -> str:
+    t = _prepare(relative_path, encoding, newline)
+    if isinstance(t, str):
+        return t
+    start, end = int(start_line or 0), int(end_line or 0)
+    if start < 1 or end < start:
+        return 'Tool error: need 1 <= start_line <= end_line.'
+    merged, err = merge_partial_edit(
+        t.old_text,
+        new_content='',
+        old_snippet='',
+        new_snippet=new_content or '',
+        start_line=start,
+        end_line=end,
+    )
+    if err or merged is None:
+        return _merge_error(t, err or 'line-range merge failed.')
+    return _write_through(t, merged, 'line-range') + line_range_edit_tool_feedback(
+        t.old_text, start, end, new_content or ''
     )
 
 
-@tool
+@tool(
+    REPLACE_WORKSPACE_SNIPPET_NAME,
+    description=describe(
+        'Replace one unique `old_snippet` in an existing file with `new_snippet`; written to disk immediately',
+        when='you have exact raw context (read with `include_line_numbers=false`)',
+        not_='pasting numbered gutters into `old_snippet`; known line numbers (use `replace_workspace_lines`)',
+        shape=(
+            'match must be unique (exact, then CRLF/trailing-space tolerant, then gated fuzzy); include enough '
+            'context; empty `new_snippet` removes the match'
+        ),
+        verify=VERIFY_LSP,
+    ),
+)
 def replace_workspace_snippet(
-    relative_path: str,
-    old_snippet: str,
-    new_snippet: str = '',
-    new_content: str = '',
-    encoding: str = '',
-    newline: str = '',
+    relative_path: Annotated[str, RELATIVE_PATH],
+    old_snippet: Annotated[str, 'unique raw anchor text; no line-number gutters'],
+    new_snippet: Annotated[str, 'replacement text; empty removes the match'] = '',
+    encoding: Annotated[str, _ENCODING_HINT] = '',
+    newline: Annotated[str, _NEWLINE_HINT] = '',
 ) -> str:
-    """Search-replace: find `old_snippet` once in the file and replace it with `new_snippet` (empty removes it).
-
-    Prefer this when you have unique multi-line raw context from `read_workspace_file` with
-    `include_line_numbers=false`. If you already know line numbers from a numbered read, prefer
-    `replace_workspace_line_range` instead.
-
-    Some models wrongly pass replacement text as `new_content`; if `new_snippet` is empty, that value is used instead.
-
-    Include enough context that the match is unique. Do not paste line-number gutters from numbered `read_workspace_file`
-    output (lines look like ``<n> │ ...`` or ``<n> | ...`` or legacy ``<n>: ...``) into `old_snippet`.
-    See `apply_workspace_full_file` for `encoding` and `newline`.
-    Matching tries exact unique match, CRLF-normalized exact, trailing-whitespace-tolerant exact, then gated fuzzy locate.
-
-    Relative paths only. The user applies changes in the UI unless auto-apply is enabled."""
-
-    ns = '' if new_snippet is None else new_snippet
-    nc = '' if new_content is None else new_content
-    snippet = ns if ns != '' else nc
-    return _run_edit_tool(
-        relative_path, encoding, newline,
-        mode='snippet',
-        old_snippet=old_snippet or '',
-        new_snippet=snippet,
+    t = _prepare(relative_path, encoding, newline)
+    if isinstance(t, str):
+        return t
+    if not t.existed:
+        return f'Tool error: `{t.rel}` does not exist; create it with `write_workspace_file`.'
+    if not old_snippet:
+        return 'Tool error: `old_snippet` is required.'
+    merged, err = merge_partial_edit(
+        t.old_text,
+        new_content='',
+        old_snippet=old_snippet,
+        new_snippet=new_snippet or '',
+        start_line=0,
+        end_line=0,
     )
+    if err or merged is None:
+        return _merge_error(t, err or 'snippet merge failed.')
+    return _write_through(t, merged, 'snippet')
 
 
-_BASE_EDIT_TOOLS: list[Any] = [
-    apply_workspace_full_file,
-    replace_workspace_line_range,
-    replace_workspace_snippet,
-]
+@tool(
+    FORMAT_WORKSPACE_FILE_NAME,
+    description=describe(
+        'Format a file in place with Black (`.py`) or Prettier (web sources); edit tools already format what they write',
+        when='a file you did not just edit needs formatting',
+        not_='files you just wrote with an edit tool (already formatted)',
+    ),
+)
+def format_workspace_file(relative_path: Annotated[str, RELATIVE_PATH]) -> str:
+    t = _prepare(relative_path, '', 'preserve')
+    if isinstance(t, str):
+        return t
+    if not t.existed:
+        return f'Tool error: `{t.rel}` does not exist.'
+    text, note = _format_in_memory(t.rel, t.old_text, t.encoding)
+    if not note:
+        return f'Tool error: no formatter applies to `{t.rel}` (Black: `.py`; Prettier: web sources).'
+    if text == t.old_text:
+        return f'`{t.rel}` is already formatted. {note}'
+    return _write_through(t, text, 'format')
 
 
-def edit_tools_for_strict(edit_tools_strict: bool) -> list[Any]:
-    """Return LangChain tools bound for the worker when Editor mode is on (snippet tool omitted when strict)."""
-    return _BASE_EDIT_TOOLS[:2] if edit_tools_strict else list(_BASE_EDIT_TOOLS)
+_EDIT_TOOLS: list[Any] = [write_workspace_file, replace_workspace_lines, replace_workspace_snippet]
+
+
+def edit_tools(*, strict: bool) -> list[Any]:
+    """Edit tools for an Editor-mode agent: snippet replace is omitted when ``strict``; format when formatters on."""
+    tools = list(_EDIT_TOOLS[:2] if strict else _EDIT_TOOLS)
+    if agent_formatters_enabled():
+        tools.append(format_workspace_file)
+    return tools

@@ -68,7 +68,7 @@ def format_wsdl_overview(graph: WsdlGraph) -> str:
         'type',
     )
     lines.append('')
-    lines.append('Index (use section_ref with read_wsdl_section):')
+    lines.append('Index (use section_ref with read_structured_section):')
     for kind in kind_order:
         entries = sorted(by_kind.get(kind, []), key=lambda s: s.ref)
         if not entries:
@@ -79,12 +79,12 @@ def format_wsdl_overview(graph: WsdlGraph) -> str:
         for item in shown:
             lines.append(f'  - {item}')
         if remaining:
-            lines.append(f'  ... [{remaining} more; use search_wsdl to narrow]')
+            lines.append(f'  ... [{remaining} more; use search_structured to narrow]')
 
     lines.append('')
     lines.append(
-        'Next: search_wsdl(relative_path, query) for names, or '
-        'read_wsdl_section(relative_path, section_ref) to zoom.'
+        'Next: search_structured(relative_path, query) for names, or '
+        'read_structured_section(relative_path, section_ref) to zoom.'
     )
     return '\n'.join(lines)
 
@@ -109,7 +109,7 @@ def format_search_results(
         lines.append(f'- section_ref={section.ref!r}')
         lines.append(f'  file={section.file_path}  kind={section.kind}  summary={section.summary}')
     lines.append('')
-    lines.append('Zoom with read_wsdl_section(relative_path, section_ref).')
+    lines.append('Zoom with read_structured_section(relative_path, section_ref).')
     return '\n'.join(lines)
 
 

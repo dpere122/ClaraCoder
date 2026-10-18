@@ -1,13 +1,11 @@
 """LangGraph-based tool agent via ``langchain.agents.create_agent``.
 
-Standard Clara uses read/search plus staging and LSP tools when Editor is on. Per-connection ``parallel_tool_calls`` is applied via
+Standard Clara uses read/search and LSP tools, plus write-through edit tools when Editor is on. Per-connection
+``parallel_tool_calls`` is applied via
 :class:`~clara_coder_backend.middleware.parallel_tool_middleware.ConnectionParallelToolCallsMiddleware`.
-Diff-review pauses use :class:`~clara_coder_backend.middleware.diff_review_middleware.DiffReviewAfterToolMiddleware`
-plus a multiplexed event pump so diffs emit while the graph waits on ``POST /chat/agent-continue``.
-Leftover staged drafts at graph END are handled by
-:class:`~clara_coder_backend.middleware.flush_untransferred_staging_middleware.FlushUntransferredStagingMiddleware`
-(``after_agent`` node): the node jumps back to the model with review/resolve instructions
-until the drafts are transferred, discarded, or the turn is aborted.
+Edits land on disk immediately. Their per-turn ``file_journal`` rows and the remaining approval cards
+(commands, unrestorable deletes) go out through a multiplexed event pump while the graph waits on
+``POST /chat/agent-continue``.
 """
 
 from __future__ import annotations
@@ -30,13 +28,9 @@ from clara_coder_backend.middleware.context_pack_activation_middleware import Co
 from clara_coder_backend.hitl.command_risk_assess import maybe_enrich_pending_command_risk
 from clara_coder_backend.session.checkpointing import get_graph_checkpointer, outer_agent_thread_id
 from clara_coder_backend.config import MAX_AGENT_STEPS
-from clara_coder_backend.middleware.copy_review_middleware import CopyReviewAfterToolMiddleware
-from clara_coder_backend.tools.copy import copy_confirm_sse_payload
 from clara_coder_backend.tools.delete import delete_confirm_sse_payload
 from clara_coder_backend.middleware.delete_review_middleware import DeleteReviewAfterToolMiddleware
-from clara_coder_backend.middleware.diff_review_middleware import DiffReviewAfterToolMiddleware
 from clara_coder_backend.middleware.empty_response_middleware import EmptyResponseNudgeMiddleware
-from clara_coder_backend.middleware.flush_untransferred_staging_middleware import FlushUntransferredStagingMiddleware
 from clara_coder_backend.middleware.gemma_native_tool_middleware import GemmaNativeToolMiddleware
 from clara_coder_backend.middleware.mid_turn_compaction_middleware import MidTurnContextCompactionMiddleware
 from clara_coder_backend.middleware.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
@@ -46,7 +40,6 @@ from clara_coder_backend.middleware.user_event_injection_middleware import UserE
 from clara_coder_backend.session.user_events import drain_user_event_notes
 from clara_coder_backend.chat.chat_attachment_vision import prepare_chat_attachment_vision_turn
 from clara_coder_backend.middleware.vision_tool_middleware import VisionImageInjectionMiddleware
-from clara_coder_backend.staging.staging_snapshot_session import cleanup_staging_snapshot_session
 from clara_coder_backend.domain import SessionState
 from clara_coder_backend.lang_agent.langgraph_sse import (
     GraphStreamState,
@@ -88,12 +81,7 @@ def _stream_is_genuinely_stalled(session: SessionState, main_state: GraphStreamS
         return False
     if session.agent_pause_event is not None:
         return False
-    if (
-        session.pending_delete_request
-        or session.pending_copy_request
-        or session.pending_accept_command_request
-        or session.pending_staged_transfer_hitl is not None
-    ):
+    if session.pending_delete_request or session.pending_accept_command_request:
         return False
     return True
 
@@ -125,10 +113,7 @@ def build_clara_single_outer_graph(
     if extra_middleware:
         core_middleware.extend(extra_middleware)
     core_middleware.append(AcceptCommandReviewAfterToolMiddleware())
-    core_middleware.append(CopyReviewAfterToolMiddleware())
     core_middleware.append(DeleteReviewAfterToolMiddleware())
-    core_middleware.append(DiffReviewAfterToolMiddleware())
-    core_middleware.append(FlushUntransferredStagingMiddleware())
     middleware = prepend_harness_feedback_middleware(core_middleware)
     return create_agent(
         llm,
@@ -147,21 +132,6 @@ def _default_outer_graph_builder(
     extra_middleware: list[Any] | None,
 ) -> Any:
     return build_clara_single_outer_graph(llm, session, apply_mode, extra_middleware=extra_middleware)
-
-
-def _cleanup_nested_edit_staging(session: SessionState, session_id: str) -> None:
-    """Discard leftover staging after the outer agent turn finishes."""
-    leftover = [
-        rel
-        for rel, entry in session.pending_edit_stagings.items()
-        if not getattr(entry, 'workspace_applied', False)
-    ]
-    if leftover:
-        logger.warning(
-            'Orphaned edit stagings after outer agent completion (discarding): %s',
-            leftover,
-        )
-    cleanup_staging_snapshot_session(session, session_id)
 
 
 def _unpack_nested_queue_item(item: Any) -> tuple[str, dict[str, Any]] | None:
@@ -266,23 +236,6 @@ async def _hitl_sse_lines(session: SessionState, item: Any) -> list[str]:
             return [
                 sse_line({'type': 'accept_command', 'acceptCommand': accept_command_sse_payload(pending_cmd)})
             ]
-        return []
-    if raw_hitl == ('copy',):
-        pending_copy = session.pending_copy_request
-        if pending_copy:
-            return [sse_line({'type': 'copy_confirm', 'copyConfirm': copy_confirm_sse_payload(pending_copy)})]
-        return []
-    if isinstance(raw_hitl, tuple) and raw_hitl and raw_hitl[0] == 'diff':
-        pending_diff = raw_hitl[1] if len(raw_hitl) > 1 else session.pending_diff_payload
-        if pending_diff:
-            session.pending_diff_payload = None
-            return [sse_line({'type': 'diff', 'diff': pending_diff})]
-        return []
-    if isinstance(raw_hitl, tuple) and raw_hitl and raw_hitl[0] == 'staged_transfer_batch':
-        batch = raw_hitl[1] if len(raw_hitl) > 1 else session.pending_staged_transfer_batch_payload
-        if batch:
-            session.pending_staged_transfer_batch_payload = None
-            return [sse_line({'type': 'staged_transfer_batch', 'stagedTransferBatch': batch})]
         return []
     if isinstance(raw_hitl, tuple) and raw_hitl and raw_hitl[0] == 'context_compressed':
         payload = raw_hitl[1] if len(raw_hitl) > 1 and isinstance(raw_hitl[1], dict) else None
@@ -492,7 +445,7 @@ async def _stream_langgraph_tool_agent(
     if apply_mode:
         session.active_editor_langgraph_streams += 1
     session.worker_apply_mode = session.active_editor_langgraph_streams > 0
-    # Assign before ``pump_events`` so diff/copy/delete middleware can queue HITL on the first tool turn.
+    # Assign before ``pump_events`` so review middleware and file journals can queue on the first tool turn.
     session.hitl_sse_queue = hitl_q
     session.planning_nested_events_q = nested_stream_q
     session.planning_nested_events_loop = asyncio.get_running_loop()
@@ -643,7 +596,6 @@ async def _stream_langgraph_tool_agent(
         session.worker_apply_mode = session.active_editor_langgraph_streams > 0
         session.active_langgraph_agent_streams = max(0, session.active_langgraph_agent_streams - 1)
         if session.active_langgraph_agent_streams == 0:
-            _cleanup_nested_edit_staging(session, cfg.session_id)
             session.hitl_sse_queue = None
             session.planning_nested_events_q = None
             session.planning_nested_events_loop = None

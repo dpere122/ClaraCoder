@@ -26,7 +26,8 @@ class ChatRequest(BaseModel):
     )
     #: When False, Editor mode is off: workspace write/edit tools are not bound (read/search only).
     apply_mode: bool = True
-    #: When True, successful edit proposals are written to disk in the backend and no diff-review pause is used.
+    #: Auto Run: when True, command / web / MCP tools run without an approval card. Edits never ask (they are
+    #: reviewed and reset after the turn).
     auto_apply_mode: bool = False
     #: Composer Admin chip (agent-wide elevated ``run_command`` grant).
     admin_elevation_granted: bool = Field(
@@ -39,6 +40,11 @@ class ChatRequest(BaseModel):
     user_message_id: str = Field(
         default='',
         validation_alias=AliasChoices('user_message_id', 'userMessageId'),
+    )
+    #: Workspace facts the model should know before this turn, e.g. files the user reset from earlier turns.
+    workspace_notes: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices('workspace_notes', 'workspaceNotes'),
     )
     #: Composer run mode: ``agent`` (ReAct) or ``plan`` (plan-and-execute orchestrator).
     composer_mode: Literal['agent', 'plan'] = Field(
@@ -99,32 +105,16 @@ class SessionAdminElevationRequest(BaseModel):
 
 
 class AgentContinueRequest(BaseModel):
-    """Resume an agent stream that is waiting after a diff or approval/confirmation step."""
+    """Resume an agent stream that is waiting on an approval/confirmation card."""
 
     session_id: str
     note: str = ''
     #: When set with a pending delete request, perform or cancel the delete before resuming.
     delete_action: Literal['confirm', 'cancel'] | None = None
     delete_request_id: str = ''
-    #: When set with a pending copy request, perform or cancel the copy before resuming.
-    copy_action: Literal['confirm', 'cancel'] | None = None
-    copy_request_id: str = ''
     #: When set with a pending generic command request, perform or cancel it before resuming.
     accept_command_action: Literal['confirm', 'confirm_session', 'cancel', 'deny'] | None = None
     accept_command_request_id: str = ''
-    #: When set with ``pending_staged_transfer_hitl``, finalize or return the deferred staged→workspace transfer.
-    staged_transfer_action: Literal['confirm', 're_review'] | None = Field(
-        default=None,
-        validation_alias=AliasChoices('staged_transfer_action', 'stagedTransferAction'),
-    )
-    staged_transfer_request_id: str = Field(
-        default='',
-        validation_alias=AliasChoices('staged_transfer_request_id', 'stagedTransferRequestId'),
-    )
-    staged_transfer_path: str = Field(
-        default='',
-        validation_alias=AliasChoices('staged_transfer_path', 'stagedTransferPath'),
-    )
     #: When set with a pending plan-confirm request, approve or cancel before execution begins.
     plan_confirm_action: Literal['confirm', 'cancel'] | None = Field(
         default=None,

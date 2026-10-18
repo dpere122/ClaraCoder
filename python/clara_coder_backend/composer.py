@@ -50,6 +50,7 @@ async def stream_agent_reply(
     tts_provider: str = 'kokoro',
     user_message_id: str = '',
     admin_elevation_granted: bool = False,
+    workspace_notes: list[str] | None = None,
 ) -> AsyncIterator[str]:
     """Run one user turn and yield SSE lines until ``data: [DONE]``.
 
@@ -60,9 +61,9 @@ async def stream_agent_reply(
     user_message:
         Plain text, or structured multimodal content blocks from the chat composer.
     apply_mode:
-        Editor/staging tools enabled when true (read-only tools when false).
+        Editor tools (write-through edits, commands) enabled when true (read-only tools when false).
     auto_apply_mode:
-        When false, HITL middleware pauses after reviewable tool results.
+        Auto Run: when true, command / web / MCP tools skip their approval card. Edits never pause.
     admin_elevation_granted:
         Re-applies the conversation Admin chip so ``/load`` or a new session
         object cannot silently drop the agent’s elevated-command grant.
@@ -74,6 +75,8 @@ async def stream_agent_reply(
         Stored on the session for TTS-aware UI; does not change graph topology here.
     tts_provider:
         TTS backend for this turn (``kokoro`` or ``openai-compatible``); mood-tag prompt is OpenAI-only.
+    workspace_notes:
+        Facts from the UI since the last turn (e.g. files the user reset); injected before the first model call.
     """
     session = get_session(session_id)
     touch_session(session)
@@ -98,6 +101,7 @@ async def stream_agent_reply(
         'openai-compatible' if tts_provider == 'openai-compatible' else 'kokoro'
     )
     session.current_user_message_id = (user_message_id or '').strip()
+    session.pending_user_event_notes.extend(n.strip() for n in workspace_notes or [] if n and n.strip())
 
     # ContextVar so tools/middleware can resolve the active session without threading ids.
     token = current_session_id.set(session_id)

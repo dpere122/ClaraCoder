@@ -7,7 +7,7 @@ import asyncio
 from clara_coder_backend.domain import SessionState
 from clara_coder_backend.lang_agent.graph import _hitl_sse_lines
 from clara_coder_backend.session.file_journal import emit_edit_journal, emit_file_journal, file_journal_payload
-from clara_coder_backend.tools.edit import _finalize_workspace_edit
+from clara_coder_backend.tools.edit import write_workspace_file
 
 
 def test_emit_file_journal_requires_user_turn_id() -> None:
@@ -50,30 +50,18 @@ def test_hitl_sse_lines_file_journal() -> None:
     assert 'file_journal' in lines[0]
 
 
-def test_auto_apply_edit_emits_journal(tmp_path) -> None:
-    from clara_coder_backend.session.state import current_session_id, sessions
-
-    root = tmp_path / 'ws'
-    root.mkdir()
-    target = root / 'a.ts'
-    target.write_text('before', encoding='utf-8')
-    session = SessionState()
-    session.auto_apply_mode = True
-    session.current_user_message_id = 'turn-1'
+def test_edit_emits_journal_once_per_turn(workspace_env) -> None:
+    session = workspace_env.session
     session.hitl_sse_queue = asyncio.Queue()
-    session.workspace_path = str(root)
-    sessions['s1'] = session
-    token = current_session_id.set('s1')
-    try:
-        out = _finalize_workspace_edit(
-            session, 'a.ts', 'before', 'after', 'full-file', 'utf-8', 'lf', before_existed=True
-        )
-        assert 'Auto-applied' in out
-        kind, payload = session.hitl_sse_queue.get_nowait()
-        assert kind == 'file_journal'
-        assert payload['beforeContent'] == 'before'
-        assert payload['op'] == 'modify'
-        assert target.read_text(encoding='utf-8') == 'after'
-    finally:
-        current_session_id.reset(token)
-        sessions.pop('s1', None)
+    target = workspace_env.workspace / 'a.ts'
+    target.write_text('before', encoding='utf-8')
+
+    write_workspace_file.invoke({'relative_path': 'a.ts', 'content': 'after'})
+    write_workspace_file.invoke({'relative_path': 'a.ts', 'content': 'after again'})
+
+    kind, payload = session.hitl_sse_queue.get_nowait()
+    assert kind == 'file_journal'
+    assert payload['beforeContent'] == 'before'
+    assert payload['op'] == 'modify'
+    assert session.hitl_sse_queue.empty()
+    assert target.read_text(encoding='utf-8') == 'after again'

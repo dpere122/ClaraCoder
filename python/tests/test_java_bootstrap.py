@@ -1,4 +1,4 @@
-"""``java_bootstrap_project``: staged Maven/Gradle build files for a Java folder with no build file."""
+"""``java_bootstrap_project``: Maven/Gradle build files (written through, journaled) for a Java folder with no build file."""
 
 from __future__ import annotations
 
@@ -31,8 +31,8 @@ def _run(**kwargs: object) -> str:
     return java_bootstrap_project.invoke(kwargs)
 
 
-def test_maven_bootstrap_stages_pom_and_script_only_wrapper(staging_env) -> None:
-    ws = staging_env.workspace
+def test_maven_bootstrap_stages_pom_and_script_only_wrapper(workspace_env) -> None:
+    ws = workspace_env.workspace
     _loose_journal_app(ws)
 
     out = _run(
@@ -44,7 +44,7 @@ def test_maven_bootstrap_stages_pom_and_script_only_wrapper(staging_env) -> None
     assert not out.startswith('Tool error'), out
     assert 'source dir `src`' in out
     paths = {'pom.xml', '.mvn/wrapper/maven-wrapper.properties', 'mvnw', 'mvnw.cmd'}
-    assert paths <= set(staging_env.session.pending_edit_stagings)
+    assert paths <= workspace_env.session.edits.journaled_paths
     for rel in paths:
         assert (ws / rel).is_file(), rel
 
@@ -77,8 +77,8 @@ def test_maven_bootstrap_stages_pom_and_script_only_wrapper(staging_env) -> None
     assert not (ws / 'src/main').exists()
 
 
-def test_gradle_bootstrap_stages_kotlin_dsl_without_wrapper_jar(staging_env) -> None:
-    ws = staging_env.workspace
+def test_gradle_bootstrap_stages_kotlin_dsl_without_wrapper_jar(workspace_env) -> None:
+    ws = workspace_env.workspace
     _loose_journal_app(ws)
 
     out = _run(
@@ -92,7 +92,7 @@ def test_gradle_bootstrap_stages_kotlin_dsl_without_wrapper_jar(staging_env) -> 
     assert 'Gradle wrapper scripts not generated' in out
     assert f'gradle wrapper --gradle-version {GRADLE_VERSION}' in out
     paths = {'settings.gradle.kts', 'build.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties'}
-    assert paths <= set(staging_env.session.pending_edit_stagings)
+    assert paths <= workspace_env.session.edits.journaled_paths
     assert not (ws / 'gradlew').exists()
     assert not (ws / 'gradlew.bat').exists()
     assert not list(ws.rglob('*.jar'))
@@ -115,8 +115,8 @@ def test_gradle_bootstrap_stages_kotlin_dsl_without_wrapper_jar(staging_env) -> 
     assert 'distributionSha256Sum=' in props
 
 
-def test_standard_layout_needs_no_source_overrides(staging_env) -> None:
-    ws = staging_env.workspace
+def test_standard_layout_needs_no_source_overrides(workspace_env) -> None:
+    ws = workspace_env.workspace
     (ws / 'src/main/java/app').mkdir(parents=True)
     (ws / 'src/main/java/app/Main.java').write_text('package app;\nclass Main {}\n', encoding='utf-8')
 
@@ -126,8 +126,8 @@ def test_standard_layout_needs_no_source_overrides(staging_env) -> None:
     assert '<resources>' not in pom
 
 
-def test_new_folder_defaults_to_standard_layout(staging_env) -> None:
-    ws = staging_env.workspace
+def test_new_folder_defaults_to_standard_layout(workspace_env) -> None:
+    ws = workspace_env.workspace
 
     out = _run(build_tool='gradle', main_class='demo.App', folder='tools/demo')
 
@@ -139,8 +139,8 @@ def test_new_folder_defaults_to_standard_layout(staging_env) -> None:
     assert (ws / 'tools/demo/settings.gradle.kts').read_text(encoding='utf-8') == 'rootProject.name = "demo"\n'
 
 
-def test_explicit_source_dir_overrides_detection(staging_env) -> None:
-    ws = staging_env.workspace
+def test_explicit_source_dir_overrides_detection(workspace_env) -> None:
+    ws = workspace_env.workspace
     _loose_journal_app(ws)
 
     out = _run(build_tool='maven', main_class='journal.JournalApp', source_dir='src/main/java')
@@ -158,8 +158,8 @@ def test_explicit_source_dir_overrides_detection(staging_env) -> None:
         ('apps/build.gradle.kts', 'apps/journal'),
     ],
 )
-def test_refuses_when_folder_or_ancestor_has_build_file(staging_env, build_file: str, folder: str) -> None:
-    ws = staging_env.workspace
+def test_refuses_when_folder_or_ancestor_has_build_file(workspace_env, build_file: str, folder: str) -> None:
+    ws = workspace_env.workspace
     (ws / 'apps/journal').mkdir(parents=True)
     (ws / build_file).write_text('// existing\n', encoding='utf-8')
     before = sorted(p.relative_to(ws).as_posix() for p in ws.rglob('*'))
@@ -169,12 +169,12 @@ def test_refuses_when_folder_or_ancestor_has_build_file(staging_env, build_file:
     assert out.startswith('Tool error')
     assert build_file in out
     assert 'nothing was written' in out
-    assert staging_env.session.pending_edit_stagings == {}
+    assert workspace_env.session.edits.journaled_paths == set()
     assert sorted(p.relative_to(ws).as_posix() for p in ws.rglob('*')) == before
 
 
-def test_build_file_in_sibling_folder_does_not_block(staging_env) -> None:
-    ws = staging_env.workspace
+def test_build_file_in_sibling_folder_does_not_block(workspace_env) -> None:
+    ws = workspace_env.workspace
     (ws / 'other').mkdir()
     (ws / 'other/pom.xml').write_text('<project/>\n', encoding='utf-8')
 
@@ -184,8 +184,8 @@ def test_build_file_in_sibling_folder_does_not_block(staging_env) -> None:
     assert (ws / 'journal/build.gradle.kts').is_file()
 
 
-def test_refuses_when_wrapper_file_already_exists(staging_env) -> None:
-    ws = staging_env.workspace
+def test_refuses_when_wrapper_file_already_exists(workspace_env) -> None:
+    ws = workspace_env.workspace
     (ws / 'mvnw').write_text('#!/bin/sh\n', encoding='utf-8')
 
     out = _run(build_tool='maven', main_class='app.Main')
@@ -193,11 +193,11 @@ def test_refuses_when_wrapper_file_already_exists(staging_env) -> None:
     assert out.startswith('Tool error')
     assert '`mvnw`' in out
     assert not (ws / 'pom.xml').exists()
-    assert staging_env.session.pending_edit_stagings == {}
+    assert workspace_env.session.edits.journaled_paths == set()
 
 
-def test_javafx_maven_adds_plugin_with_main_class(staging_env) -> None:
-    ws = staging_env.workspace
+def test_javafx_maven_adds_plugin_with_main_class(workspace_env) -> None:
+    ws = workspace_env.workspace
     _loose_journal_app(ws)
 
     out = _run(
@@ -220,8 +220,8 @@ def test_javafx_maven_adds_plugin_with_main_class(staging_env) -> None:
     assert '.gradle' not in pom and '.m2' not in pom
 
 
-def test_javafx_gradle_uses_plugin_modules_instead_of_dependencies(staging_env) -> None:
-    ws = staging_env.workspace
+def test_javafx_gradle_uses_plugin_modules_instead_of_dependencies(workspace_env) -> None:
+    ws = workspace_env.workspace
     _loose_journal_app(ws)
 
     out = _run(
@@ -243,14 +243,14 @@ def test_javafx_gradle_uses_plugin_modules_instead_of_dependencies(staging_env) 
     assert 'implementation("org.openjfx' not in build
 
 
-def test_javafx_versions_must_match(staging_env) -> None:
+def test_javafx_versions_must_match(workspace_env) -> None:
     out = _run(
         build_tool='gradle',
         main_class='app.Main',
         dependencies=['org.openjfx:javafx-controls:21.0.8', 'org.openjfx:javafx-fxml:22'],
     )
     assert out.startswith('Tool error')
-    assert not (staging_env.workspace / 'build.gradle.kts').exists()
+    assert not (workspace_env.workspace / 'build.gradle.kts').exists()
 
 
 @pytest.mark.parametrize(
@@ -264,30 +264,28 @@ def test_javafx_versions_must_match(staging_env) -> None:
         {'build_tool': 'maven', 'main_class': 'app.Main', 'folder': '../outside'},
     ],
 )
-def test_rejects_bad_arguments_without_writing(staging_env, kwargs: dict[str, object]) -> None:
+def test_rejects_bad_arguments_without_writing(workspace_env, kwargs: dict[str, object]) -> None:
     out = _run(**kwargs)
     assert out.startswith('Tool error'), out
-    assert list(staging_env.workspace.iterdir()) == []
+    assert list(workspace_env.workspace.iterdir()) == []
 
 
-def test_editor_off_blocks_writes(staging_env) -> None:
-    staging_env.session.worker_apply_mode = False
+def test_editor_off_blocks_writes(workspace_env) -> None:
+    workspace_env.session.worker_apply_mode = False
     out = _run(build_tool='maven', main_class='app.Main')
     assert out.startswith('Tool error')
-    assert not (staging_env.workspace / 'pom.xml').exists()
+    assert not (workspace_env.workspace / 'pom.xml').exists()
 
 
-def test_auto_apply_writes_directly(staging_env) -> None:
-    staging_env.session.auto_apply_mode = True
-    ws = staging_env.workspace
+def test_writes_land_on_disk_and_are_journaled(workspace_env) -> None:
+    ws = workspace_env.workspace
 
     out = _run(build_tool='maven', main_class='app.Main')
 
     assert not out.startswith('Tool error'), out
-    assert 'Written directly to disk' in out
     assert (ws / 'pom.xml').is_file()
     assert (ws / 'mvnw.cmd').is_file()
-    assert staging_env.session.pending_edit_stagings == {}
+    assert {'pom.xml', 'mvnw.cmd'} <= workspace_env.session.edits.journaled_paths
 
 
 def test_tool_is_bound_only_in_editor_mode() -> None:
@@ -298,9 +296,7 @@ def test_tool_is_bound_only_in_editor_mode() -> None:
     assert JAVA_BOOTSTRAP_PROJECT_NAME not in {t.name for t in read_only_tools}
 
 
-@pytest.mark.parametrize('direct', [False, True])
-def test_edit_semantics_tells_model_to_bootstrap_java_builds(direct: bool) -> None:
-    block = edit_semantics_block(direct=direct)
+def test_edit_semantics_tells_model_to_bootstrap_java_builds() -> None:
+    block = edit_semantics_block()
     assert '`java_bootstrap_project`' in block
     assert 'Never hard-code jar' in block
-    assert block.index('`lsp_create_java_file`') < block.index('`java_bootstrap_project`')

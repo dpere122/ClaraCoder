@@ -10,18 +10,19 @@ register_pack(
     ContextPack(
         id='json',
         summary=(
-            'JSON/JSONC search-and-zoom playbook (auto on `json_*`, or `activate_context`)'
+            'JSON/JSONC search-and-zoom playbook (auto on `structured_*` for `.json`/`.jsonc`, or `activate_context`)'
         ),
         body=dedent(
             """
             JSON structured-read workflow:
-            - Prefer `json_overview` → `search_json` → `read_json_section` for `.json` / `.jsonc`.
-            - Start with `json_overview` for the key/path index and `section_ref` values (e.g. `path:config.host`).
-            - Use `search_json` for key paths, key names, or scalar values; then zoom with `read_json_section`.
+            - Prefer `structured_overview` → `search_structured` → `read_structured_section` for `.json` / `.jsonc`.
+            - Start with `structured_overview` for the key/path index and `section_ref` values (e.g. `path:config.host`).
+            - Use `search_structured` for key paths, key names, or scalar values; then zoom with `read_structured_section`.
             - Avoid whole-file `read_workspace_file` for large configs; use section zoom instead.
             - Output is size-capped; keep queries narrow when indexing huge files.
             """
         ).strip(),
-        tool_prefixes=('json_',),
+        tool_names=('structured_overview', 'search_structured', 'read_structured_section'),
+        path_suffixes=('.json', '.jsonc'),
     )
 )

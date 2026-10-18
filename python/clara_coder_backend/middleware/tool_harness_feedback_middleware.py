@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -19,22 +18,21 @@ HARNESS_NOTE_SENTINEL = '\n---\nHarness note:'
 _FAILURE_FOOTER = (
     f'{HARNESS_NOTE_SENTINEL} '
     'Recoverable tooling issue—read the error above literally; fix the smallest mismatch '
-    '(path, argument shape, or workspace vs staging); refresh anchors if needed; retry once with a tighter step.'
+    '(path or argument shape); refresh anchors if needed; retry once with a tighter step.'
 )
 
-# Anchor-based staging tools where "repeat the identical failing call" almost always means the model is
-# anchoring on stale (disk or remembered) text instead of the current staged draft.
-_ANCHOR_STAGING_TOOL_NAMES = frozenset({'stage_snippet_edit', 'stage_line_range_edit'})
+# Anchor-based edit tools where "repeat the identical failing call" almost always means the model is
+# anchoring on stale (remembered) text instead of the file as an earlier edit left it.
+_ANCHOR_EDIT_TOOL_NAMES = frozenset({'replace_workspace_snippet', 'replace_workspace_lines'})
 
 
 def _repeated_failure_footer(tool_name: str, *, streak: int) -> str:
     """Escalated footer once the *same* tool call has failed with unchanged arguments back-to-back."""
     times = streak + 1
-    if tool_name in _ANCHOR_STAGING_TOOL_NAMES:
+    if tool_name in _ANCHOR_EDIT_TOOL_NAMES:
         advice = (
-            'Call `read_workspace_file` or `read_staged_edit` on this exact path now to see its **current** '
-            'draft (already on disk), then build a new `old_snippet`/`start_line`/`end_line` from that output—'
-            'not from a journal baseline, a diff, or memory.'
+            'Call `read_workspace_file` on this exact path now to see its **current** text, then build a new '
+            '`old_snippet`/`start_line`/`end_line` from that output—not from memory.'
         )
     else:
         advice = (
@@ -47,41 +45,9 @@ def _repeated_failure_footer(tool_name: str, *, streak: int) -> str:
         f'repeating the call. {advice}'
     )
 
-_SUCCESS_FOOTER = (
-    f'{HARNESS_NOTE_SENTINEL} '
-    'Solid progress—this step succeeded. Briefly confirm the outcome for the user and continue with the next safe action.'
-)
-
-_MILESTONE_TOOL_NAMES = frozenset(
-    {
-        'transfer_staged_file_to_workspace',
-        'run_staging_overlay_command',
-    }
-)
-
-_PYTEST_FAILURE_RE = re.compile(r'\b\d+\s+failed\b', re.IGNORECASE)
-
-
 def is_tool_result_error(text: str) -> bool:
     s = text.strip().lower()
     return s.startswith('tool error:') or s.startswith('aborted by user')
-
-
-def _pytest_body_suggests_failure(text: str) -> bool:
-    low = text.lower()
-    if 'tool error:' in low:
-        return True
-    if _PYTEST_FAILURE_RE.search(text):
-        return True
-    if 'traceback' in low and 'error' in low:
-        return True
-    if 'staging overlay command summary' in low:
-        if 'result: failed' in low:
-            return True
-        m = re.search(r'exit code:\s*(\d+)', low)
-        if m and m.group(1) != '0':
-            return True
-    return False
 
 
 def _canonical_tool_signature(name: str, args: Any) -> str:
@@ -131,17 +97,6 @@ def trailing_identical_failure_streak(messages: list[Any], tool_name: str, args:
     return streak
 
 
-def should_attach_success_note(tool_name: str, text: str) -> bool:
-    if is_tool_result_error(text):
-        return False
-    name = (tool_name or '').strip()
-    if name not in _MILESTONE_TOOL_NAMES:
-        return False
-    if name == 'run_staging_overlay_command':
-        return not _pytest_body_suggests_failure(text)
-    return bool(text.strip())
-
-
 def maybe_append_harness_footer(
     content: Any,
     *,
@@ -163,9 +118,6 @@ def maybe_append_harness_footer(
                 tool_name, streak=repeat_failure_streak
             )
         return stringify_content(content).rstrip() + _FAILURE_FOOTER
-
-    if should_attach_success_note(tool_name, text):
-        return stringify_content(content).rstrip() + _SUCCESS_FOOTER
 
     return content
 

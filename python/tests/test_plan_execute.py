@@ -91,10 +91,11 @@ def test_plan_execute_apply_mode_is_always_true() -> None:
     assert PLAN_EXECUTE_APPLY_MODE is True
 
 
-def test_build_planner_context_block_includes_staging_tools_in_plan_mode() -> None:
+def test_build_planner_context_block_includes_edit_tools_in_plan_mode() -> None:
     session = SessionState()
     block = build_planner_context_block(session, apply_mode=PLAN_EXECUTE_APPLY_MODE)
-    assert 'transfer_staged_file_to_workspace' in block
+    assert 'write_workspace_file' in block
+    assert 'transfer_staged_file_to_workspace' not in block
     assert 'read_build_plan' in block
 
 

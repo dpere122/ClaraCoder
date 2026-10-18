@@ -1,13 +1,8 @@
-"""LangChain tools for WSDL 1.1 search-and-zoom reading."""
+"""Format backend (behind :mod:`clara_coder_backend.tools.structured_tools`) for WSDL 1.1 search-and-zoom reading."""
 
 from __future__ import annotations
 
-from typing import Annotated
-
-from langchain_core.tools import tool
-
 from clara_coder_backend.session.state import runtime_config
-from clara_coder_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from clara_coder_backend.wsdl.format import format_search_results, format_section_detail, format_wsdl_overview
 from clara_coder_backend.wsdl.parser import (
     build_wsdl_graph,
@@ -18,9 +13,6 @@ from clara_coder_backend.wsdl.parser import (
 )
 from clara_coder_backend.wsdl.namespaces import SEARCH_SCOPES
 
-WSDL_OVERVIEW_NAME = 'wsdl_overview'
-SEARCH_WSDL_NAME = 'search_wsdl'
-READ_WSDL_SECTION_NAME = 'read_wsdl_section'
 
 _MAX_OUTPUT_CHARS = 80_000
 _MAX_SEARCH_MATCHES = 200
@@ -49,17 +41,8 @@ def _clamp_import_depth(import_depth: int) -> int:
     return max(0, min(int(import_depth), 3))
 
 
-@tool(WSDL_OVERVIEW_NAME, description=describe(
-        'Index a WSDL 1.1 file: services, ports, operations, messages, bindings, XSD types.',
-        when='starting work on a `.wsdl` SOAP contract; need structure before details.',
-        not_='raw XML debugging (use `read_workspace_file`); fuzzy file discovery (use `search_workspace` first).',
-        shape=(
-            f'`relative_path` {RELATIVE_PATH} `.wsdl`; `import_depth` 0–3 (default 1) follows wsdl/xs imports. '
-            'Next: `search_wsdl` for names, or `read_wsdl_section` with a `section_ref` from this index.'
-        ),
-    ))
 def wsdl_overview(
-    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+    relative_path: str,
     import_depth: int = _DEFAULT_IMPORT_DEPTH,
 ) -> str:
 
@@ -83,15 +66,8 @@ def wsdl_overview(
     return _truncate_output(out)
 
 
-@tool(SEARCH_WSDL_NAME, description=describe(
-        'Search indexed WSDL symbols by name or substring (case-insensitive).',
-        when='you know part of an operation/message/type name after `wsdl_overview`.',
-        not_='finding which `.wsdl` file exists (use `search_workspace` with `.wsdl`); whole-file XML reads.',
-        shape='`scope` one of all|services|operations|messages|bindings|types. Returns `section_ref` for zoom. '
-        'Next: `read_wsdl_section(relative_path, section_ref)`.',
-    ))
 def search_wsdl(
-    relative_path: Annotated[str, 'workspace-relative POSIX path'],
+    relative_path: str,
     query: str,
     scope: str = 'all',
     max_matches: int = 20,
@@ -128,19 +104,9 @@ def search_wsdl(
     return _truncate_output(out)
 
 
-@tool(READ_WSDL_SECTION_NAME, description=describe(
-        'Zoom into one WSDL section by `section_ref` (pretty-printed XML snippet).',
-        when='you have a `section_ref` from `wsdl_overview` or `search_wsdl`.',
-        not_='first pass on an unknown WSDL (use `wsdl_overview` first).',
-        shape=(
-            '`section_ref` like `operation:PortType/GetCustomer`, `message:Req`, `type:CustomerType`. '
-            '`expand_depth` reserved for future nested expansion (currently 0).'
-        ),
-    ))
 def read_wsdl_section(
-    relative_path: Annotated[str, 'workspace-relative POSIX path'],
-    section_ref: Annotated[str, 'from *_overview or search_*'],
-    expand_depth: int = 0,
+    relative_path: str,
+    section_ref: str,
     import_depth: int = _DEFAULT_IMPORT_DEPTH,
 ) -> str:
 
@@ -174,12 +140,9 @@ def read_wsdl_section(
         hint = ', '.join(known) if known else '(none indexed)'
         return (
             f'Tool note: section_ref `{section_ref}` not found in `{rel_display}`. '
-            f'Run `wsdl_overview` or `search_wsdl`. Examples indexed: {hint}'
+            f'Run `structured_overview` or `search_structured`. Examples indexed: {hint}'
         )
 
-    xml_body = render_section_xml(section, expand_depth=max(0, int(expand_depth)))
+    xml_body = render_section_xml(section, expand_depth=0)
     out = format_section_detail(graph, section, xml_body)
     return _truncate_output(out)
-
-
-WSDL_TOOLS = [wsdl_overview, search_wsdl, read_wsdl_section]

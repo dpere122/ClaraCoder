@@ -238,10 +238,10 @@ def test_combined_suffix_parallel_hint_when_parallel_enabled() -> None:
     assert 'parallel tools' in s
 
 
-def test_combined_suffix_qwen_extra_when_qwen_preset() -> None:
+def test_combined_suffix_qwen_preset_has_no_staging_note() -> None:
     c = _conn(model='local-model', parallel=True, optimization_preset='qwen')
     s = combined_model_prompt_suffix(c)
-    assert 'Model note (Qwen)' in s
+    assert 'land_in_workspace' not in s
     assert 'Model note (tools)' in s
     assert 'one tool call per assistant turn' not in s
     assert '**Edit semantics' not in s
@@ -250,7 +250,7 @@ def test_combined_suffix_qwen_extra_when_qwen_preset() -> None:
 def test_qwen_system_prompt_suffix_backward_compat() -> None:
     s = qwen_system_prompt_suffix()
     assert 'Model note (tools)' in s
-    assert 'Model note (Qwen)' in s
+    assert 'land_in_workspace' not in s
     assert 'one tool call per assistant turn' not in s
     assert '**Edit semantics' not in s
 

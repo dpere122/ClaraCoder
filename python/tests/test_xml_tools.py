@@ -9,7 +9,7 @@ import pytest
 
 from clara_coder_backend.session.state import current_session_id, get_session
 from clara_coder_backend.xml.parser import clear_xml_cache_for_tests
-from clara_coder_backend.tools.xml_tools import read_xml_section, search_xml, xml_overview
+from clara_coder_backend.tools.structured_tools import read_structured_section, search_structured, structured_overview
 
 SAMPLE_XML = """<?xml version="1.0"?>
 <Envelope xmlns="http://example.com/env">
@@ -54,14 +54,14 @@ def xml_env():
 
 
 def test_xml_overview_lists_paths(xml_env) -> None:
-    out = xml_overview.invoke({'relative_path': 'service.xml'})
+    out = structured_overview.invoke({'relative_path': 'service.xml'})
     assert 'Root element: Envelope' in out
     assert '/Envelope/Body/GetCustomer' in out
     assert '/Envelope/Body/GetCustomer[2]' in out
 
 
 def test_search_xml_finds_element(xml_env) -> None:
-    out = search_xml.invoke(
+    out = search_structured.invoke(
         {'relative_path': 'service.xml', 'query': 'MessageId', 'scope': 'elements'}
     )
     assert 'section_ref=' in out
@@ -69,7 +69,7 @@ def test_search_xml_finds_element(xml_env) -> None:
 
 
 def test_read_xml_section_returns_markup(xml_env) -> None:
-    out = read_xml_section.invoke(
+    out = read_structured_section.invoke(
         {
             'relative_path': 'service.xml',
             'section_ref': 'path:/Envelope/Header/MessageId',
@@ -79,19 +79,19 @@ def test_read_xml_section_returns_markup(xml_env) -> None:
     assert 'abc-123' in out
 
 
-def test_xml_rejects_wsdl_extension(xml_env) -> None:
+def test_wsdl_extension_routes_to_wsdl_reader(xml_env) -> None:
     (xml_env.root / 'svc.wsdl').write_text('<definitions/>', encoding='utf-8')
-    out = xml_overview.invoke({'relative_path': 'svc.wsdl'})
-    assert 'wsdl_overview' in out
+    out = structured_overview.invoke({'relative_path': 'svc.wsdl'})
+    assert out.startswith('WSDL: svc.wsdl')
 
 
 def test_xml_missing_file(xml_env) -> None:
-    out = xml_overview.invoke({'relative_path': 'missing.xml'})
+    out = structured_overview.invoke({'relative_path': 'missing.xml'})
     assert 'not on the workspace disk' in out
 
 
 def test_xml_invalid_section_ref(xml_env) -> None:
-    out = read_xml_section.invoke(
+    out = read_structured_section.invoke(
         {'relative_path': 'service.xml', 'section_ref': 'operation:Bad'}
     )
     assert 'invalid `section_ref`' in out

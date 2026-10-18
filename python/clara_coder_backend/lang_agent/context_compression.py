@@ -40,9 +40,8 @@ _RECENT_BAND_OUTSIDE_TAIL = 12
 _SEARCH_TOOL_NAMES = frozenset(
     {
         'search_workspace',
-        'search_staged_edits',
+        'search_structured',
         'retrieve_workspace_semantic',
-        'retrieve_workspace_checkpoint_semantic',
     }
 )
 _EXEC_TOOL_NAME_MARKERS = (
@@ -162,7 +161,7 @@ def compact_tool_message_body(name: str, content: str, max_chars: int) -> str:
         return body
 
     tool_name = (name or '').strip()
-    if tool_name in WORKSPACE_READ_TOOL_NAMES or tool_name in {'read_staged_edit', 'read_staged_edit_chunk'}:
+    if tool_name in WORKSPACE_READ_TOOL_NAMES:
         path = _extract_file_path(body)
         return f'{_COMPACTED_PREFIX} {tool_name}: {path} ({len(body)} chars). Re-call tool if needed.'
 

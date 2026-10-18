@@ -1,4 +1,7 @@
-/** Payload for SSE `copy_confirm` / chat copy confirmation card (mirrors Python `copy_confirm_sse_payload`). */
+/**
+ * Payload of the retired copy confirmation card. Copies now run without approval; this type stays
+ * only so `copy_confirm` messages saved in older conversations still load and show in the trail.
+ */
 export interface CopyConfirmItem {
   sourcePath: string;
   destinationPath: string;

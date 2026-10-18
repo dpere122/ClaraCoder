@@ -76,7 +76,6 @@ function mockElectron(overrides: Partial<{
     restoreConversationTimeline: vi.fn(async () => ({ ok: false, error: 'not mocked' })),
     listConversationFileJournal: vi.fn(async () => []),
     acceptCommand$: new Subject().asObservable(),
-    copyConfirm$: new Subject().asObservable(),
     deleteConfirm$: new Subject().asObservable(),
     plannerProgress$: new Subject().asObservable(),
     planConfirm$: new Subject().asObservable(),

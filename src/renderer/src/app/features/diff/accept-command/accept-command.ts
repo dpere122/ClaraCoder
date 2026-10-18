@@ -176,7 +176,7 @@ export class AcceptCommandComponent implements OnDestroy {
       this.busy.set(true);
       this.continueSent = true;
       await this.persistMcpDecision('deny');
-      await this.electron.notifyAgentContinue(id, '', undefined, undefined, undefined, undefined, 'deny', req);
+      await this.electron.notifyAgentContinue(id, '', undefined, undefined, 'deny', req);
       this.busy.set(false);
       this.acceptCommandFinished.emit({
         requestId: req,
@@ -205,8 +205,6 @@ export class AcceptCommandComponent implements OnDestroy {
     await this.electron.notifyAgentContinue(
       id,
       '',
-      undefined,
-      undefined,
       undefined,
       undefined,
       'cancel',
@@ -286,8 +284,6 @@ export class AcceptCommandComponent implements OnDestroy {
           '',
           undefined,
           undefined,
-          undefined,
-          undefined,
           'cancel',
           req,
         );
@@ -306,8 +302,6 @@ export class AcceptCommandComponent implements OnDestroy {
     const res = await this.electron.notifyAgentContinue(
       id,
       '',
-      undefined,
-      undefined,
       undefined,
       undefined,
       action,

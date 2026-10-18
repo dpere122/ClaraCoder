@@ -12,7 +12,6 @@
 import type { BuildPlanChunkPayload, BuildPlanOpenPayload, BuildPlanStreamEndPayload } from './types/build-plan';
 import type { AcceptCommandPayload } from './types/accept-command';
 import type { AgentQuestionPayload } from './types/agent-question';
-import type { CopyConfirmPayload } from './types/copy-confirm';
 import type { DeleteConfirmPayload } from './types/delete-confirm';
 import type { FileDiffPayload } from './types/diff';
 import type { LlmStatusPayload, PlannerProgress } from './types/llm';
@@ -62,7 +61,6 @@ export type ParsedAgentStreamPayload =
   | { type: 'status'; status: LlmStatusPayload }
   | { type: 'diff'; diff: FileDiffPayload }
   | { type: 'accept_command'; acceptCommand: AcceptCommandPayload }
-  | { type: 'copy_confirm'; copyConfirm: CopyConfirmPayload }
   | { type: 'delete_confirm'; deleteConfirm: DeleteConfirmPayload }
   | { type: 'planner_progress'; planner: PlannerProgress }
   | { type: 'build_plan_open'; buildPlanOpen: BuildPlanOpenPayload }
@@ -117,7 +115,6 @@ type RawAgentStreamPayload = {
   command_id?: unknown;
   command_text?: unknown;
   cwd_label?: unknown;
-  copyConfirm?: unknown;
   deleteConfirm?: unknown;
   planner?: unknown;
   planConfirm?: unknown;
@@ -184,13 +181,6 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
       return {
         type: 'accept_command',
         acceptCommand: parsed.acceptCommand as AcceptCommandPayload,
-      };
-    }
-
-    if (parsed.type === 'copy_confirm' && parsed.copyConfirm && typeof parsed.copyConfirm === 'object') {
-      return {
-        type: 'copy_confirm',
-        copyConfirm: parsed.copyConfirm as CopyConfirmPayload,
       };
     }
 

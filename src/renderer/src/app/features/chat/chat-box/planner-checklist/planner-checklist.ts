@@ -263,8 +263,6 @@ export class PlannerChecklistComponent implements OnDestroy {
       undefined,
       undefined,
       undefined,
-      undefined,
-      undefined,
       'confirm',
       req,
     );
@@ -296,8 +294,6 @@ export class PlannerChecklistComponent implements OnDestroy {
     await this.electron.notifyAgentContinue(
       id,
       '',
-      undefined,
-      undefined,
       undefined,
       undefined,
       undefined,

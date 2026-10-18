@@ -358,11 +358,6 @@ export class ChatBox implements OnDestroy {
   /** Shell command approval card completed or dismissed. */
   readonly acceptCommandFinished = output<AcceptCommandFinishedEvent>();
   /** Copy-to-workspace confirmation completed or dismissed. */
-  readonly copyReviewFinished = output<{
-    requestId: string;
-    status: 'complete' | 'cancelled';
-    summary?: string;
-  }>();
   /** Plan-and-execute approval completed or dismissed. */
   readonly planConfirmFinished = output<{
     requestId: string;

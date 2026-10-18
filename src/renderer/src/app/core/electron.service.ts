@@ -11,7 +11,6 @@ import type {
   ChatStructuredContentPart,
   Conversation,
   ConversationMeta,
-  CopyConfirmPayload,
   DeleteConfirmPayload,
   FileEntry,
   HealthLogRecord,
@@ -196,11 +195,6 @@ export interface AcceptCommandMessage {
   payload: AcceptCommandPayload;
 }
 
-export interface CopyConfirmMessage {
-  conversationId: string;
-  payload: CopyConfirmPayload;
-}
-
 export interface DeleteConfirmMessage {
   conversationId: string;
   payload: DeleteConfirmPayload;
@@ -367,7 +361,6 @@ export class ElectronService {
   private readonly llmTokenUsageSubject = new Subject<LlmTokenUsageMessage>();
   private readonly contextCompressedSubject = new Subject<ContextCompressedMessage>();
   private readonly acceptCommandSubject = new Subject<AcceptCommandMessage>();
-  private readonly copyConfirmSubject = new Subject<CopyConfirmMessage>();
   private readonly deleteConfirmSubject = new Subject<DeleteConfirmMessage>();
   private readonly plannerProgressSubject = new Subject<PlannerProgressMessage>();
   private readonly buildPlanOpenSubject = new Subject<BuildPlanOpenMessage>();
@@ -428,7 +421,6 @@ export class ElectronService {
   readonly llmTokenUsage$ = this.llmTokenUsageSubject.asObservable();
   readonly contextCompressed$ = this.contextCompressedSubject.asObservable();
   readonly acceptCommand$ = this.acceptCommandSubject.asObservable();
-  readonly copyConfirm$ = this.copyConfirmSubject.asObservable();
   readonly deleteConfirm$ = this.deleteConfirmSubject.asObservable();
   readonly plannerProgress$ = this.plannerProgressSubject.asObservable();
   readonly buildPlanOpen$ = this.buildPlanOpenSubject.asObservable();
@@ -621,9 +613,6 @@ export class ElectronService {
     });
     this.api?.onMessageAcceptCommand?.((_event, conversationId, payload) => {
       this.zone.run(() => this.acceptCommandSubject.next({ conversationId, payload }));
-    });
-    this.api?.onMessageCopyConfirm?.((_event, conversationId, payload) => {
-      this.zone.run(() => this.copyConfirmSubject.next({ conversationId, payload }));
     });
     this.api?.onMessageDeleteConfirm?.((_event, conversationId, payload) => {
       this.zone.run(() => this.deleteConfirmSubject.next({ conversationId, payload }));
@@ -833,14 +822,12 @@ export class ElectronService {
     );
   }
 
-  /** Resume the in-flight LangChain stream after a delete, copy, command, or plan confirmation. */
+  /** Resume the in-flight LangChain stream after a delete, command, or plan confirmation. */
   notifyAgentContinue(
     conversationId: string,
     note: string,
     deleteAction?: 'confirm' | 'cancel',
     deleteRequestId?: string,
-    copyAction?: 'confirm' | 'cancel',
-    copyRequestId?: string,
     acceptCommandAction?: 'confirm' | 'confirm_session' | 'cancel' | 'deny',
     acceptCommandRequestId?: string,
     planConfirmAction?: 'confirm' | 'cancel',
@@ -852,8 +839,6 @@ export class ElectronService {
         note,
         deleteAction,
         deleteRequestId,
-        copyAction,
-        copyRequestId,
         acceptCommandAction,
         acceptCommandRequestId,
         planConfirmAction,

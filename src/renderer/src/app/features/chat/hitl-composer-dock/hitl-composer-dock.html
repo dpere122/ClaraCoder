@@ -26,16 +26,6 @@
             (acceptCommandFinished)="acceptCommandFinished.emit($event)"
           />
         </div>
-      } @else if (artifact.role === 'copy_confirm') {
-        <div class="hitl-composer-dock__card hitl-composer-dock__card--copy" data-theme-group="hitl.cards">
-          <app-copy-confirm
-            [conversationId]="conversationId()"
-            [payload]="artifact.payload"
-            [reviewStatus]="reviewStatus(artifact)"
-            [reviewSummary]="artifact.reviewSummary"
-            (copyReviewFinished)="copyReviewFinished.emit($event)"
-          />
-        </div>
       } @else if (artifact.role === 'plan_confirm') {
         <div class="hitl-composer-dock__card hitl-composer-dock__card--plan" data-theme-group="hitl.cards">
           <app-plan-confirm

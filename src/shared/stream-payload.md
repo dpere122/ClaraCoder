@@ -45,7 +45,6 @@ narrow the variant.
 | `status` | `status: LlmStatusPayload` | LLM/agent status update (state, label, detail, source, optional `streamTag` and `agentRole`). |
 | `diff` | `diff: FileDiffPayload` | A file diff to render. |
 | `accept_command` | `acceptCommand: AcceptCommandPayload` | HITL prompt to accept a shell command before running. |
-| `copy_confirm` | `copyConfirm: CopyConfirmPayload` | HITL prompt to confirm a destructive copy/move. |
 | `delete_confirm` | `deleteConfirm: DeleteConfirmPayload` | HITL prompt to confirm a deletion. |
 | `planner_progress` | `planner: PlannerProgress` | Planner step progress. |
 | `build_plan_open` | `buildPlanOpen: BuildPlanOpenPayload` | Start of a streamed build-plan file. |
@@ -190,7 +189,6 @@ noted) and lists the wire fields each branch reads.
 | `status` | `status` | `status.{id,label,detail,state,source,stream_tag,agent_role}` |
 | `diff` | `diff` | `diff` (object) |
 | `accept_command` | `accept_command` | `acceptCommand` (object) |
-| `copy_confirm` | `copy_confirm` | `copyConfirm` (object) |
 | `delete_confirm` | `delete_confirm` | `deleteConfirm` (object) |
 | `planner_progress` | `planner_progress` | `planner` (object) |
 | `build_plan_open` | `build_plan_open` | `buildPlanOpen` (object) |

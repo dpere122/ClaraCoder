@@ -69,11 +69,6 @@ export class ChatActiveStackComponent implements OnDestroy {
   /** Edited-files footer row clicked: open that file's read-only turn diff. */
   readonly openTurnDiff = output<TurnDiffOpenRequest>();
   readonly acceptCommandFinished = output<AcceptCommandFinishedEvent>();
-  readonly copyReviewFinished = output<{
-    requestId: string;
-    status: 'complete' | 'cancelled';
-    summary?: string;
-  }>();
   readonly deleteReviewFinished = output<{
     requestId: string;
     status: 'complete' | 'cancelled';

@@ -1,0 +1,104 @@
+<div class="turn-edits" data-theme-group="chat.turn-edits" [class.turn-edits--expanded]="expanded()">
+  <div class="turn-edits__header">
+    <button
+      type="button"
+      class="turn-edits__toggle"
+      [attr.aria-expanded]="expanded()"
+      (click)="toggleExpanded()"
+    >
+      <lucide-icon
+        class="turn-edits__chevron"
+        [name]="expanded() ? 'chevron-down' : 'chevron-right'"
+        [size]="14"
+        aria-hidden="true"
+      ></lucide-icon>
+      <span class="turn-edits__title">{{ headerLabel() }}</span>
+      @if (totals().additions > 0) {
+        <span class="turn-edits__add">+{{ totals().additions }}</span>
+      }
+      @if (totals().deletions > 0) {
+        <span class="turn-edits__del">−{{ totals().deletions }}</span>
+      }
+    </button>
+    @if (canResetAll()) {
+      <button
+        type="button"
+        class="hitl-btn hitl-btn--secondary turn-edits__reset-all"
+        [disabled]="busy()"
+        title="Restore every file this turn edited to its state before the turn"
+        (click)="onResetAll($event)"
+      >
+        <lucide-icon name="rotate-ccw" [size]="12" aria-hidden="true"></lucide-icon>
+        <span>Reset all</span>
+      </button>
+    }
+  </div>
+
+  @if (expanded()) {
+    <ul class="turn-edits__list" role="list">
+      @for (row of rows(); track row.relativePath) {
+        @let parts = pathParts(row.relativePath);
+        <li
+          class="turn-edits__row"
+          [class.turn-edits__row--reset]="row.displayStatus === 'reset'"
+          [class.turn-edits__row--changed]="row.displayStatus === 'changed'"
+        >
+          <button
+            type="button"
+            class="turn-edits__open"
+            [title]="opLabel(row) + ' — open diff: ' + row.relativePath"
+            (click)="onOpenRow(row)"
+          >
+            <lucide-icon class="turn-edits__op" [name]="opIcon(row)" [size]="14" [attr.aria-label]="opLabel(row)"></lucide-icon>
+            <span class="turn-edits__name">{{ parts.name }}</span>
+            @if (parts.dir) {
+              <span class="turn-edits__dir">{{ parts.dir }}</span>
+            }
+            <span class="turn-edits__counts">
+              @if (row.additions > 0) {
+                <span class="turn-edits__add">+{{ row.additions }}</span>
+              }
+              @if (row.deletions > 0) {
+                <span class="turn-edits__del">−{{ row.deletions }}</span>
+              }
+            </span>
+          </button>
+          <span class="turn-edits__status turn-edits__status--{{ row.displayStatus }}">{{ statusLabel(row) }}</span>
+          @if (row.status === 'kept') {
+            <button
+              type="button"
+              class="turn-edits__reset"
+              [disabled]="busy()"
+              [attr.aria-label]="'Reset ' + row.relativePath + ' to its state before this turn'"
+              title="Reset to its state before this turn"
+              (click)="onResetFile(row, $event)"
+            >
+              <lucide-icon name="rotate-ccw" [size]="12" aria-hidden="true"></lucide-icon>
+              <span>Reset</span>
+            </button>
+          }
+          @if (isConflicted(row.relativePath)) {
+            <div class="turn-edits__conflict" role="alert">
+              <span>Changed since this turn — overwrite?</span>
+              <button
+                type="button"
+                class="hitl-btn hitl-btn--danger-outline"
+                [disabled]="busy()"
+                (click)="onConfirmOverwrite()"
+              >
+                Overwrite
+              </button>
+              <button type="button" class="hitl-btn hitl-btn--secondary" [disabled]="busy()" (click)="onCancelOverwrite()">
+                Cancel
+              </button>
+            </div>
+          }
+        </li>
+      }
+    </ul>
+  }
+
+  @if (error()) {
+    <div class="turn-edits__error" role="status">{{ error() }}</div>
+  }
+</div>

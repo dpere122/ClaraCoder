@@ -13,7 +13,6 @@ import type {
   ConversationMeta,
   CopyConfirmPayload,
   DeleteConfirmPayload,
-  FileDiffPayload,
   FileEntry,
   HealthLogRecord,
   HealthMetricsSnapshot,
@@ -50,7 +49,6 @@ import type {
   BuildPlanChunkPayload,
   BuildPlanOpenPayload,
   BuildPlanStreamEndPayload,
-  StagedTransferBatchPayload,
   PythonInterpreterListItem,
   SystemFontInfo,
   TtsProvider,
@@ -61,6 +59,11 @@ import type {
   ConversationFileJournalEntry,
   RestoreConversationTimelineRequest,
   RestoreConversationTimelineResult,
+  ResetTurnFilesRequest,
+  ResetTurnFilesResult,
+  TurnEditedFile,
+  TurnEditedFileRow,
+  TurnFileDiffResult,
   WorkspaceFileWriteOptions,
   WorkspaceFilesChangedMessage,
   WorkspaceOpenTabsState,
@@ -163,6 +166,8 @@ export interface DoneMessage {
   conversationId: string;
   /** Aligns with Python history commit (COMPLETED-only); default completed when omitted. */
   outcome: ChatStreamOutcome;
+  /** Files the turn wrote, snapshotted by main at stream end (empty when none). */
+  editedFiles: TurnEditedFile[];
 }
 
 export interface LlmStatusMessage {
@@ -184,21 +189,6 @@ export interface ContextCompressedMessage {
   tokensAfter: number;
   toolMessagesCompacted: number;
   toolRoundsDropped: number;
-}
-
-export interface DiffMessage {
-  conversationId: string;
-  diff: FileDiffPayload;
-}
-
-export interface StagedTransferBatchMessage {
-  conversationId: string;
-  payload: StagedTransferBatchPayload;
-}
-
-export interface FileJournalMessage {
-  conversationId: string;
-  fileJournal: Omit<AppendConversationFileJournalRequest, 'conversationId'>;
 }
 
 export interface AcceptCommandMessage {
@@ -376,9 +366,6 @@ export class ElectronService {
   private readonly promotePrimaryToNudgeSubject = new Subject<{ conversationId: string }>();
   private readonly llmTokenUsageSubject = new Subject<LlmTokenUsageMessage>();
   private readonly contextCompressedSubject = new Subject<ContextCompressedMessage>();
-  private readonly diffSubject = new Subject<DiffMessage>();
-  private readonly stagedTransferBatchSubject = new Subject<StagedTransferBatchMessage>();
-  private readonly fileJournalSubject = new Subject<FileJournalMessage>();
   private readonly acceptCommandSubject = new Subject<AcceptCommandMessage>();
   private readonly copyConfirmSubject = new Subject<CopyConfirmMessage>();
   private readonly deleteConfirmSubject = new Subject<DeleteConfirmMessage>();
@@ -440,9 +427,6 @@ export class ElectronService {
   /** Per chat-model completion: measured prompt/completion/total tokens from the OpenAI-compatible API. */
   readonly llmTokenUsage$ = this.llmTokenUsageSubject.asObservable();
   readonly contextCompressed$ = this.contextCompressedSubject.asObservable();
-  readonly diff$ = this.diffSubject.asObservable();
-  readonly stagedTransferBatch$ = this.stagedTransferBatchSubject.asObservable();
-  readonly fileJournal$ = this.fileJournalSubject.asObservable();
   readonly acceptCommand$ = this.acceptCommandSubject.asObservable();
   readonly copyConfirm$ = this.copyConfirmSubject.asObservable();
   readonly deleteConfirm$ = this.deleteConfirmSubject.asObservable();
@@ -580,10 +564,11 @@ export class ElectronService {
         }),
       );
     });
-    this.api?.onMessageDone((_event, conversationId, outcome) => {
+    this.api?.onMessageDone((_event, conversationId, outcome, editedFiles) => {
       const resolved: ChatStreamOutcome =
         outcome === 'aborted' || outcome === 'error' || outcome === 'completed' ? outcome : 'completed';
-      this.zone.run(() => this.doneSubject.next({ conversationId, outcome: resolved }));
+      const files = Array.isArray(editedFiles) ? editedFiles : [];
+      this.zone.run(() => this.doneSubject.next({ conversationId, outcome: resolved, editedFiles: files }));
     });
     this.api?.onMessageTokenUsage?.((_event, conversationId, usage) => {
       const u = usage && typeof usage === 'object' ? usage : {};
@@ -633,15 +618,6 @@ export class ElectronService {
     });
     this.api?.onMessagePromotePrimaryToNudge?.((_event, conversationId) => {
       this.zone.run(() => this.promotePrimaryToNudgeSubject.next({ conversationId }));
-    });
-    this.api?.onMessageDiff?.((_event, conversationId, diff) => {
-      this.zone.run(() => this.diffSubject.next({ conversationId, diff }));
-    });
-    this.api?.onMessageStagedTransferBatch?.((_event, conversationId, payload) => {
-      this.zone.run(() => this.stagedTransferBatchSubject.next({ conversationId, payload }));
-    });
-    this.api?.onMessageFileJournal?.((_event, conversationId, fileJournal) => {
-      this.zone.run(() => this.fileJournalSubject.next({ conversationId, fileJournal }));
     });
     this.api?.onMessageAcceptCommand?.((_event, conversationId, payload) => {
       this.zone.run(() => this.acceptCommandSubject.next({ conversationId, payload }));
@@ -804,6 +780,7 @@ export class ElectronService {
     ttsProvider: TtsProvider = 'kokoro',
     userMessageId?: string,
     adminElevationGranted = false,
+    workspaceNotes: readonly string[] = [],
   ): void {
     this.api?.sendMessage(
       conversationId,
@@ -817,6 +794,7 @@ export class ElectronService {
       ttsProvider,
       userMessageId,
       adminElevationGranted,
+      [...workspaceNotes],
     );
   }
 
@@ -855,7 +833,7 @@ export class ElectronService {
     );
   }
 
-  /** Resume the in-flight LangChain stream after diff, delete, or copy confirmation. */
+  /** Resume the in-flight LangChain stream after a delete, copy, command, or plan confirmation. */
   notifyAgentContinue(
     conversationId: string,
     note: string,
@@ -865,9 +843,6 @@ export class ElectronService {
     copyRequestId?: string,
     acceptCommandAction?: 'confirm' | 'confirm_session' | 'cancel' | 'deny',
     acceptCommandRequestId?: string,
-    stagedTransferAction?: 'confirm' | 're_review',
-    stagedTransferRequestId?: string,
-    stagedTransferPath?: string,
     planConfirmAction?: 'confirm' | 'cancel',
     planConfirmRequestId?: string,
   ): Promise<{ ok: boolean; error?: string; batchComplete?: boolean }> {
@@ -881,9 +856,6 @@ export class ElectronService {
         copyRequestId,
         acceptCommandAction,
         acceptCommandRequestId,
-        stagedTransferAction,
-        stagedTransferRequestId,
-        stagedTransferPath,
         planConfirmAction,
         planConfirmRequestId,
       ) ??
@@ -1120,6 +1092,26 @@ export class ElectronService {
     return (
       this.api?.restoreConversationTimeline?.(request) ??
       Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  /** Per-turn edited files with a live "changed since this turn" check. */
+  listTurnFiles(conversationId: string, userMessageId: string): Promise<TurnEditedFileRow[]> {
+    return this.api?.listTurnFiles?.(conversationId, userMessageId) ?? Promise.resolve([]);
+  }
+
+  /** Before / after text for one file a turn edited. */
+  getTurnFileDiff(conversationId: string, userMessageId: string, relativePath: string): Promise<TurnFileDiffResult> {
+    return (
+      this.api?.getTurnFileDiff?.(conversationId, userMessageId, relativePath) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  /** Revert a turn's files to their pre-edit state; returns `conflicts` unless `force`. */
+  resetTurnFiles(request: ResetTurnFilesRequest): Promise<ResetTurnFilesResult> {
+    return (
+      this.api?.resetTurnFiles?.(request) ?? Promise.resolve({ ok: false, error: 'API not available' })
     );
   }
 

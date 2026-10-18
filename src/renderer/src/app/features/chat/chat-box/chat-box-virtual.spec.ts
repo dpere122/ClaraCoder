@@ -49,4 +49,14 @@ describe('chat-box-virtual', () => {
     );
     expect(withTimeline).toBeGreaterThan(base);
   });
+
+  it('estimateChatRowHeight reserves space for the edited-files footer', () => {
+    const row = (editedFiles?: unknown[]) =>
+      estimateChatRowHeight(
+        { kind: 'assistant-turn', assistant: { text: 'Done.', editedFiles }, chainGroups: [], artifacts: [] },
+        0.9,
+      );
+    expect(row([{ relativePath: 'a.py' }])).toBeGreaterThan(row());
+    expect(row([])).toBe(row());
+  });
 });

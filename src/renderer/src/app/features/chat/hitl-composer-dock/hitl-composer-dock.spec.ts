@@ -1,41 +1,10 @@
-import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import type { HitlTrailArtifact } from '@shared/index';
 import { lucideAppProviders } from '../../../lucide-setup';
 import { ElectronService } from '../../../core/electron.service';
-import type { ChatMessage } from '../chat-box/chat-box';
-import { ConversationSessionService } from '../../shell/conversation-session.service';
 import { HitlComposerDockComponent } from './hitl-composer-dock';
-
-// The pending diff card mounts `app-diff-monaco-preview`, which dynamically imports Monaco.
-// Under the parallel suite that real import can resolve after this file's environment is torn
-// down (EnvironmentTeardownError). Stub the module: these tests only assert dock behaviour.
-const { makeMonacoMock } = vi.hoisted(() => {
-  function makeMonacoMock() {
-    const modifiedEditor = { revealLineInCenter: vi.fn() };
-    const diffEditor = {
-      setModel: vi.fn(),
-      updateOptions: vi.fn(),
-      layout: vi.fn(),
-      getModifiedEditor: () => modifiedEditor,
-      dispose: vi.fn(),
-    };
-    return {
-      editor: {
-        createDiffEditor: vi.fn(() => diffEditor),
-        createModel: vi.fn((text: string) => ({ getValue: () => text, setValue: vi.fn(), isDisposed: () => false, dispose: vi.fn() })),
-        defineTheme: vi.fn(),
-        setTheme: vi.fn(),
-      },
-      Uri: { parse: (u: string) => u },
-    };
-  }
-  return { makeMonacoMock };
-});
-
-vi.mock('monaco-editor', () => makeMonacoMock());
 
 describe('HitlComposerDockComponent', () => {
   beforeEach(() => {
@@ -60,14 +29,6 @@ describe('HitlComposerDockComponent', () => {
             notifyAgentContinue: vi.fn(async () => ({ ok: true })),
           },
         },
-        {
-          // app-diff-apply -> PendingDiffReviewService reads these two signals.
-          provide: ConversationSessionService,
-          useValue: {
-            activeConversationId: signal<string | null>(null),
-            messages: signal<ChatMessage[]>([]),
-          },
-        },
       ],
     });
   });
@@ -81,9 +42,26 @@ describe('HitlComposerDockComponent', () => {
     expect(host.querySelector('.hitl-composer-dock--open')).toBeNull();
   });
 
-  it('opens and renders a pending diff card', () => {
+  it('opens and renders a pending delete card', () => {
     const fixture = TestBed.createComponent(HitlComposerDockComponent);
     const artifacts: HitlTrailArtifact[] = [
+      {
+        role: 'delete_confirm',
+        payload: { version: 1, requestId: 'del-1', relativePath: 'a.ts', kind: 'file', recursive: false },
+        reviewStatus: 'pending',
+      },
+    ];
+    fixture.componentRef.setInput('artifacts', artifacts);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.open()).toBe(true);
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('.hitl-composer-dock--open')).toBeTruthy();
+    expect(host.querySelector('app-delete-confirm')).toBeTruthy();
+  });
+
+  it('never docks legacy edit-review cards, even when still pending', () => {
+    const fixture = TestBed.createComponent(HitlComposerDockComponent);
+    fixture.componentRef.setInput('artifacts', [
       {
         role: 'diff',
         payload: {
@@ -96,28 +74,18 @@ describe('HitlComposerDockComponent', () => {
         },
         reviewStatus: 'pending',
       },
-    ];
-    fixture.componentRef.setInput('artifacts', artifacts);
+    ] satisfies HitlTrailArtifact[]);
     fixture.detectChanges();
-    expect(fixture.componentInstance.open()).toBe(true);
-    const host = fixture.nativeElement as HTMLElement;
-    expect(host.querySelector('.hitl-composer-dock--open')).toBeTruthy();
-    expect(host.querySelector('app-diff-apply')).toBeTruthy();
+    expect(fixture.componentInstance.open()).toBe(false);
+    expect(fixture.componentInstance.pendingArtifacts()).toHaveLength(0);
   });
 
   it('ignores completed artifacts', () => {
     const fixture = TestBed.createComponent(HitlComposerDockComponent);
     fixture.componentRef.setInput('artifacts', [
       {
-        role: 'diff',
-        payload: {
-          version: 1,
-          relativePath: 'a.ts',
-          language: 'typescript',
-          rows: [],
-          fullNewContent: '',
-          truncated: false,
-        },
+        role: 'delete_confirm',
+        payload: { version: 1, requestId: 'del-1', relativePath: 'a.ts' },
         reviewStatus: 'complete',
       },
     ] satisfies HitlTrailArtifact[]);

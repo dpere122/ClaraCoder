@@ -24,4 +24,9 @@ export const createConversationApi = (ipcRenderer: PreloadIpc) => ({
     ipcRenderer.invoke('list-conversation-file-journal', conversationId),
   appendConversationFileJournal: (entry: unknown) => ipcRenderer.invoke('append-conversation-file-journal', entry),
   restoreConversationTimeline: (request: unknown) => ipcRenderer.invoke('restore-conversation-timeline', request),
+  listTurnFiles: (conversationId: string, userMessageId: string) =>
+    ipcRenderer.invoke('list-turn-files', conversationId, userMessageId),
+  getTurnFileDiff: (conversationId: string, userMessageId: string, relativePath: string) =>
+    ipcRenderer.invoke('get-turn-file-diff', conversationId, userMessageId, relativePath),
+  resetTurnFiles: (request: unknown) => ipcRenderer.invoke('reset-turn-files', request),
 });

@@ -266,13 +266,13 @@ export function removeTabFromSlot(
   modelKey: string,
   opts: { collapse?: boolean } = {},
 ): EditorGridLayout {
-  const tabId = `file:${modelKey}`;
   const next = replaceSlot(layout, slotId, (slot) => {
-    const remaining = slot.tabs.filter((t) => chatFileTabModelKey(t) !== modelKey);
-    if (remaining.length === slot.tabs.length) {
+    const removed = slot.tabs.find((t) => chatFileTabModelKey(t) === modelKey);
+    if (!removed) {
       return slot;
     }
-    return { ...slot, tabs: remaining, activeTabId: nextActiveAfterRemoval(slot, tabId, remaining) };
+    const remaining = slot.tabs.filter((t) => chatFileTabModelKey(t) !== modelKey);
+    return { ...slot, tabs: remaining, activeTabId: nextActiveAfterRemoval(slot, chatFileTabId(removed), remaining) };
   });
   return opts.collapse === false ? next : collapseEmpty(next);
 }

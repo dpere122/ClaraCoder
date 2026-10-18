@@ -48,10 +48,6 @@
   background: var(--t-panel-bg, var(--bs-body-bg, #1e1e1e));
 }
 
-.workspace-monaco-diff-blocked {
-  flex-shrink: 0;
-}
-
 .workspace-monaco-diff {
   flex: 1;
 }

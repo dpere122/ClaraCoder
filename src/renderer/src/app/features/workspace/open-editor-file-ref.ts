@@ -9,6 +9,17 @@ export interface OpenEditorFileRef {
   outsideWorkspace?: boolean;
 }
 
+/** Prefix of read-only turn-diff tab keys (`turn-diff:<userMessageId>:<relativePath>`). */
+export const TURN_DIFF_MODEL_KEY_PREFIX = 'turn-diff:';
+
+export function turnDiffModelKey(userMessageId: string, relativePath: string): string {
+  return `${TURN_DIFF_MODEL_KEY_PREFIX}${userMessageId}:${normalizePathSlashes(relativePath)}`;
+}
+
+export function isTurnDiffModelKey(modelKey: string | null | undefined): boolean {
+  return !!modelKey?.startsWith(TURN_DIFF_MODEL_KEY_PREFIX);
+}
+
 export function editorModelKeyForRelativePath(relativePath: string): string {
   return `rel:${normalizePathSlashes(relativePath)}`;
 }

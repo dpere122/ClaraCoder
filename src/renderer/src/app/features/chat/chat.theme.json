@@ -29,6 +29,10 @@
       "label": "Stream pills",
       "description": "Live thought, nudge, and tool-status pills during a reply."
     },
+    "chat.turn-edits": {
+      "label": "Turn edits",
+      "description": "Files a reply edited, with per-file reset and diff, under the assistant bubble."
+    },
     "chat.plan-panel": {
       "label": "Plan panel",
       "description": "Planner checklist shown for plan-mode turns."

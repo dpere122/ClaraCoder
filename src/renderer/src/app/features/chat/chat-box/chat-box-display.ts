@@ -654,6 +654,28 @@ export function mergeClaraBriefsFromChainIntoTimeline(
   return extras.length ? [...extras, ...existing] : existing;
 }
 
+/** User turn that an assistant-turn row answers (end-of-turn edit review). */
+export interface ChatTurnUserContext {
+  /** Restore / journal id of the turn's user message (absent on old transcripts). */
+  userMessageId: string | null;
+  /** 1-based count of user messages up to and including this turn. */
+  turnNumber: number;
+}
+
+/** Per-row user-turn context, index-aligned with `rows`; null for user rows and turns before any prompt. */
+export function chatTurnUserContexts(rows: readonly ChatDisplayRow[]): (ChatTurnUserContext | null)[] {
+  let turnNumber = 0;
+  let userMessageId: string | null = null;
+  return rows.map((row) => {
+    if (row.kind === 'user') {
+      turnNumber++;
+      userMessageId = row.msg.id ?? null;
+      return null;
+    }
+    return turnNumber > 0 ? { userMessageId, turnNumber } : null;
+  });
+}
+
 export function buildChatDisplayRows(messages: ChatMessage[]): ChatDisplayRow[] {
   const rows: ChatDisplayRow[] = [];
   const pendingArtifacts: ArtifactMessage[] = [];

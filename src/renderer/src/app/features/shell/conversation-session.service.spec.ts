@@ -7,6 +7,7 @@ import type {
   ConversationMeta,
   LlamaServerLifecycleEvent,
   LlamaServerProcessExitEvent,
+  TurnEditedFile,
 } from '@shared/index';
 import { PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID, SecretValue } from '@shared/index';
 import { ElectronService } from '../../core/electron.service';
@@ -52,7 +53,7 @@ function mockElectron(overrides: Partial<{
   readConversationFromDisk: ElectronService['readConversationFromDisk'];
   getConversations: ElectronService['getConversations'];
 }> = {}) {
-  const doneSubject = new Subject<{ conversationId: string; outcome: 'completed' | 'aborted' | 'error' }>();
+  const doneSubject = new Subject<{ conversationId: string; outcome: 'completed' | 'aborted' | 'error'; editedFiles?: TurnEditedFile[] }>();
   const configSubject = new Subject<AppConfig>();
   const llamaServerLifecycleSubject = new Subject<LlamaServerLifecycleEvent>();
   const llamaServerProcessExitSubject = new Subject<LlamaServerProcessExitEvent>();
@@ -71,12 +72,9 @@ function mockElectron(overrides: Partial<{
     toolReadChunk$: new Subject().asObservable(),
     toolExecChunk$: new Subject().asObservable(),
     toolExecComplete$: new Subject().asObservable(),
-    fileJournal$: new Subject().asObservable(),
     appendConversationFileJournal: vi.fn(async () => ({ ok: true })),
     restoreConversationTimeline: vi.fn(async () => ({ ok: false, error: 'not mocked' })),
     listConversationFileJournal: vi.fn(async () => []),
-    diff$: new Subject().asObservable(),
-    stagedTransferBatch$: new Subject().asObservable(),
     acceptCommand$: new Subject().asObservable(),
     copyConfirm$: new Subject().asObservable(),
     deleteConfirm$: new Subject().asObservable(),
@@ -157,7 +155,7 @@ describe('ConversationSessionService', () => {
 
   function setup(overrides?: Parameters<typeof mockElectron>[0]): {
     service: ConversationSessionService;
-    doneSubject: Subject<{ conversationId: string; outcome: 'completed' | 'aborted' | 'error' }>;
+    doneSubject: Subject<{ conversationId: string; outcome: 'completed' | 'aborted' | 'error'; editedFiles?: TurnEditedFile[] }>;
     configSubject: Subject<AppConfig>;
     llamaServerLifecycleSubject: Subject<LlamaServerLifecycleEvent>;
     llamaServerProcessExitSubject: Subject<LlamaServerProcessExitEvent>;
@@ -231,6 +229,51 @@ describe('ConversationSessionService', () => {
     expect(service.streamingParts()).toEqual([]);
     expect(service.messages().some((m) => m.role === 'assistant')).toBe(false);
     expect(saveConversation).not.toHaveBeenCalled();
+  });
+
+  it('attaches the turn edited-file summary from done$ to the new assistant message', async () => {
+    const { service, doneSubject } = setup();
+    service.activeConversationId.set('test-conv');
+    service.addPending('test-conv');
+    service.streamingParts.set([{ streamTag: 'primary', label: '', text: 'done editing' }]);
+    const editedFiles: TurnEditedFile[] = [
+      { relativePath: 'a.py', op: 'modify', additions: 3, deletions: 1, status: 'kept' },
+    ];
+
+    doneSubject.next({ conversationId: 'test-conv', outcome: 'completed', editedFiles });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const assistant = service.messages().find((m) => m.role === 'assistant');
+    expect(assistant?.role === 'assistant' && assistant.editedFiles).toEqual(editedFiles);
+  });
+
+  it('mirrors reset statuses onto the assistant message closing a turn', () => {
+    const { service } = setup();
+    const kept: TurnEditedFile = { relativePath: 'a.py', op: 'modify', additions: 1, deletions: 0, status: 'kept' };
+    service.messages.set([
+      { role: 'user', text: 'first', id: 'u1' },
+      { role: 'assistant', text: 'ok', editedFiles: [kept] },
+      { role: 'user', text: 'second', id: 'u2' },
+      { role: 'assistant', text: 'ok again', editedFiles: [kept] },
+    ]);
+
+    service.applyTurnEditedFiles('u1', [{ ...kept, status: 'reset' }]);
+
+    const msgs = service.messages();
+    expect(msgs[1]?.role === 'assistant' && msgs[1].editedFiles?.[0]?.status).toBe('reset');
+    expect(msgs[3]?.role === 'assistant' && msgs[3].editedFiles?.[0]?.status).toBe('kept');
+  });
+
+  it('queues workspace notes per conversation until taken', () => {
+    const { service } = setup();
+    service.queueWorkspaceNote('c1', 'User reset `a.py` from turn 1 to its pre-edit state');
+    service.queueWorkspaceNote('c2', 'other');
+    service.queueWorkspaceNote('c1', '  ');
+
+    expect(service.takeWorkspaceNotes('c1')).toEqual(['User reset `a.py` from turn 1 to its pre-edit state']);
+    expect(service.takeWorkspaceNotes('c1')).toEqual([]);
+    service.requeueWorkspaceNotes('c2', ['first']);
+    expect(service.takeWorkspaceNotes('c2')).toEqual(['first', 'other']);
   });
 
   it('preserves reasoning stream text of a backgrounded conversation when switching to a new conversation', async () => {

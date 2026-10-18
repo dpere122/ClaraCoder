@@ -1,5 +1,4 @@
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
 import {
   afterNextRender,
   Component,
@@ -23,10 +22,7 @@ import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
 import type * as Monaco from 'monaco-editor';
 import {
   lspServerKindForWorkspaceRelativePath,
-  type FileDiffPayload,
   type MonacoWorkspaceEditorSettings,
-  type StagedTransferBatchPayload,
-  type StagedTransferFileResolution,
   type WorkspaceMonacoEditorScrollState,
   type LspEditorDiagnostic,
 } from '@shared/index';
@@ -39,11 +35,10 @@ import {
   displayPathForModelKey,
   editorModelKeyForRelativePath,
   isExternalModelKey,
+  isTurnDiffModelKey,
   type OpenEditorFileRef,
   relativePathFromModelKey,
 } from '../open-editor-file-ref';
-import { PendingDiffReviewService, type BatchFinishFn, type BatchPartialFn } from '../../diff/pending-diff-review.service';
-import { mergedContentForDiffPreview } from '../../diff/diff-rebuild';
 import { monacoWorkspaceSettingsToEditorOptions } from './workspace-monaco-editor-options';
 import { renderMarkdownDoc } from './markdown-doc-renderer';
 import type { EditorSelectionPayload } from '../../chat/chat-context-bar/chat-context-file';
@@ -55,6 +50,17 @@ import {
   WorkspaceMonacoModelStore,
   type WorkspaceMonacoModelEvent,
 } from './workspace-monaco-model-store';
+
+/** Read-only before/after text for one file a past turn edited (turn-diff tab). */
+export interface WorkspaceMonacoReadOnlyDiff {
+  /** Turn-diff tab model key; the diff shows while this key is active. */
+  modelKey: string;
+  relativePath: string;
+  /** Short label for the toolbar, e.g. "Turn 3". */
+  label: string;
+  original: string;
+  modified: string;
+}
 
 const EDITOR_SELECTION_DEBOUNCE_MS = 50;
 const LSP_DIAGNOSTICS_DEBOUNCE_MS = 450;
@@ -72,7 +78,7 @@ let nextOwnerSeq = 0;
 @Component({
   selector: 'app-workspace-monaco',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule],
   templateUrl: './workspace-monaco.html',
   styleUrl: './workspace-monaco.css',
   // Markdown preview HTML is injected via [innerHTML]; emulated encapsulation cannot
@@ -83,7 +89,6 @@ export class WorkspaceMonacoComponent {
   private readonly electron = inject(ElectronService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly zone = inject(NgZone);
-  private readonly pendingDiffReview = inject(PendingDiffReviewService);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly inj = inject(Injector);
   private readonly store = inject(WorkspaceMonacoModelStore);
@@ -105,10 +110,8 @@ export class WorkspaceMonacoComponent {
   readonly openFileRelativePaths = input<readonly string[]>([]);
   /** Persisted Monaco options from app config (optional until loaded). */
   readonly editorSettings = input<MonacoWorkspaceEditorSettings | null | undefined>(undefined);
-  /** Pending diff for this path from the shell (same artifact as chat review). */
-  readonly pendingDiffPayload = input<FileDiffPayload | null>(null);
-  /** When the active file is part of a pending staged-transfer batch, the batch payload. */
-  readonly pendingStagedTransferBatch = input<StagedTransferBatchPayload | null>(null);
+  /** Before/after content for the active turn-diff tab (read-only diff surface). */
+  readonly readOnlyDiff = input<WorkspaceMonacoReadOnlyDiff | null>(null);
   readonly conversationId = input<string | null>(null);
   /** After cross-file go-to-definition: reveal cursor once this path is the active editor model. */
   readonly pendingEditorReveal = input<{ relativePath: string; line: number; column: number } | null>(null);
@@ -131,21 +134,6 @@ export class WorkspaceMonacoComponent {
     }
     return new Set(raw);
   });
-  readonly diffReviewFinished = output<{
-    relativePath: string;
-    status: 'complete' | 'cancelled';
-    summary?: string;
-  }>();
-  readonly stagedTransferBatchFinished = output<{
-    requestId: string;
-    status: 'complete' | 'cancelled';
-    summary?: string;
-    fileResolutions: Record<string, StagedTransferFileResolution>;
-  }>();
-  readonly stagedTransferBatchFileResolved = output<{
-    requestId: string;
-    fileResolutions: Record<string, StagedTransferFileResolution>;
-  }>();
   /** Cross-file definition navigation (shell opens/focuses tab; optional reveal via {@link pendingEditorReveal}). */
   readonly navigateWorkspaceFile = output<{ relativePath: string; line: number; column: number }>();
   readonly pendingEditorRevealHandled = output<void>();
@@ -166,33 +154,11 @@ export class WorkspaceMonacoComponent {
 
   protected readonly loadError = signal('');
   protected readonly detachedBanner = signal('');
-  protected readonly applyMessage = signal('');
-  /** Notes when returning a staged transfer for re-review (matches chat diff card). */
-  protected readonly reReviewFeedback = signal('');
-  /** Block inline diff until the buffer matches disk (policy: save or revert first). */
-  protected readonly pendingDiffBlockedByDirty = computed(() => {
-    const pending = this.pendingDiffPayload();
-    const rel = relativePathFromModelKey(this.activeModelKey()?.trim() ?? '');
-    if (!pending || !rel?.trim()) {
-      return false;
-    }
-    if (normalizePathSlashes(pending.relativePath) !== normalizePathSlashes(rel)) {
-      return false;
-    }
-    const key = editorModelKeyForRelativePath(rel);
-    return this.store.unsavedKeys().has(key);
-  });
-
+  /** True while the active tab is a turn-diff tab whose content has loaded. */
   protected readonly monacoDiffActive = computed(() => {
-    const pending = this.pendingDiffPayload();
-    const rel = relativePathFromModelKey(this.activeModelKey()?.trim() ?? '');
-    if (!pending || !rel?.trim()) {
-      return false;
-    }
-    if (normalizePathSlashes(pending.relativePath) !== normalizePathSlashes(rel)) {
-      return false;
-    }
-    return !this.pendingDiffBlockedByDirty();
+    const diff = this.readOnlyDiff();
+    const key = this.activeModelKey()?.trim();
+    return !!diff && !!key && diff.modelKey === key;
   });
 
   private readonly editorHost = viewChild.required<ElementRef<HTMLElement>>('editorHost');
@@ -205,7 +171,7 @@ export class WorkspaceMonacoComponent {
   protected readonly mdPreviewHtml = signal<SafeHtml>('');
   protected readonly isMarkdownFile = computed(() => {
     const key = this.activeModelKey()?.trim();
-    if (!key) {
+    if (!key || isTurnDiffModelKey(key)) {
       return false;
     }
     const path = displayPathForModelKey(key);
@@ -236,8 +202,8 @@ export class WorkspaceMonacoComponent {
   private diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
   private diffOriginalModel: Monaco.editor.ITextModel | null = null;
   private diffModifiedModel: Monaco.editor.ITextModel | null = null;
-  /** Matches {@link PendingDiffReviewService.sessionKey} for the mounted diff surface. */
-  private diffMountedPayloadKey = '';
+  /** Turn-diff model key of the mounted diff surface. */
+  private diffMountedKey = '';
 
   private readonly editorReady = signal(false);
   /** Model keys this instance currently owns in the shared store. */
@@ -328,7 +294,7 @@ export class WorkspaceMonacoComponent {
       const root = this.workspacePath()?.trim();
       const ready = this.editorReady();
       const diffOn = this.monacoDiffActive();
-      const pending = this.pendingDiffPayload();
+      const diff = this.readOnlyDiff();
       const ed = this.editor;
       const monacoApi = this.monaco;
       if (!ready || !ed || !monacoApi) {
@@ -341,12 +307,11 @@ export class WorkspaceMonacoComponent {
         });
         return;
       }
-      const rel = relativePathFromModelKey(key);
-      if (diffOn && pending && rel) {
-        const s = this.pendingDiffReview.sessionFor(pending);
-        s.accepted();
-        s.skipped();
-        untracked(() => void this.mountOrUpdateDiffEditor(key, pending));
+      if (diffOn && diff) {
+        untracked(() => this.mountOrUpdateDiffEditor(diff));
+      } else if (isTurnDiffModelKey(key)) {
+        // Turn-diff content is still loading: no workspace model exists for this key.
+        untracked(() => this.disposeDiffSurface());
       } else {
         untracked(() => {
           this.disposeDiffSurface();
@@ -414,8 +379,8 @@ export class WorkspaceMonacoComponent {
       });
     });
 
-    // Diff review wins over markdown preview: entering review force-exits preview
-    // and resets the remembered mode so the review surface is never obscured.
+    // The diff surface wins over markdown preview: showing a diff force-exits preview
+    // and resets the remembered mode so the diff is never obscured.
     effect(() => {
       if (!this.monacoDiffActive()) {
         return;
@@ -531,22 +496,6 @@ export class WorkspaceMonacoComponent {
     });
   }
 
-  private readonly finishEmit = (e: {
-    relativePath: string;
-    status: 'complete' | 'cancelled';
-    summary?: string;
-  }): void => {
-    this.emitOutput(this.diffReviewFinished, e);
-  };
-
-  private readonly batchFinishEmit: BatchFinishFn = (e) => {
-    this.emitOutput(this.stagedTransferBatchFinished, e);
-  };
-
-  private readonly batchPartialEmit: BatchPartialFn = (e) => {
-    this.emitOutput(this.stagedTransferBatchFileResolved, e);
-  };
-
   /** Skip output emits after teardown (avoids NG0953 from async LSP / Monaco callbacks). */
   private emitOutput<T>(output: { emit(value: T): void }, value: T): void {
     if (this.destroyed) {
@@ -629,115 +578,6 @@ export class WorkspaceMonacoComponent {
     }
   }
 
-  private async resolveBatchStagedTransfer(
-    action: 'confirm' | 're_review',
-    feedback: string,
-  ): Promise<void> {
-    const batch = this.pendingStagedTransferBatch();
-    const file = this.pendingDiffPayload();
-    if (!batch || !file || !this.isBatchStagedTransfer()) {
-      return;
-    }
-    await this.pendingDiffReview.resolveStagedTransferBatchFile(
-      batch,
-      file.relativePath,
-      action,
-      feedback,
-      this.conversationId(),
-      (msg, ms) => this.flashApplyMessage(msg, ms),
-      this.batchFinishEmit,
-      this.batchPartialEmit,
-    );
-  }
-
-  private flashApplyMessage(msg: string, ms: number): void {
-    this.applyMessage.set(msg);
-    setTimeout(() => this.applyMessage.set(''), ms);
-  }
-
-  protected async onAcceptCurrentChange(): Promise<void> {
-    const p = this.pendingDiffPayload();
-    if (!p) return;
-    await this.pendingDiffReview.acceptCurrentChange(
-      p,
-      this.conversationId(),
-      (msg, ms) => this.flashApplyMessage(msg, ms),
-      this.finishEmit,
-    );
-  }
-
-  protected async onSkipCurrentChange(): Promise<void> {
-    const p = this.pendingDiffPayload();
-    if (!p) return;
-    await this.pendingDiffReview.skipCurrentChange(
-      p,
-      this.conversationId(),
-      (msg, ms) => this.flashApplyMessage(msg, ms),
-      this.finishEmit,
-    );
-  }
-
-  protected async onApplyAllAtOnce(): Promise<void> {
-    const p = this.pendingDiffPayload();
-    if (!p) return;
-    await this.pendingDiffReview.applyAllAtOnce(
-      p,
-      this.conversationId(),
-      (msg, ms) => this.flashApplyMessage(msg, ms),
-      this.finishEmit,
-    );
-  }
-
-  protected async onCancelProposal(): Promise<void> {
-    const p = this.pendingDiffPayload();
-    if (!p) return;
-    if (this.isBatchStagedTransfer()) {
-      await this.resolveBatchStagedTransfer(
-        're_review',
-        '(user dismissed the transfer review without approving)',
-      );
-      return;
-    }
-    await this.pendingDiffReview.cancelProposal(
-      p,
-      this.conversationId(),
-      (msg, ms) => this.flashApplyMessage(msg, ms),
-      this.finishEmit,
-    );
-  }
-
-  protected async onApproveStagedTransfer(): Promise<void> {
-    const p = this.pendingDiffPayload();
-    if (!p) return;
-    if (this.isBatchStagedTransfer()) {
-      await this.resolveBatchStagedTransfer('confirm', '');
-      return;
-    }
-    await this.pendingDiffReview.approveStagedTransferHitl(
-      p,
-      this.conversationId(),
-      (msg, ms) => this.flashApplyMessage(msg, ms),
-      this.finishEmit,
-    );
-  }
-
-  protected async onReturnStagedForReReview(): Promise<void> {
-    const p = this.pendingDiffPayload();
-    if (!p) return;
-    if (this.isBatchStagedTransfer()) {
-      await this.resolveBatchStagedTransfer('re_review', this.reReviewFeedback());
-      this.reReviewFeedback.set('');
-      return;
-    }
-    await this.pendingDiffReview.returnStagedTransferForReReview(
-      p,
-      this.conversationId(),
-      this.reReviewFeedback(),
-      (msg, ms) => this.flashApplyMessage(msg, ms),
-      this.finishEmit,
-    );
-  }
-
   @HostListener('pointerdown')
   protected onHostPointerDown(): void {
     this.emitOutputVoid(this.surfaceFocused);
@@ -767,13 +607,6 @@ export class WorkspaceMonacoComponent {
       ev.stopPropagation();
       this.openFindWidget();
       return;
-    }
-    if (!this.monacoDiffActive()) {
-      return;
-    }
-    if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter') {
-      ev.preventDefault();
-      void this.onAcceptCurrentChange();
     }
   }
 
@@ -956,54 +789,6 @@ export class WorkspaceMonacoComponent {
     }
     return (keys as readonly string[]).includes(modelKey);
   }
-
-  protected readonly applying = computed(() => {
-    const p = this.pendingDiffPayload();
-    if (!p) return false;
-    return this.pendingDiffReview.sessionFor(p).applying();
-  });
-
-  protected readonly incrementalOk = computed(() => {
-    const p = this.pendingDiffPayload();
-    if (!p) return false;
-    return this.pendingDiffReview.incrementalOk(p);
-  });
-
-  protected readonly isStagedTransferHitl = computed(() => !!this.pendingDiffPayload()?.stagedTransferHitl);
-
-  /** True when the pending diff is one file inside an active staged-transfer batch. */
-  protected readonly isBatchStagedTransfer = computed(() => {
-    const batch = this.pendingStagedTransferBatch();
-    const file = this.pendingDiffPayload();
-    if (!batch || !file?.stagedTransferHitl) {
-      return false;
-    }
-    const norm = normalizePathSlashes(file.relativePath);
-    return batch.files.some((f) => normalizePathSlashes(f.relativePath) === norm);
-  });
-
-  protected readonly changeHunkOrder = computed(() => {
-    const p = this.pendingDiffPayload();
-    if (!p) return [] as number[];
-    return this.pendingDiffReview.changeHunkOrder(p);
-  });
-
-  protected readonly changeProgressLabel = computed(() => {
-    const p = this.pendingDiffPayload();
-    if (!p) return '';
-    const order = this.pendingDiffReview.changeHunkOrder(p);
-    if (order.length === 0) return '';
-    const s = this.pendingDiffReview.sessionFor(p);
-    const acc = s.accepted();
-    const sk = s.skipped();
-    const done = order.filter((h) => acc.has(h) || sk.has(h)).length;
-    const next = order.find((h) => !acc.has(h) && !sk.has(h));
-    if (next == null) {
-      return `${done} / ${order.length} changes (done)`;
-    }
-    const at = order.indexOf(next) + 1;
-    return `Change ${at} of ${order.length} (${done} resolved)`;
-  });
 
   private updateDetachedBanner(modelKey: string): void {
     if (this.activeModelKey()?.trim() === modelKey) {
@@ -1427,74 +1212,64 @@ export class WorkspaceMonacoComponent {
       this.diffModifiedModel.dispose();
     }
     this.diffModifiedModel = null;
-    this.diffMountedPayloadKey = '';
+    this.diffMountedKey = '';
   }
 
-  private async mountOrUpdateDiffEditor(modelKey: string, payload: FileDiffPayload): Promise<void> {
+  private mountOrUpdateDiffEditor(diff: WorkspaceMonacoReadOnlyDiff): void {
     const monacoApi = this.monaco;
     if (!monacoApi) {
       return;
     }
-    const payloadKey = this.pendingDiffReview.sessionKey(payload);
-    const wsModel = await this.getOrCreateModel(modelKey);
-    const displayPath = relativePathFromModelKey(modelKey) ?? displayPathForModelKey(modelKey);
-    const baseline =
-      typeof payload.fullOriginalContent === 'string'
-        ? payload.fullOriginalContent
-        : (wsModel?.getValue() ?? '');
-    if (!baseline && !wsModel) {
-      this.loadError.set('Failed to load original text for diff.');
-      return;
-    }
-
-    const session = this.pendingDiffReview.sessionFor(payload);
-    const modifiedText = mergedContentForDiffPreview(payload, session.accepted(), session.skipped());
+    const displayPath = diff.relativePath;
     const lang = monacoLanguageIdForPath(monacoApi, displayPath);
     const { settings } = normalizeMonacoWorkspaceEditorSettings(this.editorSettings() == null ? undefined : this.editorSettings()!);
     const mapped = monacoWorkspaceSettingsToEditorOptions(settings);
 
     const host = this.diffHost().nativeElement;
 
-    if (!this.diffEditor || this.diffMountedPayloadKey !== payloadKey) {
+    if (!this.diffEditor || this.diffMountedKey !== diff.modelKey) {
       this.disposeDiffSurface();
-      this.diffMountedPayloadKey = payloadKey;
+      this.diffMountedKey = diff.modelKey;
       this.diffEditor = monacoApi.editor.createDiffEditor(host, {
         ...mapped,
         theme: this.monacoThemeName(settings),
         automaticLayout: true,
         readOnly: true,
+        originalEditable: false,
         renderSideBySide: true,
       });
       void import('../../../../monaco-hover-delegate-safety').then((m) => m.ensureMonacoHoverDelegateSafe());
       monacoApi.editor.setTheme(this.monacoThemeName(settings));
 
-      // Diff models are per-instance: suffix the URI with the owner id so two slots reviewing
-      // the same file never collide on `createModel`.
+      // Diff models are per-instance: suffix the URI with the owner id so two slots showing
+      // the same turn diff never collide on `createModel`.
+      const uriPath = encodeURI(`${diff.modelKey}/${displayPath}`);
       this.diffOriginalModel = monacoApi.editor.createModel(
-        baseline,
+        diff.original,
         lang,
-        monacoApi.Uri.parse(`clara-diff-org://${this.ownerId}/${encodeURI(displayPath)}`),
+        monacoApi.Uri.parse(`clara-diff-org://${this.ownerId}/${uriPath}`),
       );
       this.diffModifiedModel = monacoApi.editor.createModel(
-        modifiedText,
+        diff.modified,
         lang,
-        monacoApi.Uri.parse(`clara-diff-mod://${this.ownerId}/${encodeURI(displayPath)}`),
+        monacoApi.Uri.parse(`clara-diff-mod://${this.ownerId}/${uriPath}`),
       );
       this.diffEditor.setModel({
         original: this.diffOriginalModel,
         modified: this.diffModifiedModel,
       });
     } else {
-      if (this.diffOriginalModel && !this.diffOriginalModel.isDisposed() && this.diffOriginalModel.getValue() !== baseline) {
-        this.diffOriginalModel.setValue(baseline);
+      if (this.diffOriginalModel && !this.diffOriginalModel.isDisposed() && this.diffOriginalModel.getValue() !== diff.original) {
+        this.diffOriginalModel.setValue(diff.original);
       }
-      if (this.diffModifiedModel && !this.diffModifiedModel.isDisposed() && this.diffModifiedModel.getValue() !== modifiedText) {
-        this.diffModifiedModel.setValue(modifiedText);
+      if (this.diffModifiedModel && !this.diffModifiedModel.isDisposed() && this.diffModifiedModel.getValue() !== diff.modified) {
+        this.diffModifiedModel.setValue(diff.modified);
       }
     }
 
     this.diffEditor.layout();
     this.loadError.set('');
+    this.detachedBanner.set('');
   }
 
   /** Loads or creates the shared text model for {@param modelKey}; surfaces load errors in this slot. */

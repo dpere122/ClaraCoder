@@ -41,6 +41,43 @@ export function normalizeWorkspaceEncoding(raw: string): string {
   return n;
 }
 
+/** Decode workspace file bytes to LF text (BOM stripped), the inverse of {@link encodeWorkspaceFileContent}. */
+export function decodeWorkspaceFileContent(buf: Buffer, encoding: string): string {
+  const enc = normalizeWorkspaceEncoding(encoding);
+  let text: string;
+  switch (enc) {
+    case 'utf-8':
+    case 'utf-8-sig':
+      text = buf.toString('utf8');
+      break;
+    case 'latin-1':
+      text = buf.toString('latin1');
+      break;
+    case 'ascii':
+      text = buf.toString('ascii');
+      break;
+    case 'utf-16':
+    case 'utf-16-le':
+      text = buf.toString('utf16le');
+      break;
+    case 'utf-16-be':
+      text = iconv.decode(buf, 'UTF-16BE');
+      break;
+    case 'cp1252':
+      text = iconv.decode(buf, 'windows-1252');
+      break;
+    case 'mac-roman':
+      text = iconv.decode(buf, 'macintosh');
+      break;
+    default:
+      throw new Error(`Unhandled encoding: ${enc}`);
+  }
+  if (text.charCodeAt(0) === 0xfeff) {
+    text = text.slice(1);
+  }
+  return text.replace(/\r\n/g, '\n');
+}
+
 export function encodeWorkspaceFileContent(
   content: string,
   encoding: string,

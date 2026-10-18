@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron';
-import type { LlmStatusPayload } from '../../../shared';
+import type { LlmStatusPayload, TurnEditedFile } from '../../../shared';
 import { pythonControlFetch, pythonLongFetch, pythonSsePost } from '../../python/http-client';
 import { ensurePythonReady } from '../../python/server';
 import {
@@ -10,6 +10,7 @@ import {
 } from '../assert-trusted-renderer';
 import { mainState } from '../../state';
 import { createSettingsWindow, notifySettingsRendererReady, parseSettingsWindowTab } from '../../windows/settings-window';
+import { finalizeTurnEdits } from '../../turn-edits';
 import { sendParsedPayload } from './chat-stream-payload';
 import {
   abortChatStream,
@@ -17,17 +18,45 @@ import {
   endChatStream,
   getPendingStreamIdsForWorkspace,
 } from './chat-stream-state';
+import { workspacePathForWorkspaceId } from './conversation-timeline';
 
 export { parseStreamPayload, sendParsedPayload } from './chat-stream-payload';
 
 export type ChatStreamOutcome = 'completed' | 'aborted' | 'error';
 
-function replyMessageDone(
+/** Turn identity needed to snapshot the turn's edited files when the stream ends. */
+interface ChatTurnRef {
+  userMessageId: string;
+  workspaceId: string | null;
+}
+
+/**
+ * Snapshot the turn's edited files (journal "before" vs disk "after"), then signal done with
+ * the summary so the renderer can attach it to the assistant message it creates.
+ */
+async function replyMessageDone(
   event: Electron.IpcMainEvent,
   conversationId: string,
   outcome: ChatStreamOutcome,
-): void {
-  event.reply('message-done', conversationId, outcome);
+  turn: ChatTurnRef,
+): Promise<void> {
+  let editedFiles: TurnEditedFile[] = [];
+  const root = workspacePathForWorkspaceId(turn.workspaceId);
+  if (turn.userMessageId && root) {
+    try {
+      editedFiles = await finalizeTurnEdits(conversationId, turn.userMessageId, root);
+    } catch (err) {
+      console.error('[Chat] finalizeTurnEdits failed:', err);
+    }
+  }
+  event.reply('message-done', conversationId, outcome, editedFiles);
+}
+
+function workspaceNotesFromIpc(raw: unknown): string[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.filter((n): n is string => typeof n === 'string' && n.trim().length > 0).map((n) => n.trim());
 }
 
 /**
@@ -86,6 +115,7 @@ export function registerChatIpc(): void {
       ttsProvider = 'kokoro',
       userMessageId = '',
       adminElevationGranted = false,
+      workspaceNotes: unknown = [],
     ) => {
       if (!isTrustedMainRenderer(event.sender)) {
         return;
@@ -93,6 +123,10 @@ export function registerChatIpc(): void {
       console.log('Received message for', conversationId, ':', msg);
 
       const abortController = beginChatStream(conversationId, workspaceId ?? null);
+      const turn: ChatTurnRef = {
+        userMessageId: typeof userMessageId === 'string' ? userMessageId.trim() : '',
+        workspaceId: workspaceId ?? null,
+      };
 
       const body: Record<string, unknown> = {
         session_id: conversationId,
@@ -106,6 +140,10 @@ export function registerChatIpc(): void {
       };
       if (typeof userMessageId === 'string' && userMessageId.trim()) {
         body.user_message_id = userMessageId.trim();
+      }
+      const notes = workspaceNotesFromIpc(workspaceNotes);
+      if (notes.length > 0) {
+        body.workspace_notes = notes;
       }
       if (Array.isArray(structuredContent) && structuredContent.length > 0) {
         const ok = structuredContent.every((p) => p !== null && typeof p === 'object' && !Array.isArray(p));
@@ -139,7 +177,7 @@ export function registerChatIpc(): void {
             if (!line.startsWith('data: ')) continue;
             const payload = line.slice(6);
             if (payload === '[DONE]') {
-              replyMessageDone(event, conversationId, 'completed');
+              await replyMessageDone(event, conversationId, 'completed', turn);
             } else {
               sendParsedPayload(event, conversationId, payload);
             }
@@ -149,16 +187,16 @@ export function registerChatIpc(): void {
         if (buffer.startsWith('data: ')) {
           const payload = buffer.slice(6);
           if (payload === '[DONE]') {
-            replyMessageDone(event, conversationId, 'completed');
+            await replyMessageDone(event, conversationId, 'completed', turn);
           } else if (payload) {
             sendParsedPayload(event, conversationId, payload);
-            replyMessageDone(event, conversationId, 'completed');
+            await replyMessageDone(event, conversationId, 'completed', turn);
           }
         }
       } catch (err) {
         if (abortController.signal.aborted) {
           console.log('Stream aborted for', conversationId);
-          replyMessageDone(event, conversationId, 'aborted');
+          await replyMessageDone(event, conversationId, 'aborted', turn);
           return;
         }
         console.error('Failed to reach Python server:', err);
@@ -170,7 +208,7 @@ export function registerChatIpc(): void {
           source: 'agent',
         } as LlmStatusPayload);
         event.reply('message-chunk', conversationId, 'Error: could not reach the AI backend.');
-        replyMessageDone(event, conversationId, 'error');
+        await replyMessageDone(event, conversationId, 'error', turn);
       } finally {
         endChatStream(conversationId, abortController);
       }
@@ -189,9 +227,6 @@ export function registerChatIpc(): void {
       copyRequestId?: string,
       acceptCommandAction?: 'confirm' | 'confirm_session' | 'cancel' | 'deny',
       acceptCommandRequestId?: string,
-      stagedTransferAction?: 'confirm' | 're_review',
-      stagedTransferRequestId?: string,
-      stagedTransferPath?: string,
       planConfirmAction?: 'confirm' | 'cancel',
       planConfirmRequestId?: string,
     ) => {
@@ -213,9 +248,6 @@ export function registerChatIpc(): void {
             copy_request_id: copyRequestId ?? '',
             accept_command_action: acceptCommandAction ?? null,
             accept_command_request_id: acceptCommandRequestId ?? '',
-            staged_transfer_action: stagedTransferAction ?? null,
-            staged_transfer_request_id: stagedTransferRequestId ?? '',
-            staged_transfer_path: stagedTransferPath ?? '',
             plan_confirm_action: planConfirmAction ?? null,
             plan_confirm_request_id: planConfirmRequestId ?? '',
           }),

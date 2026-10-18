@@ -6,7 +6,6 @@ import type {
   Conversation,
   ConversationMeta,
   DeleteConfirmPayload,
-  FileDiffPayload,
   FileEntry,
   HealthLogRecord,
   HealthMetricsSnapshot,
@@ -118,6 +117,7 @@ declare global {
         event: unknown,
         conversationId: string,
         outcome?: 'completed' | 'aborted' | 'error',
+        editedFiles?: import('@shared/index').TurnEditedFile[],
       ) => void,
     ) => void;
     onMessageTokenUsage?: (
@@ -145,7 +145,6 @@ declare global {
     ) => void;
     onMessageClearPrimaryStream?: (callback: (event: unknown, conversationId: string) => void) => void;
     onMessagePromotePrimaryToNudge?: (callback: (event: unknown, conversationId: string) => void) => void;
-    onMessageDiff?: (callback: (event: unknown, conversationId: string, diff: FileDiffPayload) => void) => void;
     onMessageAcceptCommand?: (
       callback: (event: unknown, conversationId: string, payload: AcceptCommandPayload) => void,
     ) => void;
@@ -188,20 +187,6 @@ declare global {
     onMessageThemeProposal?: (
       callback: (event: unknown, conversationId: string, payload: import('@shared/index').ThemeProposalPayload) => void,
     ) => void;
-    onMessageStagedTransferBatch?: (
-      callback: (
-        event: unknown,
-        conversationId: string,
-        payload: import('@shared/index').StagedTransferBatchPayload,
-      ) => void,
-    ) => void;
-    onMessageFileJournal?: (
-      callback: (
-        event: unknown,
-        conversationId: string,
-        payload: Omit<import('@shared/index').AppendConversationFileJournalRequest, 'conversationId'>,
-      ) => void,
-    ) => void;
     sendMessage: (
       conversationId: string,
       msg: string,
@@ -214,6 +199,7 @@ declare global {
       ttsProvider?: import('@shared/index').TtsProvider,
       userMessageId?: string,
       adminElevationGranted?: boolean,
+      workspaceNotes?: string[],
     ) => void;
     abortMessage: (conversationId: string) => Promise<{ ok: boolean; error?: string }>;
     cancelBuildPlan: (conversationId: string, planId: string) => Promise<{ ok: boolean; error?: string }>;
@@ -228,9 +214,6 @@ declare global {
       copyRequestId?: string,
       acceptCommandAction?: 'confirm' | 'confirm_session' | 'cancel' | 'deny',
       acceptCommandRequestId?: string,
-      stagedTransferAction?: 'confirm' | 're_review',
-      stagedTransferRequestId?: string,
-      stagedTransferPath?: string,
       planConfirmAction?: 'confirm' | 'cancel',
       planConfirmRequestId?: string,
     ) => Promise<{ ok: boolean; error?: string; batchComplete?: boolean }>;
@@ -332,6 +315,18 @@ declare global {
     restoreConversationTimeline: (
       request: import('@shared/index').RestoreConversationTimelineRequest,
     ) => Promise<import('@shared/index').RestoreConversationTimelineResult>;
+    listTurnFiles?: (
+      conversationId: string,
+      userMessageId: string,
+    ) => Promise<import('@shared/index').TurnEditedFileRow[]>;
+    getTurnFileDiff?: (
+      conversationId: string,
+      userMessageId: string,
+      relativePath: string,
+    ) => Promise<import('@shared/index').TurnFileDiffResult>;
+    resetTurnFiles?: (
+      request: import('@shared/index').ResetTurnFilesRequest,
+    ) => Promise<import('@shared/index').ResetTurnFilesResult>;
     deleteConversation: (id: string, workspaceId?: string | null) => Promise<void>;
     renameConversation: (id: string, title: string, workspaceId?: string | null) => Promise<void>;
     maybeAutoTitleConversation: (id: string) => Promise<MaybeAutoTitleResult>;

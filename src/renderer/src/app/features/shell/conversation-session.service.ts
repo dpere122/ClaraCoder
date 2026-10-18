@@ -15,9 +15,9 @@ import type {
   LlmStatus,
   PlannerProgress,
   StreamPart,
+  TurnEditedFile,
 } from '@shared/index';
 import {
-  parseFileJournalSsePayload,
   clearPrimaryStreamParts,
   promotePrimaryToNudgeParts,
   findManagedLocalLlamaLocation,
@@ -110,6 +110,8 @@ export class ConversationSessionService {
   private pendingSave = false;
   private saveCurrentConversationChain: Promise<void> = Promise.resolve();
   private readonly backgroundConversationSaveChains = new Map<string, Promise<void>>();
+  /** Notes for the agent about out-of-band workspace changes (e.g. turn resets), per conversation. */
+  private readonly pendingWorkspaceNotes = new Map<string, string[]>();
 
   private hooks: ConversationSessionHooks = {
     getCurrentWorkspaceId: () => null,
@@ -187,31 +189,8 @@ export class ConversationSessionService {
       }
     });
 
-    this.electron.fileJournal$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, fileJournal }) => {
-      const parsed = parseFileJournalSsePayload(fileJournal);
-      if (!parsed) {
-        return;
-      }
-      void this.electron.appendConversationFileJournal({ conversationId, ...parsed });
-    });
-
-    this.electron.diff$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, diff }) => {
-      if (diff.version !== 1 || !Array.isArray(diff.rows)) return;
-      const artifact = { role: 'diff', payload: diff, reviewStatus: 'pending' as const } satisfies ChatMessage;
-      this.appendHitlArtifact(conversationId, artifact);
-    });
-
-    this.electron.stagedTransferBatch$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, payload }) => {
-      if (payload.version !== 1 || !payload.requestId || !Array.isArray(payload.files) || payload.files.length === 0) {
-        return;
-      }
-      const artifact = {
-        role: 'staged_transfer_batch',
-        payload,
-        reviewStatus: 'pending' as const,
-      } satisfies ChatMessage;
-      this.appendHitlArtifact(conversationId, artifact);
-    });
+    // `file_journal` rows are persisted by main as they stream (no renderer append), and agent
+    // edits land on disk directly; the turn's edited files arrive with `done$`.
 
     this.electron.acceptCommand$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, payload }) => {
       if (payload.version !== 1 || !payload.requestId || !payload.title) return;
@@ -305,7 +284,7 @@ export class ConversationSessionService {
       this.backgroundStreamParts.set(conversationId, promotePrimaryToNudgeParts(prev));
     });
 
-    this.electron.done$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, outcome }) => {
+    this.electron.done$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, outcome, editedFiles }) => {
       this.removePending(conversationId);
       const parts =
         conversationId === this.activeConversationId()
@@ -337,6 +316,8 @@ export class ConversationSessionService {
             turn.reasoningStreams,
             turn.auxiliaryStreamTimeline,
             planner ?? undefined,
+            undefined,
+            editedFiles,
           );
           const speech = this.hooks.getSpeechSettings();
           if (speech.enabled) {
@@ -360,6 +341,7 @@ export class ConversationSessionService {
             turn.reasoningStreams,
             turn.auxiliaryStreamTimeline,
             planner ?? undefined,
+            editedFiles,
           )
             .then(() => this.applyMaybeAutoTitleFromMain(conversationId))
             .catch((err) => console.error('[ConversationSession] background save / auto-title failed', err));
@@ -531,6 +513,7 @@ export class ConversationSessionService {
     auxiliaryStreamTimeline?: StreamPart[],
     planner?: PlannerProgress,
     structuredContent?: readonly ChatStructuredContentPart[],
+    editedFiles?: readonly TurnEditedFile[],
   ): string | undefined {
     let nextMessage: ChatMessage;
     if (role === 'user') {
@@ -547,6 +530,7 @@ export class ConversationSessionService {
       if (reasoningStreams?.length) assistant.reasoningStreams = reasoningStreams;
       if (auxiliaryStreamTimeline?.length) assistant.auxiliaryStreamTimeline = auxiliaryStreamTimeline;
       if (planner) assistant.planner = planner;
+      if (editedFiles?.length) assistant.editedFiles = [...editedFiles];
       nextMessage = assistant;
     }
     this.messages.update((prev) => [...prev, nextMessage]);
@@ -555,6 +539,68 @@ export class ConversationSessionService {
       this.pendingSave = true;
     }
     return nextMessage.role === 'user' ? nextMessage.id : undefined;
+  }
+
+  /**
+   * Mirror updated turn-file statuses (after a reset) onto the assistant message that closes the
+   * turn started by `userMessageId`, then save.
+   */
+  applyTurnEditedFiles(userMessageId: string, files: readonly TurnEditedFile[]): void {
+    const msgs = this.messages();
+    const userIdx = msgs.findIndex((m) => m.role === 'user' && m.id === userMessageId);
+    if (userIdx < 0) {
+      return;
+    }
+    let assistantIdx = -1;
+    for (let i = userIdx + 1; i < msgs.length; i++) {
+      const m = msgs[i];
+      if (m.role === 'user') {
+        break;
+      }
+      if (m.role === 'assistant') {
+        assistantIdx = i;
+        break;
+      }
+    }
+    if (assistantIdx < 0) {
+      return;
+    }
+    this.messages.update((prev) => {
+      const copy = [...prev];
+      const m = copy[assistantIdx];
+      if (m?.role === 'assistant') {
+        copy[assistantIdx] = { ...m, editedFiles: [...files] };
+      }
+      return copy;
+    });
+    this.markMessagesDirtyAndAutoSave();
+  }
+
+  /** Queue a note sent as `workspace_notes` with the next chat request of `conversationId`. */
+  queueWorkspaceNote(conversationId: string, note: string): void {
+    const text = note.trim();
+    if (!conversationId || !text) {
+      return;
+    }
+    const list = this.pendingWorkspaceNotes.get(conversationId) ?? [];
+    list.push(text);
+    this.pendingWorkspaceNotes.set(conversationId, list);
+  }
+
+  /** Remove and return the queued workspace notes for `conversationId`. */
+  takeWorkspaceNotes(conversationId: string): string[] {
+    const list = this.pendingWorkspaceNotes.get(conversationId) ?? [];
+    this.pendingWorkspaceNotes.delete(conversationId);
+    return list;
+  }
+
+  /** Put notes back at the front of the queue (send failed before reaching main). */
+  requeueWorkspaceNotes(conversationId: string, notes: readonly string[]): void {
+    if (notes.length === 0) {
+      return;
+    }
+    const rest = this.pendingWorkspaceNotes.get(conversationId) ?? [];
+    this.pendingWorkspaceNotes.set(conversationId, [...notes, ...rest]);
   }
 
   applyRestoredMessages(messages: ChatMessage[]): void {
@@ -702,6 +748,7 @@ export class ConversationSessionService {
     reasoningStreams?: StreamPart[],
     auxiliaryStreamTimeline?: StreamPart[],
     planner?: PlannerProgress,
+    editedFiles?: readonly TurnEditedFile[],
   ): Promise<void> {
     const prev = this.backgroundConversationSaveChains.get(conversationId) ?? Promise.resolve();
     const mine = prev.then(async () => {
@@ -714,6 +761,7 @@ export class ConversationSessionService {
         if (reasoningStreams?.length) assistant.reasoningStreams = reasoningStreams;
         if (auxiliaryStreamTimeline?.length) assistant.auxiliaryStreamTimeline = auxiliaryStreamTimeline;
         if (planner) assistant.planner = planner;
+        if (editedFiles?.length) assistant.editedFiles = [...editedFiles];
         conv.messages.push(assistant);
         conv.updatedAt = new Date().toISOString();
         await this.electron.saveConversation(conv);

@@ -40,9 +40,3 @@ app-hitl-composer-dock .hitl-composer-dock--open .hitl-composer-dock__panel {
 app-hitl-composer-dock .hitl-composer-dock__card + .hitl-composer-dock__card {
   margin-top: 0.65rem;
 }
-
-app-hitl-composer-dock .hitl-composer-dock__card--staged-batch,
-app-hitl-composer-dock .hitl-composer-dock__card--diff {
-  width: 100%;
-  max-width: 100%;
-}

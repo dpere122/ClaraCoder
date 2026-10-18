@@ -121,7 +121,7 @@
           class="composer-chip composer-chip--auto"
           [class.composer-chip--active]="autoApplyMode()"
           [attr.aria-pressed]="autoApplyMode()"
-          title="Run tool calls and apply edits automatically without side-by-side review in chat"
+          title="Approve shell commands, web requests and MCP tools automatically. Applies to commands only: file edits always land on disk and are reviewed at the end of each turn."
           (click)="autoApplyMode.set(!autoApplyMode())"
         >
           Auto Run

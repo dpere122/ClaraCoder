@@ -25,6 +25,7 @@ export type ChatRowHeightInput =
         reasoningStreams?: readonly unknown[] | null;
         moeStreams?: readonly unknown[] | null;
         auxiliaryStreamTimeline?: readonly unknown[] | null;
+        editedFiles?: readonly unknown[] | null;
       } | null;
       chainGroups: readonly { rows: readonly unknown[] }[];
       artifacts: readonly { role: string }[];
@@ -79,6 +80,10 @@ export function estimateChatRowHeight(row: ChatRowHeightInput, fontSizeRem: numb
       h += 40;
       break;
     }
+  }
+  if (row.assistant?.editedFiles?.length) {
+    // Collapsed "N files edited" footer (rows only render once the user expands it).
+    h += 40;
   }
   const textLen = row.assistant?.text?.length ?? 0;
   h += Math.min(2800, textLen) * 0.11;

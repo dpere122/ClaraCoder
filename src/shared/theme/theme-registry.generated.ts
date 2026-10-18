@@ -79,9 +79,20 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Scrollable conversation panel behind the message bubbles.",
     selector: "[data-theme-group=\"chat.transcript\"]",
     component: "app/features/chat/chat-box",
-    tokens: ["--t-assistant-bg", "--t-assistant-border", "--t-assistant-fg", "--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-chat-bg", "--t-code-bg", "--t-code-inline-bg", "--t-code-text", "--t-edge-darkest", "--t-fg", "--t-font", "--t-font-mono", "--t-glow", "--t-glow-soft", "--t-hljs-attr", "--t-hljs-class", "--t-hljs-comment", "--t-hljs-function", "--t-hljs-keyword", "--t-hljs-meta", "--t-hljs-name", "--t-hljs-number", "--t-hljs-operator", "--t-hljs-params", "--t-hljs-property", "--t-hljs-punctuation", "--t-hljs-selector", "--t-hljs-string", "--t-hljs-symbol", "--t-hljs-tag", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-panel", "--t-primary", "--t-process-a", "--t-process-c", "--t-secondary", "--t-surface-2", "--t-text-muted", "--t-tui-clara-frame", "--t-tui-input-frame", "--t-user-bg", "--t-user-border", "--t-user-fg"],
+    tokens: ["--t-assistant-bg", "--t-assistant-border", "--t-assistant-fg", "--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-chat-bg", "--t-code-bg", "--t-code-inline-bg", "--t-code-text", "--t-danger", "--t-edge-darkest", "--t-fg", "--t-font", "--t-font-mono", "--t-glow", "--t-glow-soft", "--t-hljs-attr", "--t-hljs-class", "--t-hljs-comment", "--t-hljs-function", "--t-hljs-keyword", "--t-hljs-meta", "--t-hljs-name", "--t-hljs-number", "--t-hljs-operator", "--t-hljs-params", "--t-hljs-property", "--t-hljs-punctuation", "--t-hljs-selector", "--t-hljs-string", "--t-hljs-symbol", "--t-hljs-tag", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-panel", "--t-primary", "--t-process-a", "--t-process-c", "--t-secondary", "--t-success", "--t-surface-2", "--t-text-muted", "--t-tui-clara-frame", "--t-tui-input-frame", "--t-user-bg", "--t-user-border", "--t-user-fg"],
     supportsBackground: true,
     backgroundClear: [".chat-box"],
+  },
+  {
+    id: "chat.turn-edits",
+    label: "Turn edits",
+    category: "chat",
+    categoryLabel: "Chat",
+    description: "Files a reply edited, with per-file reset and diff, under the assistant bubble.",
+    selector: "[data-theme-group=\"chat.turn-edits\"]",
+    component: "app/features/chat/chat-box/turn-edits-footer",
+    tokens: ["--t-border-subtle", "--t-danger", "--t-fg", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-secondary", "--t-success", "--t-text-muted"],
+    supportsBackground: false,
   },
   {
     id: "chat.user-bubble",
@@ -202,7 +213,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Command approvals, file diffs, copy/delete confirmations, plan confirmations, and agent questions.",
     selector: "[data-theme-group=\"hitl.cards\"]",
     component: "app/features/chat/hitl-composer-dock",
-    tokens: ["--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-caution", "--t-composer-input-focus-bg", "--t-confirm", "--t-edge-darkest", "--t-edge-light", "--t-fg", "--t-hover-bg", "--t-input-bg", "--t-input-fg", "--t-log-level-error", "--t-log-level-warning", "--t-process-c", "--t-secondary", "--t-text-muted"],
+    tokens: ["--t-bg", "--t-bg-surface", "--t-border-subtle", "--t-caution", "--t-composer-input-focus-bg", "--t-confirm", "--t-edge-darkest", "--t-edge-light", "--t-fg", "--t-hover-bg", "--t-input-bg", "--t-input-fg", "--t-log-level-error", "--t-log-level-warning", "--t-process-c", "--t-secondary", "--t-text-muted"],
     supportsBackground: false,
   },
   {
@@ -381,6 +392,7 @@ export type ThemeGroupId =
   | "chat.plan-panel"
   | "chat.stream-pills"
   | "chat.transcript"
+  | "chat.turn-edits"
   | "chat.user-bubble"
   | "dependencies.window"
   | "dialogs.confirm"

@@ -5,7 +5,16 @@ import {
   editorModelKeyForRelativePath,
   type OpenEditorFileRef,
   openEditorFileRefFromRelativePath,
+  turnDiffModelKey,
 } from '../workspace/open-editor-file-ref';
+
+/** Read-only before/after diff of one file a past user turn edited. */
+export interface ChatFileTabTurnDiff {
+  userMessageId: string;
+  /** Workspace-relative path the turn edited. */
+  relativePath: string;
+  turnNumber: number;
+}
 
 export interface ChatFileTab {
   /** Workspace-relative path when the file lives in the open workspace. */
@@ -20,9 +29,18 @@ export interface ChatFileTab {
   buildPlanActive?: boolean;
   /** Preview-only markdown tab (no edit/preview toggle). */
   previewOnly?: boolean;
+  /** Set on read-only turn-diff tabs (id `turn-diff:<msgId>:<path>`); no workspace model. */
+  turnDiff?: ChatFileTabTurnDiff;
+}
+
+export function turnDiffChatFileTab(turnDiff: ChatFileTabTurnDiff): ChatFileTab {
+  return { turnDiff: { ...turnDiff, relativePath: normalizePathSlashes(turnDiff.relativePath) } };
 }
 
 export function chatFileTabModelKey(tab: ChatFileTab): string {
+  if (tab.turnDiff) {
+    return turnDiffModelKey(tab.turnDiff.userMessageId, tab.turnDiff.relativePath);
+  }
   if (tab.outsideWorkspace && tab.absolutePath?.trim()) {
     return editorModelKeyForAbsolutePath(tab.absolutePath.trim());
   }
@@ -34,11 +52,19 @@ export function chatFileTabModelKey(tab: ChatFileTab): string {
 }
 
 export function chatFileTabId(tab: ChatFileTab): string {
+  if (tab.turnDiff) {
+    return chatFileTabModelKey(tab);
+  }
   const key = chatFileTabModelKey(tab);
   return key ? `file:${key}` : 'file:';
 }
 
 export function chatFileTabBasename(tab: ChatFileTab): string {
+  if (tab.turnDiff) {
+    const n = normalizePathSlashes(tab.turnDiff.relativePath);
+    const i = n.lastIndexOf('/');
+    return `${i >= 0 ? n.slice(i + 1) : n} (turn ${tab.turnDiff.turnNumber})`;
+  }
   if (tab.absolutePath?.trim()) {
     const n = normalizePathSlashes(tab.absolutePath.trim());
     const i = n.lastIndexOf('/');
@@ -51,6 +77,9 @@ export function chatFileTabBasename(tab: ChatFileTab): string {
 }
 
 export function openEditorFileRefFromTab(tab: ChatFileTab): OpenEditorFileRef | null {
+  if (tab.turnDiff) {
+    return null;
+  }
   const modelKey = chatFileTabModelKey(tab);
   if (!modelKey) {
     return null;
@@ -235,9 +264,9 @@ export function reorderFileTabs(
 
 export { openEditorFileRefFromRelativePath };
 
-/** Drop ephemeral build-plan tabs; keep workspace and external file tabs. */
+/** Drop ephemeral build-plan and turn-diff tabs; keep workspace and external file tabs. */
 export function toPersistedOpenTab(tab: ChatFileTab): WorkspacePersistedOpenTab | null {
-  if (tab.buildPlanId || tab.previewOnly) {
+  if (tab.buildPlanId || tab.previewOnly || tab.turnDiff) {
     return null;
   }
   if (tab.outsideWorkspace && tab.absolutePath?.trim()) {

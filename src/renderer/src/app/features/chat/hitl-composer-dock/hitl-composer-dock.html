@@ -6,18 +6,7 @@
 >
   <div class="hitl-composer-dock__panel" role="region" aria-label="Pending reviews">
     @for (artifact of pendingArtifacts(); track artifactTrackKey(artifact)) {
-      @if (artifact.role === 'diff') {
-        <div class="hitl-composer-dock__card hitl-composer-dock__card--diff" data-theme-group="hitl.cards">
-          <app-diff-apply
-            [conversationId]="conversationId()"
-            [payload]="artifact.payload"
-            [reviewStatus]="reviewStatus(artifact)"
-            [reviewSummary]="artifact.reviewSummary"
-            [embeddedInHitlExpand]="true"
-            (diffReviewFinished)="diffReviewFinished.emit($event)"
-          />
-        </div>
-      } @else if (artifact.role === 'delete_confirm') {
+      @if (artifact.role === 'delete_confirm') {
         <div class="hitl-composer-dock__card hitl-composer-dock__card--delete" data-theme-group="hitl.cards">
           <app-delete-confirm
             [conversationId]="conversationId()"
@@ -45,19 +34,6 @@
             [reviewStatus]="reviewStatus(artifact)"
             [reviewSummary]="artifact.reviewSummary"
             (copyReviewFinished)="copyReviewFinished.emit($event)"
-          />
-        </div>
-      } @else if (artifact.role === 'staged_transfer_batch') {
-        <div class="hitl-composer-dock__card hitl-composer-dock__card--staged-batch" data-theme-group="hitl.cards">
-          <app-staged-transfer-batch-review
-            [conversationId]="conversationId()"
-            [payload]="artifact.payload"
-            [reviewStatus]="reviewStatus(artifact)"
-            [reviewSummary]="artifact.reviewSummary"
-            [fileResolutions]="artifact.fileResolutions ?? {}"
-            [preferFullscreen]="true"
-            (batchReviewFinished)="stagedTransferBatchFinished.emit($event)"
-            (batchFileResolved)="stagedTransferBatchFileResolved.emit($event)"
           />
         </div>
       } @else if (artifact.role === 'plan_confirm') {

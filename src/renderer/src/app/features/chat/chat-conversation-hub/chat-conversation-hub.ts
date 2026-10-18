@@ -28,6 +28,7 @@ import type { ChatMessage } from '../chat-box/chat-box';
 import type { ChatContextFile } from '../chat-context-bar/chat-context-file';
 import type { ChatContextDroppedPath } from '../chat-context-bar/chat-context-drop';
 import type { AcceptCommandFinishedEvent } from '@shared/index';
+import type { TurnDiffOpenRequest } from '../chat-box/turn-edits-footer/turn-edits-footer';
 
 const NEW_CONV_HUB_SPINNER = {
   fullScreen: false as const,
@@ -78,21 +79,8 @@ export class ChatConversationHubComponent implements OnDestroy {
 
   readonly restoreConversation = output<{ userMessageId?: string; userMessageIndex: number }>();
   readonly sendResponse = output<string>();
-  readonly diffReviewFinished = output<{
-    relativePath: string;
-    status: 'complete' | 'cancelled';
-    summary?: string;
-  }>();
-  readonly stagedTransferBatchFinished = output<{
-    requestId: string;
-    status: 'complete' | 'cancelled';
-    summary?: string;
-    fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
-  }>();
-  readonly stagedTransferBatchFileResolved = output<{
-    requestId: string;
-    fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
-  }>();
+  /** Edited-files footer row clicked: open that file's read-only turn diff. */
+  readonly openTurnDiff = output<TurnDiffOpenRequest>();
   readonly acceptCommandFinished = output<AcceptCommandFinishedEvent>();
   readonly copyReviewFinished = output<{
     requestId: string;

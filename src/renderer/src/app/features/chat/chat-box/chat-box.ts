@@ -49,6 +49,7 @@ import {
 import { PlannerChecklistComponent } from './planner-checklist/planner-checklist';
 import { RunButtonDirective } from './run-button.directive';
 import { StreamTurnFeedComponent } from './stream-turn-feed/stream-turn-feed';
+import { TurnEditsFooterComponent, type TurnDiffOpenRequest } from './turn-edits-footer/turn-edits-footer';
 import type { PreviewSpinnerHost } from './stream-turn-feed/stream-preview-queue';
 import {
   CHAT_MIN_FALLBACK_ROW,
@@ -61,6 +62,7 @@ import {
 import {
   buildChatDisplayRows,
   chatBottomBufferPx,
+  chatTurnUserContexts,
   decideChatScrollOnAppend,
   decideInstantScrollOnStreamingUpdate,
   decideStickAfterUserScroll,
@@ -159,6 +161,7 @@ const THINKING_PROCESSING_LABEL = 'thinking';
     NgxSpinnerComponent,
     PlannerChecklistComponent,
     StreamTurnFeedComponent,
+    TurnEditsFooterComponent,
   ],
   templateUrl: './chat-box.html',
   styleUrl: './chat-box.css',
@@ -344,12 +347,8 @@ export class ChatBox implements OnDestroy {
   /** User submitted a follow-up from an embedded prompt (via `send-response` DOM event). */
   readonly restoreConversation = output<{ userMessageId?: string; userMessageIndex: number }>();
   readonly sendResponse = output<string>();
-  /** Diff review card completed or dismissed. */
-  readonly diffReviewFinished = output<{
-    relativePath: string;
-    status: 'complete' | 'cancelled';
-    summary?: string;
-  }>();
+  /** A row in a turn's edited-files footer was clicked: open its read-only diff tab. */
+  readonly openTurnDiff = output<TurnDiffOpenRequest>();
   /** Delete confirmation card completed or dismissed. */
   readonly deleteReviewFinished = output<{
     requestId: string;
@@ -376,18 +375,6 @@ export class ChatBox implements OnDestroy {
     status: 'complete' | 'cancelled';
     summary?: string;
   }>();
-  /** Staged file transfer batch reviewed (per-file resolution map). */
-  readonly stagedTransferBatchFinished = output<{
-    requestId: string;
-    status: 'complete' | 'cancelled';
-    summary?: string;
-    fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
-  }>();
-  /** Mid-batch file resolution persisted before batch completes. */
-  readonly stagedTransferBatchFileResolved = output<{
-    requestId: string;
-    fileResolutions: Record<string, 'pending' | 'approved' | 're_review'>;
-  }>();
 
   // --- Transcript projection ---
 
@@ -407,6 +394,9 @@ export class ChatBox implements OnDestroy {
     }
     return rows;
   });
+
+  /** User-turn id / number per persisted row (edited-files footer). */
+  readonly turnContexts = computed(() => chatTurnUserContexts(this.persistedRows()));
 
   /** Row heights padded with estimates when measurement lags (keeps virtual window from rendering all rows). */
   readonly rowHeightsAligned = computed(() => {

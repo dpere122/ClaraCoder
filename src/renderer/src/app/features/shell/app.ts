@@ -1503,33 +1503,6 @@ export class App implements OnInit, OnDestroy {
     this.conversationSession.markMessagesDirtyAndAutoSave();
   }
 
-  onCopyReviewFinished(event: {
-    requestId: string;
-    status: 'complete' | 'cancelled';
-    summary?: string;
-  }): void {
-    this.messages.update((prev) => {
-      const copy = [...prev];
-      for (let i = copy.length - 1; i >= 0; i--) {
-        const m = copy[i];
-        if (
-          m.role === 'copy_confirm' &&
-          m.payload.requestId === event.requestId &&
-          (m.reviewStatus ?? 'pending') === 'pending'
-        ) {
-          copy[i] = {
-            ...m,
-            reviewStatus: event.status,
-            reviewSummary: event.summary,
-          };
-          break;
-        }
-      }
-      return copy;
-    });
-    this.conversationSession.markMessagesDirtyAndAutoSave();
-  }
-
   onAcceptCommandFinished(event: AcceptCommandFinishedEvent): void {
     this.messages.update((prev) => {
       const copy = [...prev];

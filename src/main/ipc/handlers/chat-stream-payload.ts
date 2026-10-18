@@ -26,8 +26,6 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
     event.reply('message-status', conversationId, parsed.status);
   } else if (parsed.type === 'accept_command') {
     event.reply('message-accept-command', conversationId, parsed.acceptCommand);
-  } else if (parsed.type === 'copy_confirm') {
-    event.reply('message-copy-confirm', conversationId, parsed.copyConfirm);
   } else if (parsed.type === 'delete_confirm') {
     event.reply('message-delete-confirm', conversationId, parsed.deleteConfirm);
   } else if (parsed.type === 'background_command_open') {

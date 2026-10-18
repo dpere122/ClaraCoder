@@ -2,7 +2,6 @@ import type {
   AcceptCommandPayload,
   AppConfig,
   ChatStructuredContentPart,
-  CopyConfirmPayload,
   Conversation,
   ConversationMeta,
   DeleteConfirmPayload,
@@ -148,9 +147,6 @@ declare global {
     onMessageAcceptCommand?: (
       callback: (event: unknown, conversationId: string, payload: AcceptCommandPayload) => void,
     ) => void;
-    onMessageCopyConfirm?: (
-      callback: (event: unknown, conversationId: string, payload: CopyConfirmPayload) => void,
-    ) => void;
     onMessageDeleteConfirm?: (
       callback: (event: unknown, conversationId: string, payload: DeleteConfirmPayload) => void,
     ) => void;
@@ -210,8 +206,6 @@ declare global {
       note: string,
       deleteAction?: 'confirm' | 'cancel',
       deleteRequestId?: string,
-      copyAction?: 'confirm' | 'cancel',
-      copyRequestId?: string,
       acceptCommandAction?: 'confirm' | 'confirm_session' | 'cancel' | 'deny',
       acceptCommandRequestId?: string,
       planConfirmAction?: 'confirm' | 'cancel',

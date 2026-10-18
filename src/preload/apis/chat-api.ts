@@ -1,7 +1,6 @@
 import type { PreloadIpc } from '../preload-ipc';
 import type {
   AcceptCommandPayload,
-  CopyConfirmPayload,
   DeleteConfirmPayload,
   TtsProvider,
   TurnEditedFile,
@@ -87,9 +86,6 @@ export const createChatApi = (ipcRenderer: PreloadIpc) => ({
   onMessageAcceptCommand: (
     callback: (event: unknown, conversationId: string, payload: AcceptCommandPayload) => void,
   ) => ipcRenderer.on('message-accept-command', callback),
-  onMessageCopyConfirm: (
-    callback: (event: unknown, conversationId: string, payload: CopyConfirmPayload) => void,
-  ) => ipcRenderer.on('message-copy-confirm', callback),
   onMessageDeleteConfirm: (
     callback: (event: unknown, conversationId: string, payload: DeleteConfirmPayload) => void,
   ) => ipcRenderer.on('message-delete-confirm', callback),
@@ -155,8 +151,6 @@ export const createChatApi = (ipcRenderer: PreloadIpc) => ({
     note: string,
     deleteAction?: 'confirm' | 'cancel',
     deleteRequestId?: string,
-    copyAction?: 'confirm' | 'cancel',
-    copyRequestId?: string,
     acceptCommandAction?: 'confirm' | 'confirm_session' | 'cancel' | 'deny',
     acceptCommandRequestId?: string,
     planConfirmAction?: 'confirm' | 'cancel',
@@ -167,8 +161,6 @@ export const createChatApi = (ipcRenderer: PreloadIpc) => ({
     note,
     deleteAction,
     deleteRequestId,
-    copyAction,
-    copyRequestId,
     acceptCommandAction,
     acceptCommandRequestId,
     planConfirmAction,

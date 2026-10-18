@@ -198,12 +198,6 @@ export class ConversationSessionService {
       this.appendHitlArtifact(conversationId, artifact);
     });
 
-    this.electron.copyConfirm$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, payload }) => {
-      if (payload.version !== 1 || !payload.requestId || !Array.isArray(payload.copies) || payload.copies.length === 0) return;
-      const artifact = { role: 'copy_confirm', payload, reviewStatus: 'pending' as const } satisfies ChatMessage;
-      this.appendHitlArtifact(conversationId, artifact);
-    });
-
     this.electron.deleteConfirm$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, payload }) => {
       if (payload.version !== 1 || !payload.requestId) return;
       const batchOk = Array.isArray(payload.entries) && payload.entries.length > 0;

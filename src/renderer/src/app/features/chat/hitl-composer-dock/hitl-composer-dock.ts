@@ -2,26 +2,24 @@ import { Component, computed, input, output, ViewEncapsulation } from '@angular/
 import type { DiffReviewStatus, HitlTrailArtifact, ThemeProposalFinishedEvent } from '@shared/index';
 import { AcceptCommandComponent } from '../../diff/accept-command/accept-command';
 import { AgentQuestionComponent } from '../../diff/agent-question/agent-question';
-import { CopyConfirmComponent } from '../../diff/copy-confirm/copy-confirm';
 import { DeleteConfirmComponent } from '../../diff/delete-confirm/delete-confirm';
 import { PlanConfirmComponent } from '../../diff/plan-confirm/plan-confirm';
 import { ThemeProposalComponent } from '../../diff/theme-proposal/theme-proposal';
 import type { AcceptCommandFinishedEvent } from '@shared/index';
 
-/** Legacy edit-review roles: agent edits now land on disk and are reviewed at end of turn. */
-const READ_ONLY_HITL_ROLES = new Set<HitlTrailArtifact['role']>(['diff', 'staged_transfer_batch']);
+/** Legacy roles: edits land on disk (reviewed at end of turn) and copies run without a card. */
+const READ_ONLY_HITL_ROLES = new Set<HitlTrailArtifact['role']>(['diff', 'staged_transfer_batch', 'copy_confirm']);
 
 /**
  * Slide-up dock above the INPUT composer for pending HITL review cards.
  * Compact change rows stay in the auxiliary stream; interactive reviews live here.
- * Old persisted edit cards (`diff`, `staged_transfer_batch`) render read-only in the trail only.
+ * Old persisted cards (`diff`, `staged_transfer_batch`, `copy_confirm`) render read-only in the trail only.
  */
 @Component({
   selector: 'app-hitl-composer-dock',
   standalone: true,
   imports: [
     DeleteConfirmComponent,
-    CopyConfirmComponent,
     AcceptCommandComponent,
     PlanConfirmComponent,
     AgentQuestionComponent,
@@ -36,11 +34,6 @@ export class HitlComposerDockComponent {
   readonly conversationId = input<string | null>(null);
 
   readonly deleteReviewFinished = output<{
-    requestId: string;
-    status: 'complete' | 'cancelled';
-    summary?: string;
-  }>();
-  readonly copyReviewFinished = output<{
     requestId: string;
     status: 'complete' | 'cancelled';
     summary?: string;
@@ -68,8 +61,6 @@ export class HitlComposerDockComponent {
     switch (artifact.role) {
       case 'accept_command':
         return `accept:${artifact.payload.requestId}`;
-      case 'copy_confirm':
-        return `copy:${artifact.payload.requestId}`;
       case 'delete_confirm':
         return `del:${artifact.payload.requestId}`;
       case 'plan_confirm':

@@ -84,12 +84,19 @@ def edit_semantics_block(direct: bool) -> str:
         '`.gd` → `lsp_create_gdscript_file` / `lsp_update_gdscript_file` / `lsp_delete_gdscript_file`; '
         '`.java` → `lsp_create_java_file` / `lsp_update_java_file` / `lsp_delete_java_file`'
     )
+    java_build_rule = (
+        '**Java builds:** before creating `.java` files in a folder where neither it nor any parent up to the '
+        'workspace root has `pom.xml`, `build.gradle(.kts)` or `settings.gradle(.kts)`, call '
+        '`java_bootstrap_project` (ask the user Gradle or Maven when nothing hints at one). Never hard-code jar '
+        'paths (e.g. into `~/.gradle/caches` or `~/.m2/repository`) in build scripts or build files—declare '
+        'dependencies as `group:artifact:version` so the build tool resolves them.'
+    )
     if direct:
         return (
             '**Edit semantics (direct):** Editor and Auto-apply are on—write directly to disk with '
             '`apply_workspace_full_file`, `replace_workspace_line_range`, or `replace_workspace_snippet` '
             '(when bound) for text edits. Prefer language-matched LSP mutators when bound: '
-            f'{lsp_map}. Writes land on disk immediately—there is no staging draft plane and no '
+            f'{lsp_map}. {java_build_rule} Writes land on disk immediately—there is no staging draft plane and no '
             '`transfer_staged_file_to_workspace` on your graph.'
         )
     return (
@@ -113,6 +120,7 @@ def edit_semantics_block(direct: bool) -> str:
         'diffs and avoid clobbering unrelated regions. '
         'You may also use language-matched LSP mutators when they appear in your bound tool list: '
         f'{lsp_map} (same staging/review path); if they are not on your graph, use `stage_*` instead. '
+        f'{java_build_rule} '
         'If a `stage_*` call returns a write id (still running), call `wait_for_write` or `cancel_write` — '
         'do not start another write for that path. '
         'When drafts should stay, pass `land_in_workspace=true` on your final `stage_*` or LSP create/update '

@@ -5,7 +5,8 @@
 (``stage_create_file``, ``stage_workspace_file_overwrite``, ``stage_line_range_edit``, optional ``stage_snippet_edit``);
 Python LSP staging mutators (``lsp_create_python_file``, ``lsp_update_python_file``, ``lsp_delete_python_file``),
 TypeScript/JavaScript LSP staging mutators (``lsp_create_typescript_file``, etc.), GDScript LSP staging mutators
-(``lsp_create_gdscript_file``, etc.), and Java LSP staging mutators (``lsp_create_java_file``, etc.);
+(``lsp_create_gdscript_file``, etc.), Java LSP staging mutators (``lsp_create_java_file``, etc.), and
+``java_bootstrap_project`` (staged Maven/Gradle build files for a Java folder with none);
 plus staging review/transfer tools.
 
 When Editor and Auto-apply are both on, staging tools are replaced by direct workspace mutators
@@ -55,6 +56,7 @@ from clara_coder_backend.tools.lsp_tools import (
     LSP_UPDATE_PYTHON_FILE_NAME,
     LSP_UPDATE_TYPESCRIPT_FILE_NAME,
 )
+from clara_coder_backend.tools.java_bootstrap import JAVA_BOOTSTRAP_PROJECT_NAME, java_bootstrap_project
 from clara_coder_backend.tools.staging_edit import STAGING_TOOLS
 from clara_coder_backend.tools.write_jobs import WAIT_FOR_WRITE_NAME, write_job_tools
 from clara_coder_backend.domain import SessionState
@@ -224,6 +226,8 @@ def worker_tools_and_map(
         tools.extend(LSP_MUTATION_TOOLS)
         for t in LSP_MUTATION_TOOLS:
             mapping[t.name] = t
+        tools.append(java_bootstrap_project)
+        mapping[JAVA_BOOTSTRAP_PROJECT_NAME] = java_bootstrap_project
         tools.append(delete_workspace_entry)
         mapping[DELETE_WORKSPACE_ENTRY_NAME] = delete_workspace_entry
         tools.append(batch_delete_workspace_entries)
@@ -289,6 +293,7 @@ TOOL_FAMILIES: list[tuple[str, tuple[str, ...]]] = [
             'apply_workspace_full_file',
             'replace_workspace_line_range',
             'replace_workspace_snippet',
+            'java_bootstrap_project',
         ),
     ),
     (

@@ -154,6 +154,7 @@ def test_outer_agent_tools_staging_mode() -> None:
         | write_job_names
         | edit_names
         | lsp_mut_names
+        | {'java_bootstrap_project'}
         | {'delete_workspace_entry', 'batch_delete_workspace_entries'}
         | review_names
         | theme_names

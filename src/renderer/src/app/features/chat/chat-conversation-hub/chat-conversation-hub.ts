@@ -24,7 +24,7 @@ import { LucideAngularModule } from 'lucide-angular';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
 import { ConversationManager } from '../conversation-manager/conversation-manager';
 import { ChatActiveStackComponent } from '../chat-active-stack/chat-active-stack';
-import type { ChatMessage } from '../chat-box/chat-box';
+import type { ChatMessage, TurnActivity } from '../chat-box/chat-box';
 import type { ChatContextFile } from '../chat-context-bar/chat-context-file';
 import type { ChatContextDroppedPath } from '../chat-context-bar/chat-context-drop';
 import type { AcceptCommandFinishedEvent } from '@shared/index';
@@ -58,7 +58,8 @@ export class ChatConversationHubComponent implements OnDestroy {
 
   readonly conversations = input<ConversationMeta[]>([]);
   readonly activeConversationId = input<string | null>(null);
-  readonly pendingIds = input<Set<string>>(new Set());
+  /** Live turn activity per streaming conversation (drives the list-row spinner). */
+  readonly conversationActivity = input<ReadonlyMap<string, TurnActivity>>(new Map());
   readonly creatingConversation = input(false);
 
   protected readonly newConvSpinnerName = 'new-conv-hub';

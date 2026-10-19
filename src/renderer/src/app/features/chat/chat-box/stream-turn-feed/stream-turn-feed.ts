@@ -36,8 +36,10 @@ import {
   queueableItems,
   splitQueuedFeed,
   type FeedDisplayRole,
-  type PreviewSpinnerHost,
 } from './stream-preview-queue';
+
+/** Spinner the open preview hosts: thought header, or the read / write tool pill. */
+export type HostedSpinnerKind = 'think' | 'read' | 'write';
 
 @Component({
   selector: 'app-stream-turn-feed',
@@ -66,11 +68,12 @@ export class StreamTurnFeedComponent {
   readonly spinnerActive = input(false);
 
   /**
-   * Emits whenever {@link spinnerHost} changes so the chat box can hide its own processing row.
-   * Pushed from an effect (after inputs bind) — the parent must not read child state directly,
-   * as its template runs before this view's `items` input is set (NG0950).
+   * Emits whenever {@link hostedSpinnerKind} changes so the chat box can hide its own processing
+   * row and report the exact spinner on screen. Pushed from an effect (after inputs bind) — the
+   * parent must not read child state directly, as its template runs before this view's `items`
+   * input is set (NG0950).
    */
-  readonly spinnerHostChange = output<PreviewSpinnerHost | null>();
+  readonly spinnerKindChange = output<HostedSpinnerKind | null>();
 
   private readonly destroyRef = inject(DestroyRef);
   private readonly previewBody = viewChild<ElementRef<HTMLElement>>('previewBody');
@@ -112,11 +115,23 @@ export class StreamTurnFeedComponent {
 
   /**
    * Where the turn spinner lives right now: thought header, running tool pill, or `null`
-   * (parent keeps it in the processing row). Mirrored to the parent via {@link spinnerHostChange}.
+   * (parent keeps it in the processing row).
    */
   readonly spinnerHost = computed(() => {
     const split = splitQueuedFeed(this.items(), this.displayCommitted());
     return previewSpinnerHost(this.live(), this.spinnerActive(), split.current);
+  });
+
+  /** Which spinner the preview hosts (`null` = none; the parent's processing row shows it). */
+  readonly hostedSpinnerKind = computed<HostedSpinnerKind | null>(() => {
+    const host = this.spinnerHost();
+    if (host === 'header') {
+      return 'think';
+    }
+    if (host === 'pill') {
+      return this.previewReadSpinner() ? 'read' : 'write';
+    }
+    return null;
   });
 
   /** Header label letters for the shimmer animation while the spinner sits in the preview. */
@@ -141,8 +156,8 @@ export class StreamTurnFeedComponent {
     });
 
     effect(() => {
-      const host = this.spinnerHost();
-      untracked(() => this.spinnerHostChange.emit(host));
+      const kind = this.hostedSpinnerKind();
+      untracked(() => this.spinnerKindChange.emit(kind));
     });
   }
 

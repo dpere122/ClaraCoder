@@ -256,6 +256,7 @@ export class App implements OnInit, OnDestroy {
   protected readonly conversationSession = inject(ConversationSessionService);
   protected readonly messages = this.conversationSession.messages;
   protected readonly pendingIds = this.conversationSession.pendingIds;
+  protected readonly conversationActivity = this.conversationSession.conversationActivity;
   protected readonly loading = this.conversationSession.loading;
   protected readonly conversations = this.conversationSession.conversations;
   protected readonly activeConversationId = this.conversationSession.activeConversationId;

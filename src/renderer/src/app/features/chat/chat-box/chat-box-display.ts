@@ -11,7 +11,10 @@ import {
   CLARA_OUTER_BRIEF_STREAM_TAG,
   isClaraOuterBriefStreamTag,
   isHitlTrailStreamTag,
+  isInFlightToolPart,
   isPrimaryAssistantStreamTag,
+  isReadToolPreviewStreamTag,
+  isWorkspaceReadToolLabel,
   PLANNER_STREAM_TAG,
 } from '@shared/index';
 
@@ -533,6 +536,67 @@ export function isLiveReplyStreaming(
   primaryLiveText: string,
 ): boolean {
   return primaryLiveText.trim().length > 0 || isProseLatestLiveFeedEvent(items);
+}
+
+/**
+ * What an in-flight turn is doing right now, as one value shared by the live processing row
+ * and the conversation list: `prefill` (waiting for the first stream item), `think`
+ * (reasoning), `read` / `write` (workspace read vs other tools), `reply` (prose streaming —
+ * no spinner, the cursor is the indicator) and `review` (blocked on a HITL card).
+ */
+export type TurnActivity = 'prefill' | 'think' | 'read' | 'write' | 'reply' | 'review';
+
+/** True while the latest in-flight tool part is a workspace read (book spinner instead of jot). */
+export function isReadToolInFlight(parts: readonly StreamPart[], toolsActive: boolean): boolean {
+  if (!toolsActive) {
+    return false;
+  }
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const part = parts[i]!;
+    if (!isInFlightToolPart(part)) {
+      continue;
+    }
+    return isWorkspaceReadToolLabel(part.label) || isReadToolPreviewStreamTag(part.streamTag);
+  }
+  return false;
+}
+
+export function resolveTurnActivity(state: {
+  feed: readonly TurnFeedItem[];
+  primaryLiveText: string;
+  toolsActive: boolean;
+  readToolActive: boolean;
+  awaitingReview: boolean;
+}): TurnActivity {
+  if (state.awaitingReview) {
+    return 'review';
+  }
+  if (state.feed.length === 0) {
+    return 'prefill';
+  }
+  if (isLiveReplyStreaming(state.feed, state.primaryLiveText)) {
+    return 'reply';
+  }
+  if (state.toolsActive) {
+    return state.readToolActive ? 'read' : 'write';
+  }
+  return 'think';
+}
+
+/** Spinner image for a spinning activity (`null` for `reply` / `review`). */
+export function turnActivitySpinnerSrc(activity: TurnActivity): string | null {
+  switch (activity) {
+    case 'prefill':
+      return 'spinner-prefill.svg';
+    case 'think':
+      return 'spinner.svg';
+    case 'read':
+      return 'spinner-read.svg';
+    case 'write':
+      return 'spinner-jot.svg';
+    default:
+      return null;
+  }
 }
 
 /** Small stable hash for synonym index (FNV-1a 32-bit). */

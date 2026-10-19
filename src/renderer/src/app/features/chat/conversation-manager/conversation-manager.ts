@@ -1,45 +1,31 @@
-import {
-  Component,
-  effect,
-  HostListener,
-  inject,
-  Injector,
-  input,
-  OnDestroy,
-  output,
-  signal,
-  untracked,
-  ViewEncapsulation,
-  afterNextRender,
-} from '@angular/core';
+import { Component, HostListener, input, output, signal, ViewEncapsulation } from '@angular/core';
 import type { ConversationMeta } from '@shared/index';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
-import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
+import { turnActivitySpinnerSrc, type TurnActivity } from '../chat-box/chat-box';
 
-const CONV_PENDING_SPINNER = {
-  fullScreen: false as const,
-  bdColor: 'rgba(0,0,0,0)',
-  size: 'small' as const,
-  color: 'var(--bs-secondary-color)',
-  type: 'ball-atom' as const,
+/** Screen-reader label for each live turn activity shown on a conversation row. */
+const ACTIVITY_LABELS: Record<TurnActivity, string> = {
+  prefill: 'Processing prompt',
+  think: 'Thinking',
+  read: 'Reading files',
+  write: 'Running tools',
+  reply: 'Writing reply',
+  review: 'Waiting for your review',
 };
 
 @Component({
   selector: 'app-conversation-manager',
-  imports: [FormsModule, LucideAngularModule, NgxSpinnerComponent],
+  imports: [FormsModule, LucideAngularModule],
   templateUrl: './conversation-manager.html',
   styleUrl: './conversation-manager.css',
   encapsulation: ViewEncapsulation.None,
 })
-export class ConversationManager implements OnDestroy {
-  private readonly ngxSpinner = inject(NgxSpinnerService);
-  private readonly inj = inject(Injector);
-  private destroyed = false;
-
+export class ConversationManager {
   readonly conversations = input<ConversationMeta[]>([]);
   readonly activeId = input<string | null>(null);
-  readonly pendingIds = input<Set<string>>(new Set());
+  /** Live turn activity per streaming conversation; rows not in the map are idle. */
+  readonly activity = input<ReadonlyMap<string, TurnActivity>>(new Map());
 
   readonly selectConversation = output<string>();
   readonly deleteConversation = output<string>();
@@ -52,16 +38,12 @@ export class ConversationManager implements OnDestroy {
   protected contextMenuY = signal(0);
   protected contextMenuConvId = signal<string | null>(null);
 
-  constructor() {
-    effect(() => {
-      const pending = this.pendingIds();
-      const conversations = this.conversations();
-      untracked(() => this.scheduleConvPendingSpinnerSync(pending, conversations));
-    });
+  protected activitySpinnerSrc(activity: TurnActivity): string | null {
+    return turnActivitySpinnerSrc(activity);
   }
 
-  protected convPendingSpinnerName(id: string): string {
-    return `conv-pending-${id}`;
+  protected activityLabel(activity: TurnActivity): string {
+    return ACTIVITY_LABELS[activity];
   }
 
   startRename(conv: ConversationMeta, event?: Event): void {
@@ -145,34 +127,8 @@ export class ConversationManager implements OnDestroy {
     this.deleteConversation.emit(id);
   }
 
-  ngOnDestroy(): void {
-    this.destroyed = true;
-    for (const conv of this.conversations()) {
-      void this.ngxSpinner.hide(this.convPendingSpinnerName(conv.id));
-    }
-  }
-
   private closeContextMenu(): void {
     this.contextMenuVisible.set(false);
     this.contextMenuConvId.set(null);
-  }
-
-  private scheduleConvPendingSpinnerSync(pending: Set<string>, conversations: ConversationMeta[]): void {
-    afterNextRender(
-      () => {
-        if (this.destroyed) {
-          return;
-        }
-        for (const conv of conversations) {
-          const name = this.convPendingSpinnerName(conv.id);
-          if (pending.has(conv.id)) {
-            void this.ngxSpinner.show(name, CONV_PENDING_SPINNER);
-          } else {
-            void this.ngxSpinner.hide(name);
-          }
-        }
-      },
-      { injector: this.inj },
-    );
   }
 }

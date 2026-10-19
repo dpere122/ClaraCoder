@@ -1,0 +1,271 @@
+:host {
+  display: block;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.system {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 2px;
+}
+
+.health-card {
+  border: 1px solid color-mix(in srgb, var(--t-border) 82%, transparent);
+  background: color-mix(in srgb, var(--t-bg-surface) 92%, transparent);
+  box-shadow: var(--t-elev-shadow);
+}
+
+h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--t-fg);
+}
+
+.system-heading {
+  margin: 6px 2px 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--t-text-muted);
+}
+
+/* ---- Live stats switch --------------------------------------------------- */
+
+.system-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+}
+
+.system-switch-row__copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.system-switch-row p,
+.system-off p {
+  margin: 2px 0 0;
+  color: var(--t-text-muted);
+  line-height: 1.4;
+}
+
+.health-switch {
+  flex-shrink: 0;
+  position: relative;
+  width: 40px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--t-border) 90%, transparent);
+  background: color-mix(in srgb, var(--t-bg-deep, var(--t-bg)) 80%, transparent);
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.health-switch__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: var(--t-text-muted);
+  transition: transform 0.16s ease, background 0.16s ease;
+}
+
+.health-switch[aria-checked='true'] {
+  border-color: color-mix(in srgb, var(--t-primary) 60%, transparent);
+  background: color-mix(in srgb, var(--t-primary) 30%, var(--t-bg-surface));
+}
+
+.health-switch[aria-checked='true'] .health-switch__knob {
+  transform: translateX(18px);
+  background: var(--t-primary);
+}
+
+.health-switch:focus-visible,
+.health-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--t-primary) 55%, transparent);
+  outline-offset: 2px;
+}
+
+/* ---- GPU ----------------------------------------------------------------- */
+
+.system-gpus {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+}
+
+.gpu-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.gpu-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gpu-card__index {
+  flex-shrink: 0;
+  min-width: 18px;
+  padding: 1px 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--t-on-primary);
+  background: var(--t-primary);
+}
+
+.gpu-card__model {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.gpu-card__util {
+  font-family: var(--t-font-mono, var(--t-font));
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--t-primary);
+}
+
+.gpu-card__vram {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--t-text-muted);
+}
+
+.gpu-card__vram-value {
+  font-family: var(--t-font-mono, var(--t-font));
+  color: var(--t-fg);
+}
+
+.health-bar {
+  height: 6px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--t-border) 70%, transparent);
+}
+
+.health-bar__fill {
+  display: block;
+  height: 100%;
+  background: var(--t-primary);
+  transition: width 0.3s ease;
+}
+
+/* Nearly full VRAM is what blocks loading another model; flag it with the theme's warning color. */
+.health-bar__fill.is-high {
+  background: var(--t-warn);
+}
+
+.system-empty-line {
+  margin: 0 2px;
+  color: var(--t-text-muted);
+}
+
+/* ---- Metric tiles -------------------------------------------------------- */
+
+.system-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 900px) {
+  .system-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.metric-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px 10px;
+}
+
+.metric-tile__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.metric-tile__label {
+  font-size: 12px;
+  color: var(--t-text-muted);
+}
+
+.metric-tile__value {
+  font-family: var(--t-font-mono, var(--t-font));
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--t-primary);
+}
+
+/* Stroke and fill read theme tokens directly, so live theme previews recolor without JS. */
+.metric-tile__spark {
+  display: block;
+  width: 100%;
+  height: 44px;
+}
+
+.metric-tile__line {
+  fill: none;
+  stroke: var(--t-primary);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.metric-tile__area {
+  fill: color-mix(in srgb, var(--t-primary) 14%, transparent);
+  stroke: none;
+}
+
+/* ---- Off state ----------------------------------------------------------- */
+
+.system-off {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 18px;
+  border-style: dashed;
+}
+
+.system-off .health-btn {
+  margin-top: 4px;
+}
+
+.health-btn {
+  padding: 5px 14px;
+  border: 1px solid color-mix(in srgb, var(--t-primary) 55%, var(--t-border));
+  background: color-mix(in srgb, var(--t-primary) 18%, var(--t-bg-surface));
+  color: var(--t-fg);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.health-btn:hover {
+  background: color-mix(in srgb, var(--t-primary) 26%, var(--t-bg-surface));
+}

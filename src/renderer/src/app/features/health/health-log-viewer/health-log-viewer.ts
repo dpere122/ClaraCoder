@@ -7,39 +7,43 @@ import {
   effect,
   inject,
   Injector,
-  input,
-  output,
   signal,
   viewChild,
   ElementRef,
   untracked,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { LucideAngularModule } from 'lucide-angular';
 import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 import { Subscription } from 'rxjs';
 import type { AppConfig, HealthLogLevel, HealthLogRecord } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { HealthLogMessagePipe, type HealthLogMessageFormat } from './health-log-message.pipe';
 import { estimateHealthLogRowHeight, healthLogVirtualWindow } from './health-log-virtual';
+import {
+  HEALTH_LOG_BUCKETS,
+  countHealthLogBuckets,
+  healthLogBucket,
+  type HealthLogBucket,
+} from './health-log-levels';
 
 const MAX_ENTRIES = 2500;
 
 @Component({
   selector: 'app-health-log-viewer',
-  imports: [FormsModule, HealthLogMessagePipe, PillSelectComponent],
+  imports: [FormsModule, LucideAngularModule, HealthLogMessagePipe, PillSelectComponent],
   templateUrl: './health-log-viewer.html',
-  styleUrl: './health-log-viewer.css',
+  styleUrls: ['../shared/health-tone.css', './health-log-viewer.css'],
 })
 export class HealthLogViewer implements OnInit, OnDestroy {
   private readonly inj = inject(Injector);
 
-  /** When true, metrics charts are hidden in the parent and the log is expanded. */
-  readonly logExpanded = input(false);
-  readonly logExpandedToggle = output<void>();
-
   protected readonly searchQuery = signal('');
+  /** Live mode follows new rows; scrolling up pauses it until the user resumes or returns to the bottom. */
   protected readonly autoScroll = signal(true);
-  protected readonly logLevelFilter = signal<string>('ALL');
+  protected readonly newWhilePaused = signal(0);
+  protected readonly hiddenLevels = signal<ReadonlySet<HealthLogBucket>>(new Set());
+  protected readonly buckets = HEALTH_LOG_BUCKETS;
   protected readonly logVerbosity = signal<HealthLogLevel>('info');
   protected readonly messageFormat = signal<HealthLogMessageFormat>('raw');
 
@@ -61,14 +65,14 @@ export class HealthLogViewer implements OnInit, OnDestroy {
   private lastFilterKey: string | null = null;
   private lastFmt: HealthLogMessageFormat | null = null;
 
+  protected readonly levelCounts = computed(() => countHealthLogBuckets(this.entries()));
+
   protected readonly filteredEntries = computed(() => {
     const q = this.searchQuery().trim().toLowerCase();
-    const lvl = this.logLevelFilter();
-    const order: Record<string, number> = { DEBUG: 0, INFO: 1, WARNING: 2, ERROR: 3 };
-    const minRank = lvl === 'ALL' ? -1 : order[lvl] ?? -1;
+    const hidden = this.hiddenLevels();
 
     return this.entries().filter((e) => {
-      if (minRank >= 0 && (order[e.level] ?? 1) < minRank) return false;
+      if (hidden.size > 0 && hidden.has(healthLogBucket(e.level))) return false;
       if (!q) return true;
       const hay = `${e.logger} ${e.message} ${e.source}`.toLowerCase();
       return hay.includes(q);
@@ -76,7 +80,7 @@ export class HealthLogViewer implements OnInit, OnDestroy {
   });
 
   protected readonly filterKey = computed(
-    () => `${this.logLevelFilter()}\0${this.searchQuery().trim().toLowerCase()}`,
+    () => `${[...this.hiddenLevels()].sort().join(',')}\0${this.searchQuery().trim().toLowerCase()}`,
   );
 
   protected readonly virtualWindow = computed(() =>
@@ -97,7 +101,10 @@ export class HealthLogViewer implements OnInit, OnDestroy {
         if (!el) return;
         this.viewportHeightSig.set(el.clientHeight);
         this.resizeObserver = new ResizeObserver(() => {
+          const wasHidden = this.viewportHeightSig() === 0;
           this.viewportHeightSig.set(el.clientHeight);
+          // The console tab stays mounted while hidden; jump back to the tail when it is shown again.
+          if (wasHidden && el.clientHeight > 0 && this.autoScroll()) this.scrollToBottom();
         });
         this.resizeObserver.observe(el);
       },
@@ -197,6 +204,8 @@ export class HealthLogViewer implements OnInit, OnDestroy {
     this.entries.set(next);
     if (this.autoScroll()) {
       queueMicrotask(() => this.scrollToBottom());
+    } else {
+      this.newWhilePaused.update((n) => n + appended);
     }
   }
 
@@ -219,8 +228,32 @@ export class HealthLogViewer implements OnInit, OnDestroy {
       if (!el) return;
       this.scrollTopSig.set(el.scrollTop);
       this.viewportHeightSig.set(el.clientHeight);
+      if (!this.autoScroll() && el.scrollHeight - el.scrollTop - el.clientHeight <= 4) {
+        this.resumeLive();
+      }
       this.scheduleMeasureVisibleRows();
     });
+  }
+
+  /** Wheel-up and paging keys mean the user is reading history: stop following the tail. */
+  protected onLogWheel(event: WheelEvent): void {
+    if (event.deltaY < 0) this.pauseLive();
+  }
+
+  protected onLogKeydown(event: KeyboardEvent): void {
+    if (event.key === 'PageUp' || event.key === 'Home' || event.key === 'ArrowUp') this.pauseLive();
+  }
+
+  private pauseLive(): void {
+    if (!this.autoScroll()) return;
+    this.autoScroll.set(false);
+    this.newWhilePaused.set(0);
+  }
+
+  private resumeLive(): void {
+    this.autoScroll.set(true);
+    this.newWhilePaused.set(0);
+    this.scrollToBottom();
   }
 
   private scheduleMeasureVisibleRows(): void {
@@ -252,13 +285,29 @@ export class HealthLogViewer implements OnInit, OnDestroy {
     );
   }
 
-  protected onAutoScrollToggle(): void {
-    this.autoScroll.update((v) => !v);
-    if (this.autoScroll()) this.scrollToBottom();
+  protected onLiveClick(): void {
+    if (this.autoScroll()) this.pauseLive();
+    else this.resumeLive();
   }
 
-  protected onLogExpandClick(): void {
-    this.logExpandedToggle.emit();
+  protected toggleLevel(bucket: HealthLogBucket): void {
+    this.hiddenLevels.update((cur) => {
+      const next = new Set(cur);
+      if (next.has(bucket)) next.delete(bucket);
+      else next.add(bucket);
+      return next;
+    });
+  }
+
+  protected levelTone(bucket: HealthLogBucket): string {
+    if (bucket === 'ERROR') return 'error';
+    if (bucket === 'WARNING') return 'warn';
+    if (bucket === 'INFO') return 'info';
+    return 'debug';
+  }
+
+  protected levelLabel(bucket: HealthLogBucket): string {
+    return bucket === 'WARNING' ? 'Warnings' : bucket === 'ERROR' ? 'Errors' : bucket === 'INFO' ? 'Info' : 'Debug';
   }
 
   protected formatTs(ms: number): string {

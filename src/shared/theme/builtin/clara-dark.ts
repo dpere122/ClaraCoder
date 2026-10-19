@@ -95,6 +95,8 @@ export const CLARA_DARK_THEME: ClaraThemeDocument = {
     '--t-caution': '#e8b455',
     '--t-log-level-error': '#e07a7a',
     '--t-log-level-warning': '#d4a84b',
+    '--t-log-level-info': '#6aa9e6',
+    '--t-log-level-debug': 'var(--t-text-muted)',
     '--t-process-a': '#a8b89a',
     '--t-process-b': '#c9a96e',
     '--t-process-c': '#7eb5a6',

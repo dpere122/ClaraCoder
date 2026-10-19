@@ -2,8 +2,28 @@
   "groups": {
     "health.window": {
       "label": "Window",
-      "description": "Health monitor window: runtime status, metrics, and log viewer.",
+      "description": "Health window frame and background behind the header and tabs.",
       "styleSources": ["features/health"]
+    },
+    "health.header": {
+      "label": "Header and tabs",
+      "description": "Title, overall status pill, and the Console / Runtime / System tab switcher.",
+      "styleSources": ["features/health/shared"]
+    },
+    "health.console": {
+      "label": "Console",
+      "description": "Status strip and the live log console (level chips, search, rows).",
+      "styleSources": ["features/health/health-log-viewer", "features/health/shared"]
+    },
+    "health.runtime": {
+      "label": "Runtime",
+      "description": "Runtime tab: status banner and one tile per sidecar, dependency, and server.",
+      "styleSources": ["features/health/shared"]
+    },
+    "health.system": {
+      "label": "System",
+      "description": "System tab: live-stats switch, GPU cards, and sparkline tiles.",
+      "styleSources": ["features/health/shared"]
     }
   }
 }

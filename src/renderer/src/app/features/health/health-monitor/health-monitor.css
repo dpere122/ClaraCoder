@@ -1,3 +1,8 @@
+/*
+ * Health window shell: header (title, verdict, tabs), console strip, and tab panels.
+ * Corner radii live in styles.css ("Health window keeps rounded chrome") because the global
+ * square reset there uses `!important`.
+ */
 :host {
   display: block;
   height: 100%;
@@ -9,191 +14,239 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  padding: 14px 18px 12px;
+  padding: 12px 16px 14px;
   box-sizing: border-box;
-  gap: 14px;
+  gap: 12px;
   background:
     radial-gradient(circle at top left, color-mix(in srgb, var(--t-primary) 14%, transparent), transparent 32%),
     linear-gradient(180deg, color-mix(in srgb, var(--t-bg-surface) 88%, transparent), var(--t-bg));
   color: var(--t-fg);
+  font-family: var(--t-font);
 }
+
+/* ---- Header -------------------------------------------------------------- */
 
 .health-header {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+  align-items: center;
+  gap: 14px;
   -webkit-app-region: drag;
 }
 
-.health-header__titles {
+.health-header__brand {
+  flex: 1 1 0;
   min-width: 0;
-}
-
-.health-eyebrow {
-  margin: 0 0 2px;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--t-text-muted);
-}
-
-.health-header h2 {
-  margin: 0 0 6px;
-  font-size: 1.35rem;
-  font-weight: 600;
-}
-
-.health-copy {
-  margin: 0;
-  max-width: 42rem;
-  color: var(--t-text-muted);
-  line-height: 1.45;
-}
-
-.health-copy code {
-  font-size: 11px;
-  color: color-mix(in srgb, var(--t-primary) 75%, var(--t-fg));
-}
-
-.health-close-btn {
-  -webkit-app-region: no-drag;
-  flex-shrink: 0;
-  min-width: 7rem;
-  padding: 8px 14px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--t-border) 82%, transparent);
-  background: color-mix(in srgb, var(--t-bg-surface) 88%, transparent);
-  color: var(--t-fg);
-  font-family: var(--t-font);
-  cursor: pointer;
-}
-
-.health-close-btn:hover {
-  background: var(--t-hover-bg);
-}
-
-.health-close-btn:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--t-primary) 55%, transparent);
-  outline-offset: 2px;
-}
-
-.health-charts {
-  flex: 0 0 auto;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 0;
-  max-height: 38vh;
-  overflow: auto;
-}
-
-.health-charts--hidden {
-  display: none;
-}
-
-.health-charts__grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
   gap: 12px;
 }
 
-@media (max-width: 900px) {
-  .health-charts__grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-.health-chart-card,
-.health-gpu-card {
-  border: 1px solid color-mix(in srgb, var(--t-border) 82%, transparent);
-  background: color-mix(in srgb, var(--t-bg-surface) 92%, transparent);
-  box-shadow: var(--t-elev-shadow);
-  border-radius: 10px;
-  padding: 10px 12px;
-  -webkit-app-region: no-drag;
-}
-
-.health-chart-card__top {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.health-chart-card__label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--t-text-muted);
-}
-
-.health-chart-card__value {
-  font-size: 12px;
+.health-header h2 {
+  margin: 0;
+  font-size: 1.15rem;
   font-weight: 600;
   color: var(--t-primary);
 }
 
-.health-chart-card__canvas {
-  height: 72px;
-  position: relative;
+.health-verdict,
+.health-tabs,
+.health-btn,
+.health-strip button {
+  -webkit-app-region: no-drag;
 }
 
-.health-gpu-card__text {
-  margin: 6px 0 0;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--t-code-text);
-  word-break: break-word;
-}
-
-.health-gpu-card__list {
-  list-style: none;
-  margin: 6px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.health-gpu-card__row {
-  display: flex;
-  align-items: baseline;
+/* `--health-tone` comes from `[data-tone]` in shared/health-tone.css; don't default it here (same specificity, later file wins). */
+.health-verdict {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
+  padding: 4px 12px 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--health-tone, var(--t-text-muted)) 45%, var(--t-border));
+  background: color-mix(in srgb, var(--health-tone, var(--t-text-muted)) 12%, var(--t-bg-surface));
+  color: var(--t-fg);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
 }
 
-.health-gpu-card__index {
+.health-verdict:hover {
+  background: color-mix(in srgb, var(--health-tone, var(--t-text-muted)) 20%, var(--t-bg-surface));
+}
+
+.health-verdict__title {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.health-verdict__detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--t-text-muted);
+}
+
+/* ---- Tabs (segmented pill) ----------------------------------------------- */
+
+.health-tabs {
   flex-shrink: 0;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--t-border) 82%, transparent);
+  background: color-mix(in srgb, var(--t-bg-deep, var(--t-bg)) 70%, transparent);
+}
+
+.health-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--t-text-muted);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+
+.health-tab:hover {
+  color: var(--t-fg);
+  background: var(--t-hover-bg);
+}
+
+.health-tab.is-active {
+  color: var(--t-primary);
+  border-color: color-mix(in srgb, var(--t-primary) 55%, transparent);
+  background: color-mix(in srgb, var(--t-primary) 18%, var(--t-bg-surface));
+}
+
+.health-tab:focus-visible,
+.health-btn:focus-visible,
+.health-verdict:focus-visible,
+.health-strip button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--t-primary) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.health-tab__badge {
   min-width: 16px;
+  padding: 0 5px;
   font-size: 10px;
-  font-weight: 700;
+  line-height: 16px;
   text-align: center;
   color: var(--t-bg);
-  background: color-mix(in srgb, var(--t-primary) 70%, transparent);
-  border-radius: 4px;
-  padding: 1px 0;
+  background: var(--health-tone);
 }
 
-.health-disabled-card {
-  border: 1px dashed color-mix(in srgb, var(--t-border) 82%, transparent);
-  border-radius: 10px;
-  padding: 14px;
-  background: color-mix(in srgb, var(--t-bg-surface) 78%, transparent);
-  -webkit-app-region: no-drag;
+/* ---- Buttons ------------------------------------------------------------- */
+
+.health-btn {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 5px 14px;
+  border: 1px solid color-mix(in srgb, var(--t-border) 82%, transparent);
+  background: color-mix(in srgb, var(--t-bg-surface) 88%, transparent);
+  color: var(--t-fg);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
 }
 
-.health-disabled-card__text {
-  margin: 8px 0 0;
-  max-width: 48rem;
-  color: var(--t-text-muted);
-  line-height: 1.5;
+.health-btn:hover {
+  background: var(--t-hover-bg);
 }
 
-.health-logs-wrap {
-  flex: 1;
-  min-height: 200px;
+/* Keep the tab strip centred: brand and Close take equal flexible space. */
+.health-header > .health-btn {
+  flex: 1 1 0;
+  max-width: max-content;
+}
+
+/* ---- Panels -------------------------------------------------------------- */
+
+.health-panel {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  gap: 10px;
   -webkit-app-region: no-drag;
+}
+
+.health-panel[hidden] {
+  display: none;
+}
+
+/* ---- Console status strip ------------------------------------------------ */
+
+.health-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.health-strip__chip,
+.health-strip__stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid color-mix(in srgb, var(--t-border) 70%, transparent);
+  background: color-mix(in srgb, var(--t-bg-surface) 80%, transparent);
+  color: var(--t-fg);
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.health-strip__chip:hover,
+.health-strip__stat:hover {
+  background: var(--t-hover-bg);
+}
+
+.health-strip__chip[data-tone='warn'],
+.health-strip__chip[data-tone='error'] {
+  border-color: color-mix(in srgb, var(--health-tone) 50%, var(--t-border));
+  background: color-mix(in srgb, var(--health-tone) 12%, var(--t-bg-surface));
+}
+
+.health-strip__divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: color-mix(in srgb, var(--t-border) 80%, transparent);
+}
+
+.health-strip__stat {
+  font-family: var(--t-font-mono, var(--t-font));
+  font-variant-numeric: tabular-nums;
+  color: var(--t-primary);
+}
+
+.health-strip__stat-label {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--t-text-muted);
+}
+
+.health-strip__stat--off {
+  font-family: inherit;
+  color: var(--t-text-muted);
+  border-style: dashed;
+}
+
+@media (max-width: 860px) {
+  .health-header {
+    flex-wrap: wrap;
+  }
+
+  .health-header__brand {
+    flex-basis: 100%;
+    order: -1;
+  }
 }

@@ -30,8 +30,20 @@ export interface NvidiaCudaGpu {
 
 const NVML_SUCCESS = 0;
 const NVML_DEVICE_NAME_BUFFER = 96; // NVML_DEVICE_NAME_BUFFER_SIZE
-const NVML_MEMORY_SIZE = 24; // three uint64: total, used, free
+const NVML_MEMORY_SIZE = 24; // nvmlMemory_t: three uint64 in the order total, free, used
 const NVML_UTIL_SIZE = 8; // two uint32: gpu, memory
+
+/**
+ * Decode an `nvmlMemory_t` buffer (bytes). Field order is total, free, used: reading offset 8
+ * as "used" reports free VRAM instead, e.g. 29 GB "used" on an idle 32 GB card.
+ */
+export function decodeNvmlMemory(buf: Buffer): { total: number; free: number; used: number } {
+  return {
+    total: Number(buf.readBigUInt64LE(0)),
+    free: Number(buf.readBigUInt64LE(8)),
+    used: Number(buf.readBigUInt64LE(16)),
+  };
+}
 const NVIDIA_SMI_TIMEOUT_MS = 8_000;
 /**
  * Out-param slots are GC-managed ``Buffer``s, not ``koffi.alloc`` — koffi.alloc is a raw
@@ -176,8 +188,7 @@ export function getNvidiaStats(): Map<string, NvmlGpuStats> {
 
       const memBuf = Buffer.alloc(NVML_MEMORY_SIZE);
       const memOk = nvmlDeviceGetMemoryInfo(handle, memBuf) === NVML_SUCCESS;
-      const total = memOk ? Number(memBuf.readBigUInt64LE(0)) : 0;
-      const used = memOk ? Number(memBuf.readBigUInt64LE(8)) : 0;
+      const { total, used } = memOk ? decodeNvmlMemory(memBuf) : { total: 0, used: 0 };
 
       const utilBuf = Buffer.alloc(NVML_UTIL_SIZE);
       const utilOk = nvmlDeviceGetUtilizationRates(handle, utilBuf) === NVML_SUCCESS;

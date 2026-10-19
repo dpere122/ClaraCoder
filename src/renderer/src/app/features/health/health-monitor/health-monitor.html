@@ -1,62 +1,94 @@
 <div class='health-shell' data-theme-group='health.window'>
-  <header class='health-header'>
-    <div class='health-header__titles'>
-      <p class='health-eyebrow'>Diagnostics</p>
+  <header class='health-header' data-theme-group='health.header'>
+    <div class='health-header__brand'>
       <h2>Health</h2>
-      <p class='health-copy'>
-        Runtime status, live system metrics, and unified logs (app data → logs).
-        Dependency and sidecar events appear under <code>clara.electron.deps</code> /
-        <code>clara.runtime.deps.*</code>.
-      </p>
+      <button
+        type='button'
+        class='health-verdict'
+        [attr.data-tone]='runtime.verdict().tone'
+        [attr.title]='runtime.verdict().detail'
+        (click)="selectTab('runtime')"
+      >
+        <span class='health-dot' aria-hidden='true'></span>
+        <span class='health-verdict__title'>{{ runtime.verdict().title }}</span>
+        @if (runtime.verdict().issues > 0) {
+          <span class='health-verdict__detail'>{{ runtime.verdict().detail }}</span>
+        }
+      </button>
     </div>
-    <button type='button' class='health-close-btn' (click)='closeWindow()'>Close</button>
+
+    <div class='health-tabs' role='tablist' aria-label='Health views' (keydown)='onTabKeydown($event)'>
+      @for (tab of tabs; track tab.id) {
+        <button
+          type='button'
+          role='tab'
+          class='health-tab'
+          [attr.data-tab]='tab.id'
+          [id]="'health-tab-' + tab.id"
+          [attr.aria-selected]='activeTab() === tab.id'
+          [attr.aria-controls]="'health-panel-' + tab.id"
+          [attr.tabindex]='activeTab() === tab.id ? 0 : -1'
+          [class.is-active]='activeTab() === tab.id'
+          (click)='selectTab(tab.id)'
+        >
+          <lucide-icon [name]='tab.icon' [size]='14' aria-hidden='true'></lucide-icon>
+          <span>{{ tab.label }}</span>
+          @if (tab.id === 'runtime' && runtime.verdict().issues > 0) {
+            <span class='health-tab__badge' [attr.data-tone]='runtime.verdict().tone'>{{ runtime.verdict().issues }}</span>
+          }
+        </button>
+      }
+    </div>
+
+    <button type='button' class='health-btn' (click)='closeWindow()'>Close</button>
   </header>
 
-  <app-health-runtime-status />
-
-  <app-health-metrics-toggle [enabled]='metricsEnabled()' (changed)='onMetricsToggle($event)' />
-
-  <section class='health-charts' [class.health-charts--hidden]='logExpanded()'>
-    @if (metricsEnabled()) {
-      <div class='health-charts__grid'>
-        @for (c of chartDefs; track c.key) {
-          <div class='health-chart-card'>
-            <div class='health-chart-card__top'>
-              <span class='health-chart-card__label'>{{ c.label }}</span>
-              <span class='health-chart-card__value'>{{ lastValues()[c.key] || '—' }}</span>
-            </div>
-            <div class='health-chart-card__canvas'>
-              <canvas [attr.data-key]='c.key' height='90'></canvas>
-            </div>
-          </div>
+  <!-- Console stays mounted (hidden) so log history, filters, and scroll survive tab switches. -->
+  <section
+    class='health-panel health-panel--console'
+    id='health-panel-console'
+    role='tabpanel'
+    aria-labelledby='health-tab-console'
+    data-theme-group='health.console'
+    [hidden]="activeTab() !== 'console'"
+  >
+    <div class='health-strip'>
+      @for (chip of runtime.chips(); track chip.key) {
+        <button
+          type='button'
+          class='health-strip__chip'
+          [attr.data-tone]='chip.tone'
+          [attr.title]="chip.label + ': ' + chip.hint"
+          (click)="selectTab('runtime')"
+        >
+          <span class='health-dot' aria-hidden='true'></span>{{ chip.label }}
+        </button>
+      }
+      <span class='health-strip__divider' aria-hidden='true'></span>
+      @if (metrics.enabled()) {
+        @for (stat of stripStats(); track stat.key) {
+          <button type='button' class='health-strip__stat' (click)="selectTab('system')">
+            <span class='health-strip__stat-label'>{{ stat.label }}</span>{{ stat.value }}
+          </button>
         }
-      </div>
-      <div class='health-gpu-card'>
-        <span class='health-chart-card__label'>GPU (best effort)</span>
-        @if (gpus().length > 0) {
-          <ul class='health-gpu-card__list'>
-            @for (g of gpus(); track $index) {
-              <li class='health-gpu-card__row'>
-                <span class='health-gpu-card__index'>{{ $index + 1 }}</span>
-                <span class='health-gpu-card__text'>{{ formatGpuLine(g) }}</span>
-              </li>
-            }
-          </ul>
-        } @else {
-          <p class='health-gpu-card__text'>no GPUs detected yet…</p>
-        }
-      </div>
-    } @else {
-      <div class='health-disabled-card'>
-        <span class='health-chart-card__label'>Live stats paused</span>
-        <p class='health-disabled-card__text'>
-          CPU, memory, network, disk, and GPU polling are disabled so the health window only keeps the log viewer active.
-        </p>
-      </div>
-    }
+      } @else {
+        <button type='button' class='health-strip__stat health-strip__stat--off' (click)="selectTab('system')">
+          Live stats off
+        </button>
+      }
+    </div>
+    <app-health-log-viewer />
   </section>
 
-  <section class='health-logs-wrap'>
-    <app-health-log-viewer [logExpanded]='logExpanded()' (logExpandedToggle)='toggleLogExpanded()' />
-  </section>
+  @if (activeTab() === 'runtime') {
+    <section class='health-panel' id='health-panel-runtime' role='tabpanel' aria-labelledby='health-tab-runtime'>
+      <app-health-runtime-status />
+    </section>
+  }
+
+  @if (activeTab() === 'system') {
+    <section class='health-panel' id='health-panel-system' role='tabpanel' aria-labelledby='health-tab-system'>
+      <app-health-system />
+    </section>
+  }
 </div>

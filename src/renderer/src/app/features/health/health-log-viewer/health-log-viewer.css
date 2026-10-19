@@ -6,99 +6,179 @@
 }
 
 .health-log {
-  --health-log-cols: 7.5rem 6.5rem minmax(4.5rem, 6.5rem) minmax(8rem, 13rem) 1fr;
+  --health-log-cols: 7.5rem 5.5rem minmax(4.5rem, 6.5rem) minmax(8rem, 13rem) 1fr;
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
   height: 100%;
   border: 1px solid color-mix(in srgb, var(--t-border) 82%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--t-bg-surface) 92%, transparent);
+  background: color-mix(in srgb, var(--t-bg-deep, var(--t-bg)) 72%, var(--t-bg-surface));
   box-shadow: var(--t-elev-shadow);
   overflow: hidden;
 }
+
+/* ---- Toolbar ------------------------------------------------------------- */
 
 .health-log__toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px 10px;
   padding: 10px 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--t-border) 78%, transparent);
-  -webkit-app-region: no-drag;
+  border-bottom: 1px solid color-mix(in srgb, var(--t-border) 70%, transparent);
+  background: color-mix(in srgb, var(--t-bg-surface) 90%, transparent);
 }
 
-.health-log__toolbar-left,
+.health-log__levels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.health-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid color-mix(in srgb, var(--t-border) 70%, transparent);
+  background: color-mix(in srgb, var(--t-bg) 60%, transparent);
+  color: var(--t-fg);
+  font-family: var(--t-font);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: opacity 0.16s ease, background 0.16s ease;
+}
+
+.health-chip:hover {
+  background: var(--t-hover-bg);
+}
+
+.health-chip[data-tone='error'],
+.health-chip[data-tone='warn'] {
+  border-color: color-mix(in srgb, var(--health-tone) 40%, var(--t-border));
+}
+
+.health-chip.is-off {
+  opacity: 0.45;
+  border-style: dashed;
+}
+
+.health-chip__count {
+  min-width: 1.5em;
+  padding: 0 6px;
+  font-family: var(--t-font-mono, var(--t-font));
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--t-text-muted);
+  background: color-mix(in srgb, var(--t-border) 45%, transparent);
+}
+
+.health-log__search {
+  flex: 1 1 14rem;
+  min-width: 10rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
+  background: var(--t-input-bg, var(--t-bg));
+  color: var(--t-text-muted);
+}
+
+.health-log__search:focus-within {
+  border-color: color-mix(in srgb, var(--t-primary) 55%, var(--t-border));
+}
+
+.health-log__search input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--t-input-fg, var(--t-fg));
+  font-family: var(--t-font);
+  font-size: 12px;
+}
+
 .health-log__toolbar-right {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-}
-
-.health-log__toolbar-right {
+  gap: 8px;
   margin-left: auto;
 }
 
-.health-log__toolbar-divider {
-  width: 1px;
-  align-self: stretch;
-  margin: 4px 2px;
-  background: color-mix(in srgb, var(--t-border) 70%, transparent);
-}
-
-.health-log__label {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 11px;
-  color: var(--t-text-muted);
-}
-
 .health-log__select {
-  min-width: 8rem;
+  min-width: 8.5rem;
 }
 
-.health-log__select--wide {
-  min-width: 11rem;
-}
-
-.health-log__search {
-  flex: 1;
-  min-width: 12rem;
-  padding: 6px 10px;
-  border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
-  background: var(--t-bg);
+.health-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border: 1px solid color-mix(in srgb, var(--t-success) 45%, var(--t-border));
+  background: color-mix(in srgb, var(--t-success) 12%, var(--t-bg-surface));
   color: var(--t-fg);
   font-family: var(--t-font);
   font-size: 12px;
-}
-
-.health-log__btn {
-  padding: 6px 12px;
-  border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
-  background: transparent;
-  color: var(--t-fg);
-  font-family: var(--t-font);
-  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
 }
 
-.health-log__btn--primary {
-  border-color: color-mix(in srgb, var(--t-primary) 45%, transparent);
-  background: color-mix(in srgb, var(--t-primary) 12%, transparent);
+.health-live.is-paused {
+  border-color: color-mix(in srgb, var(--t-warn) 50%, var(--t-border));
+  background: color-mix(in srgb, var(--t-warn) 12%, var(--t-bg-surface));
 }
+
+.health-live__pulse {
+  width: 7px;
+  height: 7px;
+  background: var(--t-success);
+  animation: health-live-pulse 1.6s ease-in-out infinite;
+}
+
+.health-live__new {
+  padding: 0 6px;
+  font-size: 10.5px;
+  color: var(--t-bg);
+  background: var(--t-warn);
+}
+
+@keyframes health-live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .health-live__pulse {
+    animation: none;
+  }
+}
+
+.health-chip:focus-visible,
+.health-live:focus-visible,
+.health-log__viewport:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--t-primary) 55%, transparent);
+  outline-offset: 2px;
+}
+
+/* ---- Table --------------------------------------------------------------- */
 
 .health-log__headrow {
   display: grid;
   grid-template-columns: var(--health-log-cols);
   gap: 8px;
-  padding: 6px 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--t-border) 70%, transparent);
-  background: color-mix(in srgb, var(--t-bg-deep, var(--t-bg)) 55%, transparent);
+  padding: 6px 18px;
+  border-bottom: 1px solid color-mix(in srgb, var(--t-border) 60%, transparent);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -106,7 +186,6 @@
   color: var(--t-text-muted);
   overflow: hidden;
   scrollbar-gutter: stable;
-  -webkit-app-region: no-drag;
 }
 
 .health-log__viewport {
@@ -118,6 +197,10 @@
   font-size: 12px;
   line-height: 1.5;
   padding: 6px 10px;
+}
+
+.health-log__viewport:focus-visible {
+  outline-offset: -2px;
 }
 
 .health-log__virtual-spacer {
@@ -133,25 +216,25 @@
   display: grid;
   grid-template-columns: var(--health-log-cols);
   gap: 8px;
-  padding: 3px 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--t-border) 35%, transparent);
+  padding: 3px 8px;
   color: var(--t-code-text);
 }
 
-.health-log__row:nth-child(even) {
-  background: color-mix(in srgb, var(--t-hover-bg) 60%, transparent);
+.health-log__row:hover {
+  background: var(--t-hover-bg);
 }
 
-.health-log__row[data-level='ERROR'] {
-  background: color-mix(in srgb, var(--t-log-level-error) 9%, transparent);
-  border-left: 2px solid color-mix(in srgb, var(--t-log-level-error) 70%, transparent);
-  margin-left: -2px;
+.health-log__row-mount:nth-child(even) .health-log__row:not(:hover) {
+  background: color-mix(in srgb, var(--t-hover-bg) 45%, transparent);
+}
+
+.health-log__row[data-level='ERROR'],
+.health-log__row[data-level='CRITICAL'] {
+  background: color-mix(in srgb, var(--t-log-level-error) 11%, transparent) !important;
 }
 
 .health-log__row[data-level='WARNING'] {
-  background: color-mix(in srgb, var(--t-log-level-warning) 7%, transparent);
-  border-left: 2px solid color-mix(in srgb, var(--t-log-level-warning) 60%, transparent);
-  margin-left: -2px;
+  background: color-mix(in srgb, var(--t-log-level-warning) 9%, transparent) !important;
 }
 
 .health-log__ts {
@@ -160,12 +243,12 @@
 }
 
 .health-log__lvl {
+  justify-self: start;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   height: 18px;
-  padding: 0 6px;
-  border-radius: 999px;
+  padding: 0 7px;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -176,7 +259,8 @@
   color: var(--t-text-muted);
 }
 
-.health-log__row[data-level='ERROR'] .health-log__lvl {
+.health-log__row[data-level='ERROR'] .health-log__lvl,
+.health-log__row[data-level='CRITICAL'] .health-log__lvl {
   color: color-mix(in srgb, var(--t-log-level-error) 92%, var(--t-fg));
   background: color-mix(in srgb, var(--t-log-level-error) 18%, transparent);
   border-color: color-mix(in srgb, var(--t-log-level-error) 40%, transparent);
@@ -188,10 +272,17 @@
   border-color: color-mix(in srgb, var(--t-log-level-warning) 40%, transparent);
 }
 
+/* Each level has its own status token so INFO never borrows a theme's primary (which may be amber). */
 .health-log__row[data-level='INFO'] .health-log__lvl {
-  color: color-mix(in srgb, var(--t-primary) 85%, var(--t-fg));
-  background: color-mix(in srgb, var(--t-primary) 14%, transparent);
-  border-color: color-mix(in srgb, var(--t-primary) 35%, transparent);
+  color: color-mix(in srgb, var(--t-log-level-info) 92%, var(--t-fg));
+  background: color-mix(in srgb, var(--t-log-level-info) 16%, transparent);
+  border-color: color-mix(in srgb, var(--t-log-level-info) 40%, transparent);
+}
+
+.health-log__row[data-level='DEBUG'] .health-log__lvl {
+  color: var(--t-log-level-debug);
+  background: color-mix(in srgb, var(--t-log-level-debug) 12%, transparent);
+  border-color: color-mix(in srgb, var(--t-log-level-debug) 35%, transparent);
 }
 
 .health-log__src {
@@ -216,4 +307,11 @@
 .health-log__msg--formatted {
   white-space: pre;
   overflow-x: auto;
+}
+
+.health-log__empty {
+  margin: 24px 0;
+  text-align: center;
+  font-family: var(--t-font);
+  color: var(--t-text-muted);
 }

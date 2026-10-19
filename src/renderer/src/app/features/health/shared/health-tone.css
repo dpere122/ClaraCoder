@@ -1,0 +1,39 @@
+/*
+ * Status tones shared by every Health component (`styleUrls` include this file so the
+ * rules are scoped per component). Colors come from the theme's status tokens so custom
+ * themes recolor verdicts, dots, and level chips without touching component CSS.
+ */
+[data-tone='ok'] {
+  --health-tone: var(--t-success);
+}
+
+[data-tone='warn'] {
+  --health-tone: var(--t-warn);
+}
+
+[data-tone='error'] {
+  --health-tone: var(--t-error);
+}
+
+[data-tone='info'] {
+  --health-tone: var(--t-log-level-info);
+}
+
+[data-tone='debug'] {
+  --health-tone: var(--t-log-level-debug);
+}
+
+[data-tone='muted'] {
+  --health-tone: var(--t-text-muted);
+}
+
+.health-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  background: var(--health-tone, var(--t-text-muted));
+}
+
+[data-tone='ok'] > .health-dot {
+  box-shadow: 0 0 6px color-mix(in srgb, var(--health-tone) 55%, transparent);
+}

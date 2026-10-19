@@ -24,7 +24,6 @@ import {
   clearPrimaryStreamParts,
   isToolLikeStreamTag,
   isInFlightToolPart,
-  promotePrimaryAheadOfToolToReasoning,
   promotePrimaryToNudgeParts,
   primaryStreamPartsForDisplay,
   appendAndMergeReadToolPreviewChunk,
@@ -104,28 +103,7 @@ describe('joinPrimaryAssistantStreamText', () => {
   });
 });
 
-describe('promotePrimaryAheadOfToolToReasoning', () => {
-  it('retags agent prose to reasoning and merges into a preceding thought', () => {
-    const parts: StreamPart[] = [
-      { streamTag: 'reasoning', label: 'R', text: 'first ' },
-      { streamTag: 'agent', label: '', text: 'leaked thought' },
-    ];
-    expect(promotePrimaryAheadOfToolToReasoning(parts)).toEqual([
-      { streamTag: 'reasoning', label: 'R', text: 'first leaked thought' },
-    ]);
-  });
-
-  it('leaves tool-trail rows in place', () => {
-    const parts: StreamPart[] = [
-      { streamTag: 'tool-trail:a', label: 'read', text: 'done' },
-      { streamTag: 'agent', label: '', text: 'next step' },
-    ];
-    expect(promotePrimaryAheadOfToolToReasoning(parts)).toEqual([
-      { streamTag: 'tool-trail:a', label: 'read', text: 'done' },
-      { streamTag: 'reasoning', label: 'Model reasoning', text: 'next step' },
-    ]);
-  });
-
+describe('isToolLikeStreamTag', () => {
   it('does not treat planner rows as tools', () => {
     expect(isToolLikeStreamTag('planner')).toBe(false);
     const parts: StreamPart[] = [

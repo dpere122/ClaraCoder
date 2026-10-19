@@ -339,7 +339,6 @@ export {
   persistedAuxiliaryStreamTimeline,
   primaryAssistantTextFromParts,
   clearPrimaryStreamParts,
-  promotePrimaryAheadOfToolToReasoning,
   promotePrimaryToNudgeParts,
   primaryStreamPartsForDisplay,
   appendAndMergeReadToolPreviewChunk,

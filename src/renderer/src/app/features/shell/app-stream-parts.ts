@@ -1,6 +1,7 @@
 import type { LlmStatus, StreamPart } from '@shared/index';
 import {
   CLARA_OUTER_BRIEF_STREAM_TAG,
+  clearPrimaryStreamParts,
   isClaraOuterBriefStreamTag,
   isReasoningAuxiliaryStreamTag,
   isShellStyleToolStreamTag,
@@ -8,7 +9,6 @@ import {
   isWorkspaceReadToolLabel,
   mergeReadPreviewIntoToolTrailParts,
   normalizeStreamTag,
-  promotePrimaryAheadOfToolToReasoning,
   READ_TOOL_STREAM_BODY_MARKER,
   toolTrailStatusStreamTag,
 } from '@shared/index';
@@ -48,7 +48,7 @@ function appendStreamPartWithTag(
     next[next.length - 1] = { ...last, label: last.label || resolvedLabel, text: last.text + delta };
     return next;
   }
-  const base = isToolLikeStreamTag(t) ? promotePrimaryAheadOfToolToReasoning(next) : next;
+  const base = isToolLikeStreamTag(t) ? clearPrimaryStreamParts(next) : next;
   return [...base, { streamTag: t, label: resolvedLabel, text: delta }];
 }
 
@@ -129,7 +129,7 @@ export function upsertToolTrailStatusStreamPart(parts: StreamPart[], status: Llm
     return mergeReadPreviewIntoToolTrailParts(next);
   }
   return mergeReadPreviewIntoToolTrailParts([
-    ...promotePrimaryAheadOfToolToReasoning(next),
+    ...clearPrimaryStreamParts(next),
     row,
   ]);
 }

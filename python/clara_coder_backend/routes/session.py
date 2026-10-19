@@ -31,6 +31,10 @@ from clara_coder_backend.session.schemas import (
     SessionAdminElevationRequest,
     SessionAutoApplyRequest,
     WorkspaceContextRequest,
+    WorkspacePtyCwdRequest,
+    WorkspacePtyExitRequest,
+    WorkspacePtyOutputRequest,
+    WorkspacePtyRegisterRequest,
     WorkspaceSystemPromptRequest,
 )
 from clara_coder_backend.workspace.npm_projects import discover_workspace_npm_projects
@@ -285,3 +289,60 @@ async def session_admin_elevation(request: SessionAdminElevationRequest) -> dict
         return {'ok': False, 'granted': False, 'error': err}
     sess.admin_elevation_granted = True
     return {'ok': True, 'granted': True}
+
+
+@router.post('/workspace-pty/register')
+async def workspace_pty_register(request: WorkspacePtyRegisterRequest) -> dict[str, bool]:
+    """Register or update an active user PTY terminal session mirrored from Electron."""
+    from clara_coder_backend.tools.user_terminals import register_user_pty_terminal
+
+    register_user_pty_terminal(
+        session_id=request.session_id,
+        workspace_root=request.workspace_root,
+        cwd=request.cwd,
+        shell=request.shell,
+        pid=request.pid,
+        cols=request.cols,
+        rows=request.rows,
+    )
+    return {'ok': True}
+
+
+@router.post('/workspace-pty/output')
+async def workspace_pty_output(request: WorkspacePtyOutputRequest) -> dict[str, bool]:
+    """Append output chunk (and optional OSC 7 cwd) for a user PTY terminal."""
+    from clara_coder_backend.tools.user_terminals import append_user_pty_output
+
+    ok = append_user_pty_output(request.session_id, request.data, cwd=request.cwd)
+    return {'ok': ok}
+
+
+@router.post('/workspace-pty/cwd')
+async def workspace_pty_cwd(request: WorkspacePtyCwdRequest) -> dict[str, bool]:
+    """Update the last known filesystem cwd for a user PTY terminal."""
+    from clara_coder_backend.tools.user_terminals import update_user_pty_cwd
+
+    ok = update_user_pty_cwd(request.session_id, request.cwd)
+    return {'ok': ok}
+
+
+@router.post('/workspace-pty/exit')
+async def workspace_pty_exit(request: WorkspacePtyExitRequest) -> dict[str, bool]:
+    """Mark a user PTY terminal as exited or remove it when the tab is closed."""
+    from clara_coder_backend.tools.user_terminals import mark_user_pty_exited, remove_user_pty_terminal
+
+    if request.removed:
+        ok = remove_user_pty_terminal(request.session_id)
+    else:
+        ok = mark_user_pty_exited(request.session_id, request.exit_code)
+    return {'ok': ok}
+
+
+@router.post('/workspace-pty/clear-all')
+async def workspace_pty_clear_all() -> dict[str, bool]:
+    """Clear all mirrored user PTY terminals (workspace switch or app shutdown)."""
+    from clara_coder_backend.tools.user_terminals import clear_all_user_pty_terminals
+
+    clear_all_user_pty_terminals()
+    return {'ok': True}
+

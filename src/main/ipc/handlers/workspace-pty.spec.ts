@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
-import * as path from 'path';
 import { existsSync } from 'fs';
 
 vi.mock('fs', () => ({
@@ -41,6 +40,14 @@ vi.mock('../assert-trusted-renderer', () => ({
   assertTrustedMainRenderer: vi.fn(),
 }));
 
+const { pythonLogIngestFetch } = vi.hoisted(() => ({
+  pythonLogIngestFetch: vi.fn(async () => ({ ok: true })),
+}));
+
+vi.mock('../../python/http-client', () => ({
+  pythonLogIngestFetch,
+}));
+
 vi.mock('../../workspace/emit-files-changed', () => ({
   notifyWorkspaceTreeRefresh: vi.fn(),
 }));
@@ -54,7 +61,7 @@ import { notifyWorkspaceTreeRefresh } from '../../workspace/emit-files-changed';
 import { registerWorkspacePtyIpc, killAllWorkspacePtySessions, PTY_CWD_POLL_MS, PTY_TREE_REFRESH_IDLE_MS } from './workspace-pty';
 
 describe('workspace-pty', () => {
-  let handlers: Map<string, (...args: unknown[]) => Promise<unknown>>;
+  let handlers: Map<string, (...args: unknown[]) => unknown>;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -910,10 +917,101 @@ describe('workspace-pty', () => {
       );
     });
   });
+
+  describe('Python sidecar mirroring', () => {
+    beforeEach(() => {
+      registerWorkspacePtyIpc();
+    });
+
+    it('mirrors spawn, output (with OSC 7 cwd), and exit to the Python sidecar', async () => {
+      let dataCallback: ((data: string) => void) | null = null;
+      let exitCallback: ((exit: { exitCode: number; signal?: number }) => void) | null = null;
+      const mockPty = {
+        pid: 4242,
+        onData: vi.fn((cb: (data: string) => void) => {
+          dataCallback = cb;
+        }),
+        onExit: vi.fn((cb: (exit: { exitCode: number; signal?: number }) => void) => {
+          exitCallback = cb;
+        }),
+        write: vi.fn(),
+        resize: vi.fn(),
+        kill: vi.fn(),
+      };
+      (validateWorkspacePtyCwd as Mock).mockResolvedValue({ ok: true, cwdReal: '/workspace' });
+      (pty.spawn as Mock).mockReturnValue(mockPty);
+      (existsSync as Mock).mockReturnValue(true);
+
+      const handler = handlers.get('workspace-pty-spawn')!;
+      const result = (await handler({}, '/workspace', '/workspace', 80, 24)) as {
+        success: true;
+        sessionId: string;
+      };
+
+      expect(pythonLogIngestFetch).toHaveBeenCalledWith(
+        '/workspace-pty/register',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining(result.sessionId),
+        }),
+      );
+
+      dataCallback!('\x1b]7;file://host/workspace/sub\x07hello\n');
+      expect(pythonLogIngestFetch).toHaveBeenCalledWith(
+        '/workspace-pty/output',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('/workspace/sub'),
+        }),
+      );
+
+      exitCallback!({ exitCode: 0, signal: undefined });
+      expect(pythonLogIngestFetch).toHaveBeenCalledWith(
+        '/workspace-pty/exit',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('"exitCode":0'),
+        }),
+      );
+    });
+
+    it('mirrors removed=true when a single terminal tab is killed', async () => {
+      const mockPty = {
+        pid: 4242,
+        onData: vi.fn(),
+        onExit: vi.fn(),
+        write: vi.fn(),
+        resize: vi.fn(),
+        kill: vi.fn(),
+      };
+      (validateWorkspacePtyCwd as Mock).mockResolvedValue({ ok: true, cwdReal: '/workspace' });
+      (pty.spawn as Mock).mockReturnValue(mockPty);
+      (existsSync as Mock).mockReturnValue(true);
+
+      const spawnResult = (await handlers.get('workspace-pty-spawn')!(
+        {},
+        '/workspace',
+        '/workspace',
+        80,
+        24,
+      )) as { success: true; sessionId: string };
+      pythonLogIngestFetch.mockClear();
+
+      await handlers.get('workspace-pty-kill')!({}, spawnResult.sessionId);
+
+      expect(pythonLogIngestFetch).toHaveBeenCalledWith(
+        '/workspace-pty/exit',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('"removed":true'),
+        }),
+      );
+    });
+  });
 });
 
 describe('security: session isolation', () => {
-  let handlers: Map<string, (...args: unknown[]) => Promise<unknown>>;
+  let handlers: Map<string, (...args: unknown[]) => unknown>;
 
   beforeEach(() => {
     vi.clearAllMocks();

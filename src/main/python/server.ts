@@ -166,8 +166,10 @@ async function resyncRuntimeConfigAfterSidecarRestart(): Promise<void> {
     const { loadConfigSync } = await import('../config/load-save');
     const { syncRuntimeConfigToPython } = await import('./workspace-sync');
     const { getLlamaManagedRuntimeOverrides } = await import('../llama-server-manager');
+    const { resyncWorkspacePtySessionsToPython } = await import('../ipc/handlers/workspace-pty');
     const config = loadConfigSync();
     await syncRuntimeConfigToPython(config, () => getLlamaManagedRuntimeOverrides(config));
+    resyncWorkspacePtySessionsToPython();
   } catch (err) {
     const msg = `Runtime config re-sync after restart failed: ${err instanceof Error ? err.message : err}`;
     console.error(`[Python] ${msg}`);

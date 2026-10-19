@@ -4,6 +4,7 @@ import { ipcMain } from 'electron';
 import * as path from 'path';
 import * as pty from 'node-pty';
 import { assertTrustedMainRenderer } from '../assert-trusted-renderer';
+import { pythonLogIngestFetch } from '../../python/http-client';
 import { mainState } from '../../state';
 import { envForChildProcess } from '../../utils/filter-sensitive-env';
 import { readPtyProcessCwd } from '../../utils/pty-process-cwd';
@@ -16,10 +17,92 @@ const sessions = new Map<string, pty.IPty>();
 const sessionWorkspaceRoots = new Map<string, string>();
 /** Last known filesystem cwd per session (tab titles follow the base folder). */
 const sessionLastCwd = new Map<string, string>();
+/** Shell binary and dimensions per session (for sidecar re-sync after restart). */
+const sessionMeta = new Map<string, { shell: string; cols: number; rows: number }>();
+/** Incomplete OSC 7 prefix per PTY session (sequences can split across chunks). */
+const osc7RemainderBySession = new Map<string, string>();
 const ptyTreeRefreshTimers = new Map<string, NodeJS.Timeout>();
 export const PTY_TREE_REFRESH_IDLE_MS = 1_500;
 export const PTY_CWD_POLL_MS = 750;
 let cwdPollTimer: NodeJS.Timeout | null = null;
+
+const OSC7_RE = /\x1b\]7;([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
+const OSC7_REMAINDER_MAX = 2_048;
+
+function cwdFromOsc7Payload(payload: string): string | null {
+  const trimmed = payload.trim();
+  if (!trimmed.startsWith('file:')) {
+    return null;
+  }
+  try {
+    const url = new URL(trimmed);
+    let pathname = decodeURIComponent(url.pathname);
+    if (/^\/[A-Za-z]:/.test(pathname)) {
+      pathname = pathname.slice(1);
+    }
+    return pathname.trim() || null;
+  } catch {
+    const m = trimmed.match(/^file:\/\/[^/]*(\/.*)$/);
+    if (!m?.[1]) {
+      return null;
+    }
+    try {
+      return decodeURIComponent(m[1]);
+    } catch {
+      return m[1];
+    }
+  }
+}
+
+function incompleteOsc7Remainder(tail: string): string {
+  const start = tail.lastIndexOf('\x1b]7;');
+  if (start >= 0) {
+    return tail.slice(start, start + OSC7_REMAINDER_MAX);
+  }
+  if (tail.endsWith('\x1b]7')) {
+    return '\x1b]7';
+  }
+  if (tail.endsWith('\x1b]')) {
+    return '\x1b]';
+  }
+  if (tail.endsWith('\x1b')) {
+    return '\x1b';
+  }
+  return '';
+}
+
+function consumeOsc7CwdChunk(
+  remainder: string,
+  chunk: string,
+): { cwd: string | null; remainder: string } {
+  const combined = `${remainder}${chunk}`;
+  if (!combined.includes('\x1b')) {
+    return { cwd: null, remainder: '' };
+  }
+  OSC7_RE.lastIndex = 0;
+  let last: string | null = null;
+  let lastCompleteEnd = 0;
+  let match: RegExpExecArray | null = OSC7_RE.exec(combined);
+  while (match) {
+    const cwd = cwdFromOsc7Payload(match[1] ?? '');
+    if (cwd) {
+      last = cwd;
+    }
+    lastCompleteEnd = match.index + match[0].length;
+    match = OSC7_RE.exec(combined);
+  }
+  return { cwd: last, remainder: incompleteOsc7Remainder(combined.slice(lastCompleteEnd)) };
+}
+
+function postWorkspacePtyToPython(urlPath: string, body: Record<string, unknown>): void {
+  void pythonLogIngestFetch(urlPath, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).catch(() => {
+    /* ignore sidecar offline / startup race */
+  });
+}
 
 function isCurrentWatchedWorkspace(workspaceRoot: string): boolean {
   const watched = mainState.activeWorkspaceWatcher?.workspacePath?.trim() ?? '';
@@ -50,10 +133,30 @@ function schedulePtyWorkspaceTreeRefresh(sessionId: string, workspaceRoot: strin
 function clearPtyWorkspaceTreeRefresh(sessionId: string): void {
   sessionWorkspaceRoots.delete(sessionId);
   sessionLastCwd.delete(sessionId);
+  sessionMeta.delete(sessionId);
+  osc7RemainderBySession.delete(sessionId);
   const timer = ptyTreeRefreshTimers.get(sessionId);
   if (timer) {
     clearTimeout(timer);
     ptyTreeRefreshTimers.delete(sessionId);
+  }
+}
+
+/** Re-register live user PTY sessions with the Python sidecar after a sidecar restart. */
+export function resyncWorkspacePtySessionsToPython(): void {
+  for (const [sessionId, term] of sessions) {
+    const workspaceRoot = sessionWorkspaceRoots.get(sessionId) ?? '';
+    const cwd = sessionLastCwd.get(sessionId) ?? workspaceRoot;
+    const meta = sessionMeta.get(sessionId);
+    postWorkspacePtyToPython('/workspace-pty/register', {
+      sessionId,
+      workspaceRoot,
+      cwd,
+      shell: meta?.shell ?? '',
+      pid: typeof term.pid === 'number' ? term.pid : null,
+      cols: meta?.cols ?? 80,
+      rows: meta?.rows ?? 24,
+    });
   }
 }
 
@@ -65,6 +168,7 @@ function pollPtySessionCwds(): void {
     }
     sessionLastCwd.set(sessionId, cwd);
     sendToMainRenderer('workspace-pty-cwd', { sessionId, cwd });
+    postWorkspacePtyToPython('/workspace-pty/cwd', { sessionId, cwd });
   }
 }
 
@@ -168,6 +272,7 @@ function sendExit(sessionId: string, exitCode: number, signal: number | null): v
 
 /** Kill every workspace PTY (app quit or workspace switch). */
 export function killAllWorkspacePtySessions(): void {
+  const hadSessions = sessions.size > 0;
   for (const [sessionId] of sessions) {
     disposingSessionIds.add(sessionId);
     clearPtyWorkspaceTreeRefresh(sessionId);
@@ -181,6 +286,9 @@ export function killAllWorkspacePtySessions(): void {
   }
   sessions.clear();
   stopCwdPollerIfIdle();
+  if (hadSessions) {
+    postWorkspacePtyToPython('/workspace-pty/clear-all', {});
+  }
 }
 
 /** Registers IPC for the workspace terminal dock (node-pty in main). */
@@ -206,10 +314,12 @@ export function registerWorkspacePtyIpc(): void {
       const { file, args } = pickShell();
       console.log('[workspace-pty] spawn', { sessionId, workspaceRoot: wr.trim(), cwd: cwdReal, file, args });
       try {
+        const safeCols = Math.max(2, Math.floor(colN));
+        const safeRows = Math.max(1, Math.floor(rowN));
         const baseOpts: pty.IPtyForkOptions = {
           name: 'xterm-256color',
-          cols: Math.max(2, Math.floor(colN)),
-          rows: Math.max(1, Math.floor(rowN)),
+          cols: safeCols,
+          rows: safeRows,
           cwd: cwdReal,
           env: envForPtyChild(),
         };
@@ -225,9 +335,29 @@ export function registerWorkspacePtyIpc(): void {
         sessions.set(sessionId, term);
         sessionWorkspaceRoots.set(sessionId, wr.trim());
         sessionLastCwd.set(sessionId, cwdReal);
+        sessionMeta.set(sessionId, { shell: file, cols: safeCols, rows: safeRows });
         ensureCwdPoller();
+        postWorkspacePtyToPython('/workspace-pty/register', {
+          sessionId,
+          workspaceRoot: wr.trim(),
+          cwd: cwdReal,
+          shell: file,
+          pid: typeof term.pid === 'number' ? term.pid : null,
+          cols: safeCols,
+          rows: safeRows,
+        });
         term.onData((data) => {
+          const osc = consumeOsc7CwdChunk(osc7RemainderBySession.get(sessionId) ?? '', data);
+          osc7RemainderBySession.set(sessionId, osc.remainder);
+          if (osc.cwd) {
+            sessionLastCwd.set(sessionId, osc.cwd);
+          }
           sendData(sessionId, data);
+          postWorkspacePtyToPython('/workspace-pty/output', {
+            sessionId,
+            data,
+            ...(osc.cwd ? { cwd: osc.cwd } : {}),
+          });
         });
         term.onExit(({ exitCode, signal }) => {
           const quiet = disposingSessionIds.delete(sessionId);
@@ -238,6 +368,11 @@ export function registerWorkspacePtyIpc(): void {
             return;
           }
           sendExit(sessionId, exitCode, signal ?? null);
+          postWorkspacePtyToPython('/workspace-pty/exit', {
+            sessionId,
+            exitCode,
+            removed: false,
+          });
           if (isCurrentWatchedWorkspace(wr.trim())) {
             void notifyWorkspaceTreeRefresh(wr.trim());
           }
@@ -314,12 +449,22 @@ export function registerWorkspacePtyIpc(): void {
       sessions.delete(id);
       clearPtyWorkspaceTreeRefresh(id);
       stopCwdPollerIfIdle();
+      postWorkspacePtyToPython('/workspace-pty/exit', {
+        sessionId: id,
+        exitCode: null,
+        removed: true,
+      });
       return { success: true as const };
     } catch (err: unknown) {
       disposingSessionIds.delete(id);
       sessions.delete(id);
       clearPtyWorkspaceTreeRefresh(id);
       stopCwdPollerIfIdle();
+      postWorkspacePtyToPython('/workspace-pty/exit', {
+        sessionId: id,
+        exitCode: null,
+        removed: true,
+      });
       const message = err instanceof Error ? err.message : String(err);
       return { success: false as const, error: message };
     }

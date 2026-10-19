@@ -72,10 +72,19 @@ class LspServerPlugin(ABC):
         relative_posix_path: str,
         state: Any,
         client_running: bool,
+        text: str | None = None,
     ) -> bool:
-        """Update plugin state before ``ensure_started``; return True if the client must restart first."""
+        """Update plugin state before ``ensure_started``; return True if the client must restart first.
+
+        ``text`` is the document content being synced (may differ from disk).
+        """
 
         return False
+
+    def take_pending_initialization_options(self, state: Any) -> dict[str, Any] | None:
+        """Options to push via ``workspace/didChangeConfiguration`` without a restart (consumed once)."""
+
+        return None
 
     def after_shutdown(self, session: SessionState, state: Any) -> None:
         """Clear session fields tied to this server after the subprocess stops."""

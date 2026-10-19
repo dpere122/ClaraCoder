@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from clara_coder_backend.lsp.client import JsonRpcLspClient, configuration_values_for_items, lookup_nested_section
+from clara_coder_backend.lsp.client import (
+    JsonRpcLspClient,
+    configuration_values_for_items,
+    did_change_configuration_settings,
+    lookup_nested_section,
+)
 
 
 class _BrokenStdin:
@@ -307,3 +312,22 @@ def test_initialize_closes_subprocess_on_timeout() -> None:
     assert proc.killed is True
     assert client._closed is True
     assert client._initialized is False
+
+
+def test_did_change_configuration_settings_unwraps_jdt_settings() -> None:
+    jdt = {'settings': {'java': {'autobuild': {'enabled': True}}}, 'extendedClientCapabilities': {}}
+    assert did_change_configuration_settings(jdt) == {'java': {'autobuild': {'enabled': True}}}
+    pyright = {'python': {'analysis': {}}}
+    assert did_change_configuration_settings(pyright) == pyright
+
+
+def test_update_configuration_stores_and_notifies(tmp_path: Path) -> None:
+    client = JsonRpcLspClient(['unused'], workspace_root=tmp_path)
+    sent: list[tuple[str, dict]] = []
+    client.notify = lambda method, params: sent.append((method, params))  # type: ignore[method-assign]
+    client.update_configuration({'settings': {'java': {'project': {'sourcePaths': ['src']}}}})
+    assert sent == [
+        ('workspace/didChangeConfiguration', {'settings': {'java': {'project': {'sourcePaths': ['src']}}}}),
+    ]
+    items = {'items': [{'section': 'java.project'}]}
+    assert configuration_values_for_items(client._initialization_options, items) == [{'sourcePaths': ['src']}]

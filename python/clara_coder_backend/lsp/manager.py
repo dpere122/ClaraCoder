@@ -611,9 +611,11 @@ class SessionWorkspaceLspManager:
             relative_posix_path=rel,
             state=self._plugin_state,
             client_running=running,
+            text=text,
         ):
-            self.shutdown()
+            self._restart_in_place()
         self.ensure_started()
+        self._push_pending_configuration()
         with self._path_lock_for(rel):
             return self._sync_document_locked(
                 rel,
@@ -621,6 +623,57 @@ class SessionWorkspaceLspManager:
                 digest=digest,
                 policy=policy,
                 wait_for_diagnostics=wait_for_diagnostics,
+            )
+
+    def _restart_in_place(self) -> None:
+        """Stop the server so the next ``ensure_started`` spawns a fresh one for this same manager.
+
+        ``shutdown`` leaves the phase at ``shuttingDown`` because it normally ends a manager's
+        life; ``ensure_started`` refuses that phase, so a plugin-requested restart (new project
+        root or Java build file) must clear it or every later request fails until app restart.
+        """
+
+        active_scope = self.session.lsp.lsp_active_scope
+        self.shutdown()
+        self.session.lsp.lsp_active_scope = active_scope
+        with self._lock:
+            if self._lifecycle_phase == 'shuttingDown':
+                self._lifecycle_phase = 'idle'
+                self._lifecycle_error = ''
+            self._diag_cond.notify_all()
+        logger.info(
+            '%s LSP restarting for plugin request session=%s scope=%s',
+            self.server_kind,
+            self.session_id,
+            self.scope,
+        )
+
+    def _push_pending_configuration(self) -> None:
+        """Send settings the plugin changed since start (e.g. Java loose-folder source paths)."""
+
+        options = self._plugin.take_pending_initialization_options(self._plugin_state)
+        if options is None:
+            return
+        with self._lock:
+            client = self._client
+        updater = getattr(client, 'update_configuration', None)
+        if not callable(updater):
+            return
+        try:
+            updater(options)
+            logger.info(
+                '%s LSP configuration updated session=%s scope=%s',
+                self.server_kind,
+                self.session_id,
+                self.scope,
+            )
+        except Exception as exc:
+            logger.warning(
+                '%s LSP configuration update failed session=%s scope=%s err=%s',
+                self.server_kind,
+                self.session_id,
+                self.scope,
+                exc,
             )
 
     def _path_lock_for(self, rel: str) -> threading.Lock:

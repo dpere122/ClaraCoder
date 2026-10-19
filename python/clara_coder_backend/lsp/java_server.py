@@ -119,24 +119,35 @@ def _workspace_data_dir(project_root: Path, instance_key: str = '') -> Path:
     return path
 
 
-def build_java_initialization_options() -> dict:
-    """Minimal JDT LS ``initializationOptions`` enabling Maven/Gradle import."""
+def build_java_initialization_options(java_settings: dict | None = None) -> dict:
+    """Minimal JDT LS ``initializationOptions`` enabling Maven/Gradle import.
 
+    ``java_settings`` (loose folders only, see ``java_loose_folder.java_loose_settings``)
+    adds ``java.project.*`` and ``java.configuration.runtimes``; build-tool projects pass
+    nothing so their classpath stays owned by Maven/Gradle.
+    """
+
+    java: dict = {
+        'autobuild': {'enabled': True},
+        'configuration': {
+            'updateBuildConfiguration': 'automatic',
+        },
+        'import': {
+            'gradle': {'enabled': True},
+            'maven': {'enabled': True},
+        },
+        'server': {
+            'launchMode': 'Standard',
+        },
+    }
+    for key, value in (java_settings or {}).items():
+        if isinstance(value, dict) and isinstance(java.get(key), dict):
+            java[key] = {**java[key], **value}
+        else:
+            java[key] = value
     return {
         'settings': {
-            'java': {
-                'autobuild': {'enabled': True},
-                'configuration': {
-                    'updateBuildConfiguration': 'automatic',
-                },
-                'import': {
-                    'gradle': {'enabled': True},
-                    'maven': {'enabled': True},
-                },
-                'server': {
-                    'launchMode': 'Standard',
-                },
-            }
+            'java': java,
         },
         'extendedClientCapabilities': {
             'progressReportProvider': False,

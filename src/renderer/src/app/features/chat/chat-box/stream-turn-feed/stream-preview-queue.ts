@@ -1,11 +1,10 @@
 import {
   isHitlTrailStreamTag,
-  isReadToolPreviewStreamTag,
   isToolTrailStatusStreamTag,
-  isWorkspaceReadToolLabel,
   toolStatusStreamPartMeta,
   type TurnFeedItem,
 } from '@shared/index';
+import { toolSpinnerKind, type ToolSpinnerKind } from '../tool-spinner-kind';
 
 /** Min time the live preview pane stays open before a contending event can become a chip. */
 export const PREVIEW_OPEN_DWELL_MS = 450;
@@ -137,23 +136,16 @@ export function previewQueueMeta(
   return '';
 }
 
-function isReadToolFeedItem(item: TurnFeedItem): boolean {
-  return (
-    item.kind === 'tool' &&
-    (isWorkspaceReadToolLabel(item.part.label) || isReadToolPreviewStreamTag(item.part.streamTag))
-  );
-}
-
 /**
- * True when the live tool preview should use the read (book) spinner.
+ * Spinner kind for the live tool preview pill (book / terminal / globe / jot).
  * Follows the latest running tool in the batch; falls back to the current preview item.
  */
-export function previewQueueIsReadTool(
+export function previewQueueToolSpinnerKind(
   current: TurnFeedItem | undefined,
   inbound: readonly TurnFeedItem[],
-): boolean {
+): ToolSpinnerKind {
   if (!current || current.kind !== 'tool') {
-    return false;
+    return 'write';
   }
   const batch = [current, ...inbound.filter(isToolBatchMember)];
   for (let i = batch.length - 1; i >= 0; i--) {
@@ -161,9 +153,9 @@ export function previewQueueIsReadTool(
     if (item.kind !== 'tool' || item.part.toolChainState !== 'running') {
       continue;
     }
-    return isReadToolFeedItem(item);
+    return toolSpinnerKind(item.part.label, item.part.streamTag);
   }
-  return isReadToolFeedItem(current);
+  return toolSpinnerKind(current.part.label, current.part.streamTag);
 }
 
 export function clampCommittedCount(items: readonly TurnFeedItem[], committedCount: number): number {

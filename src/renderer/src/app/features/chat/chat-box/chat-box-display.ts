@@ -13,10 +13,9 @@ import {
   isHitlTrailStreamTag,
   isInFlightToolPart,
   isPrimaryAssistantStreamTag,
-  isReadToolPreviewStreamTag,
-  isWorkspaceReadToolLabel,
   PLANNER_STREAM_TAG,
 } from '@shared/index';
+import { toolSpinnerKind, toolSpinnerSrc, type ToolSpinnerKind } from './tool-spinner-kind';
 
 export const DEFAULT_AUXILIARY_STREAM_PANEL_TITLE = 'Model reasoning & tools';
 import {
@@ -541,31 +540,35 @@ export function isLiveReplyStreaming(
 /**
  * What an in-flight turn is doing right now, as one value shared by the live processing row
  * and the conversation list: `prefill` (waiting for the first stream item), `think`
- * (reasoning), `read` / `write` (workspace read vs other tools), `reply` (prose streaming —
- * no spinner, the cursor is the indicator) and `review` (blocked on a HITL card).
+ * (reasoning), a {@link ToolSpinnerKind} while a tool runs (`read` / `write` / `run` / `web`),
+ * `reply` (prose streaming — no spinner, the cursor is the indicator) and `review` (blocked on a
+ * HITL card).
  */
-export type TurnActivity = 'prefill' | 'think' | 'read' | 'write' | 'reply' | 'review';
+export type TurnActivity = 'prefill' | 'think' | ToolSpinnerKind | 'reply' | 'review';
 
-/** True while the latest in-flight tool part is a workspace read (book spinner instead of jot). */
-export function isReadToolInFlight(parts: readonly StreamPart[], toolsActive: boolean): boolean {
+/** Spinner kind of the latest in-flight tool part (`null` when no tool is running). */
+export function inFlightToolSpinnerKind(
+  parts: readonly StreamPart[],
+  toolsActive: boolean,
+): ToolSpinnerKind | null {
   if (!toolsActive) {
-    return false;
+    return null;
   }
   for (let i = parts.length - 1; i >= 0; i--) {
     const part = parts[i]!;
-    if (!isInFlightToolPart(part)) {
-      continue;
+    if (isInFlightToolPart(part)) {
+      return toolSpinnerKind(part.label, part.streamTag);
     }
-    return isWorkspaceReadToolLabel(part.label) || isReadToolPreviewStreamTag(part.streamTag);
   }
-  return false;
+  return null;
 }
 
 export function resolveTurnActivity(state: {
   feed: readonly TurnFeedItem[];
   primaryLiveText: string;
   toolsActive: boolean;
-  readToolActive: boolean;
+  /** Kind of the running tool; `null` falls back to `write`. */
+  toolKind: ToolSpinnerKind | null;
   awaitingReview: boolean;
 }): TurnActivity {
   if (state.awaitingReview) {
@@ -578,7 +581,7 @@ export function resolveTurnActivity(state: {
     return 'reply';
   }
   if (state.toolsActive) {
-    return state.readToolActive ? 'read' : 'write';
+    return state.toolKind ?? 'write';
   }
   return 'think';
 }
@@ -591,9 +594,10 @@ export function turnActivitySpinnerSrc(activity: TurnActivity): string | null {
     case 'think':
       return 'spinner.svg';
     case 'read':
-      return 'spinner-read.svg';
     case 'write':
-      return 'spinner-jot.svg';
+    case 'run':
+    case 'web':
+      return toolSpinnerSrc(activity);
     default:
       return null;
   }

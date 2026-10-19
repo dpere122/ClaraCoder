@@ -10,6 +10,8 @@ const ACTIVITY_LABELS: Record<TurnActivity, string> = {
   think: 'Thinking',
   read: 'Reading files',
   write: 'Running tools',
+  run: 'Running a command',
+  web: 'Browsing the web',
   reply: 'Writing reply',
   review: 'Waiting for your review',
 };

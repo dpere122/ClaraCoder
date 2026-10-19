@@ -557,7 +557,9 @@ app-chat-box .processing-svg-host {
   height: 1.35rem;
 }
 
-app-chat-box .processing-svg-host--jot {
+app-chat-box .processing-svg-host--jot,
+app-chat-box .processing-svg-host--run,
+app-chat-box .processing-svg-host--web {
   width: 1.5rem;
   height: 1.5rem;
 }

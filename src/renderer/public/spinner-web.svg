@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none" role="img" aria-labelledby="spinnerTitle">
+  <title id="spinnerTitle">Browsing</title>
+  <style>
+    .meridian {
+      fill: none;
+      stroke: #a8b89a;
+      stroke-width: 1.7;
+      stroke-opacity: 0.55;
+    }
+    .m-1 { animation: meridian-turn 2.4s linear infinite; }
+    .m-2 { animation: meridian-turn 2.4s linear infinite -0.8s; }
+    .m-3 { animation: meridian-turn 2.4s linear infinite -1.6s; }
+
+    .orbit {
+      transform-origin: 32px 32px;
+      animation: orbit-spin 3.6s linear infinite;
+    }
+    .packet {
+      transform-origin: 32px 6.5px;
+      animation: packet-pulse 1.2s ease-in-out infinite;
+    }
+    .trail {
+      fill: none;
+      stroke: #c9a96e;
+      stroke-width: 2.4;
+      stroke-linecap: round;
+      stroke-dasharray: 22 140;
+    }
+    .ping {
+      fill: none;
+      stroke: #7eb5a6;
+      stroke-width: 1.6;
+      transform-origin: 32px 32px;
+      animation: ping 2.4s ease-out infinite;
+    }
+
+    /* A meridian ellipse squeezed by rx: full width -> line -> full width, offset per line. */
+    @keyframes meridian-turn {
+      0% { rx: 19px; stroke-opacity: 0.12; }
+      25% { rx: 9.5px; stroke-opacity: 0.6; }
+      50% { rx: 0.4px; stroke-opacity: 0.6; }
+      75% { rx: 9.5px; stroke-opacity: 0.6; }
+      100% { rx: 19px; stroke-opacity: 0.12; }
+    }
+    @keyframes orbit-spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes packet-pulse {
+      0%, 100% { transform: scale(0.85); }
+      50% { transform: scale(1.15); }
+    }
+    @keyframes ping {
+      0% { transform: scale(0.55); opacity: 0.6; }
+      70%, 100% { transform: scale(1.38); opacity: 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .m-1, .m-2, .m-3, .orbit, .packet, .ping { animation: none; }
+      .m-1 { rx: 19px; }
+      .m-2 { rx: 9.5px; }
+      .m-3 { rx: 0.4px; }
+      .ping { opacity: 0; }
+    }
+  </style>
+
+  <defs>
+    <radialGradient id="ccGlobe" cx="26" cy="25" r="24" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#a8b89a" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#a8b89a" stop-opacity="0.03"/>
+    </radialGradient>
+    <clipPath id="ccGlobeClip">
+      <circle cx="32" cy="32" r="19"/>
+    </clipPath>
+  </defs>
+
+  <circle class="ping" cx="32" cy="32" r="19"/>
+
+  <!-- Globe -->
+  <circle cx="32" cy="32" r="19" fill="url(#ccGlobe)"/>
+  <g clip-path="url(#ccGlobeClip)">
+    <path d="M13 32 L51 32" stroke="#a8b89a" stroke-opacity="0.45" stroke-width="1.6"/>
+    <path d="M15.6 22.5 C24 25.2 40 25.2 48.4 22.5" stroke="#a8b89a" stroke-opacity="0.3" stroke-width="1.4"/>
+    <path d="M15.6 41.5 C24 38.8 40 38.8 48.4 41.5" stroke="#a8b89a" stroke-opacity="0.3" stroke-width="1.4"/>
+    <ellipse class="meridian m-1" cx="32" cy="32" rx="19" ry="19"/>
+    <ellipse class="meridian m-2" cx="32" cy="32" rx="9.5" ry="19"/>
+    <ellipse class="meridian m-3" cx="32" cy="32" rx="0.4" ry="19"/>
+  </g>
+  <circle cx="32" cy="32" r="19" stroke="#a8b89a" stroke-opacity="0.62" stroke-width="1.9"/>
+
+  <!-- Request packet orbiting the globe -->
+  <g class="orbit">
+    <circle class="trail" cx="32" cy="32" r="25.5" transform="rotate(-139.5 32 32)"/>
+    <circle class="packet" cx="32" cy="6.5" r="2.7" fill="#c9a96e"/>
+    <circle cx="32" cy="6.5" r="1.05" fill="#d8c8a0"/>
+  </g>
+</svg>

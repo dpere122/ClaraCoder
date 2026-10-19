@@ -153,7 +153,9 @@ app-conversation-manager .conv-activity {
   pointer-events: none;
 }
 
-app-conversation-manager .conv-activity--write {
+app-conversation-manager .conv-activity--write,
+app-conversation-manager .conv-activity--run,
+app-conversation-manager .conv-activity--web {
   width: 1.3rem;
   height: 1.3rem;
 }

@@ -70,7 +70,7 @@ import {
   isChatTranscriptScrollable,
   isLiveReplyStreaming,
   isProseLatestLiveFeedEvent,
-  isReadToolInFlight,
+  inFlightToolSpinnerKind,
   isStickFromSlack,
   isUserScrollUp,
   planPanelContext,
@@ -111,7 +111,7 @@ export {
   isLiveReplyStreaming,
   isPendingHitlArtifact,
   isProseLatestLiveFeedEvent,
-  isReadToolInFlight,
+  inFlightToolSpinnerKind,
   isScrollWorthyAppendMessage,
   isStickFromSlack,
   isUserScrollUp,
@@ -472,9 +472,9 @@ export class ChatBox implements OnDestroy {
     () => this.loading() && this.liveTurnFeed().length === 0,
   );
 
-  /** True while the in-flight tool is a workspace read (book spinner instead of jot). */
-  readonly liveReadToolsActive = computed(() =>
-    isReadToolInFlight(this.streamingParts(), this.processingToolsActive()),
+  /** Spinner kind of the in-flight tool (book / terminal / globe / jot). */
+  readonly liveToolSpinnerKind = computed(() =>
+    inFlightToolSpinnerKind(this.streamingParts(), this.processingToolsActive()),
   );
 
   /** What the live turn is doing — same value the conversation list row shows. */
@@ -483,7 +483,7 @@ export class ChatBox implements OnDestroy {
       feed: this.liveTurnFeed(),
       primaryLiveText: this.primaryStreamLiveText(),
       toolsActive: this.processingToolsActive(),
-      readToolActive: this.liveReadToolsActive(),
+      toolKind: this.liveToolSpinnerKind(),
       awaitingReview: this.liveAwaitingHitlReview(),
     }),
   );

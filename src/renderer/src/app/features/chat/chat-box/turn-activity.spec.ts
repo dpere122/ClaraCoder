@@ -1,6 +1,7 @@
 import type { StreamPart, TurnFeedItem } from '@shared/index';
 import { toolTrailStatusStreamTag } from '@shared/index';
-import { isReadToolInFlight, resolveTurnActivity, turnActivitySpinnerSrc } from './chat-box-display';
+import { inFlightToolSpinnerKind, resolveTurnActivity, turnActivitySpinnerSrc } from './chat-box-display';
+import { toolSpinnerKind } from './tool-spinner-kind';
 
 describe('resolveTurnActivity', () => {
   const thought: TurnFeedItem = {
@@ -12,7 +13,7 @@ describe('resolveTurnActivity', () => {
     part: { streamTag: toolTrailStatusStreamTag('run-1'), label: 'stage_create_file', text: 'src/a.ts' },
   };
   const prose: TurnFeedItem = { kind: 'markdown', text: 'Here is the answer.' };
-  const base = { primaryLiveText: '', toolsActive: false, readToolActive: false, awaitingReview: false };
+  const base = { primaryLiveText: '', toolsActive: false, toolKind: null, awaitingReview: false };
 
   it('is prefill before the first stream item', () => {
     expect(resolveTurnActivity({ ...base, feed: [] })).toBe('prefill');
@@ -22,11 +23,11 @@ describe('resolveTurnActivity', () => {
     expect(resolveTurnActivity({ ...base, feed: [thought] })).toBe('think');
   });
 
-  it('picks read vs write while tools are active', () => {
+  it('picks the running tool kind while tools are active', () => {
     expect(resolveTurnActivity({ ...base, feed: [thought, tool], toolsActive: true })).toBe('write');
-    expect(
-      resolveTurnActivity({ ...base, feed: [thought, tool], toolsActive: true, readToolActive: true }),
-    ).toBe('read');
+    for (const toolKind of ['read', 'write', 'run', 'web'] as const) {
+      expect(resolveTurnActivity({ ...base, feed: [thought, tool], toolsActive: true, toolKind })).toBe(toolKind);
+    }
   });
 
   it('is reply while prose streams, even with a tool still marked active', () => {
@@ -42,7 +43,7 @@ describe('resolveTurnActivity', () => {
   });
 });
 
-describe('isReadToolInFlight', () => {
+describe('inFlightToolSpinnerKind', () => {
   const running = (label: string): StreamPart => ({
     streamTag: toolTrailStatusStreamTag(label),
     label,
@@ -51,12 +52,25 @@ describe('isReadToolInFlight', () => {
   });
 
   it('follows the latest running tool', () => {
-    expect(isReadToolInFlight([running('stage_create_file'), running('read_workspace_file')], true)).toBe(true);
-    expect(isReadToolInFlight([running('read_workspace_file'), running('stage_create_file')], true)).toBe(false);
+    expect(inFlightToolSpinnerKind([running('stage_create_file'), running('read_workspace_file')], true)).toBe('read');
+    expect(inFlightToolSpinnerKind([running('read_workspace_file'), running('stage_create_file')], true)).toBe('write');
+    expect(inFlightToolSpinnerKind([running('read_workspace_file'), running('run_command')], true)).toBe('run');
+    expect(inFlightToolSpinnerKind([running('fetch_url')], true)).toBe('web');
   });
 
-  it('is false when tools are not active', () => {
-    expect(isReadToolInFlight([running('read_workspace_file')], false)).toBe(false);
+  it('is null when tools are not active', () => {
+    expect(inFlightToolSpinnerKind([running('read_workspace_file')], false)).toBeNull();
+  });
+});
+
+describe('toolSpinnerKind', () => {
+  it('classifies tools by name and stream tag', () => {
+    expect(toolSpinnerKind('search_workspace', '')).toBe('read');
+    expect(toolSpinnerKind('wait_for_command', '')).toBe('run');
+    expect(toolSpinnerKind('anything', 'run-command:abc')).toBe('run');
+    expect(toolSpinnerKind('web_search', '')).toBe('web');
+    expect(toolSpinnerKind('fetch_url', '')).toBe('web');
+    expect(toolSpinnerKind('replace_workspace_snippet', '')).toBe('write');
   });
 });
 
@@ -66,6 +80,8 @@ describe('turnActivitySpinnerSrc', () => {
     expect(turnActivitySpinnerSrc('think')).toBe('spinner.svg');
     expect(turnActivitySpinnerSrc('read')).toBe('spinner-read.svg');
     expect(turnActivitySpinnerSrc('write')).toBe('spinner-jot.svg');
+    expect(turnActivitySpinnerSrc('run')).toBe('spinner-run.svg');
+    expect(turnActivitySpinnerSrc('web')).toBe('spinner-web.svg');
     expect(turnActivitySpinnerSrc('reply')).toBeNull();
     expect(turnActivitySpinnerSrc('review')).toBeNull();
   });

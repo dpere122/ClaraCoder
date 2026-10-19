@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nvmlLibraryCandidates, parseNvidiaSmiGpuList } from './nvml-gpu';
+import { decodeNvmlMemory, nvmlLibraryCandidates, parseNvidiaSmiGpuList } from './nvml-gpu';
 
 describe('nvmlLibraryCandidates', () => {
   it('loads nvml.dll on Windows', () => {
@@ -46,5 +46,19 @@ describe('parseNvidiaSmiGpuList', () => {
     expect(parseNvidiaSmiGpuList(csv)).toEqual([
       { cudaIndex: 0, model: 'NVIDIA GeForce RTX 5090', memoryTotalMb: 32607 },
     ]);
+  });
+});
+
+describe('decodeNvmlMemory', () => {
+  it('reads nvmlMemory_t as total, free, used', () => {
+    const mib = 1048576n;
+    const buf = Buffer.alloc(24);
+    buf.writeBigUInt64LE(32607n * mib, 0);
+    buf.writeBigUInt64LE(29740n * mib, 8);
+    buf.writeBigUInt64LE(2448n * mib, 16);
+    const m = decodeNvmlMemory(buf);
+    expect(m.total / 1048576).toBe(32607);
+    expect(m.free / 1048576).toBe(29740);
+    expect(m.used / 1048576).toBe(2448);
   });
 });

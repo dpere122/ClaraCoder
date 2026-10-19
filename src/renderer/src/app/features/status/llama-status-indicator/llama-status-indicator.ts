@@ -140,6 +140,9 @@ export class LlamaStatusIndicator {
     if (es === 'error') {
       return `Embeddings (CPU) — error`;
     }
+    if (es === 'idle') {
+      return `Embeddings (CPU) — not loaded (loads on next semantic search)`;
+    }
     return `Embeddings (CPU) — ${label}`;
   });
 

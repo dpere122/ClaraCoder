@@ -9,6 +9,8 @@ import shutil
 import threading
 import time
 import uuid
+from collections import OrderedDict
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -22,9 +24,16 @@ from clara_coder_backend.workspace_index.fingerprint import (
     workspace_content_fingerprint,
     workspace_file_entries,
 )
+from clara_coder_backend.workspace_index.docstore import (
+    close_docstore,
+    create_docstore,
+    open_docstore,
+    release_index_dir,
+)
 from clara_coder_backend.workspace_index.index_read import read_file_for_index
 from clara_coder_backend.workspace_index.lifecycle import invalidate_fingerprint_cache_for_root
 from clara_coder_backend.workspace_index.paths import workspace_index_persist_dir
+from clara_coder_backend.workspace_index.vector_store import NumpyVectorStore
 from clara_coder_backend.workspace_index.walk import iter_index_workspace_files
 
 logger = logging.getLogger('clara.workspace_index.build')
@@ -42,6 +51,12 @@ _BUILD_TMP_INFIX = '.tmp-'
 # A stale index whose changed-file share is above this is cheaper to rebuild than to
 # patch one file at a time.
 _RECONCILE_MAX_CHANGED_FRACTION = 0.5
+
+# Chunk nodes embedded and inserted per step of a full build.
+_BUILD_NODE_BATCH = 256
+
+# Loaded indexes kept in memory; the least recently used one is evicted first.
+_LOADED_INDEXES_MAX = 2
 
 # One re-entrant lock per persist dir. Every path that may build/load/patch the
 # workspace corpus (watcher flush, ``ensure_corpus`` background job, semantic tool)
@@ -241,13 +256,58 @@ def nodes_from_file_for_workspace(path: Path, workspace_root: Path) -> list[Any]
     return list(splitter.get_nodes_from_documents([doc]))
 
 
-def _collect_workspace_nodes(workspace_root: Path) -> list[Any]:
-    nodes: list[Any] = []
-    max_files = CLARA_LLAMA_INDEX_MAX_FILES
+def _iter_workspace_node_batches(workspace_root: Path) -> Iterator[list[Any]]:
+    """Yield chunk nodes a few hundred at a time so a full build never holds the whole corpus."""
     root = workspace_root.resolve()
-    for path in iter_index_workspace_files(root, max_files=max_files):
-        nodes.extend(nodes_from_file_for_workspace(path, root))
-    return nodes
+    batch: list[Any] = []
+    for path in iter_index_workspace_files(root, max_files=CLARA_LLAMA_INDEX_MAX_FILES):
+        batch.extend(nodes_from_file_for_workspace(path, root))
+        if len(batch) >= _BUILD_NODE_BATCH:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
+
+
+def _new_storage_context(persist_dir: Path) -> StorageContext:
+    """Empty stores; the SQLite docstore is created directly in *persist_dir*."""
+    return StorageContext.from_defaults(docstore=create_docstore(persist_dir), vector_store=NumpyVectorStore())
+
+
+def _load_storage_context(persist_dir: Path) -> StorageContext:
+    return StorageContext.from_defaults(
+        persist_dir=str(persist_dir),
+        docstore=open_docstore(persist_dir),
+        vector_store=NumpyVectorStore.from_persist_dir(persist_dir),
+    )
+
+
+def _load_index(persist_dir: Path, embed_model: BaseEmbedding) -> VectorStoreIndex:
+    return load_index_from_storage(_load_storage_context(persist_dir), embed_model=embed_model)
+
+
+def _remove_index_dir(path: Path) -> None:
+    """Close docstore handles under *path*, then delete it."""
+    release_index_dir(path)
+    shutil.rmtree(path, ignore_errors=True)
+
+
+def _index_from_node_batches(
+    batches: Iterator[list[Any]], embed_model: BaseEmbedding, persist_dir: Path
+) -> tuple[VectorStoreIndex | None, int]:
+    """Embed and insert one batch at a time; ``(None, 0)`` when there are no nodes."""
+    first = next(batches, None)
+    if first is None:
+        return None, 0
+    index = VectorStoreIndex(
+        first, storage_context=_new_storage_context(persist_dir), embed_model=embed_model, show_progress=False
+    )
+    count = len(first)
+    del first
+    for batch in batches:
+        index.insert_nodes(batch)
+        count += len(batch)
+    return index, count
 
 
 def manifest_embedding_model_id(embedding_model_id: str | None) -> str:
@@ -264,15 +324,16 @@ def _remove_stale_build_dirs(pdir: Path) -> None:
     try:
         for entry in parent.iterdir():
             if entry.name.startswith(prefix) and entry.is_dir():
-                shutil.rmtree(entry, ignore_errors=True)
+                _remove_index_dir(entry)
     except OSError:
         pass
 
 
 def _swap_into_place(tmp_dir: Path, pdir: Path) -> None:
     """Replace *pdir* with the fully written *tmp_dir* (rename; old dir removed first)."""
+    release_index_dir(tmp_dir)
     if pdir.exists():
-        shutil.rmtree(pdir, ignore_errors=True)
+        _remove_index_dir(pdir)
     pdir.parent.mkdir(parents=True, exist_ok=True)
     os.replace(tmp_dir, pdir)
 
@@ -295,22 +356,25 @@ def build_fresh_workspace_index(
     with workspace_index_lock(workspace_id, root):
         started = time.monotonic()
         _remove_stale_build_dirs(pdir)
+        # Don't hold the outgoing index in memory alongside the one being built.
+        forget_loaded_index(pdir)
 
         entries = workspace_file_entries(root, max_files=CLARA_LLAMA_INDEX_MAX_FILES)
         fp = fingerprint_for_entries(entries)
-        nodes = _collect_workspace_nodes(root)
-        if not nodes:
-            if pdir.exists():
-                shutil.rmtree(pdir, ignore_errors=True)
-            invalidate_fingerprint_cache_for_root(root)
-            return None, ''
-
+        mid = manifest_embedding_model_id(embedding_model_id)
         tmp_dir = pdir.with_name(f'{pdir.name}{_BUILD_TMP_INFIX}{uuid.uuid4().hex[:12]}')
         tmp_dir.mkdir(parents=True, exist_ok=True)
         try:
-            index = VectorStoreIndex(nodes, embed_model=embed_model, show_progress=False)
-            index.storage_context.persist(persist_dir=str(tmp_dir))
-            mid = manifest_embedding_model_id(embedding_model_id)
+            built, node_count = _index_from_node_batches(_iter_workspace_node_batches(root), embed_model, tmp_dir)
+            if built is None:
+                _remove_index_dir(tmp_dir)
+                if pdir.exists():
+                    _remove_index_dir(pdir)
+                invalidate_fingerprint_cache_for_root(root)
+                return None, ''
+            built.storage_context.persist(persist_dir=str(tmp_dir))
+            close_docstore(built.storage_context.docstore)
+            del built
             write_workspace_manifest(
                 tmp_dir,
                 workspace_root=root,
@@ -321,13 +385,16 @@ def build_fresh_workspace_index(
             )
             _swap_into_place(tmp_dir, pdir)
         except Exception:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+            _remove_index_dir(tmp_dir)
             raise
+        # The build's docstore handle was closed for the rename; reopen from the final location.
+        index = _load_index(pdir, embed_model)
+        remember_loaded_index(pdir, mid, index)
         invalidate_fingerprint_cache_for_root(root)
         logger.info(
             'Workspace semantic index built at %s (%s nodes, %s files) in %.1fs',
             pdir,
-            len(nodes),
+            node_count,
             len(entries),
             time.monotonic() - started,
         )
@@ -360,9 +427,10 @@ def _changed_fraction(old_files: dict[str, str], new_files: dict[str, str]) -> f
     return touched / total
 
 
-#: Last loaded index per persist dir, keyed by the manifest file's stat + embedding model. Any build, reconcile
-#: or incremental patch rewrites the manifest, which changes the stamp and forces a reload.
-_LOADED_INDEXES: dict[str, tuple[tuple[int, int, str], VectorStoreIndex]] = {}
+#: Recently used indexes per persist dir (LRU, at most ``_LOADED_INDEXES_MAX``), keyed by the manifest file's
+#: stat + embedding model. A manifest rewritten by another path changes the stamp and forces a reload.
+_LOADED_INDEXES: OrderedDict[str, tuple[tuple[int, int, str], VectorStoreIndex]] = OrderedDict()
+_loaded_indexes_guard = threading.Lock()
 
 
 def _manifest_stamp(persist_dir: Path, model: str) -> tuple[int, int, str]:
@@ -371,6 +439,37 @@ def _manifest_stamp(persist_dir: Path, model: str) -> tuple[int, int, str]:
     except OSError:
         return (0, 0, model)
     return (st.st_mtime_ns, st.st_size, model)
+
+
+def _cached_loaded_index(persist_dir: Path, stamp: tuple[int, int, str]) -> VectorStoreIndex | None:
+    """The in-memory index for *persist_dir* if it still matches *stamp*; a stale entry is dropped."""
+    key = str(persist_dir)
+    with _loaded_indexes_guard:
+        hit = _LOADED_INDEXES.get(key)
+        if hit is None:
+            return None
+        if hit[0] != stamp:
+            del _LOADED_INDEXES[key]
+            return None
+        _LOADED_INDEXES.move_to_end(key)
+        return hit[1]
+
+
+def remember_loaded_index(persist_dir: Path, embedding_model: str, index: VectorStoreIndex) -> None:
+    """Cache *index* as current for the manifest now on disk, evicting the least recently used."""
+    key = str(persist_dir)
+    stamp = _manifest_stamp(persist_dir, embedding_model)
+    with _loaded_indexes_guard:
+        _LOADED_INDEXES[key] = (stamp, index)
+        _LOADED_INDEXES.move_to_end(key)
+        while len(_LOADED_INDEXES) > _LOADED_INDEXES_MAX:
+            _LOADED_INDEXES.popitem(last=False)
+
+
+def forget_loaded_index(persist_dir: Path) -> None:
+    """Drop the cached in-memory index for *persist_dir* (index rebuilt, removed, or workspace closed)."""
+    with _loaded_indexes_guard:
+        _LOADED_INDEXES.pop(str(persist_dir), None)
 
 
 def load_or_rebuild_workspace_index(
@@ -406,21 +505,17 @@ def load_or_rebuild_workspace_index(
             return build_fresh_workspace_index(root, workspace_id, embed_model, embedding_model_id=model)
         assert manifest is not None
 
-        stamp = _manifest_stamp(pdir, model)
-        cached = _LOADED_INDEXES.get(str(pdir))
-        if cached is not None and cached[0] == stamp and _manifest_workspace_fingerprint(manifest) == fp:
-            # Same on-disk index as last query: skip re-deserializing the docstore / vector store JSON.
-            return cached[1], ''
-
-        try:
-            storage_context = StorageContext.from_defaults(persist_dir=str(pdir))
-            index = load_index_from_storage(storage_context, embed_model=embed_model)
-        except Exception as exc:
-            logger.warning('Failed to load workspace semantic index, rebuilding: %s', exc)
-            return build_fresh_workspace_index(root, workspace_id, embed_model, embedding_model_id=model)
+        # Same on-disk index as a recent call: skip re-deserializing the docstore / vector store.
+        index = _cached_loaded_index(pdir, _manifest_stamp(pdir, model))
+        if index is None:
+            try:
+                index = _load_index(pdir, embed_model)
+            except Exception as exc:
+                logger.warning('Failed to load workspace semantic index, rebuilding: %s', exc)
+                return build_fresh_workspace_index(root, workspace_id, embed_model, embedding_model_id=model)
 
         if _manifest_workspace_fingerprint(manifest) == fp:
-            _LOADED_INDEXES[str(pdir)] = (stamp, index)
+            remember_loaded_index(pdir, model, index)
             return index, ''
 
         old_files = _manifest_files(manifest)
@@ -452,6 +547,7 @@ def load_or_rebuild_workspace_index(
             embedding_model=model,
             files=new_files,
         )
+        remember_loaded_index(pdir, model, index)
         invalidate_fingerprint_cache_for_root(root)
         logger.info(
             'Workspace semantic index reconciled at %s (%s of %s files re-embedded) in %.1fs',
@@ -479,10 +575,6 @@ def write_manifest(persist_dir: Path, *, workspace_root: Path, fingerprint: str,
     (persist_dir / MANIFEST_NAME).write_text(json.dumps(payload, indent=2), encoding='utf-8')
 
 
-def _collect_nodes(workspace_root: Path) -> list[Any]:
-    return _collect_workspace_nodes(workspace_root)
-
-
 def build_fresh_index(
     workspace_root: Path,
     embed_model: BaseEmbedding,
@@ -495,21 +587,20 @@ def build_fresh_index(
     root = workspace_root.resolve()
     pdir = legacy_index_persist_dir(root)
     if pdir.exists():
-        shutil.rmtree(pdir, ignore_errors=True)
+        _remove_index_dir(pdir)
     pdir.mkdir(parents=True, exist_ok=True)
 
     fp = workspace_content_fingerprint(root, max_files=CLARA_LLAMA_INDEX_MAX_FILES)
-    nodes = _collect_workspace_nodes(root)
-    if not nodes:
-        shutil.rmtree(pdir, ignore_errors=True)
+    index, node_count = _index_from_node_batches(_iter_workspace_node_batches(root), embed_model, pdir)
+    if index is None:
+        _remove_index_dir(pdir)
         return None, ''
 
-    index = VectorStoreIndex(nodes, embed_model=embed_model, show_progress=False)
     index.storage_context.persist(persist_dir=str(pdir))
     mid = manifest_embedding_model_id(embedding_model_id)
     write_manifest(pdir, workspace_root=root, fingerprint=fp, embedding_model=mid)
     invalidate_fingerprint_cache_for_root(root)
-    logger.info('Workspace semantic index built at %s (%s nodes)', pdir, len(nodes))
+    logger.info('Workspace semantic index built at %s (%s nodes)', pdir, node_count)
     return index, ''
 
 
@@ -551,8 +642,7 @@ def load_or_rebuild_index(
         return build_fresh_index(root, embed_model, embedding_model_id=model)
 
     try:
-        storage_context = StorageContext.from_defaults(persist_dir=str(pdir))
-        index = load_index_from_storage(storage_context, embed_model=embed_model)
+        index = _load_index(pdir, embed_model)
     except Exception as exc:
         logger.warning('Failed to load semantic index, rebuilding: %s', exc)
         return build_fresh_index(root, embed_model, embedding_model_id=model)

@@ -320,14 +320,14 @@ def test_previous_manifest_stays_loadable_while_build_runs(tmp_path: Path, monke
 
     entered = threading.Event()
     release = threading.Event()
-    real_collect = ib._collect_workspace_nodes
+    real_batches = ib._iter_workspace_node_batches
 
-    def _slow_collect(workspace_root: Path):
+    def _slow_batches(workspace_root: Path):
         entered.set()
         assert release.wait(5)
-        return real_collect(workspace_root)
+        yield from real_batches(workspace_root)
 
-    monkeypatch.setattr(ib, '_collect_workspace_nodes', _slow_collect)
+    monkeypatch.setattr(ib, '_iter_workspace_node_batches', _slow_batches)
     (root / 'a.py').write_text('alpha = 2\n', encoding='utf-8')
 
     seen: dict[str, str | None] = {}
@@ -363,16 +363,16 @@ def test_concurrent_callers_build_once(tmp_path: Path, monkeypatch: pytest.Monke
 
     builds = 0
     builds_lock = threading.Lock()
-    real_collect = ib._collect_workspace_nodes
+    real_batches = ib._iter_workspace_node_batches
 
-    def _counting_collect(workspace_root: Path):
+    def _counting_batches(workspace_root: Path):
         nonlocal builds
         with builds_lock:
             builds += 1
         time.sleep(0.2)
-        return real_collect(workspace_root)
+        yield from real_batches(workspace_root)
 
-    monkeypatch.setattr(ib, '_collect_workspace_nodes', _counting_collect)
+    monkeypatch.setattr(ib, '_iter_workspace_node_batches', _counting_batches)
 
     errors: list[str] = []
 

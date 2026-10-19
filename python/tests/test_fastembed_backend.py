@@ -112,7 +112,7 @@ def test_query_embed_passes_small_batch_and_no_parallel() -> None:
     embed = fb.FastEmbedEmbedding(model_name='nomic-ai/nomic-embed-text-v1.5', engine=engine)
     embed._get_query_embedding('hello')
     kwargs = engine.query_embed.call_args.kwargs
-    assert kwargs['batch_size'] == fb._EMBED_INFER_BATCH
+    assert kwargs['batch_size'] == fb._ONNX_INFER_BATCH
     assert kwargs['parallel'] is None
 
 
@@ -127,3 +127,67 @@ def test_get_text_embedding_engine_reuse_restores_ready(monkeypatch, tmp_path: P
     reused = fb.get_text_embedding_engine(fb.DEFAULT_FASTEMBED_MODEL, tmp_path)
     assert reused is engine
     assert fb.get_embed_status() == 'ready'
+
+
+def test_documents_embedded_longest_first_and_returned_in_input_order() -> None:
+    engine = MagicMock()
+    engine.passage_embed.side_effect = lambda texts, **_kw: [[float(len(t))] for t in texts]
+    embed = fb.FastEmbedEmbedding(model_name=fb.DEFAULT_FASTEMBED_MODEL, engine=engine)
+    vecs = embed._get_text_embeddings(['bb', 'a', 'dddd', 'ccc'])
+    assert vecs == [[2.0], [1.0], [4.0], [3.0]]
+    sent = engine.passage_embed.call_args.args[0]
+    assert sent == ['dddd', 'ccc', 'bb', 'a']
+    assert engine.passage_embed.call_args.kwargs['batch_size'] == fb._ONNX_INFER_BATCH
+
+
+def _loaded_engine(monkeypatch, tmp_path: Path, idle_sec: int = 600) -> list[MagicMock]:
+    loads: list[MagicMock] = []
+
+    def _load(*_a, **_k) -> MagicMock:
+        engine = MagicMock()
+        engine.query_embed.return_value = [[1.0]]
+        loads.append(engine)
+        return engine
+
+    monkeypatch.setattr(fb, '_load_text_embedding', _load)
+    monkeypatch.setattr(fb, '_ensure_idle_reaper', lambda: None)
+    monkeypatch.setattr(fb, 'CLARA_FASTEMBED_IDLE_UNLOAD_SEC', idle_sec)
+    monkeypatch.setattr(fb, 'CLARA_FASTEMBED_CACHE_DIR', str(tmp_path))
+    fb.reset_fastembed_engine_for_tests()
+    return loads
+
+
+def test_idle_engine_unloads_and_reloads_lazily(monkeypatch, tmp_path: Path) -> None:
+    import time
+
+    loads = _loaded_engine(monkeypatch, tmp_path)
+    emb, err = fb.build_fastembed_embedding()
+    assert err == '' and emb is not None and len(loads) == 1
+
+    assert not fb.unload_idle_engine(now=time.monotonic() + 10)
+    assert fb.unload_idle_engine(now=time.monotonic() + 601)
+    assert fb._engine is None and fb.get_embed_status() == 'idle'
+
+    # Building the wrapper again does not reload; embedding does.
+    emb2, _ = fb.build_fastembed_embedding()
+    assert len(loads) == 1
+    assert emb2.get_query_embedding('q') == [1.0]
+    assert len(loads) == 2 and fb.get_embed_status() == 'ready'
+
+
+def test_engine_not_unloaded_while_a_call_is_running(monkeypatch, tmp_path: Path) -> None:
+    import time
+
+    _loaded_engine(monkeypatch, tmp_path)
+    with fb._leased_engine(fb.DEFAULT_FASTEMBED_MODEL, tmp_path):
+        assert not fb.unload_idle_engine(now=time.monotonic() + 10_000)
+    assert fb.unload_idle_engine(now=time.monotonic() + 10_000)
+
+
+def test_idle_unload_disabled_by_zero(monkeypatch, tmp_path: Path) -> None:
+    import time
+
+    _loaded_engine(monkeypatch, tmp_path, idle_sec=0)
+    fb.build_fastembed_embedding()
+    assert not fb.unload_idle_engine(now=time.monotonic() + 10_000)
+    assert fb._engine is not None

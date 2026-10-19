@@ -64,10 +64,15 @@ def invalidate_workspace_index_disk(
     workspace_id: str = '',
     workspace_root: Path | None = None,
 ) -> None:
-    """Remove persisted **internal** workspace corpus for the given workspace root (and optional app id)."""
+    """Remove persisted **internal** workspace corpus (and its in-memory copy) for the given workspace root."""
+    from clara_coder_backend.workspace_index.docstore import release_index_dir
+    from clara_coder_backend.workspace_index.index_build import forget_loaded_index
+
     if workspace_root is not None:
         root = workspace_root.resolve()
         pdir = workspace_index_persist_dir(workspace_id, root)
+        forget_loaded_index(pdir)
+        release_index_dir(pdir)
         if pdir.is_dir():
             shutil.rmtree(pdir, ignore_errors=True)
             logger.info('Removed semantic workspace index directory %s', pdir)
@@ -79,6 +84,8 @@ def invalidate_workspace_index_disk(
     base = semantic_index_base_dir() / 'workspaces'
     safe = ''.join(c if c.isalnum() or c in '._-' else '_' for c in wid)[:200] or 'workspace'
     pdir = base / safe
+    forget_loaded_index(pdir)
+    release_index_dir(pdir)
     if pdir.is_dir():
         shutil.rmtree(pdir, ignore_errors=True)
         logger.info('Removed semantic workspace index directory %s', pdir)

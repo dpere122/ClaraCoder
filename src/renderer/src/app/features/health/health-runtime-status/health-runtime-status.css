@@ -1,156 +1,137 @@
 :host {
   display: block;
-  -webkit-app-region: no-drag;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
 }
 
-.runtime-status {
+.runtime {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--t-border) 82%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--t-bg-surface) 92%, transparent);
-}
-
-.runtime-status__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
   gap: 12px;
+  padding-right: 2px;
 }
 
-.runtime-status__toggle {
+.health-card {
+  border: 1px solid color-mix(in srgb, var(--t-border) 82%, transparent);
+  background: color-mix(in srgb, var(--t-bg-surface) 92%, transparent);
+  box-shadow: var(--t-elev-shadow);
+}
+
+/* ---- Verdict banner ------------------------------------------------------ */
+
+.runtime-banner {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  min-width: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-  color: inherit;
-  font-family: var(--t-font);
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-color: color-mix(in srgb, var(--health-tone) 50%, var(--t-border));
+  background: color-mix(in srgb, var(--health-tone) 10%, var(--t-bg-surface));
 }
 
-.runtime-status__toggle:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--t-primary) 55%, transparent);
-  outline-offset: 2px;
-  border-radius: 6px;
+.runtime-banner__dot {
+  width: 12px;
+  height: 12px;
 }
 
-.runtime-status__chevron {
-  flex-shrink: 0;
-  width: 10px;
-  height: 10px;
-  margin-top: 4px;
-  border-right: 2px solid var(--t-text-muted);
-  border-bottom: 2px solid var(--t-text-muted);
-  transform: rotate(45deg);
-  transition: transform 120ms ease;
-}
-
-.runtime-status--collapsed .runtime-status__chevron {
-  transform: rotate(-45deg);
-  margin-top: 6px;
-}
-
-.runtime-status__titles {
+.runtime-banner__copy {
+  flex: 1;
   min-width: 0;
 }
 
-.runtime-status__label {
-  display: block;
-  font-size: 12px;
+.runtime-banner h3 {
+  margin: 0;
+  font-size: 14px;
   font-weight: 600;
   color: var(--t-fg);
 }
 
-.runtime-status__hint {
-  margin: 4px 0 0;
+.runtime-banner p {
+  margin: 2px 0 0;
   color: var(--t-text-muted);
   line-height: 1.4;
-  font-size: 12px;
 }
 
-.runtime-status__hint code {
-  font-size: 11px;
-  color: color-mix(in srgb, var(--t-primary) 75%, var(--t-fg));
-}
-
-.runtime-status__btn {
+.health-btn {
   flex-shrink: 0;
-  padding: 6px 12px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--t-border) 82%, transparent);
-  background: color-mix(in srgb, var(--t-bg) 70%, transparent);
+  padding: 5px 14px;
+  border: 1px solid color-mix(in srgb, var(--t-primary) 55%, var(--t-border));
+  background: color-mix(in srgb, var(--t-primary) 18%, var(--t-bg-surface));
   color: var(--t-fg);
-  font-family: var(--t-font);
+  font-family: inherit;
   font-size: 12px;
   cursor: pointer;
 }
 
-.runtime-status__btn:hover {
-  background: var(--t-hover-bg);
+.health-btn:hover {
+  background: color-mix(in srgb, var(--t-primary) 26%, var(--t-bg-surface));
 }
 
-.runtime-status__btn:focus-visible {
+.health-btn:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--t-primary) 55%, transparent);
   outline-offset: 2px;
 }
 
-.runtime-status__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+/* ---- Tiles --------------------------------------------------------------- */
+
+.runtime-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
 }
 
-.runtime-status__chips--stale {
+.runtime-grid--stale {
   opacity: 0.72;
 }
 
-.runtime-chip {
-  display: inline-flex;
-  align-items: center;
+.runtime-tile {
+  display: flex;
+  flex-direction: column;
   gap: 6px;
-  min-height: 28px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--t-border) 70%, transparent);
-  background: color-mix(in srgb, var(--t-bg) 55%, transparent);
-  font-size: 12px;
+  min-width: 0;
+  padding: 12px 14px;
 }
 
-.runtime-chip__dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--t-text-muted);
-  flex-shrink: 0;
+.runtime-tile[data-tone='warn'],
+.runtime-tile[data-tone='error'] {
+  border-color: color-mix(in srgb, var(--health-tone) 55%, var(--t-border));
+  background: color-mix(in srgb, var(--health-tone) 8%, var(--t-bg-surface));
 }
 
-.runtime-chip__label {
+.runtime-tile__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.runtime-tile__label {
   font-weight: 600;
   color: var(--t-fg);
 }
 
-.runtime-chip__detail {
+.runtime-tile__detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--t-text-muted);
+  font-family: var(--t-font-mono, var(--t-font));
+  font-size: 12px;
 }
 
-.runtime-chip[data-tone='ok'] .runtime-chip__dot {
-  background: color-mix(in srgb, #3dcc7a 85%, var(--t-primary));
+.runtime-tile[data-tone='warn'] .runtime-tile__detail,
+.runtime-tile[data-tone='error'] .runtime-tile__detail {
+  color: color-mix(in srgb, var(--health-tone) 80%, var(--t-fg));
 }
 
-.runtime-chip[data-tone='warn'] .runtime-chip__dot {
-  background: #e0a84a;
+.runtime-note {
+  margin: 0;
+  color: var(--t-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
-.runtime-chip[data-tone='error'] .runtime-chip__dot {
-  background: #e05a5a;
-}
-
-.runtime-chip[data-tone='muted'] .runtime-chip__dot {
-  background: var(--t-text-muted);
+.runtime-note code {
+  font-size: 11px;
+  color: color-mix(in srgb, var(--t-primary) 75%, var(--t-fg));
 }

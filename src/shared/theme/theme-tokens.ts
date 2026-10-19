@@ -148,6 +148,8 @@ export const THEME_TOKENS: readonly ThemeTokenDef[] = [
   T('--t-caution', 'Caution', 'status', 'color', { description: 'Reject / risky decision buttons.' }),
   T('--t-log-level-error', 'Error', 'status'),
   T('--t-log-level-warning', 'Warning', 'status'),
+  T('--t-log-level-info', 'Info', 'status', 'color', { description: 'Info log badges and level chips.' }),
+  T('--t-log-level-debug', 'Debug', 'status', 'color', { description: 'Debug log badges and level chips.' }),
   T('--t-process-a', 'Process indicator A', 'status'),
   T('--t-process-b', 'Process indicator B', 'status'),
   T('--t-process-c', 'Process indicator C', 'status'),

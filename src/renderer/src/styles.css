@@ -137,6 +137,45 @@ app-dependencies .deps-terminal {
   border-radius: 14px !important;
 }
 
+/* Health window keeps rounded chrome: pill controls and status chips, soft cards, round dots. */
+app-health-monitor .health-verdict,
+app-health-monitor .health-tabs,
+app-health-monitor .health-tab,
+app-health-monitor .health-tab__badge,
+app-health-monitor .health-btn,
+app-health-monitor .health-strip__chip,
+app-health-monitor .health-strip__stat,
+app-health-monitor .health-chip,
+app-health-monitor .health-chip__count,
+app-health-monitor .health-log__search,
+app-health-monitor .health-log__lvl,
+app-health-monitor .health-live,
+app-health-monitor .health-live__new,
+app-health-monitor .health-switch,
+app-health-monitor .health-switch__knob,
+app-health-monitor .health-bar,
+app-health-monitor .health-bar__fill,
+app-health-monitor .gpu-card__index {
+  border-radius: 999px !important;
+}
+
+app-health-monitor .health-dot,
+app-health-monitor .health-live__pulse {
+  border-radius: 50% !important;
+}
+
+app-health-monitor .health-card {
+  border-radius: 1rem !important;
+}
+
+app-health-monitor .health-log {
+  border-radius: 1.25rem !important;
+}
+
+app-health-monitor .health-log__row {
+  border-radius: 0.55rem !important;
+}
+
 /* Conversations sidebar toolbar buttons are pills. */
 app-chat-conversation-hub .chat-hub__expand,
 app-chat-conversation-hub .chat-hub__new-conv,

@@ -1,69 +1,80 @@
 <div class='health-log'>
   <div class='health-log__toolbar'>
-    <div class='health-log__toolbar-left'>
-      <label class='health-log__label'>
-        Verbosity
-        <app-pill-select
-          class='health-log__select'
-          [value]='logVerbosity()'
-          (valueChange)='onVerbosityChange($any($event))'
-          ariaLabel='Verbosity'
-          [options]="[
-            { id: 'debug', label: 'Debug' },
-            { id: 'info', label: 'Info' },
-            { id: 'warning', label: 'Warning' },
-            { id: 'error', label: 'Error' }
-          ]"
-        />
-      </label>
-      <label class='health-log__label'>
-        Show in list
-        <app-pill-select
-          class='health-log__select'
-          [value]='logLevelFilter()'
-          (valueChange)='logLevelFilter.set($any($event))'
-          ariaLabel='Show in list'
-          [options]="[
-            { id: 'ALL', label: 'All levels' },
-            { id: 'INFO', label: 'Info and above' },
-            { id: 'WARNING', label: 'Warnings and errors' },
-            { id: 'ERROR', label: 'Errors only' }
-          ]"
-        />
-      </label>
-      <label class='health-log__label'>
-        Message format
-        <app-pill-select
-          class='health-log__select health-log__select--wide'
-          [value]='messageFormat()'
-          (valueChange)='messageFormat.set($any($event))'
-          ariaLabel='Message format'
-          [options]="[
-            { id: 'raw', label: 'Plain text' },
-            { id: 'json', label: 'Pretty JSON (embedded)' },
-            { id: 'xml', label: 'Pretty XML' }
-          ]"
-        />
-      </label>
+    <div class='health-log__levels' role='group' aria-label='Show levels'>
+      @for (b of buckets; track b) {
+        <button
+          type='button'
+          class='health-chip'
+          [attr.data-tone]='levelTone(b)'
+          [attr.aria-pressed]='!hiddenLevels().has(b)'
+          [class.is-off]='hiddenLevels().has(b)'
+          (click)='toggleLevel(b)'
+        >
+          <span class='health-dot' aria-hidden='true'></span>
+          {{ levelLabel(b) }}
+          <span class='health-chip__count'>{{ levelCounts()[b] }}</span>
+        </button>
+      }
     </div>
-    <span class='health-log__toolbar-divider' aria-hidden='true'></span>
-    <input
-      type='search'
-      class='health-log__search'
-      placeholder='Search logs (message, logger, source)…'
-      [ngModel]='searchQuery()'
-      (ngModelChange)='searchQuery.set($event)'
-    />
-    <span class='health-log__toolbar-divider' aria-hidden='true'></span>
+
+    <label class='health-log__search'>
+      <lucide-icon name='search' [size]='13' aria-hidden='true'></lucide-icon>
+      <input
+        type='search'
+        placeholder='Search message, logger, or source'
+        aria-label='Search logs'
+        [ngModel]='searchQuery()'
+        (ngModelChange)='searchQuery.set($event)'
+      />
+    </label>
+
     <div class='health-log__toolbar-right'>
-      <button type='button' class='health-log__btn health-log__btn--primary' (click)='onLogExpandClick()'>
-        {{ logExpanded() ? 'Show charts' : 'Expand log' }}
-      </button>
-      <button type='button' class='health-log__btn' (click)='onAutoScrollToggle()'>
-        {{ autoScroll() ? 'Auto-scroll on' : 'Auto-scroll off' }}
+      <app-pill-select
+        class='health-log__select'
+        [value]='logVerbosity()'
+        (valueChange)='onVerbosityChange($any($event))'
+        ariaLabel='Capture level'
+        title='Lowest level the backend records'
+        [options]="[
+          { id: 'debug', label: 'Capture: debug' },
+          { id: 'info', label: 'Capture: info' },
+          { id: 'warning', label: 'Capture: warning' },
+          { id: 'error', label: 'Capture: error' }
+        ]"
+      />
+      <app-pill-select
+        class='health-log__select'
+        [value]='messageFormat()'
+        (valueChange)='messageFormat.set($any($event))'
+        ariaLabel='Message format'
+        [options]="[
+          { id: 'raw', label: 'Plain text' },
+          { id: 'json', label: 'Pretty JSON' },
+          { id: 'xml', label: 'Pretty XML' }
+        ]"
+      />
+      <button
+        type='button'
+        class='health-live'
+        [class.is-paused]='!autoScroll()'
+        [attr.aria-pressed]='autoScroll()'
+        [attr.title]="autoScroll() ? 'Following new entries. Click or scroll up to pause.' : 'Jump to the newest entries'"
+        (click)='onLiveClick()'
+      >
+        @if (autoScroll()) {
+          <span class='health-live__pulse' aria-hidden='true'></span>
+          Live
+        } @else {
+          <lucide-icon name='play' [size]='12' aria-hidden='true'></lucide-icon>
+          Paused
+          @if (newWhilePaused() > 0) {
+            <span class='health-live__new'>{{ newWhilePaused() }} new</span>
+          }
+        }
       </button>
     </div>
   </div>
+
   <div class='health-log__headrow' aria-hidden='true'>
     <span>Time</span>
     <span>Level</span>
@@ -71,7 +82,15 @@
     <span>Logger</span>
     <span>Message</span>
   </div>
-  <div class='health-log__viewport' #logViewport (scroll)='onLogScroll()'>
+  <div
+    class='health-log__viewport'
+    #logViewport
+    tabindex='0'
+    aria-label='Log entries'
+    (scroll)='onLogScroll()'
+    (wheel)='onLogWheel($event)'
+    (keydown)='onLogKeydown($event)'
+  >
     <div class='health-log__virtual-spacer' [style.height.px]='virtualWindow().topSpacer' aria-hidden='true'></div>
     @for (slot of virtualWindow().slots; track slot.index) {
       <div class='health-log__row-mount' [attr.data-health-log-row]='slot.index'>
@@ -86,6 +105,10 @@
             >{{ slot.row.message | healthLogMessage: messageFormat() }}</span>
         </div>
       </div>
+    } @empty {
+      <p class='health-log__empty'>
+        {{ entries().length === 0 ? 'Waiting for log entries…' : 'No entries match the current filters.' }}
+      </p>
     }
     <div class='health-log__virtual-spacer' [style.height.px]='virtualWindow().bottomSpacer' aria-hidden='true'></div>
   </div>

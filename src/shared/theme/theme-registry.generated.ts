@@ -195,14 +195,58 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     supportsBackground: false,
   },
   {
+    id: "health.console",
+    label: "Console",
+    category: "health",
+    categoryLabel: "Health window",
+    description: "Status strip and the live log console (level chips, search, rows).",
+    selector: "[data-theme-group=\"health.console\"]",
+    component: "app/features/health/health-monitor",
+    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-code-text", "--t-elev-shadow", "--t-error", "--t-fg", "--t-font", "--t-font-mono", "--t-hover-bg", "--t-input-bg", "--t-input-fg", "--t-log-level-debug", "--t-log-level-error", "--t-log-level-info", "--t-log-level-warning", "--t-primary", "--t-process-a", "--t-success", "--t-text-muted", "--t-warn"],
+    supportsBackground: false,
+  },
+  {
+    id: "health.header",
+    label: "Header and tabs",
+    category: "health",
+    categoryLabel: "Health window",
+    description: "Title, overall status pill, and the Console / Runtime / System tab switcher.",
+    selector: "[data-theme-group=\"health.header\"]",
+    component: "app/features/health/health-monitor",
+    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-error", "--t-fg", "--t-font", "--t-font-mono", "--t-hover-bg", "--t-log-level-debug", "--t-log-level-info", "--t-primary", "--t-success", "--t-text-muted", "--t-warn"],
+    supportsBackground: false,
+  },
+  {
+    id: "health.runtime",
+    label: "Runtime",
+    category: "health",
+    categoryLabel: "Health window",
+    description: "Runtime tab: status banner and one tile per sidecar, dependency, and server.",
+    selector: "[data-theme-group=\"health.runtime\"]",
+    component: "app/features/health/health-runtime-status",
+    tokens: ["--t-bg-surface", "--t-border", "--t-elev-shadow", "--t-error", "--t-fg", "--t-font", "--t-font-mono", "--t-log-level-debug", "--t-log-level-info", "--t-primary", "--t-success", "--t-text-muted", "--t-warn"],
+    supportsBackground: false,
+  },
+  {
+    id: "health.system",
+    label: "System",
+    category: "health",
+    categoryLabel: "Health window",
+    description: "System tab: live-stats switch, GPU cards, and sparkline tiles.",
+    selector: "[data-theme-group=\"health.system\"]",
+    component: "app/features/health/health-system",
+    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-elev-shadow", "--t-error", "--t-fg", "--t-font", "--t-font-mono", "--t-log-level-debug", "--t-log-level-info", "--t-on-primary", "--t-primary", "--t-success", "--t-text-muted", "--t-warn"],
+    supportsBackground: false,
+  },
+  {
     id: "health.window",
     label: "Window",
     category: "health",
     categoryLabel: "Health window",
-    description: "Health monitor window: runtime status, metrics, and log viewer.",
+    description: "Health window frame and background behind the header and tabs.",
     selector: "[data-theme-group=\"health.window\"]",
     component: "app/features/health/health-monitor",
-    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-code-text", "--t-elev-shadow", "--t-fg", "--t-font", "--t-font-mono", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-primary", "--t-process-a", "--t-text-muted"],
+    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-code-text", "--t-elev-shadow", "--t-error", "--t-fg", "--t-font", "--t-font-mono", "--t-hover-bg", "--t-input-bg", "--t-input-fg", "--t-log-level-debug", "--t-log-level-error", "--t-log-level-info", "--t-log-level-warning", "--t-on-primary", "--t-primary", "--t-process-a", "--t-success", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -402,6 +446,10 @@ export type ThemeGroupId =
   | "editor.outline"
   | "editor.problems"
   | "editor.terminal"
+  | "health.console"
+  | "health.header"
+  | "health.runtime"
+  | "health.system"
   | "health.window"
   | "hitl.cards"
   | "hitl.dock"

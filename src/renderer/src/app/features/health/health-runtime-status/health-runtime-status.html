@@ -1,38 +1,27 @@
-<section class='runtime-status' [class.runtime-status--collapsed]='collapsed()' aria-label='Runtime status'>
-  <div class='runtime-status__head'>
-    <button
-      type='button'
-      class='runtime-status__toggle'
-      (click)='toggleCollapsed()'
-      [attr.aria-expanded]='!collapsed()'
-      aria-controls='runtime-status-chips'
-    >
-      <span class='runtime-status__chevron' aria-hidden='true'></span>
-      <span class='runtime-status__titles'>
-        <span class='runtime-status__label'>Runtime</span>
-        <p class='runtime-status__hint'>
-          Sidecar, managed dependencies, llama-server, and LSP.
-          Lifecycle logs use <code>clara.electron.deps</code> / <code>clara.runtime.deps.*</code>.
-        </p>
-      </span>
-    </button>
-    <button type='button' class='runtime-status__btn' (click)='openDependencies()'>
-      Open Dependencies
-    </button>
-  </div>
-  @if (!collapsed()) {
-    <div
-      id='runtime-status-chips'
-      class='runtime-status__chips'
-      [class.runtime-status__chips--stale]='stale()'
-    >
-      @for (chip of chips(); track chip.key) {
-        <div class='runtime-chip' [attr.data-tone]='chip.tone'>
-          <span class='runtime-chip__dot' aria-hidden='true'></span>
-          <span class='runtime-chip__label'>{{ chip.label }}</span>
-          <span class='runtime-chip__detail'>{{ chip.detail }}</span>
-        </div>
-      }
+<div class='runtime' data-theme-group='health.runtime'>
+  <section class='health-card runtime-banner' [attr.data-tone]='runtime.verdict().tone' aria-live='polite'>
+    <span class='health-dot runtime-banner__dot' aria-hidden='true'></span>
+    <div class='runtime-banner__copy'>
+      <h3>{{ runtime.verdict().title }}</h3>
+      <p>{{ runtime.verdict().detail }}</p>
     </div>
-  }
-</section>
+    <button type='button' class='health-btn' (click)='openDependencies()'>Open Dependencies</button>
+  </section>
+
+  <div class='runtime-grid' [class.runtime-grid--stale]='runtime.stale()'>
+    @for (chip of runtime.chips(); track chip.key) {
+      <article class='health-card runtime-tile' [attr.data-tone]='chip.tone' [attr.title]='chip.hint'>
+        <div class='runtime-tile__head'>
+          <span class='health-dot' aria-hidden='true'></span>
+          <span class='runtime-tile__label'>{{ chip.label }}</span>
+        </div>
+        <span class='runtime-tile__detail'>{{ chip.detail }}</span>
+      </article>
+    }
+  </div>
+
+  <p class='runtime-note'>
+    Refreshes every few seconds. Lifecycle events log under <code>clara.electron.deps</code> and
+    <code>clara.runtime.deps.*</code> in the Console tab.
+  </p>
+</div>

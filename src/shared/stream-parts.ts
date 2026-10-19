@@ -412,44 +412,6 @@ export function isInFlightToolPart(part: StreamPart): boolean {
   );
 }
 
-function asReasoningStreamPart(part: StreamPart): StreamPart {
-  return {
-    ...part,
-    streamTag: REASONING_AUXILIARY_STREAM_TAG,
-    label: part.label || 'Model reasoning',
-  };
-}
-
-/**
- * Retag live `agent` prose to reasoning when a tool row is about to start.
- * Gemma often streams between-tool thought on the primary lane; once a tool starts
- * that prose is not the final reply and must stay in the auxiliary timeline.
- */
-export function promotePrimaryAheadOfToolToReasoning(parts: readonly StreamPart[]): StreamPart[] {
-  const out: StreamPart[] = [];
-  for (const part of parts) {
-    if (!isPrimaryAssistantStreamTag(part.streamTag)) {
-      out.push(part);
-      continue;
-    }
-    if (!part.text.trim()) {
-      continue;
-    }
-    const promoted = asReasoningStreamPart(part);
-    const last = out[out.length - 1];
-    if (last && isReasoningAuxiliaryStreamTag(last.streamTag)) {
-      out[out.length - 1] = {
-        ...last,
-        label: last.label || promoted.label,
-        text: last.text + promoted.text,
-      };
-    } else {
-      out.push(promoted);
-    }
-  }
-  return out;
-}
-
 function primarySegmentIsBetweenTools(parts: readonly StreamPart[], index: number): boolean {
   let priorTool = false;
   for (let i = 0; i < index; i++) {
@@ -496,7 +458,9 @@ function retagPrimaryStreamParts(
 
 /**
  * Promote live primary (`agent`) segments into Clara outer briefs when a tool-calling
- * step starts. Keeps the planning prose in the auxiliary timeline instead of discarding it.
+ * step starts: on SSE `clear_primary_stream`, or earlier when a tool row (e.g. a streamed
+ * tool-call preview) lands first. Keeps the planning prose in the timeline instead of
+ * discarding it.
  */
 export function clearPrimaryStreamParts(parts: readonly StreamPart[]): StreamPart[] {
   return retagPrimaryStreamParts(parts, asClaraOuterBriefPart, isClaraOuterBriefStreamTag);

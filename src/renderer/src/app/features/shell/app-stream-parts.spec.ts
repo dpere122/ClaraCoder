@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LlmStatus } from '../../../../../shared/types/llm';
-import { toolTrailStatusStreamTag } from '../../../../../shared/stream-parts';
+import type { StreamPart } from '../../../../../shared/types/conversation';
+import { buildTurnFeed, clearPrimaryStreamParts, toolTrailStatusStreamTag } from '../../../../../shared/stream-parts';
 import { mergeToolTrailStatusText, upsertClaraOuterBriefStreamPart, upsertToolTrailStatusStreamPart, appendStreamPart } from './app-stream-parts';
 
 describe('mergeToolTrailStatusText', () => {
@@ -52,7 +53,7 @@ describe('upsertToolTrailStatusStreamPart', () => {
     expect(out[0].toolChainState).toBe('complete');
   });
 
-  it('retags leaked agent prose to reasoning when a new tool row is appended', () => {
+  it('retags pre-tool agent prose to a Clara brief when a new tool row is appended', () => {
     const parts = [
       { streamTag: 'reasoning', label: 'Model reasoning', text: 'first think' },
       { streamTag: toolTrailStatusStreamTag('run-1'), label: 'read_workspace_file', text: 'done' },
@@ -69,10 +70,35 @@ describe('upsertToolTrailStatusStreamPart', () => {
     expect(out.map((p) => p.streamTag)).toEqual([
       'reasoning',
       toolTrailStatusStreamTag('run-1'),
-      'reasoning',
+      'clara',
       toolTrailStatusStreamTag('run-2'),
     ]);
     expect(out[2]?.text).toBe('I should list files next');
+  });
+
+  it('keeps the brief when a streamed tool-call preview lands before clear_primary_stream', () => {
+    // Backend order for a tool step: live `agent` chunks, then a `source: 'tool'` preview row
+    // (native tool_call_chunks / Gemma peek) during streaming, then `clear_primary_stream` at
+    // on_chat_model_end, then on_tool_start reusing the preview id.
+    let parts: StreamPart[] = [];
+    parts = appendStreamPart(parts, 'agent', 'Let me check the layout ');
+    parts = appendStreamPart(parts, 'agent', 'before editing.');
+    const preview: LlmStatus = {
+      id: 'native-tool-preview-1',
+      label: 'read_workspace_file',
+      detail: 'src/app.ts',
+      state: 'running',
+      source: 'tool',
+    };
+    parts = upsertToolTrailStatusStreamPart(parts, preview);
+    parts = clearPrimaryStreamParts(parts);
+    parts = upsertToolTrailStatusStreamPart(parts, { ...preview, detail: 'ok (120 chars)', state: 'complete' });
+
+    expect(parts.map((p) => p.streamTag)).toEqual(['clara', toolTrailStatusStreamTag('native-tool-preview-1')]);
+    expect(parts[0]?.text).toBe('Let me check the layout before editing.');
+    const feed = buildTurnFeed(parts, 'Done.');
+    expect(feed.map((item) => item.kind)).toEqual(['markdown', 'tool', 'markdown']);
+    expect(feed.some((item) => item.kind === 'thought')).toBe(false);
   });
 });
 
@@ -131,13 +157,13 @@ describe('appendStreamPart', () => {
     expect(out[0]?.text).toBe('first think');
   });
 
-  it('retags leaked agent prose when a tool-like stream starts', () => {
+  it('retags pre-tool agent prose to a Clara brief when a tool-like stream starts', () => {
     const parts = [
       { streamTag: 'tool-trail:a', label: 'read', text: 'done' },
       { streamTag: 'agent', label: '', text: 'I should list files' },
     ];
     const out = appendStreamPart(parts, 'tool-pytest', 'output', 'T');
-    expect(out.map((p) => p.streamTag)).toEqual(['tool-trail:a', 'reasoning', 'tool-pytest']);
+    expect(out.map((p) => p.streamTag)).toEqual(['tool-trail:a', 'clara', 'tool-pytest']);
     expect(out[1]?.text).toBe('I should list files');
   });
 });

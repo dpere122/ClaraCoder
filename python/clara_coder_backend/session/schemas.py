@@ -569,3 +569,44 @@ class LogIngestRequest(BaseModel):
     logger: str = 'nemo.electron.main'
     message: str
     source: str = 'electron'
+
+
+class WorkspacePtyRegisterRequest(BaseModel):
+    """Body for POST /workspace-pty/register: Electron spawned a user PTY terminal."""
+
+    session_id: str = Field(validation_alias=AliasChoices('session_id', 'sessionId'))
+    workspace_root: str = Field(
+        default='',
+        validation_alias=AliasChoices('workspace_root', 'workspaceRoot'),
+    )
+    cwd: str = ''
+    shell: str = ''
+    pid: int | None = None
+    cols: int = 80
+    rows: int = 24
+
+
+class WorkspacePtyOutputRequest(BaseModel):
+    """Body for POST /workspace-pty/output: mirror PTY output chunk (and optional cwd)."""
+
+    session_id: str = Field(validation_alias=AliasChoices('session_id', 'sessionId'))
+    data: str = ''
+    cwd: str = ''
+
+
+class WorkspacePtyCwdRequest(BaseModel):
+    """Body for POST /workspace-pty/cwd: update user PTY working directory."""
+
+    session_id: str = Field(validation_alias=AliasChoices('session_id', 'sessionId'))
+    cwd: str = ''
+
+
+class WorkspacePtyExitRequest(BaseModel):
+    """Body for POST /workspace-pty/exit: user PTY process exited or was killed."""
+
+    session_id: str = Field(validation_alias=AliasChoices('session_id', 'sessionId'))
+    exit_code: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices('exit_code', 'exitCode'),
+    )
+    removed: bool = False

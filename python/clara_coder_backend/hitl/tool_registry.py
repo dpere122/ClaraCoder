@@ -95,8 +95,15 @@ def worker_tools_and_map(
     """
     del session  # Kept for call-site compatibility; bindings no longer vary per session.
     from clara_coder_backend.theme.propose_theme import propose_theme_tool
+    from clara_coder_backend.tools.user_terminals import check_user_terminals_tool
 
-    tools: list[Any] = [*TOOLS, *ACTIVATE_CONTEXT_TOOLS, *LSP_READ_TOOLS, propose_theme_tool]
+    tools: list[Any] = [
+        *TOOLS,
+        *ACTIVATE_CONTEXT_TOOLS,
+        *LSP_READ_TOOLS,
+        check_user_terminals_tool,
+        propose_theme_tool,
+    ]
     if getattr(runtime_config.tools, 'allow_web_access', False):
         from clara_coder_backend.tools.fetch_url import fetch_url_tool
         from clara_coder_backend.tools.web_search import web_search_tool
@@ -164,6 +171,7 @@ TOOL_FAMILIES: list[tuple[str, tuple[str, ...]]] = [
     (
         'Process',
         (
+            'check_user_terminals',
             'run_command',
             'wait_for_command',
             'kill_background_command',

@@ -11,6 +11,7 @@ Modules
 ``structured_tools`` — WSDL / XML / JSON search-and-zoom (format backends: ``json_tools``, ``xml_tools``, ``wsdl_tools``)
 ``copy``, ``delete``, ``edit`` — workspace mutators (write to disk; journaled per turn for review/reset)
 ``lsp_tools`` — LSP reads and diagnostics
+``user_terminals`` — ``check_user_terminals`` (mirrored interactive user ``node-pty`` sessions)
 ``run_command`` — managed background shell jobs (``wait_for_command`` / kill / list)
 ``project_review_tools`` — shared subprocess streaming helpers (``RollingTextBuffer``)
 """

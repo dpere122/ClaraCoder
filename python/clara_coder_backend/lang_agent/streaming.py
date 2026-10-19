@@ -246,6 +246,9 @@ def tool_running_detail(tool_name: str, tool_args: Any) -> str:
     q = tool_args.get('query')
     if isinstance(q, str) and q.strip():
         return truncate_text(q.strip().replace('\n', ' '), MAX_TOOL_STATUS_LINE)
+    tid = tool_args.get('terminal_id')
+    if isinstance(tid, str) and tid.strip():
+        return truncate_text(tid.strip(), MAX_TOOL_STATUS_LINE)
     return ''
 
 

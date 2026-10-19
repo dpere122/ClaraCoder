@@ -1,11 +1,15 @@
 """Tests for workspace text encoding and newline helpers."""
 
+import os
+import stat
 import tempfile
 from pathlib import Path
 
 import pytest
 
+from clara_coder_backend.workspace import workspace_text_io
 from clara_coder_backend.workspace.workspace_text_io import (
+    ATOMIC_WRITE_TEMP_SUFFIX,
     SEARCH_MAX_FILE_BYTES,
     decode_for_tools,
     detect_newline_preference,
@@ -16,6 +20,7 @@ from clara_coder_backend.workspace.workspace_text_io import (
     read_file_for_tools,
     resolve_newline_for_write,
     validate_workspace_encoding,
+    write_bytes_atomic,
     write_file_resolved,
     write_file_to_disk,
 )
@@ -116,3 +121,63 @@ def test_read_file_for_search_tools_skips_empty_and_binary(tmp_path: Path) -> No
     binary = tmp_path / 'bin.dat'
     binary.write_bytes(b'abc\x00def')
     assert read_file_for_search_tools(binary, 'utf-8') is None
+
+
+def test_atomic_write_replaces_content_and_leaves_no_temp_file(tmp_path: Path) -> None:
+    p = tmp_path / 'f.txt'
+    p.write_bytes(b'old')
+    write_bytes_atomic(p, b'new')
+    assert p.read_bytes() == b'new'
+    assert [c.name for c in tmp_path.iterdir()] == ['f.txt']
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='POSIX permission bits')
+def test_atomic_write_keeps_permission_bits(tmp_path: Path) -> None:
+    p = tmp_path / 'run.sh'
+    p.write_bytes(b'#!/bin/sh\n')
+    p.chmod(0o755)
+    write_bytes_atomic(p, b'#!/bin/sh\necho hi\n')
+    assert stat.S_IMODE(p.stat().st_mode) == 0o755
+
+
+def test_atomic_write_goes_through_a_symlink(tmp_path: Path) -> None:
+    real = tmp_path / 'real.txt'
+    real.write_bytes(b'old')
+    link = tmp_path / 'link.txt'
+    try:
+        link.symlink_to(real)
+    except OSError:
+        pytest.skip('symlinks need extra privileges here')
+    write_bytes_atomic(link, b'new')
+    assert link.is_symlink()
+    assert real.read_bytes() == b'new'
+
+
+def test_atomic_write_refuses_a_read_only_file(tmp_path: Path) -> None:
+    p = tmp_path / 'ro.txt'
+    p.write_bytes(b'old')
+    p.chmod(stat.S_IREAD)
+    try:
+        with pytest.raises(PermissionError):
+            write_bytes_atomic(p, b'new')
+        assert p.read_bytes() == b'old'
+    finally:
+        p.chmod(stat.S_IREAD | stat.S_IWRITE)
+
+
+def test_atomic_write_falls_back_to_in_place_when_rename_stays_blocked(tmp_path: Path, monkeypatch) -> None:
+    p = tmp_path / 'locked.txt'
+    p.write_bytes(b'old')
+    attempts = []
+
+    def blocked_replace(src, dst):
+        attempts.append(src)
+        raise PermissionError(13, 'file in use')
+
+    monkeypatch.setattr(workspace_text_io.os, 'replace', blocked_replace)
+    monkeypatch.setattr(workspace_text_io.time, 'sleep', lambda _s: None)
+    write_bytes_atomic(p, b'new')
+    assert p.read_bytes() == b'new'
+    assert len(attempts) == 5
+    assert [c.name for c in tmp_path.iterdir()] == ['locked.txt']
+    assert str(attempts[0]).endswith(ATOMIC_WRITE_TEMP_SUFFIX)

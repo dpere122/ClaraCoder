@@ -23,6 +23,7 @@ import { pushWorkspaceFilesChangedToRenderer } from './emit-files-changed';
 import { buildWorkspaceTree } from './context-tree';
 import {
   isAlwaysIgnoredWorkspaceEntry,
+  isAtomicWriteTempPath,
   loadWorkspaceIgnoreRules,
   normalizeContextPath,
   shouldIgnoreWorkspaceEntry,
@@ -329,6 +330,9 @@ function createDirectoryWatcher(
       }
 
       const relativePath = filename ? filename.toString() : '';
+      if (isAtomicWriteTempPath(relativePath)) {
+        return;
+      }
       const changeKind = resolveWatchChangeKind(eventType, rootPath, relativePath);
       aw.pendingChanges.set(formatWatchedPath(source, relativePath), changeKind);
       queueWorkspaceWatcherSync(aw);

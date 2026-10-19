@@ -42,6 +42,9 @@ logger = logging.getLogger('clara.session.state')
 # Which session_id workspace tools and the agent should use for the current task.
 current_session_id: contextvars.ContextVar[str] = contextvars.ContextVar('current_session_id', default='')
 
+# Id of the model message whose tool calls are running (parallel calls share it); empty outside a tool call.
+current_tool_batch_id: contextvars.ContextVar[str] = contextvars.ContextVar('current_tool_batch_id', default='')
+
 # All known sessions; created on demand via get_session().
 sessions: dict[str, SessionState] = {}
 

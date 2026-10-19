@@ -87,7 +87,7 @@
                   [disabled]='isCancelling(dep.id)'
                   (click)='cancelInstall(dep)'
                 >
-                  {{ isCancelling(dep.id) ? 'Cancelling…' : 'Cancel' }}
+                  {{ isCancelling(dep.id) ? 'Cancelling' : 'Cancel' }}
                 </button>
               </div>
               <progress
@@ -302,7 +302,7 @@
                       [disabled]='isBusy(dep.id)'
                       (click)='remove(dep)'
                     >
-                      Delete…
+                      Delete
                     </button>
                   }
                 </div>

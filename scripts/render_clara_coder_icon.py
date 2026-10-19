@@ -1,8 +1,9 @@
 """
-Raster Clara Coder app icons from the slate mark.
+Raster Clara Coder app icons from the graphite open-loop mark.
 
-OS / taskbar icons sit on a filled rounded tile so the mark reads at 16–32px.
-Chrome and etch assets stay the isolated silhouette.
+The mark is drawn from the same geometry as `assets/clara-logo-graphite.svg` (64-unit tile),
+supersampled per output size so 16–32px icons stay crisp. OS / taskbar icons sit on the
+filled rounded tile; the etch asset is the white silhouette used as a CSS mask.
 
 Run from repo root:
   python scripts/render_clara_coder_icon.py
@@ -12,12 +13,13 @@ Run from repo root:
 from __future__ import annotations
 
 import io
+import math
 import struct
 import sys
 from pathlib import Path
 
 try:
-    from PIL import Image, ImageDraw, ImageFilter
+    from PIL import Image, ImageDraw
 except ImportError:
     print("Install Pillow: pip install Pillow", file=sys.stderr)
     sys.exit(1)
@@ -26,28 +28,94 @@ HICOLOR_SIZES = (16, 24, 32, 48, 64, 96, 128, 256, 512, 1024)
 FAVICON_SIZES = (16, 32, 48)
 ICO_SIZES = (16, 24, 32, 48, 64, 128, 256)
 
-# Dark plate from the default theme surface; keeps the charcoal C readable.
-PLATE = (28, 32, 26, 255)
-MARK_FILL = 0.90
-TILE_INSET = 0.0
+# Palette (keep in sync with assets/clara-logo-graphite.svg).
+PLATE = (15, 15, 17, 255)  # #0f0f11
+RING = (58, 58, 66, 255)  # #3a3a42
+GLYPH = (244, 244, 245, 255)  # #f4f4f5
+PROMPT = (77, 163, 255, 255)  # #4da3ff
+WHITE = (255, 255, 255, 255)
+
+# Geometry in 64-unit tile coordinates.
+TILE = 64.0
+TILE_RADIUS = 14.0
+CENTER = (33.0, 32.0)
+OUTER = (22.0, 6.0, 40.0)  # radius, stroke width, half-opening (degrees)
+INNER = (12.0, 5.0, 50.0)
+CHEVRON = (((47.5, 28.0), (51.5, 32.0), (47.5, 36.0)), 2.8)
+
+ETCH_FILL = 0.92
 
 
-def crop_alpha(src: Image.Image) -> Image.Image:
-    bbox = src.getbbox()
-    if bbox is None:
-        raise SystemExit("Logo source is fully transparent.")
-    return src.crop(bbox)
+def supersample_for(size: int) -> int:
+    return 8 if size <= 64 else 4
 
 
-def fit_mark(src: Image.Image, size: int, fill: float) -> Image.Image:
-    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    target = max(1, int(round(size * fill)))
-    thumb = src.copy()
-    thumb.thumbnail((target, target), Image.Resampling.LANCZOS)
-    if size <= 64:
-        thumb = thumb.filter(ImageFilter.UnsharpMask(radius=1.1, percent=160, threshold=1))
-    canvas.paste(thumb, ((size - thumb.size[0]) // 2, (size - thumb.size[1]) // 2), thumb)
-    return canvas
+def draw_open_arc(
+    draw: ImageDraw.ImageDraw,
+    scale: float,
+    radius: float,
+    width: float,
+    half_open: float,
+    fill: tuple[int, int, int, int],
+) -> None:
+    """Round-capped arc around CENTER with its opening facing right (PIL angles run clockwise)."""
+    cx, cy = CENTER
+    outer = radius + width / 2
+    box = [(cx - outer) * scale, (cy - outer) * scale, (cx + outer) * scale, (cy + outer) * scale]
+    draw.arc(box, start=half_open, end=360 - half_open, fill=fill, width=max(1, round(width * scale)))
+    for angle in (half_open, -half_open):
+        ex = cx + radius * math.cos(math.radians(angle))
+        ey = cy + radius * math.sin(math.radians(angle))
+        draw_dot(draw, scale, (ex, ey), width / 2, fill)
+
+
+def draw_dot(
+    draw: ImageDraw.ImageDraw,
+    scale: float,
+    center: tuple[float, float],
+    radius: float,
+    fill: tuple[int, int, int, int],
+) -> None:
+    x, y = center
+    draw.ellipse(
+        [(x - radius) * scale, (y - radius) * scale, (x + radius) * scale, (y + radius) * scale],
+        fill=fill,
+    )
+
+
+def draw_mark(draw: ImageDraw.ImageDraw, scale: float, colors: tuple[tuple[int, int, int, int], ...]) -> None:
+    ring, glyph, prompt = colors
+    draw_open_arc(draw, scale, *OUTER, ring)
+    draw_open_arc(draw, scale, *INNER, glyph)
+    points, width = CHEVRON
+    draw.line([(x * scale, y * scale) for x, y in points], fill=prompt, width=max(1, round(width * scale)), joint="curve")
+    for point in points:
+        draw_dot(draw, scale, point, width / 2, prompt)
+
+
+def tiled_icon(size: int) -> Image.Image:
+    ss = supersample_for(size)
+    big = size * ss
+    scale = big / TILE
+    img = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    draw.rounded_rectangle([0, 0, big - 1, big - 1], radius=TILE_RADIUS * scale, fill=PLATE)
+    draw_mark(draw, scale, (RING, GLYPH, PROMPT))
+    return img.resize((size, size), Image.Resampling.LANCZOS)
+
+
+def etch_icon(size: int) -> Image.Image:
+    """White silhouette of the mark (no plate), fitted to ETCH_FILL of the canvas."""
+    ss = supersample_for(size)
+    big = size * ss
+    mark = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+    draw_mark(ImageDraw.Draw(mark), big / TILE, (WHITE, WHITE, WHITE))
+    mark = mark.crop(mark.getbbox())
+    target = int(round(big * ETCH_FILL))
+    mark.thumbnail((target, target), Image.Resampling.LANCZOS)
+    canvas = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+    canvas.paste(mark, ((big - mark.width) // 2, (big - mark.height) // 2), mark)
+    return canvas.resize((size, size), Image.Resampling.LANCZOS)
 
 
 def write_png_ico(path: Path, images: list[Image.Image]) -> None:
@@ -81,49 +149,11 @@ def write_png_ico(path: Path, images: list[Image.Image]) -> None:
             fh.write(data)
 
 
-def rounded_plate(size: int, fill: tuple[int, int, int, int]) -> Image.Image:
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    radius = max(2, int(round(size * 0.22)))
-    inset = int(round(size * TILE_INSET))
-    draw.rounded_rectangle(
-        [inset, inset, size - 1 - inset, size - 1 - inset],
-        radius=radius,
-        fill=fill,
-    )
-    return img
-
-
-def tiled_icon(mark: Image.Image, size: int) -> Image.Image:
-    plate = rounded_plate(size, PLATE)
-    glyph = fit_mark(mark, size, MARK_FILL)
-    plate.alpha_composite(glyph)
-    return plate
-
-
-def white_silhouette(src: Image.Image) -> Image.Image:
-    out = src.copy()
-    px = out.load()
-    w, h = out.size
-    for y in range(h):
-        for x in range(w):
-            r, g, b, a = px[x, y]
-            if a > 0:
-                px[x, y] = (255, 255, 255, a)
-    return out
-
-
 def main() -> None:
     root = Path(__file__).resolve().parents[1]
-    src_path = root / "assets" / "clara-logo-slate.png"
-    if not src_path.is_file():
-        print(f"Missing source mark: {src_path}", file=sys.stderr)
-        sys.exit(1)
 
-    mark = crop_alpha(Image.open(src_path).convert("RGBA"))
-
-    chrome = tiled_icon(mark, 1024)
-    etch = fit_mark(white_silhouette(mark), 1024, 0.92)
+    chrome = tiled_icon(1024)
+    etch = etch_icon(1024)
 
     out_build = root / "build" / "icon.png"
     out_public = root / "src" / "renderer" / "public" / "app-icon.png"
@@ -137,12 +167,12 @@ def main() -> None:
     icons_dir = root / "build" / "icons"
     icons_dir.mkdir(parents=True, exist_ok=True)
     for size in HICOLOR_SIZES:
-        tiled_icon(mark, size).save(icons_dir / f"{size}x{size}.png", "PNG")
+        tiled_icon(size).save(icons_dir / f"{size}x{size}.png", "PNG")
 
     ico_path = root / "build" / "icon.ico"
-    write_png_ico(ico_path, [tiled_icon(mark, size) for size in ICO_SIZES])
+    write_png_ico(ico_path, [tiled_icon(size) for size in ICO_SIZES])
     fav_path = root / "src" / "renderer" / "public" / "favicon.ico"
-    write_png_ico(fav_path, [tiled_icon(mark, size) for size in FAVICON_SIZES])
+    write_png_ico(fav_path, [tiled_icon(size) for size in FAVICON_SIZES])
 
     print(f"Wrote {out_build}")
     print(f"Wrote {out_public}")

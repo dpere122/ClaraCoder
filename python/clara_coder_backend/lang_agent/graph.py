@@ -35,6 +35,7 @@ from clara_coder_backend.middleware.gemma_native_tool_middleware import GemmaNat
 from clara_coder_backend.middleware.mid_turn_compaction_middleware import MidTurnContextCompactionMiddleware
 from clara_coder_backend.middleware.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
 from clara_coder_backend.middleware.pseudo_tool_xml_middleware import PseudoToolXmlMiddleware
+from clara_coder_backend.middleware.tool_batch_middleware import ToolBatchMiddleware
 from clara_coder_backend.middleware.tool_harness_feedback_middleware import prepend_harness_feedback_middleware
 from clara_coder_backend.middleware.user_event_injection_middleware import UserEventInjectionMiddleware
 from clara_coder_backend.session.user_events import drain_user_event_notes
@@ -105,6 +106,7 @@ def build_clara_single_outer_graph(
         UserEventInjectionMiddleware(),
         ContextPackActivationMiddleware(),
         ConnectionParallelToolCallsMiddleware(),
+        ToolBatchMiddleware(),
         GemmaNativeToolMiddleware(),
         PseudoToolXmlMiddleware(),
         EmptyResponseNudgeMiddleware(),

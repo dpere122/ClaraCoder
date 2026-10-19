@@ -8,9 +8,19 @@ vi.mock('./log-files', () => ({ isLogRelatedFile: vi.fn(() => false) }));
 
 import {
   isAlwaysIgnoredWorkspaceEntry,
+  isAtomicWriteTempPath,
   matchesIgnoreRule,
   shouldIgnoreWorkspaceEntry,
 } from './ignore-rules';
+
+describe('isAtomicWriteTempPath', () => {
+  it('matches sidecar atomic-write temp files only', () => {
+    expect(isAtomicWriteTempPath('src\\.app.ts.0f3a9c1b2d4e.clara.tmp')).toBe(true);
+    expect(isAtomicWriteTempPath('.README.md.0f3a9c1b2d4e.clara.tmp')).toBe(true);
+    expect(isAtomicWriteTempPath('src/app.ts')).toBe(false);
+    expect(isAtomicWriteTempPath('build/output.tmp')).toBe(false);
+  });
+});
 
 describe('isAlwaysIgnoredWorkspaceEntry (secrets denylist)', () => {
   it.each([

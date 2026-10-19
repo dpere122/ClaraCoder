@@ -34,6 +34,14 @@ function stripIgnoreNegation(rule: string): { pattern: string; negated: boolean 
   return { pattern: rule, negated: false };
 }
 
+/** Suffix of the temp file the Python sidecar renames over a file it edits (`ATOMIC_WRITE_TEMP_SUFFIX`). */
+const ATOMIC_WRITE_TEMP_SUFFIX = '.clara.tmp';
+
+/** True for a sidecar atomic-write temp file; it lives for milliseconds and is never a real change. */
+export function isAtomicWriteTempPath(relativePath: string): boolean {
+  return relativePath.endsWith(ATOMIC_WRITE_TEMP_SUFFIX);
+}
+
 /** True for always-denied secret/credential workspace entries (denylist). */
 export function isAlwaysIgnoredWorkspaceEntry(entryName: string, relativePath: string): boolean {
   // Case-insensitive: APFS/NTFS treat .ENV / ID_RSA / key.PEM as the same secrets.

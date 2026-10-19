@@ -6,6 +6,7 @@ Modules
 ``accept_command_review_middleware`` — pause after accept-command HITL
 ``empty_response_middleware`` — nudge on empty model turns
 ``parallel_tool_middleware`` — inject ``parallel_tool_calls`` from runtime
+``tool_batch_middleware`` — tag each tool call with the model message (batch) that issued it
 ``vision_tool_middleware`` — vision / multimodal tool message shaping
 ``user_event_injection_middleware`` — inject queued user events into the turn
 ``gemma_native_tool_middleware`` — promote Gemma ``<|tool_call>`` markup into API tool_calls

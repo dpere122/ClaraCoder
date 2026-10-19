@@ -7,6 +7,11 @@ conversion happen at read (bytes → str) and write (str → bytes) boundaries.
 from __future__ import annotations
 
 import codecs
+import errno
+import os
+import shutil
+import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, Literal
@@ -15,6 +20,10 @@ from typing import Iterator, Literal
 _READ_FILE_STREAM_CHUNK = 256 * 1024
 # Cap for search fallback / match-line reread (aligned with semantic index default max file bytes).
 SEARCH_MAX_FILE_BYTES = 512_000
+#: Suffix of the temp file an atomic write renames over its target (the Electron workspace watcher skips it).
+ATOMIC_WRITE_TEMP_SUFFIX = '.clara.tmp'
+# Backoff before each retry of the rename; on Windows another process holding the target open blocks it briefly.
+_REPLACE_RETRY_DELAYS_SEC = (0.02, 0.05, 0.1, 0.2)
 
 NewlineMode = Literal['lf', 'crlf', 'preserve']
 DiskNewline = Literal['lf', 'crlf']
@@ -127,6 +136,7 @@ _MISTAKEN_ENCODING_LANGUAGE_OR_EXT: frozenset[str] = frozenset(
 
 __all__ = [
     'ALLOWED_ENCODINGS',
+    'ATOMIC_WRITE_TEMP_SUFFIX',
     'DiskNewline',
     'FileLineWindowResult',
     'NewlineMode',
@@ -141,6 +151,7 @@ __all__ = [
     'read_file_line_window_for_tools',
     'resolve_newline_for_write',
     'validate_workspace_encoding',
+    'write_bytes_atomic',
     'write_file_resolved',
     'write_file_to_disk',
 ]
@@ -332,7 +343,41 @@ def read_file_line_window_for_tools(path: Path, encoding: str, start_line: int, 
 def write_file_resolved(path: Path, text: str, encoding: str, disk_newline: DiskNewline) -> None:
     """Write using already-resolved LF/CRLF (e.g. after matching read_workspace_file + edit preamble)."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(encode_for_disk(text, encoding, disk_newline))
+    write_bytes_atomic(path, encode_for_disk(text, encoding, disk_newline))
+
+
+def write_bytes_atomic(path: Path, data: bytes) -> None:
+    """Replace ``path`` with ``data`` so readers see the old bytes or the new ones, never a partial file.
+
+    Writes a sibling temp file and renames it over the target, keeping the target's permission bits. A symlink
+    is written through (its target is replaced, not the link), and a read-only target still fails as a plain
+    write would. If the rename keeps failing (Windows refuses it while another process has the file open
+    without delete sharing), this falls back to writing in place.
+    """
+    target = path.resolve() if path.is_symlink() else path
+    if target.is_dir():
+        raise IsADirectoryError(errno.EISDIR, 'Is a directory', str(target))
+    existed = target.exists()
+    if existed and not os.access(target, os.W_OK):
+        raise PermissionError(errno.EACCES, 'Permission denied', str(target))
+    tmp = target.with_name(f'.{target.name}.{uuid.uuid4().hex[:12]}{ATOMIC_WRITE_TEMP_SUFFIX}')
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_BINARY', 0), 0o666)
+        with os.fdopen(fd, 'wb') as fh:
+            fh.write(data)
+        if existed:
+            shutil.copymode(target, tmp)
+        for delay in (*_REPLACE_RETRY_DELAYS_SEC, None):
+            try:
+                os.replace(tmp, target)
+                return
+            except PermissionError:
+                if delay is None:
+                    break
+                time.sleep(delay)
+        target.write_bytes(data)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def write_file_to_disk(

@@ -132,6 +132,9 @@ CLARA_FASTEMBED_CACHE_DIR = (env_clara('CLARA_FASTEMBED_CACHE_DIR', '') or '').s
 # Lower this when a managed llama-server runs CPU layers on the same box and the
 # background indexer competes with token generation.
 CLARA_FASTEMBED_THREADS = _env_int('CLARA_FASTEMBED_THREADS', 0, 0, 64)
+# Unload the ONNX embeddings model after this many idle seconds (it reloads on the
+# next semantic search or index update). ``0`` keeps it resident.
+CLARA_FASTEMBED_IDLE_UNLOAD_SEC = _env_int('CLARA_FASTEMBED_IDLE_UNLOAD_SEC', 600, 0, 86_400)
 
 # Seeds :attr:`~clara_coder_backend.session.state.runtime_config` before the first
 # ``POST /runtime-config``; overridden by Settings → Tools.

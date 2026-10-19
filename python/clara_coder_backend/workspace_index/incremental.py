@@ -18,6 +18,7 @@ from clara_coder_backend.workspace_index.index_build import (
     load_or_rebuild_workspace_index,
     nodes_from_file_for_workspace,
     persisted_workspace_index_fingerprint,
+    remember_loaded_index,
     replace_ref_nodes,
     workspace_index_lock,
     write_workspace_manifest,
@@ -250,6 +251,7 @@ def _flush_semantic_index_patches_impl(
             embedding_model=manifest_embedding_model,
             files=entries,
         )
+        remember_loaded_index(pdir, manifest_embedding_model, w_index)
         invalidate_fingerprint_cache_for_root(root)
         logger.info(
             'Workspace semantic index patched (%s files) in %.1fs session=%s',

@@ -69,7 +69,7 @@
           class="chat-hub__body"
           [conversations]="conversations()"
           [activeId]="activeConversationId()"
-          [pendingIds]="pendingIds()"
+          [activity]="conversationActivity()"
           (selectConversation)="onSelectFromList($event)"
           (deleteConversation)="deleteConversation.emit($event)"
           (renameConversation)="renameConversation.emit($event)"

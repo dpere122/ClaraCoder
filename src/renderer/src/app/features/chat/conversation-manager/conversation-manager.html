@@ -19,16 +19,22 @@
             autofocus
           />
         } @else {
-          @if (pendingIds().has(conv.id)) {
-            <span class="conv-pending-spinner-host" aria-hidden="true">
-              <ngx-spinner
-                [name]="convPendingSpinnerName(conv.id)"
-                type="ball-atom"
-                [fullScreen]="false"
-                bdColor="rgba(0,0,0,0)"
-                size="small"
-                color="var(--bs-secondary-color)"
-              ></ngx-spinner>
+          @let act = activity().get(conv.id);
+          @if (act) {
+            <span
+              class="conv-activity"
+              [class]="'conv-activity--' + act"
+              role="status"
+              [attr.aria-label]="activityLabel(act)"
+              [attr.title]="activityLabel(act)"
+            >
+              @if (activitySpinnerSrc(act); as src) {
+                <img class="conv-activity__spinner" [src]="src" alt="" />
+              } @else if (act === 'review') {
+                <lucide-icon name="circle-alert" [size]="14" />
+              } @else {
+                <span class="conv-activity__cursor" aria-hidden="true"></span>
+              }
             </span>
           }
           <span class="conv-title">{{ conv.title }}</span>

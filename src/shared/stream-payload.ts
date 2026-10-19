@@ -13,11 +13,9 @@ import type { BuildPlanChunkPayload, BuildPlanOpenPayload, BuildPlanStreamEndPay
 import type { AcceptCommandPayload } from './types/accept-command';
 import type { AgentQuestionPayload } from './types/agent-question';
 import type { DeleteConfirmPayload } from './types/delete-confirm';
-import type { FileDiffPayload } from './types/diff';
 import type { LlmStatusPayload, PlannerProgress } from './types/llm';
 import type { PlanConfirmPayload } from './types/plan-confirm';
 import { normalizePlanConfirmFilesToChange } from './types/plan-confirm';
-import type { StagedTransferBatchPayload } from './types/staged-transfer-batch';
 import type { ThemeProposalPayload } from './types/theme-proposal';
 import { isThemeProposalPayload } from './types/theme-proposal';
 import type { AppendConversationFileJournalRequest } from './types/conversation-timeline';
@@ -59,7 +57,6 @@ export type ParsedAgentStreamPayload =
       totalTokens?: number;
     }
   | { type: 'status'; status: LlmStatusPayload }
-  | { type: 'diff'; diff: FileDiffPayload }
   | { type: 'accept_command'; acceptCommand: AcceptCommandPayload }
   | { type: 'delete_confirm'; deleteConfirm: DeleteConfirmPayload }
   | { type: 'planner_progress'; planner: PlannerProgress }
@@ -69,7 +66,6 @@ export type ParsedAgentStreamPayload =
   | { type: 'plan_confirm'; planConfirm: PlanConfirmPayload }
   | { type: 'agent_question'; agentQuestion: AgentQuestionPayload }
   | { type: 'theme_proposal'; themeProposal: ThemeProposalPayload }
-  | { type: 'staged_transfer_batch'; stagedTransferBatch: StagedTransferBatchPayload }
   | {
       type: 'file_journal';
       fileJournal: Omit<AppendConversationFileJournalRequest, 'conversationId'>;
@@ -110,7 +106,6 @@ type RawAgentStreamPayload = {
   toolMessagesCompacted?: unknown;
   toolRoundsDropped?: unknown;
   status?: LlmStatusPayload & { agent_role?: string; stream_tag?: string };
-  diff?: unknown;
   acceptCommand?: unknown;
   command_id?: unknown;
   command_text?: unknown;
@@ -123,7 +118,6 @@ type RawAgentStreamPayload = {
   buildPlanOpen?: unknown;
   buildPlanChunk?: unknown;
   buildPlanStreamEnd?: unknown;
-  stagedTransferBatch?: unknown;
   fileJournal?: unknown;
 };
 
@@ -171,10 +165,6 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
           ...(agentRole ? { agentRole } : {}),
         },
       };
-    }
-
-    if (parsed.type === 'diff' && parsed.diff && typeof parsed.diff === 'object') {
-      return { type: 'diff', diff: parsed.diff as FileDiffPayload };
     }
 
     if (parsed.type === 'accept_command' && parsed.acceptCommand && typeof parsed.acceptCommand === 'object') {
@@ -257,17 +247,6 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
           buildPlanStreamEnd: { relativePath: end.relativePath },
         };
       }
-    }
-
-    if (
-      parsed.type === 'staged_transfer_batch' &&
-      parsed.stagedTransferBatch &&
-      typeof parsed.stagedTransferBatch === 'object'
-    ) {
-      return {
-        type: 'staged_transfer_batch',
-        stagedTransferBatch: parsed.stagedTransferBatch as StagedTransferBatchPayload,
-      };
     }
 
     if (parsed.type === 'file_journal') {

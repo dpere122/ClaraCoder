@@ -153,7 +153,8 @@
         "--t-hover-bg",
         "--t-primary",
         "--t-secondary",
-        "--t-text-muted"
+        "--t-text-muted",
+        "--t-warn"
       ],
       "supportsBackground": false,
       "description": "Saved conversations in the sidebar hub."

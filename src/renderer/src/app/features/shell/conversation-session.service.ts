@@ -18,6 +18,7 @@ import type {
   TurnEditedFile,
 } from '@shared/index';
 import {
+  buildTurnFeed,
   clearPrimaryStreamParts,
   promotePrimaryToNudgeParts,
   findManagedLocalLlamaLocation,
@@ -25,6 +26,7 @@ import {
   isInFlightToolPart,
   mergeHitlTrailIntoAuxiliaryTimeline,
   primaryAssistantTextFromParts,
+  isWorkspaceReadToolLabel,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
   appendAndMergeReadToolPreviewChunk,
   findReadToolTrailTargetIndex,
@@ -35,9 +37,15 @@ import type { ChatHubView } from '../chat/chat-conversation-hub/chat-conversatio
 import {
   buildChatDisplayRows,
   hitlArtifactsExcludingPlanConfirm,
+  isReadToolInFlight,
   resolveLiveAssistantTurn,
+  resolvePrimaryStreamLiveText,
+  resolveTurnActivity,
+  turnHasPendingHitlArtifacts,
   type ChatMessage,
+  type TurnActivity,
 } from '../chat/chat-box/chat-box';
+import { LiveTurnActivityService } from '../chat/chat-box/live-turn-activity';
 import { ElectronService } from '../../core/electron.service';
 import { TtsPlaybackService } from '../../core/tts-playback.service';
 import { buildAssistantTurnFromStreamParts } from './app-assistant-turn';
@@ -80,6 +88,7 @@ export interface ConversationSessionHooks {
 export class ConversationSessionService {
   private readonly electron = inject(ElectronService);
   private readonly tts = inject(TtsPlaybackService);
+  private readonly liveTurnActivity = inject(LiveTurnActivityService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly messages = signal<ChatMessage[]>([]);
@@ -103,8 +112,76 @@ export class ConversationSessionService {
     () => this.toolRunIds().size > 0 || this.streamingParts().some(isInFlightToolPart),
   );
 
+  /** True while the active conversation's live turn is blocked on a HITL card. */
+  private readonly activeAwaitingReview = computed(() => {
+    const id = this.activeConversationId();
+    if (!id || !this.pendingIds().has(id)) {
+      return false;
+    }
+    const live = resolveLiveAssistantTurn(buildChatDisplayRows([...this.messages()]));
+    return live != null && turnHasPendingHitlArtifacts(live.artifacts);
+  });
+
+  /**
+   * What each streaming conversation is doing right now (same resolver as the live processing
+   * row), so the conversation list can show the matching spinner on every pending row. For the
+   * active conversation, the spinner the mounted chat box is showing wins when there is one.
+   */
+  readonly conversationActivity = computed<ReadonlyMap<string, TurnActivity>>(() => {
+    this.backgroundStreamVersion();
+    const activeId = this.activeConversationId();
+    const out = new Map<string, TurnActivity>();
+    for (const id of this.pendingIds()) {
+      if (id === activeId) {
+        const shown = this.liveTurnActivity.shown();
+        if (shown?.conversationId === id) {
+          out.set(id, shown.activity);
+          continue;
+        }
+        const parts = this.streamingParts();
+        const toolsActive = this.processingToolsActive();
+        const finalText = this.streamingFinalText();
+        out.set(
+          id,
+          resolveTurnActivity({
+            feed: buildTurnFeed(parts, finalText),
+            primaryLiveText: resolvePrimaryStreamLiveText(finalText, parts, toolsActive),
+            toolsActive,
+            readToolActive: isReadToolInFlight(parts, toolsActive),
+            awaitingReview: this.activeAwaitingReview(),
+          }),
+        );
+        continue;
+      }
+      const parts = this.backgroundStreamParts.get(id) ?? [];
+      const runLabels = [...(this.backgroundToolRuns.get(id)?.values() ?? [])];
+      const toolsActive = runLabels.length > 0 || parts.some(isInFlightToolPart);
+      const finalText = this.pendingFinalText.get(id);
+      const latestRunLabel = runLabels[runLabels.length - 1];
+      out.set(
+        id,
+        resolveTurnActivity({
+          feed: buildTurnFeed(parts, finalText),
+          primaryLiveText: resolvePrimaryStreamLiveText(finalText, parts, toolsActive),
+          toolsActive,
+          readToolActive:
+            isReadToolInFlight(parts, toolsActive) ||
+            (latestRunLabel != null && isWorkspaceReadToolLabel(latestRunLabel)),
+          awaitingReview: this.backgroundAwaitingReview.has(id),
+        }),
+      );
+    }
+    return out;
+  });
+
   private activeConversation: Conversation | null = null;
   private readonly backgroundStreamParts = new Map<string, StreamPart[]>();
+  /** Running tool statuses (id -> label) for streaming conversations that are not active. */
+  private readonly backgroundToolRuns = new Map<string, Map<string, string>>();
+  /** Background conversations whose live turn is blocked on a HITL card. */
+  private readonly backgroundAwaitingReview = new Set<string>();
+  /** Bumped whenever the background maps change so {@link conversationActivity} recomputes. */
+  private readonly backgroundStreamVersion = signal(0);
   private readonly backgroundStreamPlanner = new Map<string, PlannerProgress>();
   private readonly pendingFinalText = new Map<string, string>();
   private pendingSave = false;
@@ -148,7 +225,7 @@ export class ConversationSessionService {
         });
       } else {
         const prev = this.backgroundStreamParts.get(conversationId) ?? [];
-        this.backgroundStreamParts.set(conversationId, appendStreamPart(prev, streamTag, delta));
+        this.setBackgroundParts(conversationId, appendStreamPart(prev, streamTag, delta));
       }
     });
 
@@ -162,7 +239,7 @@ export class ConversationSessionService {
         });
       } else {
         const prev = this.backgroundStreamParts.get(conversationId) ?? [];
-        this.backgroundStreamParts.set(conversationId, mergeRead(prev));
+        this.setBackgroundParts(conversationId, mergeRead(prev));
       }
     });
 
@@ -171,7 +248,7 @@ export class ConversationSessionService {
         this.streamingParts.update((prev) => appendStreamPart(prev, streamTag, delta, label ?? ''));
       } else {
         const prev = this.backgroundStreamParts.get(conversationId) ?? [];
-        this.backgroundStreamParts.set(conversationId, appendStreamPart(prev, streamTag, delta, label ?? ''));
+        this.setBackgroundParts(conversationId, appendStreamPart(prev, streamTag, delta, label ?? ''));
       }
     });
 
@@ -182,7 +259,7 @@ export class ConversationSessionService {
         );
       } else {
         const prev = this.backgroundStreamParts.get(conversationId) ?? [];
-        this.backgroundStreamParts.set(
+        this.setBackgroundParts(
           conversationId,
           markToolExecStreamComplete(prev, streamTag, exitCode, outputExcerpt, outcome),
         );
@@ -234,8 +311,13 @@ export class ConversationSessionService {
     });
 
     this.electron.llmStatus$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, status }) => {
-      if (conversationId !== this.activeConversationId()) return;
       const src = (status.source ?? 'agent').toLowerCase();
+      if (conversationId !== this.activeConversationId()) {
+        if (src === 'tool') {
+          this.syncBackgroundToolRun(conversationId, status);
+        }
+        return;
+      }
       if (src === 'tool') {
         this.syncToolRunId(status);
         queueMicrotask(() => {
@@ -255,6 +337,8 @@ export class ConversationSessionService {
       this.pendingFinalText.set(conversationId, text);
       if (conversationId === this.activeConversationId()) {
         this.streamingFinalText.set(text);
+      } else {
+        this.bumpBackgroundStream();
       }
     });
 
@@ -264,7 +348,7 @@ export class ConversationSessionService {
         return;
       }
       const prev = this.backgroundStreamParts.get(conversationId) ?? [];
-      this.backgroundStreamParts.set(conversationId, clearPrimaryStreamParts(prev));
+      this.setBackgroundParts(conversationId, clearPrimaryStreamParts(prev));
     });
 
     this.electron.promotePrimaryToNudge$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId }) => {
@@ -275,7 +359,7 @@ export class ConversationSessionService {
         return;
       }
       const prev = this.backgroundStreamParts.get(conversationId) ?? [];
-      this.backgroundStreamParts.set(conversationId, promotePrimaryToNudgeParts(prev));
+      this.setBackgroundParts(conversationId, promotePrimaryToNudgeParts(prev));
     });
 
     this.electron.done$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, outcome, editedFiles }) => {
@@ -326,7 +410,7 @@ export class ConversationSessionService {
           );
         }
       } else {
-        this.backgroundStreamParts.delete(conversationId);
+        this.clearBackgroundStream(conversationId);
         if (persistAssistant && turn) {
           void this.saveMessageToConversation(
             conversationId,
@@ -476,11 +560,11 @@ export class ConversationSessionService {
     if (stillStreaming) {
       const bgParts = this.backgroundStreamParts.get(conv.id) ?? [];
       this.streamingParts.set(bgParts.length ? [...bgParts] : []);
-      this.backgroundStreamParts.delete(conv.id);
+      this.clearBackgroundStream(conv.id);
       this.streamingFinalText.set(this.pendingFinalText.get(conv.id));
     } else {
       this.streamingParts.set([]);
-      this.backgroundStreamParts.delete(conv.id);
+      this.clearBackgroundStream(conv.id);
       this.streamingFinalText.set(undefined);
       const abandoned = abandonStaleHitlMessages(conv.messages);
       if (abandoned !== conv.messages) {
@@ -686,7 +770,7 @@ export class ConversationSessionService {
     this.removePending(conversationId);
     this.pendingFinalText.delete(conversationId);
     this.backgroundStreamPlanner.delete(conversationId);
-    this.backgroundStreamParts.delete(conversationId);
+    this.clearBackgroundStream(conversationId);
     if (conversationId === this.activeConversationId()) {
       this.toolRunIds.set(new Set());
       this.streamingParts.set([]);
@@ -817,6 +901,10 @@ export class ConversationSessionService {
     const mergeBackgroundTrail = opts?.mergeBackgroundTrail !== false;
     if (conversationId !== this.activeConversationId()) {
       void this.persistArtifactToConversation(conversationId, artifact);
+      if (this.pendingIds().has(conversationId)) {
+        this.backgroundAwaitingReview.add(conversationId);
+        this.bumpBackgroundStream();
+      }
       if (mergeBackgroundTrail) {
         this.mergeHitlTrailIntoBackgroundStream(conversationId, artifact as HitlTrailArtifact);
       }
@@ -846,7 +934,7 @@ export class ConversationSessionService {
     if (!prev) {
       return;
     }
-    this.backgroundStreamParts.set(
+    this.setBackgroundParts(
       conversationId,
       mergeHitlTrailIntoAuxiliaryTimeline(prev, [artifact]),
     );
@@ -867,9 +955,13 @@ export class ConversationSessionService {
     }
     const liveParts = this.streamingParts();
     if (liveParts.length) {
-      this.backgroundStreamParts.set(oldId, [...liveParts]);
+      this.setBackgroundParts(oldId, [...liveParts]);
     } else {
-      this.backgroundStreamParts.delete(oldId);
+      this.clearBackgroundStream(oldId);
+    }
+    if (this.activeAwaitingReview()) {
+      this.backgroundAwaitingReview.add(oldId);
+      this.bumpBackgroundStream();
     }
     const livePlanner = this.streamingPlanner();
     if (livePlanner) {
@@ -877,6 +969,39 @@ export class ConversationSessionService {
     } else {
       this.backgroundStreamPlanner.delete(oldId);
     }
+  }
+
+  private setBackgroundParts(conversationId: string, parts: StreamPart[]): void {
+    this.backgroundStreamParts.set(conversationId, parts);
+    this.bumpBackgroundStream();
+  }
+
+  /** Drop every background stream record for `conversationId` (turn ended, or it is active now). */
+  private clearBackgroundStream(conversationId: string): void {
+    this.backgroundStreamParts.delete(conversationId);
+    this.backgroundToolRuns.delete(conversationId);
+    this.backgroundAwaitingReview.delete(conversationId);
+    this.bumpBackgroundStream();
+  }
+
+  private bumpBackgroundStream(): void {
+    this.backgroundStreamVersion.update((v) => v + 1);
+  }
+
+  private syncBackgroundToolRun(conversationId: string, status: LlmStatus): void {
+    if (!this.pendingIds().has(conversationId)) {
+      return;
+    }
+    const runs = new Map(this.backgroundToolRuns.get(conversationId) ?? []);
+    if (status.state === 'running') {
+      runs.set(status.id, status.label ?? '');
+    } else if (status.state === 'complete' || status.state === 'error') {
+      runs.delete(status.id);
+    } else {
+      return;
+    }
+    this.backgroundToolRuns.set(conversationId, runs);
+    this.bumpBackgroundStream();
   }
 
   private syncToolRunId(status: LlmStatus): void {

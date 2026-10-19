@@ -142,7 +142,7 @@
             [showCursor]="showStreamingPrimaryCursor()"
             [planPanelVisible]="!!livePlanPanel()"
             [spinnerActive]="liveSpinnerActive()"
-            (spinnerHostChange)="liveFeedSpinnerHost.set($event)"
+            (spinnerKindChange)="liveFeedSpinnerKind.set($event)"
           />
         }
         @if (liveSpinnerActive() && !liveFeedHostsSpinner()) {
@@ -153,20 +153,12 @@
           >
             <div
               class="processing-svg-host"
-              [class.processing-svg-host--jot]="processingToolsActive() && !livePrefillProcessing() && !liveReadToolsActive()"
-              [class.processing-svg-host--read]="processingToolsActive() && !livePrefillProcessing() && liveReadToolsActive()"
-              [class.processing-svg-host--prefill]="livePrefillProcessing()"
+              [class.processing-svg-host--jot]="liveTurnActivity() === 'write'"
+              [class.processing-svg-host--read]="liveTurnActivity() === 'read'"
+              [class.processing-svg-host--prefill]="liveTurnActivity() === 'prefill'"
               aria-hidden="true"
             >
-              @if (livePrefillProcessing()) {
-                <img class="processing-svg-spinner" src="spinner-prefill.svg" alt="" />
-              } @else if (processingToolsActive() && liveReadToolsActive()) {
-                <img class="processing-svg-spinner" src="spinner-read.svg" alt="" />
-              } @else if (processingToolsActive()) {
-                <img class="processing-svg-spinner" src="spinner-jot.svg" alt="" />
-              } @else {
-                <img class="processing-svg-spinner" src="spinner.svg" alt="" />
-              }
+              <img class="processing-svg-spinner" [src]="processingSpinnerSrc()" alt="" />
             </div>
             <span
               class="processing-text processing-text--shimmer"

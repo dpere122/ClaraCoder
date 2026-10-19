@@ -12,6 +12,7 @@ import {
   abortChatStream,
   beginChatStream,
   endChatStream,
+  wasChatStreamSuperseded,
 } from './chat-stream-state';
 
 describe('abortChatStream', () => {
@@ -55,5 +56,25 @@ describe('abortChatStream', () => {
 
     await abortChatStream('conv-2');
     expect(abortSecond).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('wasChatStreamSuperseded', () => {
+  it('marks the previous stream when a newer one replaces it, so its done is not forwarded', () => {
+    const first = beginChatStream('conv-3', null);
+    const second = beginChatStream('conv-3', null);
+
+    expect(first.signal.aborted).toBe(true);
+    expect(wasChatStreamSuperseded(first)).toBe(true);
+    expect(wasChatStreamSuperseded(second)).toBe(false);
+    endChatStream('conv-3', second);
+  });
+
+  it('does not mark a stream the user aborted (that done must still settle the turn)', async () => {
+    const controller = beginChatStream('conv-4', null);
+    await abortChatStream('conv-4');
+
+    expect(controller.signal.aborted).toBe(true);
+    expect(wasChatStreamSuperseded(controller)).toBe(false);
   });
 });

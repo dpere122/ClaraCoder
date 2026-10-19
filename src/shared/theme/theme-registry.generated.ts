@@ -46,7 +46,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Saved conversations in the sidebar hub.",
     selector: "[data-theme-group=\"chat.conversation-list\"]",
     component: "app/features/chat/conversation-manager",
-    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-border", "--t-border-subtle", "--t-danger", "--t-fg", "--t-hover-bg", "--t-primary", "--t-secondary", "--t-text-muted"],
+    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-border", "--t-border-subtle", "--t-danger", "--t-fg", "--t-hover-bg", "--t-primary", "--t-secondary", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {

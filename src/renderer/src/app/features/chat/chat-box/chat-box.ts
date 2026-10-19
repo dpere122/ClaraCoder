@@ -37,9 +37,6 @@ import type { PlannerProgress, StreamPart } from '@shared/index';
 import { canRestoreToUserMessage } from '@shared/index';
 import {
   buildTurnFeed,
-  isInFlightToolPart,
-  isReadToolPreviewStreamTag,
-  isWorkspaceReadToolLabel,
   joinPrimaryAssistantStreamText,
   mergeHitlTrailIntoAuxiliaryTimeline,
   persistedAuxiliaryStreamTimeline,
@@ -50,7 +47,8 @@ import { PlannerChecklistComponent } from './planner-checklist/planner-checklist
 import { RunButtonDirective } from './run-button.directive';
 import { StreamTurnFeedComponent } from './stream-turn-feed/stream-turn-feed';
 import { TurnEditsFooterComponent, type TurnDiffOpenRequest } from './turn-edits-footer/turn-edits-footer';
-import type { PreviewSpinnerHost } from './stream-turn-feed/stream-preview-queue';
+import type { HostedSpinnerKind } from './stream-turn-feed/stream-turn-feed';
+import { LiveTurnActivityService } from './live-turn-activity';
 import {
   CHAT_MIN_FALLBACK_ROW,
   CHAT_VIRTUAL_PIXEL_BUFFER,
@@ -71,6 +69,7 @@ import {
   isChatTranscriptScrollable,
   isLiveReplyStreaming,
   isProseLatestLiveFeedEvent,
+  isReadToolInFlight,
   isStickFromSlack,
   isUserScrollUp,
   planPanelContext,
@@ -83,6 +82,8 @@ import {
   stickThresholdPx as computeStickThresholdPx,
   resolveLiveAssistantTurn,
   resolvePrimaryStreamLiveText,
+  resolveTurnActivity,
+  turnActivitySpinnerSrc,
   liveTurnPresentationSettled as computeLiveTurnPresentationSettled,
   mergeClaraBriefsFromChainIntoTimeline,
   TOOL_BUILDING_SYNONYMS,
@@ -109,6 +110,7 @@ export {
   isLiveReplyStreaming,
   isPendingHitlArtifact,
   isProseLatestLiveFeedEvent,
+  isReadToolInFlight,
   isScrollWorthyAppendMessage,
   isStickFromSlack,
   isUserScrollUp,
@@ -124,6 +126,8 @@ export {
   planPanelContext,
   resolveLiveAssistantTurn,
   resolvePrimaryStreamLiveText,
+  resolveTurnActivity,
+  turnActivitySpinnerSrc,
   liveTurnPresentationSettled,
   mergeClaraBriefsFromChainIntoTimeline,
   turnHasPlanPanel,
@@ -135,6 +139,7 @@ export {
   type ChatDisplayRow,
   type ChatMessage,
   type ToolChainGroup,
+  type TurnActivity,
 } from './chat-box-display';
 import type { AcceptCommandFinishedEvent } from '@shared/index';
 
@@ -180,6 +185,7 @@ const THINKING_PROCESSING_LABEL = 'thinking';
 export class ChatBox implements OnDestroy {
   private readonly ngxSpinner = inject(NgxSpinnerService);
   private readonly inj = inject(Injector);
+  private readonly shownActivityReporter = inject(LiveTurnActivityService);
 
   /** Template helpers: attachments rendered above a user bubble's text. */
   readonly userImageUrls = userMessageImageUrls;
@@ -202,8 +208,8 @@ export class ChatBox implements OnDestroy {
 
   /** Scrollport element (`#chatScroll` in template); drives virtual window + stick/roam detection. */
   readonly chatScroll = viewChild<ElementRef<HTMLElement>>('chatScroll');
-  /** Latest `spinnerHostChange` from the live feed (`null` = spinner stays in the processing row). */
-  readonly liveFeedSpinnerHost = signal<PreviewSpinnerHost | null>(null);
+  /** Latest `spinnerKindChange` from the live feed (`null` = spinner stays in the processing row). */
+  readonly liveFeedSpinnerKind = signal<HostedSpinnerKind | null>(null);
 
   /**
    * True while the live feed's open preview (thought header / running tool pill) hosts the turn
@@ -211,7 +217,7 @@ export class ChatBox implements OnDestroy {
    * Gated on the feed being mounted so a stale value from a finished turn cannot leak through.
    */
   readonly liveFeedHostsSpinner = computed(
-    () => this.loading() && this.liveTurnFeed().length > 0 && this.liveFeedSpinnerHost() != null,
+    () => this.loading() && this.liveTurnFeed().length > 0 && this.liveFeedSpinnerKind() != null,
   );
 
   /**
@@ -464,20 +470,40 @@ export class ChatBox implements OnDestroy {
   );
 
   /** True while the in-flight tool is a workspace read (book spinner instead of jot). */
-  readonly liveReadToolsActive = computed(() => {
-    if (!this.processingToolsActive()) {
-      return false;
+  readonly liveReadToolsActive = computed(() =>
+    isReadToolInFlight(this.streamingParts(), this.processingToolsActive()),
+  );
+
+  /** What the live turn is doing — same value the conversation list row shows. */
+  readonly liveTurnActivity = computed(() =>
+    resolveTurnActivity({
+      feed: this.liveTurnFeed(),
+      primaryLiveText: this.primaryStreamLiveText(),
+      toolsActive: this.processingToolsActive(),
+      readToolActive: this.liveReadToolsActive(),
+      awaitingReview: this.liveAwaitingHitlReview(),
+    }),
+  );
+
+  /**
+   * The activity the user actually sees: the feed preview's spinner while it hosts one (it dwells
+   * on a finished tool pill / thought briefly), otherwise the processing row / cursor / HITL wait.
+   * Reported to {@link LiveTurnActivityService} so the conversation list row matches exactly.
+   */
+  readonly shownTurnActivity = computed(() => {
+    if (!this.loading()) {
+      return null;
     }
-    const parts = this.streamingParts();
-    for (let i = parts.length - 1; i >= 0; i--) {
-      const part = parts[i]!;
-      if (!isInFlightToolPart(part)) {
-        continue;
-      }
-      return isWorkspaceReadToolLabel(part.label) || isReadToolPreviewStreamTag(part.streamTag);
+    if (this.liveSpinnerActive() && this.liveFeedHostsSpinner()) {
+      return this.liveFeedSpinnerKind();
     }
-    return false;
+    return this.liveTurnActivity();
   });
+
+  /** Spinner image in the processing row (falls back to the think spinner). */
+  readonly processingSpinnerSrc = computed(
+    () => turnActivitySpinnerSrc(this.liveTurnActivity()) ?? 'spinner.svg',
+  );
 
   /** Persisted turn feed (timeline + final assistant markdown). */
   turnFeedForRow(row: Extract<ChatDisplayRow, { kind: 'assistant-turn' }>): TurnFeedItem[] {
@@ -577,6 +603,12 @@ export class ChatBox implements OnDestroy {
   readonly processingLabelChars = computed(() => Array.from(this.processingBubbleLabel()));
 
   constructor(private el: ElementRef<HTMLElement>) {
+    effect(() => {
+      const conversationId = this.conversationId();
+      const activity = this.shownTurnActivity();
+      untracked(() => this.shownActivityReporter.report(this, conversationId, activity));
+    });
+
     // Observe scrollport size so virtual window math stays correct when the pane is resized.
     // The HITL dock (grid-rows transition) and the terminal dock (height transition) resize the
     // scrollport a little every frame while they animate — in either direction, and possibly
@@ -892,6 +924,7 @@ export class ChatBox implements OnDestroy {
   /** Tear down observers, timers, DOM listeners, and ngx-spinner instances. */
   ngOnDestroy(): void {
     this.chatDestroyed = true;
+    this.shownActivityReporter.clear(this);
     this.el.nativeElement.removeEventListener('send-response', this.onSendResponseDom);
     this.chatScrollResizeObserver?.disconnect();
     this.chatScrollResizeObserver = null;

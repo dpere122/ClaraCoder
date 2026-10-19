@@ -157,32 +157,6 @@ describe('parseAgentStreamPayload', () => {
     expect(
       parseAgentStreamPayload(
         JSON.stringify({
-          type: 'diff',
-          diff: {
-            version: 1,
-            relativePath: 'src/app.ts',
-            language: 'typescript',
-            rows: [],
-            fullNewContent: 'next',
-            truncated: false,
-          },
-        }),
-      ),
-    ).toEqual({
-      type: 'diff',
-      diff: {
-        version: 1,
-        relativePath: 'src/app.ts',
-        language: 'typescript',
-        rows: [],
-        fullNewContent: 'next',
-        truncated: false,
-      },
-    });
-
-    expect(
-      parseAgentStreamPayload(
-        JSON.stringify({
           type: 'accept_command',
           acceptCommand: {
             version: 1,

@@ -4,7 +4,7 @@
  * specs can drive a jsdom document directly.
  */
 import {
-  CLARA_DARK_THEME,
+  DEFAULT_THEME,
   DEFAULT_THEME_ID,
   THEME_ASSET_NAME_PATTERN,
   cssColorToHex,
@@ -112,7 +112,7 @@ export function applyResolvedThemeToDocument(
  * cached mode's built-in so a light-theme user does not see a dark first frame.
  */
 export function applyBuiltInThemeSync(doc: Document, themeId: string = DEFAULT_THEME_ID): ClaraThemeDocument {
-  const theme = findBuiltInTheme(themeId) ?? CLARA_DARK_THEME;
+  const theme = findBuiltInTheme(themeId) ?? DEFAULT_THEME;
   applyResolvedThemeToDocument(doc, resolveThemeDocument(theme));
   return theme;
 }

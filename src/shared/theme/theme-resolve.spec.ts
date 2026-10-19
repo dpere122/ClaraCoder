@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLARA_DARK_THEME } from './builtin';
+import { DEFAULT_THEME } from './builtin';
 import type { ClaraThemeDocument } from './theme-document';
 import { cssQuote, resolveThemeDocument, themeStylesheetText } from './theme-resolve';
 
@@ -26,8 +26,8 @@ describe('resolveThemeDocument', () => {
   it('layers theme tokens over the mode built-in', () => {
     const resolved = resolveThemeDocument(custom);
     expect(resolved.tokens['--t-primary']).toBe('#ff00ff');
-    expect(resolved.tokens['--t-bg']).toBe(CLARA_DARK_THEME.tokens['--t-bg']);
-    expect(Object.keys(resolved.tokens).length).toBe(Object.keys(CLARA_DARK_THEME.tokens).length);
+    expect(resolved.tokens['--t-bg']).toBe(DEFAULT_THEME.tokens['--t-bg']);
+    expect(Object.keys(resolved.tokens).length).toBe(Object.keys(DEFAULT_THEME.tokens).length);
   });
 
   it('only resolves backgrounds for groups that support them', () => {

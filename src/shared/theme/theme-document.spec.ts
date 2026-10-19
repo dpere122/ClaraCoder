@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { CLARA_DARK_THEME, CLARA_LIGHT_THEME } from './builtin';
+import {
+  CLARA_DARK_THEME,
+  CLARA_LIGHT_THEME,
+  DEFAULT_THEME,
+  DEFAULT_THEME_ID,
+  builtInThemeForMode,
+  resolveLegacyThemeId,
+} from './builtin';
 import {
   isSafeThemeTokenValue,
   missingThemeTokens,
@@ -12,7 +19,7 @@ import { THEME_TOKENS } from './theme-tokens';
 
 describe('validateThemeDocument', () => {
   it('accepts the built-in themes without warnings about tokens', () => {
-    for (const builtIn of [CLARA_DARK_THEME, CLARA_LIGHT_THEME]) {
+    for (const builtIn of [DEFAULT_THEME, CLARA_DARK_THEME, CLARA_LIGHT_THEME]) {
       const result = validateThemeDocument(builtIn);
       expect(result.ok).toBe(true);
       expect(result.errors).toEqual([]);
@@ -22,11 +29,21 @@ describe('validateThemeDocument', () => {
   });
 
   it('built-ins define every catalog token', () => {
-    for (const builtIn of [CLARA_DARK_THEME, CLARA_LIGHT_THEME]) {
+    for (const builtIn of [DEFAULT_THEME, CLARA_DARK_THEME, CLARA_LIGHT_THEME]) {
       for (const token of THEME_TOKENS) {
         expect(builtIn.tokens[token.name], `${builtIn.id} ${token.name}`).toBeTruthy();
       }
     }
+  });
+
+  it('makes Default the default and dark base, keeping Clara Light for light mode', () => {
+    expect(DEFAULT_THEME_ID).toBe('default');
+    expect(DEFAULT_THEME.mode).toBe('dark');
+    expect(builtInThemeForMode('dark').id).toBe('default');
+    expect(builtInThemeForMode('light').id).toBe(CLARA_LIGHT_THEME.id);
+    expect(resolveLegacyThemeId('default')).toBe('default');
+    expect(resolveLegacyThemeId('woodland')).toBe(CLARA_DARK_THEME.id);
+    expect(resolveLegacyThemeId('')).toBe('default');
   });
 
   it('rejects non-objects and bad versions', () => {

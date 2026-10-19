@@ -17,7 +17,27 @@ logger = logging.getLogger('clara.lsp.protocol')
 
 NotificationHandler = Callable[[str, dict[str, Any]], None]
 
-__all__ = ['JsonRpcLspClient', 'configuration_values_for_items', 'lookup_nested_section']
+__all__ = [
+    'JsonRpcLspClient',
+    'configuration_values_for_items',
+    'did_change_configuration_settings',
+    'lookup_nested_section',
+]
+
+
+def did_change_configuration_settings(options: dict[str, Any]) -> dict[str, Any]:
+    """Return the ``settings`` payload for ``workspace/didChangeConfiguration``.
+
+    JDT LS takes ``initializationOptions.settings.java`` but expects the notification's
+    ``settings`` to hold ``java`` directly; sending the whole init options nests it one
+    level too deep and JDT LS resets every ``java.*`` preference to its default.
+    Servers whose options have no ``settings`` key get the options unchanged.
+    """
+
+    settings = options.get('settings')
+    if isinstance(settings, dict):
+        return dict(settings)
+    return dict(options)
 
 
 def lookup_nested_section(options: dict[str, Any], section: str) -> Any:
@@ -151,7 +171,10 @@ class JsonRpcLspClient:
                 timeout_s=self._startup_timeout_s,
             )
             self.notify('initialized', {})
-            self.notify('workspace/didChangeConfiguration', {'settings': dict(self._initialization_options)})
+            self.notify(
+                'workspace/didChangeConfiguration',
+                {'settings': did_change_configuration_settings(self._initialization_options)},
+            )
         except Exception:
             logger.warning(
                 'lsp initialize failed workspace=%s; closing subprocess',
@@ -162,6 +185,15 @@ class JsonRpcLspClient:
         self._initialized = True
         logger.info('lsp initialize complete workspace=%s', self._workspace_root)
         return result
+
+    def update_configuration(self, initialization_options: dict[str, Any]) -> None:
+        """Replace stored options (served to ``workspace/configuration``) and push them to the server."""
+
+        self._initialization_options = dict(initialization_options or {})
+        self.notify(
+            'workspace/didChangeConfiguration',
+            {'settings': did_change_configuration_settings(self._initialization_options)},
+        )
 
     def request(self, method: str, params: dict[str, Any], *, timeout_s: float = 10.0) -> dict[str, Any]:
         with self._lock:

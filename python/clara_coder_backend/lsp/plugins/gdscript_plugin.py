@@ -49,6 +49,7 @@ class GdscriptLspPlugin(LspServerPlugin):
         relative_posix_path: str,
         state: Any,
         client_running: bool,
+        text: str | None = None,
     ) -> bool:
         st = state if isinstance(state, GdscriptPluginState) else GdscriptPluginState()
         st.last_seed = relative_posix_path

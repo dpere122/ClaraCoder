@@ -91,6 +91,7 @@ class TypescriptLspPlugin(LspServerPlugin):
         relative_posix_path: str,
         state: Any,
         client_running: bool,
+        text: str | None = None,
     ) -> bool:
         st = state if isinstance(state, TypescriptPluginState) else TypescriptPluginState()
         st.last_seed = relative_posix_path

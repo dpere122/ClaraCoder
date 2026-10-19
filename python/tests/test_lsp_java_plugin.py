@@ -14,7 +14,11 @@ from clara_coder_backend.lsp.plugins.java_plugin import JavaLspPlugin, JavaPlugi
 @pytest.fixture(autouse=True)
 def _stub_java_spawn(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv('CLARA_JAVA_LSP_PROJECT_ROOT', raising=False)
-    monkeypatch.setattr(java_plugin_mod, 'build_java_lsp_command', lambda root, instance_key='': ['jdtls', str(root)])
+    monkeypatch.setattr(
+        java_plugin_mod,
+        'build_java_lsp_command',
+        lambda root, instance_key='': ['jdtls', str(root), instance_key],
+    )
 
 
 def _session_with_java_cache(path: Path | str) -> SessionState:
@@ -99,3 +103,115 @@ def test_compute_start_params_uses_in_workspace_cache_without_seed(tmp_path: Pat
         scope='workspace',
     )
     assert params.lsp_cwd == nested.resolve()
+
+
+def _journal_workspace(tmp_path: Path) -> Path:
+    ws = tmp_path / 'ws'
+    pkg = ws / 'src' / 'journal'
+    pkg.mkdir(parents=True)
+    for name in ('Entry', 'JournalApp'):
+        (pkg / f'{name}.java').write_text(f'package journal;\n\nclass {name} {{}}\n', encoding='utf-8')
+    return ws
+
+
+def _start(plugin: JavaLspPlugin, state: JavaPluginState, ws: Path):
+    return plugin.compute_start_params(
+        session=SessionState(),
+        workspace_root=ws,
+        state=state,
+        session_id='sess',
+        scope='workspace',
+    )
+
+
+def _sync(plugin: JavaLspPlugin, state: JavaPluginState, ws: Path, rel: str, text: str | None = None) -> bool:
+    return plugin.on_before_sync_document(
+        session=SessionState(),
+        workspace_root=ws,
+        relative_posix_path=rel,
+        state=state,
+        client_running=True,
+        text=text,
+    )
+
+
+def test_loose_folder_sends_inferred_source_paths(tmp_path: Path) -> None:
+    ws = _journal_workspace(tmp_path)
+    plugin = JavaLspPlugin()
+    state = JavaPluginState()
+    plugin.on_before_sync_document(
+        session=SessionState(),
+        workspace_root=ws,
+        relative_posix_path='src/journal/Entry.java',
+        state=state,
+        client_running=False,
+        text='package journal;\n',
+    )
+    params = _start(plugin, state, ws)
+    java = params.init_options['settings']['java']
+    assert java['project'] == {'sourcePaths': ['src']}
+    assert java['configuration']['updateBuildConfiguration'] == 'automatic'
+    assert params.command[-1] == 'sess:workspace:loose'
+
+
+def test_build_tool_project_gets_no_path_settings(tmp_path: Path) -> None:
+    ws = _journal_workspace(tmp_path)
+    (ws / 'build.gradle').write_text('apply plugin: "java"\n', encoding='utf-8')
+    plugin = JavaLspPlugin()
+    state = JavaPluginState()
+    _sync(plugin, state, ws, 'src/journal/Entry.java', 'package journal;\n')
+    params = _start(plugin, state, ws)
+    java = params.init_options['settings']['java']
+    assert 'project' not in java
+    assert 'runtimes' not in java['configuration']
+    assert params.command[-1] == 'sess:workspace:gradle'
+
+
+def test_adding_build_file_restarts_with_new_kind(tmp_path: Path) -> None:
+    ws = _journal_workspace(tmp_path)
+    plugin = JavaLspPlugin()
+    state = JavaPluginState()
+    _start(plugin, state, ws)
+    assert _sync(plugin, state, ws, 'src/journal/Entry.java', 'package journal;\n') is False
+
+    (ws / 'pom.xml').write_text('<project/>\n', encoding='utf-8')
+    assert _sync(plugin, state, ws, 'src/journal/Entry.java', 'package journal;\n') is True
+    params = _start(plugin, state, ws)
+    assert params.command[-1] == 'sess:workspace:maven'
+    assert 'project' not in params.init_options['settings']['java']
+
+
+def test_java_json_change_pushes_settings_without_restart(tmp_path: Path) -> None:
+    ws = _journal_workspace(tmp_path)
+    plugin = JavaLspPlugin()
+    state = JavaPluginState()
+    _start(plugin, state, ws)
+    assert plugin.take_pending_initialization_options(state) is None
+
+    (ws / '.clara').mkdir()
+    (ws / '.clara' / 'java.json').write_text('{"referencedLibraries": ["C:/jfx/*.jar"]}\n', encoding='utf-8')
+    assert _sync(plugin, state, ws, 'src/journal/Entry.java', 'package journal;\n') is False
+    pending = plugin.take_pending_initialization_options(state)
+    assert pending is not None
+    assert pending['settings']['java']['project'] == {
+        'sourcePaths': ['src'],
+        'referencedLibraries': ['C:/jfx/*.jar'],
+    }
+    assert plugin.take_pending_initialization_options(state) is None
+    # Unchanged config on the next sync pushes nothing.
+    assert _sync(plugin, state, ws, 'src/journal/Entry.java', 'package journal;\n') is False
+    assert plugin.take_pending_initialization_options(state) is None
+
+
+def test_new_unsaved_file_adds_source_root(tmp_path: Path) -> None:
+    ws = _journal_workspace(tmp_path)
+    plugin = JavaLspPlugin()
+    state = JavaPluginState()
+    _start(plugin, state, ws)
+
+    # Not on disk yet (staged edit): only the synced text knows its package.
+    text = 'package journal;\nclass EntryTest {}\n'
+    assert _sync(plugin, state, ws, 'test/journal/EntryTest.java', text) is False
+    pending = plugin.take_pending_initialization_options(state)
+    assert pending is not None
+    assert pending['settings']['java']['project']['sourcePaths'] == ['src', 'test']

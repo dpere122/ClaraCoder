@@ -27,7 +27,6 @@ import {
   isInFlightToolPart,
   mergeHitlTrailIntoAuxiliaryTimeline,
   primaryAssistantTextFromParts,
-  isWorkspaceReadToolLabel,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
   appendAndMergeReadToolPreviewChunk,
   findReadToolTrailTargetIndex,
@@ -38,7 +37,7 @@ import type { ChatHubView } from '../chat/chat-conversation-hub/chat-conversatio
 import {
   buildChatDisplayRows,
   hitlArtifactsExcludingPlanConfirm,
-  isReadToolInFlight,
+  inFlightToolSpinnerKind,
   resolveLiveAssistantTurn,
   resolvePrimaryStreamLiveText,
   resolveTurnActivity,
@@ -47,6 +46,7 @@ import {
   type TurnActivity,
 } from '../chat/chat-box/chat-box';
 import { LiveTurnActivityService } from '../chat/chat-box/live-turn-activity';
+import { toolSpinnerKind } from '../chat/chat-box/tool-spinner-kind';
 import { GenerationRateService } from '../chat/chat-box/generation-rate';
 import { ElectronService } from '../../core/electron.service';
 import { TtsPlaybackService } from '../../core/tts-playback.service';
@@ -150,7 +150,7 @@ export class ConversationSessionService {
             feed: buildTurnFeed(parts, finalText),
             primaryLiveText: resolvePrimaryStreamLiveText(finalText, parts, toolsActive),
             toolsActive,
-            readToolActive: isReadToolInFlight(parts, toolsActive),
+            toolKind: inFlightToolSpinnerKind(parts, toolsActive),
             awaitingReview: this.activeAwaitingReview(),
           }),
         );
@@ -167,9 +167,12 @@ export class ConversationSessionService {
           feed: buildTurnFeed(parts, finalText),
           primaryLiveText: resolvePrimaryStreamLiveText(finalText, parts, toolsActive),
           toolsActive,
-          readToolActive:
-            isReadToolInFlight(parts, toolsActive) ||
-            (latestRunLabel != null && isWorkspaceReadToolLabel(latestRunLabel)),
+          // Background tool statuses only reach `backgroundToolRuns` (tool-trail rows snapshotted
+          // into `parts` at switch-away stop updating), so the latest live run wins over parts.
+          toolKind:
+            latestRunLabel != null
+              ? toolSpinnerKind(latestRunLabel, '')
+              : inFlightToolSpinnerKind(parts, toolsActive),
           awaitingReview: this.backgroundAwaitingReview.has(id),
         }),
       );

@@ -18,6 +18,7 @@ import { MarkdownPipe } from '../markdown.pipe';
 import { StreamNudgePillComponent } from '../stream-nudge-pill/stream-nudge-pill';
 import { StreamThoughtPillComponent } from '../stream-thought-pill/stream-thought-pill';
 import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
+import type { ToolSpinnerKind } from '../tool-spinner-kind';
 import {
   decidePreviewCommit,
   displayCommittedCount,
@@ -27,7 +28,7 @@ import {
   previewCommitCount,
   previewItemText,
   previewQueueHeader,
-  previewQueueIsReadTool,
+  previewQueueToolSpinnerKind,
   previewQueueMeta,
   previewShowsBody as previewItemShowsBody,
   previewSpinnerHost,
@@ -38,8 +39,8 @@ import {
   type FeedDisplayRole,
 } from './stream-preview-queue';
 
-/** Spinner the open preview hosts: thought header, or the read / write tool pill. */
-export type HostedSpinnerKind = 'think' | 'read' | 'write';
+/** Spinner the open preview hosts: thought header, or the tool pill (read / write / run / web). */
+export type HostedSpinnerKind = 'think' | ToolSpinnerKind;
 
 @Component({
   selector: 'app-stream-turn-feed',
@@ -102,10 +103,10 @@ export class StreamTurnFeedComponent {
     return previewQueueMeta(split.current, split.inbound);
   });
 
-  /** Read vs write spinner while the live preview is a tool pill. */
-  readonly previewReadSpinner = computed(() => {
+  /** Tool spinner kind while the live preview is a tool pill. */
+  readonly previewToolSpinnerKind = computed(() => {
     const split = splitQueuedFeed(this.items(), this.displayCommitted());
-    return previewQueueIsReadTool(split.current, split.inbound);
+    return previewQueueToolSpinnerKind(split.current, split.inbound);
   });
 
   readonly previewShowsBody = computed(() => {
@@ -129,7 +130,7 @@ export class StreamTurnFeedComponent {
       return 'think';
     }
     if (host === 'pill') {
-      return this.previewReadSpinner() ? 'read' : 'write';
+      return this.previewToolSpinnerKind();
     }
     return null;
   });

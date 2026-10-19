@@ -15,12 +15,12 @@
   @if (spinner()) {
     <span
       class="stream-tool-pill__spinner"
-      [class.stream-tool-pill__spinner--read]="spinnerKind() === 'read'"
+      [class]="'stream-tool-pill__spinner--' + spinnerKind()"
       aria-hidden="true"
     >
       <img
         class="stream-tool-pill__spinner-img"
-        [src]="spinnerKind() === 'read' ? 'spinner-read.svg' : 'spinner-jot.svg'"
+        [src]="spinnerSrc()"
         alt=""
       />
     </span>

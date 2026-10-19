@@ -19,7 +19,7 @@ import {
   previewItemLabel,
   previewItemText,
   previewQueueHeader,
-  previewQueueIsReadTool,
+  previewQueueToolSpinnerKind,
   previewQueueMeta,
   previewShowsBody,
   previewSpinnerHost,
@@ -151,7 +151,7 @@ describe('previewQueueMeta', () => {
   });
 });
 
-describe('previewQueueIsReadTool', () => {
+describe('previewQueueToolSpinnerKind', () => {
   const runningRead: TurnFeedItem = {
     kind: 'tool',
     part: {
@@ -171,17 +171,42 @@ describe('previewQueueIsReadTool', () => {
     },
   };
 
-  it('is true for a workspace read preview, false for thoughts and writes', () => {
-    expect(previewQueueIsReadTool(tool, [])).toBe(true);
-    expect(previewQueueIsReadTool(runningRead, [])).toBe(true);
-    expect(previewQueueIsReadTool(thought, [])).toBe(false);
-    expect(previewQueueIsReadTool(runningWrite, [])).toBe(false);
-    expect(previewQueueIsReadTool(undefined, [])).toBe(false);
+  const runningCommand: TurnFeedItem = {
+    kind: 'tool',
+    part: {
+      streamTag: toolTrailStatusStreamTag('run-c'),
+      label: 'run_command',
+      text: 'npm test',
+      toolChainState: 'running',
+    },
+  };
+  const runningWeb: TurnFeedItem = {
+    kind: 'tool',
+    part: {
+      streamTag: toolTrailStatusStreamTag('run-s'),
+      label: 'web_search',
+      text: 'angular signals',
+      toolChainState: 'running',
+    },
+  };
+
+  it('picks read for workspace reads and write for thoughts and other tools', () => {
+    expect(previewQueueToolSpinnerKind(tool, [])).toBe('read');
+    expect(previewQueueToolSpinnerKind(runningRead, [])).toBe('read');
+    expect(previewQueueToolSpinnerKind(thought, [])).toBe('write');
+    expect(previewQueueToolSpinnerKind(runningWrite, [])).toBe('write');
+    expect(previewQueueToolSpinnerKind(undefined, [])).toBe('write');
+  });
+
+  it('picks run for commands and web for network tools', () => {
+    expect(previewQueueToolSpinnerKind(runningCommand, [])).toBe('run');
+    expect(previewQueueToolSpinnerKind(runningWeb, [])).toBe('web');
   });
 
   it('follows the latest running tool in a mixed batch', () => {
-    expect(previewQueueIsReadTool(runningRead, [runningWrite])).toBe(false);
-    expect(previewQueueIsReadTool(runningWrite, [runningRead])).toBe(true);
+    expect(previewQueueToolSpinnerKind(runningRead, [runningWrite])).toBe('write');
+    expect(previewQueueToolSpinnerKind(runningWrite, [runningRead])).toBe('read');
+    expect(previewQueueToolSpinnerKind(runningRead, [runningCommand])).toBe('run');
   });
 });
 

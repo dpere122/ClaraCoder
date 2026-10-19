@@ -47,7 +47,7 @@
               state="running"
               [live]="true"
               [spinner]="spinnerHost() === 'pill'"
-              [spinnerKind]="previewReadSpinner() ? 'read' : 'write'"
+              [spinnerKind]="previewToolSpinnerKind()"
             />
           </div>
         }

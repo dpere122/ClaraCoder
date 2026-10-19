@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none" role="img" aria-labelledby="spinnerTitle">
+  <title id="spinnerTitle">Running</title>
+  <style>
+    .cmd {
+      fill: none;
+      stroke: #c9a96e;
+      stroke-width: 3.2;
+      stroke-linecap: round;
+      stroke-dasharray: 100;
+      stroke-dashoffset: 100;
+      animation: cmd-type 2.6s ease-in-out infinite;
+    }
+    .out {
+      fill: none;
+      stroke: #a8b89a;
+      stroke-width: 2.6;
+      stroke-linecap: round;
+      opacity: 0;
+    }
+    .out-1 { animation: out-1 2.6s ease-out infinite; }
+    .out-2 { animation: out-2 2.6s ease-out infinite; }
+    .out-3 { animation: out-3 2.6s ease-out infinite; }
+
+    .caret {
+      animation: caret-run 2.6s ease-in-out infinite;
+    }
+    .caret-block {
+      animation: caret-blink 0.65s step-end infinite;
+    }
+    .chevron {
+      animation: chevron-pulse 2.6s ease-in-out infinite;
+    }
+    .led {
+      animation: led-pulse 1.3s ease-in-out infinite;
+    }
+
+    @keyframes cmd-type {
+      0%, 4% { stroke-dashoffset: 100; }
+      34%, 84% { stroke-dashoffset: 0; }
+      94%, 100% { stroke-dashoffset: 100; }
+    }
+    @keyframes out-1 {
+      0%, 40% { opacity: 0; transform: translateY(2px); }
+      46%, 84% { opacity: 0.85; transform: translateY(0); }
+      94%, 100% { opacity: 0; transform: translateY(0); }
+    }
+    @keyframes out-2 {
+      0%, 52% { opacity: 0; transform: translateY(2px); }
+      58%, 84% { opacity: 0.6; transform: translateY(0); }
+      94%, 100% { opacity: 0; transform: translateY(0); }
+    }
+    @keyframes out-3 {
+      0%, 64% { opacity: 0; transform: translateY(2px); }
+      70%, 84% { opacity: 0.4; transform: translateY(0); }
+      94%, 100% { opacity: 0; transform: translateY(0); }
+    }
+    @keyframes caret-run {
+      0%, 4% { transform: translate(23px, 22.4px); }
+      34%, 40% { transform: translate(43px, 22.4px); }
+      46% { transform: translate(33px, 29.4px); }
+      58% { transform: translate(40px, 35.4px); }
+      70%, 84% { transform: translate(27px, 41.4px); }
+      94%, 100% { transform: translate(23px, 22.4px); }
+    }
+    @keyframes caret-blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.15; }
+    }
+    @keyframes chevron-pulse {
+      0%, 34%, 100% { transform: translateX(0); }
+      38% { transform: translateX(1.4px); }
+      42% { transform: translateX(0); }
+    }
+    @keyframes led-pulse {
+      0%, 100% { opacity: 0.35; }
+      50% { opacity: 1; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .cmd, .out-1, .out-2, .out-3, .caret, .caret-block, .chevron, .led { animation: none; }
+      .cmd { stroke-dashoffset: 0; }
+      .out-1 { opacity: 0.85; }
+      .out-2 { opacity: 0.6; }
+      .out-3 { opacity: 0.4; }
+      .caret { transform: translate(27px, 41.4px); }
+      .led { opacity: 1; }
+    }
+  </style>
+
+  <defs>
+    <linearGradient id="ccTerm" x1="8" y1="11" x2="56" y2="53" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#a8b89a" stop-opacity="0.13"/>
+      <stop offset="100%" stop-color="#a8b89a" stop-opacity="0.04"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Terminal window -->
+  <rect
+    x="7" y="11" width="50" height="42" rx="5.5"
+    fill="url(#ccTerm)"
+    stroke="#a8b89a" stroke-opacity="0.48" stroke-width="1.8"
+  />
+  <path d="M7.9 17.6 L56.1 17.6" stroke="#a8b89a" stroke-opacity="0.28" stroke-width="1.4"/>
+  <circle cx="11.9" cy="14.3" r="1.25" fill="#a8b89a" fill-opacity="0.4"/>
+  <circle cx="16" cy="14.3" r="1.25" fill="#a8b89a" fill-opacity="0.4"/>
+  <circle class="led" cx="20.1" cy="14.3" r="1.25" fill="#7eb5a6"/>
+
+  <!-- Prompt chevron + command being typed -->
+  <path
+    class="chevron"
+    d="M13 21.4 L17 24.6 L13 27.8"
+    stroke="#7eb5a6" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"
+  />
+  <path class="cmd" pathLength="100" d="M22 24.6 L41.6 24.6"/>
+
+  <!-- Command output scrolling in -->
+  <path class="out out-1" d="M13 31.6 L31.6 31.6"/>
+  <path class="out out-2" d="M13 37.6 L38.6 37.6"/>
+  <path class="out out-3" d="M13 43.6 L25.6 43.6"/>
+
+  <!-- Block caret -->
+  <g class="caret">
+    <rect class="caret-block" x="0" y="0" width="3.4" height="4.4" rx="0.7" fill="#d8c8a0"/>
+  </g>
+</svg>

@@ -1,5 +1,6 @@
-import { Component, ViewEncapsulation, input, output } from '@angular/core';
+import { Component, ViewEncapsulation, computed, input, output } from '@angular/core';
 import type { ToolTrailPillState } from '@shared/index';
+import { toolSpinnerSrc, type ToolSpinnerKind } from '../tool-spinner-kind';
 
 @Component({
   selector: 'app-stream-tool-pill',
@@ -17,8 +18,10 @@ export class StreamToolPillComponent {
   readonly live = input(false);
   /** Tool spinner inside the pill while this tool batch is the live preview. */
   readonly spinner = input(false);
-  /** Read tools use the book highlighter; write tools use the jot pen. */
-  readonly spinnerKind = input<'write' | 'read'>('write');
+  /** Book for reads, terminal for commands, globe for web tools, jot pen for everything else. */
+  readonly spinnerKind = input<ToolSpinnerKind>('write');
+
+  readonly spinnerSrc = computed(() => toolSpinnerSrc(this.spinnerKind()));
 
   readonly toggle = output<void>();
 

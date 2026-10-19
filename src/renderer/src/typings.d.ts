@@ -823,6 +823,8 @@ declare global {
     depsDelete: (
       depId: import('@shared/index').DependencyId,
     ) => Promise<import('@shared/index').DependencyActionResult>;
+    depsReveal: (depId: import('@shared/index').DependencyId) => Promise<{ ok: boolean; error?: string }>;
+    depsCancel: (depId: import('@shared/index').DependencyId) => Promise<{ ok: boolean; error?: string }>;
     openDependenciesWindow: () => void;
     closeDependenciesWindow: () => void;
     onDepsProgress: (

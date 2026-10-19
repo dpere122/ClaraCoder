@@ -530,6 +530,7 @@ export type {
   DependencyInfo,
   DependencyProgressEvent,
   DependencyProgressPhase,
+  DependencySource,
   DependencyState,
   LlamaServerVariant,
 } from './types/dependencies';
@@ -539,8 +540,11 @@ export {
   DEPENDENCY_LABELS,
   DEPENDENCY_DESCRIPTIONS,
   DEPENDENCY_SIZE_HINTS,
+  DEPENDENCY_SOURCES,
   LLAMA_SERVER_VARIANTS,
   LLAMA_SERVER_VARIANT_LABELS,
   defaultDependencyCatalog,
   dependencyComponents,
+  pythonPackageUrl,
+  whisperModelSource,
 } from './types/dependencies';

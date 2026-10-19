@@ -49,3 +49,26 @@ export function workspaceRemovePrompt(name: string): ThemedConfirmOpenOptions {
     variant: 'warning',
   };
 }
+
+/** Copy for deleting a managed runtime dependency from the Dependencies window. */
+export function dependencyDeletePrompt(args: {
+  id: string;
+  label: string;
+  path: string | null;
+}): ThemedConfirmOpenOptions {
+  const impact: Record<string, string> = {
+    'python-runtime':
+      "Clara's backend runs from this environment. Chat, tools, and indexing stop working until you reinstall it.",
+    'llama-server': 'Managed local models stop working until you download llama-server again.',
+    'java-lsp': 'Java diagnostics and navigation stop working until you download it again.',
+  };
+  const where = args.path ? ` Files under ${args.path} are removed.` : '';
+  return {
+    title: `Delete ${args.label}?`,
+    message: impact[args.id] ?? 'You can download it again later.',
+    detail: `This can't be undone.${where}`,
+    cancelText: 'Cancel',
+    confirmText: 'Delete',
+    variant: 'warning',
+  };
+}

@@ -128,11 +128,22 @@ app-dependencies .deps-pill,
 app-dependencies .deps-chip,
 app-dependencies .deps-inline-select select,
 app-dependencies .deps-status,
+app-dependencies .deps-summary,
+app-dependencies .deps-details-toggle,
 app-dependencies .deps-progress__bar {
   border-radius: 999px !important;
 }
 
+app-dependencies .deps-details {
+  border-radius: 10px !important;
+}
+
+app-dependencies .deps-row-msg {
+  border-radius: 0.6rem !important;
+}
+
 app-dependencies .deps-row,
+app-dependencies .deps-failed,
 app-dependencies .deps-terminal {
   border-radius: 14px !important;
 }

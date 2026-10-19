@@ -10,9 +10,11 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from clara_coder_backend.runtime.deps.cancel import InstallCancelled
 from clara_coder_backend.runtime.deps.progress import PROGRESS
 from clara_coder_backend.runtime.deps.registry import (
     DEPENDENCY_IDS,
+    cancel_install,
     delete_dependency,
     get_dependency,
     install_dependency,
@@ -51,6 +53,8 @@ async def deps_install(body: DepActionBody) -> dict[str, Any]:
     try:
         dep = await asyncio.to_thread(install_dependency, dep_id, force=False, variant=body.variant)
         return {'ok': True, 'dependency': dep}
+    except InstallCancelled:
+        return {'ok': False, 'cancelled': True, 'error': 'Install cancelled', 'dependency': get_dependency(dep_id)}
     except Exception as exc:
         return {'ok': False, 'error': str(exc), 'dependency': get_dependency(dep_id)}
 
@@ -61,8 +65,20 @@ async def deps_reinstall(body: DepActionBody) -> dict[str, Any]:
     try:
         dep = await asyncio.to_thread(reinstall_dependency, dep_id, variant=body.variant)
         return {'ok': True, 'dependency': dep}
+    except InstallCancelled:
+        return {'ok': False, 'cancelled': True, 'error': 'Install cancelled', 'dependency': get_dependency(dep_id)}
     except Exception as exc:
         return {'ok': False, 'error': str(exc), 'dependency': get_dependency(dep_id)}
+
+
+@router.post('/cancel')
+async def deps_cancel(body: DepActionBody) -> dict[str, Any]:
+    """Ask a running install/reinstall to stop; it cleans up partial files before returning."""
+
+    dep_id = _validate_id(body.depId)
+    if not cancel_install(dep_id):
+        return {'ok': False, 'error': f'No {dep_id} install is running'}
+    return {'ok': True}
 
 
 @router.post('/delete')

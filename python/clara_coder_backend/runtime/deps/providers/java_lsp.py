@@ -106,3 +106,18 @@ def delete() -> dict:
         shutil.rmtree(legacy, ignore_errors=True)
     PROGRESS.emit(DEP_ID, 'done', message='Java LSP removed')
     return status()
+
+
+def cleanup_partial() -> None:
+    """Remove a cancelled download: scratch files and any product dir that never got its ready marker."""
+
+    cache = _ensure_cache_env()
+    downloads = cache / 'downloads'
+    if downloads.exists():
+        shutil.rmtree(downloads, ignore_errors=True)
+    jdtls = cache / 'jdtls'
+    if jdtls.is_dir():
+        for product in jdtls.iterdir():
+            if product.is_dir() and not (product / '.nemo-ready').is_file():
+                logger.info('removing incomplete JDT LS product %s', product)
+                shutil.rmtree(product, ignore_errors=True)

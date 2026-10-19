@@ -6,6 +6,7 @@ import logging
 import traceback
 from typing import Any
 
+from clara_coder_backend.runtime.deps.cancel import InstallCancelled, installing, request_cancel
 from clara_coder_backend.runtime.deps.progress import PROGRESS
 
 logger = logging.getLogger('clara.runtime.deps.registry')
@@ -88,6 +89,43 @@ def get_dependency(dep_id: str) -> dict[str, Any]:
     return info
 
 
+def cleanup_after_cancel(dep_id: str) -> dict[str, Any]:
+    """Remove what a cancelled install left behind.
+
+    Provider scratch files (downloads, extract dirs) always go. If the dependency no longer
+    reads as installed — a fresh install stopped midway, or a reinstall that had already
+    removed the old copy — the half-written install is deleted too, so it shows as missing
+    instead of broken. A still-valid install is left untouched.
+    """
+
+    provider = _providers().get(dep_id)
+    if not provider:
+        raise KeyError(f'Unknown dependency: {dep_id}')
+    PROGRESS.emit(dep_id, 'cancelling', message='Cancelled. Removing partial files…')
+    cleanup = getattr(provider, 'cleanup_partial', None)
+    if callable(cleanup):
+        try:
+            cleanup()
+        except Exception as exc:
+            logger.warning('cleanup_partial %s failed: %s', dep_id, exc)
+    try:
+        still_installed = provider.status().get('state') == 'installed'
+    except Exception:
+        still_installed = False
+    if still_installed:
+        message = 'Install cancelled. The existing install was left as it was.'
+    else:
+        try:
+            provider.delete()
+            message = 'Install cancelled. Partial files were removed.'
+        except Exception as exc:
+            logger.warning('delete after cancel %s failed: %s', dep_id, exc)
+            message = f'Install cancelled, but some partial files could not be removed: {exc}'
+    logger.info('install %s cancelled; %s', dep_id, message)
+    PROGRESS.emit(dep_id, 'cancelled', message=message)
+    return get_dependency(dep_id)
+
+
 def install_dependency(dep_id: str, *, force: bool = False, variant: str | None = None) -> dict[str, Any]:
     provider = _providers().get(dep_id)
     if not provider:
@@ -97,13 +135,18 @@ def install_dependency(dep_id: str, *, force: bool = False, variant: str | None 
     PROGRESS.emit(dep_id, 'queued', message='Starting…')
     try:
         install_fn = provider.install
-        try:
-            result = install_fn(force=force, variant=variant)
-        except TypeError:
-            # Provider does not accept a variant kwarg (only llama-server does).
-            result = install_fn(force=force)
+        with installing(dep_id):
+            try:
+                result = install_fn(force=force, variant=variant)
+            except TypeError:
+                # Provider does not accept a variant kwarg (only llama-server does).
+                result = install_fn(force=force)
         _errors.pop(dep_id, None)
         return result
+    except InstallCancelled:
+        _updating.discard(dep_id)
+        cleanup_after_cancel(dep_id)
+        raise
     except Exception as exc:
         msg = str(exc) or exc.__class__.__name__
         logger.error('install %s failed: %s\n%s', dep_id, msg, traceback.format_exc())
@@ -112,6 +155,17 @@ def install_dependency(dep_id: str, *, force: bool = False, variant: str | None 
         raise
     finally:
         _updating.discard(dep_id)
+
+
+def cancel_install(dep_id: str) -> bool:
+    """Ask a running install to stop. Returns False when nothing is installing ``dep_id``."""
+
+    if dep_id not in DEPENDENCY_IDS:
+        raise KeyError(f'Unknown dependency: {dep_id}')
+    if dep_id not in _updating:
+        return False
+    request_cancel(dep_id)
+    return True
 
 
 def reinstall_dependency(dep_id: str, variant: str | None = None) -> dict[str, Any]:

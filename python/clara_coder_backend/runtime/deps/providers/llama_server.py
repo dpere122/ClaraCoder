@@ -31,6 +31,7 @@ from clara_coder_backend.runtime.deps.download import (
     download_file,
     extract_archive,
     read_ready_marker,
+    run_streaming,
     with_download_lock,
     write_ready_marker,
 )
@@ -548,36 +549,16 @@ def _run_compile_step(cmd: list[str], *, phase: str, timeout: int, env: dict[str
     Each output line is emitted as an ``installing`` progress event with the line
     as the message, so the Dependencies window terminal shows live cmake output.
     """
-    logger.info('%s: %s', phase, ' '.join(cmd))
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            env=env,
-        )
-    except (FileNotFoundError, OSError) as exc:
-        raise RuntimeError(f'{phase} failed: {exc}') from exc
-
-    assert proc.stdout is not None
-    collected: list[str] = []
-    for line in proc.stdout:
-        stripped = line.rstrip('\r\n')
-        if stripped:
-            collected.append(stripped)
-            PROGRESS.emit(DEP_ID, 'installing', message=stripped)
-    proc.stdout.close()
-    try:
-        proc.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
-        raise RuntimeError(f'{phase} timed out after {timeout}s')
-    if proc.returncode != 0:
-        tail = '\n'.join(collected[-40:])
-        raise RuntimeError(f'{phase} failed with exit code {proc.returncode}\n{tail}')
+    # run_streaming also stops the compiler tree when the install is cancelled.
+    run_streaming(
+        cmd,
+        dep_id=DEP_ID,
+        label=phase,
+        phase='installing',
+        timeout=timeout,
+        env=env,
+        echo_command=False,
+    )
 
 
 def install(*, force: bool = False, variant: str | None = None) -> dict:
@@ -644,3 +625,24 @@ def delete() -> dict:
                 pass
     PROGRESS.emit(DEP_ID, 'done', message='llama-server removed')
     return status()
+
+
+def cleanup_partial() -> None:
+    """Remove what a cancelled install leaves in ``runtime/downloads``.
+
+    Covers release archives (``llama-<tag>-bin-…``, ``cudart-llama-bin-…``), their
+    ``.partial`` downloads, extraction scratch dirs, and the compile-from-source tree.
+    The installed binary itself is handled by :func:`delete` when it is no longer valid.
+    """
+    downloads = get_runtime_downloads_dir()
+    if not downloads.is_dir():
+        return
+    for entry in downloads.iterdir():
+        name = entry.name
+        if not (name.startswith('llama-') or name.startswith('cudart-llama-')):
+            continue
+        logger.info('removing cancelled llama-server download artifact %s', entry)
+        if entry.is_dir():
+            shutil.rmtree(entry, ignore_errors=True)
+        else:
+            entry.unlink(missing_ok=True)

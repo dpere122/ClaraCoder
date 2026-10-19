@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="1024" height="1024" role="img" aria-labelledby="claraLogoTitle">
+  <title id="claraLogoTitle">Clara Coder</title>
+  <!-- Master for scripts/render_clara_coder_icon.py (graphite plate, open loop, electric-blue prompt). -->
+  <rect width="64" height="64" rx="14" fill="#0f0f11"/>
+  <path d="M49.85 17.86 A22 22 0 1 0 49.85 46.14" fill="none" stroke="#3a3a42" stroke-width="6" stroke-linecap="round"/>
+  <path d="M40.71 22.81 A12 12 0 1 0 40.71 41.19" fill="none" stroke="#f4f4f5" stroke-width="5" stroke-linecap="round"/>
+  <path d="M47.5 28 L51.5 32 L47.5 36" fill="none" stroke="#4da3ff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

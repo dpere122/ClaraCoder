@@ -798,6 +798,38 @@ def test_chat_model_end_emits_token_usage_when_usage_metadata_present() -> None:
     assert len(usage_lines) == 1
     assert '900' in usage_lines[0]
     assert '12' in usage_lines[0]
+    # No token was streamed, so there is no decode window to report.
+    assert 'generation_ms' not in usage_lines[0]
+
+
+def test_chat_model_end_reports_generation_ms_from_first_streamed_token(monkeypatch) -> None:
+    import clara_coder_backend.lang_agent.langgraph_sse as sse_mod
+
+    clock = iter([10.0, 12.5])
+    monkeypatch.setattr(sse_mod.time, 'monotonic', lambda: next(clock))
+    state = GraphStreamState()
+    common = dict(
+        agent_role=None,
+        status_label='Agent',
+        llm_event_prefix='step',
+        llm_log_context='test',
+        stream_tag='agent',
+    )
+    sse_lines_for_graph_event({'event': 'on_chat_model_start', 'data': {'input': []}}, state, **common)
+    for text in ('Hel', 'lo'):
+        sse_lines_for_graph_event(
+            {'event': 'on_chat_model_stream', 'data': {'chunk': AIMessageChunk(content=text)}},
+            state,
+            **common,
+        )
+    msg = AIMessage(
+        content='Hello',
+        usage_metadata={'input_tokens': 50, 'output_tokens': 40, 'total_tokens': 90},
+    )
+    lines = sse_lines_for_graph_event({'event': 'on_chat_model_end', 'data': {'output': msg}}, state, **common)
+    usage = json.loads(next(ln for ln in lines if '"type": "token_usage"' in ln).removeprefix('data: '))
+    assert usage['output_tokens'] == 40
+    assert usage['generation_ms'] == 2500
 
 
 @pytest.mark.asyncio(loop_scope='function')

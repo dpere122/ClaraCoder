@@ -26,6 +26,7 @@ export type ChatRowHeightInput =
         moeStreams?: readonly unknown[] | null;
         auxiliaryStreamTimeline?: readonly unknown[] | null;
         editedFiles?: readonly unknown[] | null;
+        generation?: unknown;
       } | null;
       chainGroups: readonly { rows: readonly unknown[] }[];
       artifacts: readonly { role: string }[];
@@ -84,6 +85,10 @@ export function estimateChatRowHeight(row: ChatRowHeightInput, fontSizeRem: numb
   if (row.assistant?.editedFiles?.length) {
     // Collapsed "N files edited" footer (rows only render once the user expands it).
     h += 40;
+  }
+  if (row.assistant?.generation) {
+    // One-line tok/s footer.
+    h += 26;
   }
   const textLen = row.assistant?.text?.length ?? 0;
   h += Math.min(2800, textLen) * 0.11;

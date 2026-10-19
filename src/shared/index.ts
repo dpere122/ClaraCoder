@@ -305,7 +305,9 @@ export type {
   DiffReviewStatus,
   MaybeAutoTitleResult,
   StreamPart,
+  TurnGenerationStats,
 } from './types/conversation';
+export { formatTokensPerSecond, turnTokensPerSecond } from './types/conversation';
 export {
   auxiliaryTimelineEmbedsToolStatus,
   CLARA_OUTER_BRIEF_STREAM_TAG,

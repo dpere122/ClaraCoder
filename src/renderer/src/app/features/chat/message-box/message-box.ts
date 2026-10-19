@@ -6,10 +6,12 @@ import {
   COMPOSER_RUN_MODE_LABELS,
   DEFAULT_COMPOSER_RUN_MODE,
   findManagedLocalLlamaLocation,
+  formatTokensPerSecond,
   llmEffortControlVisible,
   llmEffortSelectOptionsFromCaps,
   llmThinkingControlVisible,
   resolveActiveLlmConnection,
+  turnTokensPerSecond,
   type AppConfig,
   type ChatTemplateReasoningCaps,
   type ComposerRunMode,
@@ -25,6 +27,8 @@ import { filter, merge } from 'rxjs';
 import { ElectronService } from '../../../core/electron.service';
 import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 import { ContextCapacityComponent } from '../../status/context-capacity/context-capacity';
+import { ConversationSessionService } from '../../shell/conversation-session.service';
+import { GenerationRateService } from '../chat-box/generation-rate';
 import { ChatContextBar } from '../chat-context-bar/chat-context-bar';
 import { type ChatContextDroppedPath } from '../chat-context-bar/chat-context-drop';
 import { type ChatContextFile } from '../chat-context-bar/chat-context-file';
@@ -159,6 +163,40 @@ export class MessageBox {
   readonly maxTokens = input(128_000);
   readonly remainingTokens = input(128_000);
   readonly usedPercentage = input(0);
+  private readonly session = inject(ConversationSessionService);
+  private readonly generationRate = inject(GenerationRateService);
+  /**
+   * Tokens/sec beside the context meter: the live rate while a reply streams, otherwise the
+   * latest saved turn's rate (dimmed). Null before anything was measured.
+   */
+  protected readonly tokenRate = computed(() => {
+    if (this.loading()) {
+      const id = this.session.activeConversationId();
+      const live = id ? this.generationRate.live()[id] : undefined;
+      return live ? { ...live, live: true } : null;
+    }
+    const msgs = this.session.messages();
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.role === 'assistant' && m.generation) {
+        const tokensPerSecond = turnTokensPerSecond(m.generation);
+        return tokensPerSecond > 0
+          ? { tokensPerSecond, estimated: !!m.generation.estimated, live: false }
+          : null;
+      }
+    }
+    return null;
+  });
+  protected readonly tokenRateLabel = computed(() => {
+    const rate = this.tokenRate();
+    return rate ? `${rate.estimated ? '~' : ''}${formatTokensPerSecond(rate.tokensPerSecond)}` : '';
+  });
+  protected readonly tokenRateTitle = computed(() => {
+    const rate = this.tokenRate();
+    if (!rate) return '';
+    const what = rate.live ? 'Output speed of the reply in progress' : 'Output speed of the last reply';
+    return rate.estimated ? `${what} (estimated from streamed text)` : what;
+  });
   /** Trimmed composer text (may be empty when attachments are present). */
   readonly messageSent = output<string>();
   /** User clicked Stop while {@link loading} is true. */

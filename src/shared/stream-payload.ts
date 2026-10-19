@@ -55,6 +55,8 @@ export type ParsedAgentStreamPayload =
       inputTokens: number;
       outputTokens?: number;
       totalTokens?: number;
+      /** Decode time for this request (first streamed token -> model end), when the backend timed it. */
+      generationMs?: number;
     }
   | { type: 'status'; status: LlmStatusPayload }
   | { type: 'accept_command'; acceptCommand: AcceptCommandPayload }
@@ -97,6 +99,7 @@ type RawAgentStreamPayload = {
   input_tokens?: unknown;
   output_tokens?: unknown;
   total_tokens?: unknown;
+  generation_ms?: unknown;
   tokens_before?: unknown;
   tokens_after?: unknown;
   tool_messages_compacted?: unknown;
@@ -331,6 +334,7 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
           inputTokens: number;
           outputTokens?: number;
           totalTokens?: number;
+          generationMs?: number;
         } = { type: 'token_usage', inputTokens: Math.floor(inputRaw) };
         const oraw = parsed.output_tokens;
         const traw = parsed.total_tokens;
@@ -339,6 +343,10 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
         }
         if (typeof traw === 'number' && Number.isFinite(traw) && traw >= 0) {
           out.totalTokens = Math.floor(traw);
+        }
+        const graw = parsed.generation_ms;
+        if (typeof graw === 'number' && Number.isFinite(graw) && graw > 0) {
+          out.generationMs = graw;
         }
         return out;
       }

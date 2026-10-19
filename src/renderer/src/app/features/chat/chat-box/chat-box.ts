@@ -49,6 +49,7 @@ import { StreamTurnFeedComponent } from './stream-turn-feed/stream-turn-feed';
 import { TurnEditsFooterComponent, type TurnDiffOpenRequest } from './turn-edits-footer/turn-edits-footer';
 import type { HostedSpinnerKind } from './stream-turn-feed/stream-turn-feed';
 import { LiveTurnActivityService } from './live-turn-activity';
+import { turnGenerationSummary } from './generation-rate';
 import {
   CHAT_MIN_FALLBACK_ROW,
   CHAT_VIRTUAL_PIXEL_BUFFER,
@@ -190,6 +191,8 @@ export class ChatBox implements OnDestroy {
   /** Template helpers: attachments rendered above a user bubble's text. */
   readonly userImageUrls = userMessageImageUrls;
   readonly userAttachedFiles = userMessageAttachedFiles;
+  /** Template helper: tok/s footer under a finished reply. */
+  readonly generationSummary = turnGenerationSummary;
 
   canRestoreUserRow(msg: Extract<ChatMessage, { role: 'user' }>): boolean {
     const messages = this.messages();

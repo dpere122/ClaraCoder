@@ -87,6 +87,37 @@ app-chat-box .assistant-turn-bubble {
   gap: 0.6rem;
 }
 
+app-chat-box .turn-gen-stats {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  color: var(--t-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: default;
+}
+
+app-chat-box .turn-gen-stats__icon {
+  display: inline-flex;
+  color: var(--t-secondary);
+}
+
+app-chat-box .turn-gen-stats__icon svg {
+  stroke: currentColor;
+  fill: none;
+}
+
+app-chat-box .turn-gen-stats__rate {
+  color: var(--t-secondary);
+  font-weight: 600;
+}
+
+app-chat-box .turn-gen-stats__detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 app-chat-box .tts-loading {
   display: flex;
   align-items: center;

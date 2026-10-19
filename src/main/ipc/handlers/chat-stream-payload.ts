@@ -55,6 +55,7 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
       inputTokens: parsed.inputTokens,
       outputTokens: parsed.outputTokens,
       totalTokens: parsed.totalTokens,
+      generationMs: parsed.generationMs,
     });
   } else if (parsed.type === 'context_compressed') {
     event.reply('message-context-compressed', conversationId, {

@@ -216,6 +216,17 @@ describe('parseAgentStreamPayload', () => {
     });
   });
 
+  it('parses token_usage with generation_ms and drops a non-positive one', () => {
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({ type: 'token_usage', input_tokens: 900, output_tokens: 40, generation_ms: 2500 }),
+      ),
+    ).toEqual({ type: 'token_usage', inputTokens: 900, outputTokens: 40, generationMs: 2500 });
+    expect(
+      parseAgentStreamPayload(JSON.stringify({ type: 'token_usage', input_tokens: 900, generation_ms: 0 })),
+    ).toEqual({ type: 'token_usage', inputTokens: 900 });
+  });
+
   it('parses context_compressed payloads', () => {
     expect(
       parseAgentStreamPayload(

@@ -180,6 +180,8 @@ export interface LlmTokenUsageMessage {
   inputTokens: number;
   outputTokens?: number;
   totalTokens?: number;
+  /** Decode time of this request in ms (first streamed token -> model end), when measured. */
+  generationMs?: number;
 }
 
 export interface ContextCompressedMessage {
@@ -568,12 +570,14 @@ export class ElectronService {
       const inputTokens = typeof inputRaw === 'number' && Number.isFinite(inputRaw) ? inputRaw : 0;
       const outRaw = (u as { outputTokens?: unknown }).outputTokens;
       const totRaw = (u as { totalTokens?: unknown }).totalTokens;
+      const genRaw = (u as { generationMs?: unknown }).generationMs;
       this.zone.run(() =>
         this.llmTokenUsageSubject.next({
           conversationId,
           inputTokens,
           ...(typeof outRaw === 'number' && Number.isFinite(outRaw) ? { outputTokens: outRaw } : {}),
           ...(typeof totRaw === 'number' && Number.isFinite(totRaw) ? { totalTokens: totRaw } : {}),
+          ...(typeof genRaw === 'number' && Number.isFinite(genRaw) && genRaw > 0 ? { generationMs: genRaw } : {}),
         }),
       );
     });

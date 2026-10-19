@@ -37,3 +37,15 @@ export function customModelDeletePrompt(args: {
         variant: 'warning',
       };
 }
+
+/** Copy for removing a workspace in settings (drops its chats and app data, not the folder). */
+export function workspaceRemovePrompt(name: string): ThemedConfirmOpenOptions {
+  return {
+    title: 'Remove workspace?',
+    message: `Remove "${name}" from Clara?`,
+    detail: 'Its chats and Clara app data will be deleted. The folder and its files on disk are not touched.',
+    cancelText: 'Cancel',
+    confirmText: 'Remove',
+    variant: 'warning',
+  };
+}

@@ -1,7 +1,6 @@
 import { Component, OnDestroy, OnInit, ViewEncapsulation, inject } from '@angular/core';
 import { NgxSpinnerComponent } from 'ngx-spinner';
 import { FormsModule } from '@angular/forms';
-import { LucideAngularModule } from 'lucide-angular';
 import { ThemedConfirmDialogComponent } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog';
 import { ThemedPromptDialogComponent } from '../../../shared/themed-prompt-dialog/themed-prompt-dialog';
 import { SettingsAudio } from '../settings-audio/settings-audio';
@@ -23,7 +22,6 @@ import { SettingsStore } from './settings-store';
   selector: 'app-settings',
   imports: [
     FormsModule,
-    LucideAngularModule,
     ThemedConfirmDialogComponent,
     ThemedPromptDialogComponent,
     NgxSpinnerComponent,

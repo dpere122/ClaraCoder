@@ -1,28 +1,168 @@
-      <div class='settings-pane'>
-        <div class='workspace-list'>
-          @for (workspace of s.workspaces(); track s.trackWorkspace($index, workspace)) {
-            <div class='workspace-card' [class.is-selected]='workspace.id === s.currentWorkspace()?.id'>
-              <button type='button' class='workspace-card__body' (click)='s.selectWorkspace(workspace.id)'>
-                <div class='workspace-card__header'>
-                  <strong>{{ workspace.name }}</strong>
-                  @if (workspace.id === s.currentWorkspace()?.id) {
-                    <span class='pill pill--success'>Active</span>
-                  }
-                </div>
-                <p>{{ workspace.path }}</p>
-              </button>
-
-              <div class='workspace-card__controls'>
-                <button type='button' class='action-button action-button--danger' (click)='s.removeWorkspace(workspace.id)'>
-                  <lucide-icon name='trash' [size]='16' />
-                  Remove
-                </button>
-              </div>
-            </div>
-          } @empty {
-            <div class='empty-state'>
-              <p>No workspaces added yet. Attach a folder to give the agent local project context.</p>
-            </div>
-          }
+<div class='settings-pane settings-pane--workspaces'>
+  <div class='models-three-col'>
+    <div class='models-sources'>
+      <div class='models-sources__handle'>
+        <div class='models-sources__handle-title'>
+          <span>Workspaces</span>
+          <span class='models-sources__count'>{{ s.workspaces().length }}</span>
         </div>
+        <button
+          type='button'
+          class='models-sources__add'
+          (click)='add()'
+          title='Add workspace'
+          aria-label='Add workspace'
+        >
+          <lucide-icon name='plus' [size]='14' />
+        </button>
       </div>
+
+      <div class='sources-list' role='listbox' aria-label='Workspaces'>
+        @if (favorites().length > 0) {
+          <p class='ws-list__label'>Favorites</p>
+          @for (workspace of favorites(); track s.trackWorkspace($index, workspace)) {
+            <ng-container [ngTemplateOutlet]='row' [ngTemplateOutletContext]='{ $implicit: workspace }' />
+          }
+          @if (others().length > 0) {
+            <p class='ws-list__label'>All workspaces</p>
+          }
+        }
+        @for (workspace of others(); track s.trackWorkspace($index, workspace)) {
+          <ng-container [ngTemplateOutlet]='row' [ngTemplateOutletContext]='{ $implicit: workspace }' />
+        }
+        @if (s.workspaces().length === 0) {
+          <div class='empty-state'>
+            <p>No workspaces yet. Use + to attach a folder.</p>
+          </div>
+        }
+      </div>
+
+      <ng-template #row let-workspace>
+        <div
+          class='source-row-wrap'
+          [class.is-selected]='workspace.id === viewed()?.id'
+          [class.is-activated]='isActive(workspace)'
+        >
+          <button
+            type='button'
+            class='source-row ws-row'
+            role='option'
+            [attr.aria-selected]='workspace.id === viewed()?.id'
+            [title]='workspace.path'
+            (click)='view(workspace.id)'
+          >
+            <div class='source-row__body'>
+              <div class='source-row__top'>
+                <strong>{{ workspace.name }}</strong>
+              </div>
+              <span class='source-row__kind ws-row__path'>{{ workspace.path }}</span>
+            </div>
+          </button>
+          <button
+            type='button'
+            class='ws-row__star'
+            [class.is-on]='workspace.favorite'
+            (click)='s.toggleWorkspaceFavorite(workspace.id)'
+            [title]="workspace.favorite ? 'Unfavorite' : 'Favorite'"
+            [attr.aria-label]="(workspace.favorite ? 'Unfavorite ' : 'Favorite ') + workspace.name"
+            [attr.aria-pressed]='!!workspace.favorite'
+          >
+            <lucide-icon name='star' [size]='14' />
+          </button>
+          <button
+            type='button'
+            class='source-row__remove'
+            (click)='remove(workspace.id)'
+            [title]="'Remove ' + workspace.name"
+            [attr.aria-label]="'Remove ' + workspace.name"
+          >
+            <lucide-icon name='trash' [size]='14' />
+          </button>
+        </div>
+      </ng-template>
+    </div>
+
+    <div class='settings-editor'>
+      @if (viewed(); as workspace) {
+        <div class='settings-editor__header ws-detail__header'>
+          <div class='ws-detail__title'>
+            <p class='settings-eyebrow'>Workspace</p>
+            <h4>{{ workspace.name }}</h4>
+            <div class='ws-detail__pills'>
+              @if (isActive(workspace)) {
+                <span class='pill pill--success'>Active</span>
+              } @else {
+                <span class='pill'>Inactive</span>
+              }
+              @if (workspace.favorite) {
+                <span class='pill'>Favorite</span>
+              }
+            </div>
+          </div>
+          <div class='ws-detail__actions'>
+            <button
+              type='button'
+              class='action-button ws-detail__favorite'
+              [class.is-on]='workspace.favorite'
+              [attr.aria-pressed]='!!workspace.favorite'
+              (click)='s.toggleWorkspaceFavorite(workspace.id)'
+            >
+              <lucide-icon name='star' [size]='15' />
+              {{ workspace.favorite ? 'Favorited' : 'Favorite' }}
+            </button>
+            @if (!isActive(workspace)) {
+              <button type='button' class='action-button action-button--primary' (click)='s.selectWorkspace(workspace.id)'>
+                <lucide-icon name='folder' [size]='15' />
+                Make active
+              </button>
+            }
+            <button type='button' class='action-button action-button--danger' (click)='remove(workspace.id)'>
+              <lucide-icon name='trash' [size]='15' />
+              Remove
+            </button>
+          </div>
+        </div>
+
+        <section class='form-section'>
+          <dl class='ws-detail__fields'>
+            <dt>Folder</dt>
+            <dd><code class='ws-detail__path'>{{ workspace.path }}</code></dd>
+
+            <dt>Added</dt>
+            <dd>{{ formatDate(workspace.createdAt) }}</dd>
+
+            <dt>Last opened</dt>
+            <dd>{{ formatDate(workspace.lastOpenedAt) }}</dd>
+
+            <dt>Python interpreter</dt>
+            <dd>
+              @if (workspace.pythonInterpreterId) {
+                <code>{{ workspace.pythonInterpreterId }}</code>
+              } @else {
+                App default
+              }
+            </dd>
+
+            <dt>System prompt</dt>
+            <dd>{{ workspace.systemPromptSourceName || 'Default' }}</dd>
+
+            <dt>Workspace id</dt>
+            <dd><code>{{ workspace.id }}</code></dd>
+          </dl>
+        </section>
+
+        <p class='settings-copy ws-detail__note'>
+          Removing a workspace deletes its chats and Clara app data. The folder and its files on disk are not touched.
+        </p>
+      } @else {
+        <div class='empty-state'>
+          <p>Attach a folder to give the agent local project context.</p>
+          <button type='button' class='action-button action-button--primary' (click)='add()'>
+            <lucide-icon name='folder-plus' [size]='15' />
+            Add workspace
+          </button>
+        </div>
+      }
+    </div>
+  </div>
+</div>

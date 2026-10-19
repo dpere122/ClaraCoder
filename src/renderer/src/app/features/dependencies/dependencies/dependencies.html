@@ -2,19 +2,52 @@
   <header class='deps-header'>
     <div class='deps-header__titles'>
       <h2>Dependencies</h2>
-      <p class='deps-copy'>Runtime pieces Clara downloads on demand.</p>
+      @if (!firstLoad() && summary().total > 0) {
+        <span class='deps-summary' [class.deps-summary--ok]='summary().installed === summary().total'>
+          {{ summary().installed }} of {{ summary().total }} installed
+        </span>
+        @if (summary().issues > 0) {
+          <span class='deps-summary deps-summary--issue'>
+            {{ summary().issues }} need{{ summary().issues === 1 ? 's' : '' }} attention
+          </span>
+        }
+      } @else {
+        <p class='deps-copy'>Runtime pieces Clara downloads on demand.</p>
+      }
     </div>
+    <button
+      type='button'
+      class='deps-btn'
+      [disabled]='listLoading() || (isInstalling() && !isFailed())'
+      (click)='refreshList()'
+    >
+      Refresh
+    </button>
     <button type='button' class='deps-close-btn' (click)='closeWindow()'>Close</button>
   </header>
 
   @if (isInstalling() && activeDep(); as dep) {
     <!-- Focused install view: just this dependency + a live terminal log -->
-    <section class='deps-focused' aria-label='Installing {{ dep.label }}'>
-      <article class='deps-row' [attr.data-state]='dep.state'>
+    <section class='deps-focused' [attr.aria-label]="(isFailed() ? 'Install failed: ' : 'Installing ') + dep.label">
+      @if (isFailed()) {
+        <div class='deps-failed' role='alert'>
+          <div class='deps-failed__copy'>
+            <strong>{{ dep.label }} didn't install</strong>
+            <span>The log below shows what happened.</span>
+          </div>
+          <button type='button' class='deps-btn' (click)='backToList()'>Back to list</button>
+          @if (!downloadComingSoon(dep)) {
+            <button type='button' class='deps-btn deps-btn--primary' [disabled]='isBusy(dep.id)' (click)='retry(dep)'>
+              Retry
+            </button>
+          }
+        </div>
+      }
+      <article class='deps-row' [attr.data-state]='displayState(dep)'>
         <div class='deps-row__main'>
           <div class='deps-row__head'>
             <h3>{{ dep.label }}</h3>
-            <span class='deps-badge' [attr.data-state]='dep.state'>{{ stateLabel(dep.state) }}</span>
+            <span class='deps-badge' [attr.data-state]='displayState(dep)'>{{ stateLabel(displayState(dep)) }}</span>
             @if (dep.version) {
               <span class='deps-pill'>{{ dep.version }}</span>
             }
@@ -32,23 +65,37 @@
               <span class='deps-chip'>{{ c }}</span>
             }
           </div>
-          @if (dep.error) {
+          @if (isFailed() && dep.error) {
             <p class='deps-error'>{{ dep.error }}</p>
           }
-          @if (progressFor(dep.id); as prog) {
-            @if (prog.phase !== 'done') {
+          @if (!isFailed()) {
+            @let pv = progressViewFor(dep.id);
+            <div class='deps-progress' aria-live='polite'>
+              <div class='deps-progress__head'>
+                @if (isCancelling(dep.id)) {
+                  <span class='deps-progress__phase'>Cancelling: removing partial files…</span>
+                } @else {
+                  <span class='deps-progress__phase'>{{ pv.phase }}</span>
+                  @if (pv.percent != null) {
+                    <span class='deps-progress__pct'>{{ pv.percent }}%</span>
+                  }
+                  <span class='deps-progress__detail'>{{ pv.detail }}</span>
+                }
+                <button
+                  type='button'
+                  class='deps-btn deps-btn--danger deps-btn--small deps-progress__cancel'
+                  [disabled]='isCancelling(dep.id)'
+                  (click)='cancelInstall(dep)'
+                >
+                  {{ isCancelling(dep.id) ? 'Cancelling…' : 'Cancel' }}
+                </button>
+              </div>
               <progress
                 class='deps-progress__bar'
-                [attr.max]='installPercent(dep.id) != null ? 100 : (prog.bytesTotal && prog.bytesTotal > 0 ? prog.bytesTotal : null)'
-                [attr.value]='
-                  installPercent(dep.id) != null
-                    ? installPercent(dep.id)
-                    : prog.bytesTotal && prog.bytesTotal > 0
-                      ? prog.bytesDone ?? null
-                      : null
-                '
+                max='100'
+                [attr.value]='isCancelling(dep.id) ? null : pv.percent'
               ></progress>
-            }
+            </div>
           }
         </div>
       </article>
@@ -56,7 +103,7 @@
       <div class='deps-terminal' aria-label='Install log'>
         <div class='deps-terminal__head'>
           <span class='deps-terminal__title'>Install log</span>
-          <span class='deps-terminal__hint'>live output</span>
+          <span class='deps-terminal__hint'>{{ isFailed() ? 'last run' : 'live output' }}</span>
         </div>
         <div class='deps-terminal__body' #logBody>
           @for (line of logFor(dep.id); track line.ts) {
@@ -72,10 +119,10 @@
     <!-- Normal list view: compact rows, no terminal -->
     <div
       class='deps-list-loading'
-      [class.is-active]='listLoading()'
+      [class.is-active]='firstLoad()'
       role='status'
       aria-live='polite'
-      [attr.aria-hidden]='listLoading() ? null : "true"'
+      [attr.aria-hidden]='firstLoad() ? null : "true"'
     >
       <span class='deps-list-loading__spinner-host' aria-hidden='true'>
         <ngx-spinner
@@ -90,113 +137,178 @@
       <p class='deps-copy'>Loading dependencies…</p>
     </div>
 
-    @if (!listLoading()) {
+    @if (!firstLoad()) {
       <section class='deps-list' aria-label='Dependency list'>
-        @for (dep of dependencies(); track dep.id) {
-          <article class='deps-row' [attr.data-state]='dep.state'>
-            <div class='deps-row__main'>
-              <div class='deps-row__head'>
-                <h3 [attr.title]='dep.description'>{{ dep.label }}</h3>
-                <span class='deps-badge' [attr.data-state]='dep.state'>{{ stateLabel(dep.state) }}</span>
-                @if (dep.version) {
-                  <span class='deps-pill'>{{ dep.version }}</span>
-                }
-                <span class='deps-pill' [attr.title]='dep.sizeHint'>{{ sizeShort(dep.sizeHint) }}</span>
+        @for (group of groups(); track group.id) {
+          <div class='deps-group' role='group' [attr.aria-label]='group.label'>
+            <h4 class='deps-group__title'>
+              {{ group.label }}
+              @if (group.comingSoon) {
+                <span class='deps-badge deps-badge--soon'>Coming soon</span>
+              }
+            </h4>
+            @for (dep of group.deps; track dep.id) {
+              <article class='deps-row' [attr.data-state]='displayState(dep)'>
+                <div class='deps-row__main'>
+                  <div class='deps-row__head'>
+                    <h3>{{ dep.label }}</h3>
+                    <span class='deps-badge' [attr.data-state]='displayState(dep)'>{{ stateLabel(displayState(dep)) }}</span>
+                    @if (dep.version) {
+                      <span class='deps-pill'>{{ dep.version }}</span>
+                    }
+                    <span class='deps-pill' [attr.title]='dep.sizeHint'>{{ sizeShort(dep.sizeHint) }}</span>
 
-                @if (isLlamaServer(dep)) {
-                  <label class='deps-inline-select' [attr.for]="'variant-' + dep.id">
-                    <span>Build</span>
-                    <app-pill-select
-                      [controlId]="'variant-' + dep.id"
-                      [disabled]='isBusy(dep.id)'
-                      [value]='variantFor(dep)'
-                      [options]='variantPillOptions()'
-                      ariaLabel='llama-server build'
-                      (valueChange)='setVariant(dep, $any($event))'
-                    />
-                  </label>
-                }
-                @if (isWhisper(dep)) {
-                  <label class='deps-inline-select' [attr.for]="'whisper-size-' + dep.id">
-                    <span>Model</span>
-                    <app-pill-select
-                      [controlId]="'whisper-size-' + dep.id"
-                      [disabled]='isBusy(dep.id)'
-                      [value]='whisperSizeFor(dep)'
-                      [options]='whisperSizeOptions'
-                      valueKey='value'
-                      ariaLabel='Whisper model size'
-                      (valueChange)='setWhisperSize(dep, $event)'
-                    />
-                  </label>
-                }
-              </div>
+                    @if (isLlamaServer(dep)) {
+                      <label class='deps-inline-select' [attr.for]="'variant-' + dep.id">
+                        <span>Build</span>
+                        <app-pill-select
+                          [controlId]="'variant-' + dep.id"
+                          [disabled]='isBusy(dep.id)'
+                          [value]='variantFor(dep)'
+                          [options]='variantPillOptions()'
+                          ariaLabel='llama-server build'
+                          (valueChange)='setVariant(dep, $any($event))'
+                        />
+                      </label>
+                    }
+                    @if (isWhisper(dep)) {
+                      <label class='deps-inline-select' [attr.for]="'whisper-size-' + dep.id">
+                        <span>Model</span>
+                        <app-pill-select
+                          [controlId]="'whisper-size-' + dep.id"
+                          [disabled]='isBusy(dep.id)'
+                          [value]='whisperSizeFor(dep)'
+                          [options]='whisperSizeOptions'
+                          valueKey='value'
+                          ariaLabel='Whisper model size'
+                          (valueChange)='setWhisperSize(dep, $event)'
+                        />
+                      </label>
+                    }
+                  </div>
 
-              <p class='deps-copy deps-row__desc'>{{ dep.description }}</p>
-
-              <div class='deps-components'>
-                <span class='deps-components__label'>Installs</span>
-                @for (c of visibleComponents(dep); track c) {
-                  <span class='deps-chip'>{{ c }}</span>
-                }
-                @if (hiddenComponentCount(dep) > 0) {
-                  <button type='button' class='deps-chip deps-chip--more' (click)='toggleComponents(dep)'>
-                    +{{ hiddenComponentCount(dep) }} more
-                  </button>
-                } @else if (isComponentsExpanded(dep)) {
-                  <button type='button' class='deps-chip deps-chip--more' (click)='toggleComponents(dep)'>less</button>
-                }
-                @if (isWhisper(dep) && dep.downloadedModels?.length) {
-                  <span class='deps-components__label deps-components__label--sep'>Downloaded</span>
-                  @for (size of dep.downloadedModels; track size) {
-                    <span class='deps-chip deps-chip--ok'>{{ size }}</span>
+                  <p class='deps-copy deps-row__desc'>{{ dep.description }}</p>
+                  @if (variantHint(dep); as hint) {
+                    <p class='deps-note deps-note--action'>{{ hint }}</p>
                   }
-                }
-              </div>
+                  @if (displayState(dep) === 'partial') {
+                    <p class='deps-note'>
+                      Model weights ({{ dep.downloadedModels!.join(', ') }}) are on disk, but the Whisper packages
+                      aren't installed yet.
+                    </p>
+                  }
+                  @if (rowMessage(dep.id); as msg) {
+                    <p class='deps-row-msg' [attr.data-tone]='msg.tone' role='status'>{{ msg.text }}</p>
+                  }
+                  @if (dep.error && rowMessage(dep.id)?.tone !== 'error') {
+                    <p class='deps-error'>{{ dep.error }}</p>
+                  }
 
-              @if (dep.path) {
-                <p class='deps-path' [attr.title]='dep.path'>{{ dep.path }}</p>
-              }
-              @if (dep.error) {
-                <p class='deps-error'>{{ dep.error }}</p>
-              }
-            </div>
-
-            <div class='deps-row__actions'>
-              @if (showDownload(dep)) {
-                <span class='deps-btn-wrap' [attr.title]='downloadComingSoon(dep) ? "Coming soon" : null'>
                   <button
                     type='button'
-                    class='deps-btn deps-btn--primary'
-                    [disabled]='isBusy(dep.id) || downloadComingSoon(dep)'
-                    (click)='download(dep)'
+                    class='deps-details-toggle'
+                    [attr.aria-expanded]='isDetailsOpen(dep)'
+                    [attr.aria-controls]="'deps-details-' + dep.id"
+                    (click)='toggleDetails(dep)'
                   >
-                    Download
+                    <span class='deps-details-toggle__chevron' aria-hidden='true'></span>
+                    Details
                   </button>
-                </span>
-              }
-              @if (dep.state === 'installed' || dep.state === 'error') {
-                <span class='deps-btn-wrap' [attr.title]='downloadComingSoon(dep) ? "Coming soon" : null'>
-                  <button
-                    type='button'
-                    class='deps-btn'
-                    [disabled]='isBusy(dep.id) || downloadComingSoon(dep)'
-                    (click)='reinstall(dep)'
-                  >
-                    Reinstall
-                  </button>
-                </span>
-              }
-              <button
-                type='button'
-                class='deps-btn deps-btn--danger'
-                [disabled]='isBusy(dep.id) || !dep.canDelete || dep.state === "missing"'
-                (click)='remove(dep)'
-              >
-                Delete
-              </button>
-            </div>
-          </article>
+
+                  @if (isDetailsOpen(dep)) {
+                    <div class='deps-details' [id]="'deps-details-' + dep.id">
+                      <div class='deps-details__section'>
+                        <span class='deps-details__label'>Installs</span>
+                        <div class='deps-components'>
+                          @for (c of componentsFor(dep); track c) {
+                            @if (componentUrl(dep, c); as url) {
+                              <a class='deps-chip deps-chip--link' [href]='url' target='_blank' rel='noopener' [attr.title]="url">{{ c }}</a>
+                            } @else {
+                              <span class='deps-chip'>{{ c }}</span>
+                            }
+                          }
+                        </div>
+                      </div>
+
+                      @if (isWhisper(dep) && dep.downloadedModels?.length) {
+                        <div class='deps-details__section'>
+                          <span class='deps-details__label'>Downloaded models</span>
+                          <div class='deps-components'>
+                            @for (size of dep.downloadedModels; track size) {
+                              <span class='deps-chip deps-chip--ok'>{{ size }}</span>
+                            }
+                          </div>
+                        </div>
+                      }
+
+                      @if (dep.path) {
+                        <div class='deps-details__section'>
+                          <span class='deps-details__label'>Location</span>
+                          <div class='deps-location'>
+                            <code class='deps-path' [attr.title]='dep.path'>{{ dep.path }}</code>
+                            <button type='button' class='deps-btn deps-btn--small' (click)='revealPath(dep)'>Open folder</button>
+                            <button type='button' class='deps-btn deps-btn--small' (click)='copyPath(dep)'>Copy path</button>
+                          </div>
+                        </div>
+                      }
+
+                      <div class='deps-details__section'>
+                        <span class='deps-details__label'>Installed from</span>
+                        <ul class='deps-sources'>
+                          @for (src of sourcesFor(dep); track src.url) {
+                            <li class='deps-source'>
+                              <a class='deps-source__link' [href]='src.url' target='_blank' rel='noopener'>{{ src.label }}</a>
+                              <span class='deps-source__url'>{{ src.url }}</span>
+                              <span class='deps-source__detail'>{{ src.detail }}</span>
+                            </li>
+                          }
+                        </ul>
+                      </div>
+                    </div>
+                  }
+                </div>
+
+                <div class='deps-row__actions'>
+                  @if (dep.state === 'error' && hasLog(dep)) {
+                    <button type='button' class='deps-btn' (click)='viewLog(dep)'>View log</button>
+                  }
+                  @if (!downloadComingSoon(dep)) {
+                    @if (showDownload(dep)) {
+                      <button
+                        type='button'
+                        class='deps-btn deps-btn--primary'
+                        [disabled]='isBusy(dep.id)'
+                        (click)='download(dep)'
+                      >
+                        Download
+                      </button>
+                    }
+                    @if (dep.state === 'installed' || dep.state === 'error') {
+                      <button
+                        type='button'
+                        class='deps-btn'
+                        [class.deps-btn--primary]='!!variantHint(dep)'
+                        [disabled]='isBusy(dep.id)'
+                        (click)='reinstall(dep)'
+                      >
+                        Reinstall
+                      </button>
+                    }
+                  }
+                  @if (dep.canDelete && dep.state !== 'missing') {
+                    <button
+                      type='button'
+                      class='deps-btn deps-btn--danger'
+                      [disabled]='isBusy(dep.id)'
+                      (click)='remove(dep)'
+                    >
+                      Delete…
+                    </button>
+                  }
+                </div>
+              </article>
+            }
+          </div>
         } @empty {
           <p class='deps-copy'>No dependencies reported.</p>
         }
@@ -204,12 +316,11 @@
     }
   }
 
-  <footer class='deps-footer'>
-    @if (statusMessage()) {
+  <app-themed-confirm-dialog />
+
+  @if (statusMessage()) {
+    <footer class='deps-footer'>
       <p class='deps-status' role='status'>{{ statusMessage() }}</p>
-    }
-    <button type='button' class='deps-btn' [disabled]='listLoading() || isInstalling()' (click)='refreshList()'>
-      Refresh
-    </button>
-  </footer>
+    </footer>
+  }
 </div>

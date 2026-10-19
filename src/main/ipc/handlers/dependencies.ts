@@ -1,6 +1,8 @@
-import { ipcMain } from 'electron';
+import { promises as fs } from 'fs';
+import { ipcMain, shell } from 'electron';
 import { defaultDependencyCatalog, type DependencyId } from '../../../shared';
 import {
+  cancelDependencyInstall,
   deleteDependency,
   installDependency,
   isKnownDependencyId,
@@ -63,6 +65,42 @@ export function registerDependenciesIpc(): void {
       return { ok: false as const, error: `Unknown dependency: ${depId}` };
     }
     return deleteDependency(depId as DependencyId);
+  });
+
+  ipcMain.handle('deps:cancel', async (event, depId: string) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return { ok: false as const, error: 'Untrusted IPC sender' };
+    }
+    if (!isKnownDependencyId(depId)) {
+      return { ok: false as const, error: `Unknown dependency: ${depId}` };
+    }
+    return cancelDependencyInstall(depId as DependencyId);
+  });
+
+  // Renderer passes only an id; the path comes from the dependency's own status report.
+  ipcMain.handle('deps:reveal', async (event, depId: string) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return { ok: false as const, error: 'Untrusted IPC sender' };
+    }
+    if (!isKnownDependencyId(depId)) {
+      return { ok: false as const, error: `Unknown dependency: ${depId}` };
+    }
+    try {
+      const { dependencies } = await listDependencies();
+      const target = dependencies.find((d) => d.id === depId)?.path;
+      if (!target) {
+        return { ok: false as const, error: 'Not installed' };
+      }
+      await fs.stat(target);
+      shell.showItemInFolder(target);
+      return { ok: true as const };
+    } catch (err) {
+      return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
+    }
   });
 
   ipcMain.on('open-dependencies-window', (event) => {

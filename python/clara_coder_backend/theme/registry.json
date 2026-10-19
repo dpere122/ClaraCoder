@@ -360,12 +360,19 @@
         "--t-bg",
         "--t-bg-surface",
         "--t-border",
+        "--t-code-text",
+        "--t-danger",
+        "--t-error",
         "--t-fg",
         "--t-font",
         "--t-hover-bg",
+        "--t-log-level-info",
         "--t-mono",
         "--t-primary",
-        "--t-text-muted"
+        "--t-secondary",
+        "--t-success",
+        "--t-text-muted",
+        "--t-warn"
       ],
       "supportsBackground": false,
       "description": "Dependencies manager window."

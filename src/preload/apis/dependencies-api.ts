@@ -15,6 +15,10 @@ export const createDependenciesApi = (ipcRenderer: PreloadIpc) => ({
     ipcRenderer.invoke('deps:reinstall', depId, variant ?? null) as Promise<DependencyActionResult>,
   depsDelete: (depId: DependencyId) =>
     ipcRenderer.invoke('deps:delete', depId) as Promise<DependencyActionResult>,
+  depsCancel: (depId: DependencyId) =>
+    ipcRenderer.invoke('deps:cancel', depId) as Promise<{ ok: boolean; error?: string }>,
+  depsReveal: (depId: DependencyId) =>
+    ipcRenderer.invoke('deps:reveal', depId) as Promise<{ ok: boolean; error?: string }>,
   openDependenciesWindow: () => ipcRenderer.send('open-dependencies-window'),
   closeDependenciesWindow: () => ipcRenderer.send('close-dependencies-window'),
   onDepsProgress: (callback: (event: unknown, data: DependencyProgressEvent) => void) =>

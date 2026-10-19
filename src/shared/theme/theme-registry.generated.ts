@@ -113,7 +113,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Dependencies manager window.",
     selector: "[data-theme-group=\"dependencies.window\"]",
     component: "app/features/dependencies/dependencies",
-    tokens: ["--t-bg", "--t-bg-surface", "--t-border", "--t-fg", "--t-font", "--t-hover-bg", "--t-mono", "--t-primary", "--t-text-muted"],
+    tokens: ["--t-bg", "--t-bg-surface", "--t-border", "--t-code-text", "--t-danger", "--t-error", "--t-fg", "--t-font", "--t-hover-bg", "--t-log-level-info", "--t-mono", "--t-primary", "--t-secondary", "--t-success", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {

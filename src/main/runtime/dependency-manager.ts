@@ -2,7 +2,7 @@
  * Orchestrates managed runtime dependencies via the Python FastAPI sidecar
  * (or CLI bootstrap when the sidecar is not yet healthy).
  */
-import { spawn } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import { mkdirSync } from 'fs';
 import path = require('path');
 import { app } from 'electron';
@@ -126,6 +126,17 @@ function logDeps(level: string, message: string): void {
   void ingestElectronLog(level, DEPS_LOGGER, message, 'electron');
 }
 
+/** How long a CLI install gets to stop and clean up after ``cancel`` before it is killed. */
+const CLI_CANCEL_GRACE_MS = 30_000;
+
+/** Installs in flight, so a cancel reaches the process that is actually running them. */
+interface ActiveInstall {
+  via: 'http' | 'cli';
+  proc?: ChildProcess;
+  cancelRequested: boolean;
+}
+const activeInstalls = new Map<DependencyId, ActiveInstall>();
+
 /** Deps that change the interpreter / site-packages the FastAPI sidecar must reload. */
 const SIDECAR_RESTART_DEPS = new Set<DependencyId>(['python-runtime', 'kokoro', 'whisper']);
 
@@ -166,10 +177,16 @@ function bootstrapPythonCmd(): string | null {
 }
 
 async function runDepsCli(
-  action: 'list' | 'install' | 'reinstall' | 'delete' | 'status',
+  action: 'list' | 'install' | 'reinstall' | 'delete' | 'status' | 'cleanup',
   depId?: DependencyId,
   variant?: string | null,
-): Promise<{ ok: boolean; dependencies?: DependencyInfo[]; dependency?: DependencyInfo; error?: string }> {
+): Promise<{
+  ok: boolean;
+  dependencies?: DependencyInfo[];
+  dependency?: DependencyInfo;
+  error?: string;
+  cancelled?: boolean;
+}> {
   ensureRuntimeDirs();
   const py = bootstrapPythonCmd();
   if (!py) {
@@ -194,12 +211,23 @@ async function runDepsCli(
   const cwd = pythonPackageRoot();
   logDeps('INFO', `CLI ${action}${depId ? ` ${depId}` : ''}${variant ? ` variant=${variant}` : ''} via ${py} (cwd=${cwd})`);
 
+  const cancellable = (action === 'install' || action === 'reinstall') && !!depId;
   return new Promise((resolve) => {
     const proc = spawn(py, args, {
       cwd,
       env: runtimeEnv(),
-      stdio: ['ignore', 'pipe', 'pipe'],
+      // stdin carries the ``cancel`` request for installs.
+      stdio: [cancellable ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     });
+    if (cancellable && depId) {
+      const entry = activeInstalls.get(depId);
+      if (entry) {
+        entry.via = 'cli';
+        entry.proc = proc;
+        // Cancel arrived while the HTTP attempt was being abandoned: forward it now.
+        if (entry.cancelRequested) proc.stdin?.write('cancel\n');
+      }
+    }
     let stdout = '';
     let stderr = '';
     proc.stdout?.on('data', (buf: Buffer) => {
@@ -252,6 +280,7 @@ async function runDepsCli(
             dependencies?: DependencyInfo[];
             dependency?: DependencyInfo;
             error?: string;
+            cancelled?: boolean;
           },
         );
       } catch {
@@ -334,6 +363,8 @@ async function runInstallOrReinstall(
   logDeps('INFO', `${action} ${depId}${variant ? ` variant=${variant}` : ''} starting`);
   const ac = new AbortController();
   startHttpProgressPump(ac.signal);
+  const install: ActiveInstall = { via: 'http', cancelRequested: false };
+  activeInstalls.set(depId, install);
   let result: DependencyActionResult;
   try {
     if (await isPythonHealthy()) {
@@ -347,6 +378,9 @@ async function runInstallOrReinstall(
         if (http.ok) {
           broadcastProgress({ depId, phase: 'done' });
           result = http;
+        } else if (http.cancelled) {
+          broadcastProgress({ depId, phase: 'cancelled' });
+          result = http;
         } else {
           broadcastProgress({ depId, phase: 'error', message: http.error });
           // Action failed in-process; still try CLI as a second path when HTTP returned ok:false
@@ -355,36 +389,98 @@ async function runInstallOrReinstall(
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        logDeps('WARNING', `HTTP ${action} ${depId} failed, falling back to CLI: ${msg}`);
-        const cli = await runDepsCli(action, depId, variant);
-        result = {
-          ok: !!cli.ok,
-          error: cli.error || msg,
-          dependency: cli.dependency,
-        };
-        if (result.ok) broadcastProgress({ depId, phase: 'done' });
-        else broadcastProgress({ depId, phase: 'error', message: result.error });
+        if (install.cancelRequested) {
+          // Don't start the install over in a CLI child after the user cancelled it.
+          logDeps('WARNING', `HTTP ${action} ${depId} ended after cancel: ${msg}`);
+          const cleanup = await runDepsCli('cleanup', depId);
+          broadcastProgress({ depId, phase: 'cancelled' });
+          result = { ok: false, cancelled: true, error: 'Install cancelled', dependency: cleanup.dependency };
+        } else {
+          logDeps('WARNING', `HTTP ${action} ${depId} failed, falling back to CLI: ${msg}`);
+          result = await runCliInstall(action, depId, variant, msg);
+        }
       }
     } else {
-      const cli = await runDepsCli(action, depId, variant);
-      result = {
-        ok: !!cli.ok,
-        error: cli.error,
-        dependency: cli.dependency,
-      };
-      if (result.ok) broadcastProgress({ depId, phase: 'done' });
-      else broadcastProgress({ depId, phase: 'error', message: result.error });
+      result = await runCliInstall(action, depId, variant);
     }
   } finally {
     ac.abort();
+    activeInstalls.delete(depId);
   }
   if (result.ok) {
     logDeps('INFO', `${action} ${depId} succeeded`);
+  } else if (result.cancelled) {
+    logDeps('INFO', `${action} ${depId} cancelled`);
   } else {
     logDeps('ERROR', `${action} ${depId} failed: ${result.error ?? 'unknown error'}`);
   }
   await maybeRestartSidecar(depId, result.ok);
   return result;
+}
+
+/** Install through the CLI child; a cancelled run is reported as ``cancelled``, not an error. */
+async function runCliInstall(
+  action: 'install' | 'reinstall',
+  depId: DependencyId,
+  variant?: string | null,
+  httpError?: string,
+): Promise<DependencyActionResult> {
+  const cli = await runDepsCli(action, depId, variant);
+  // Killed after the grace period: the child never cleaned up, so run cleanup on its own.
+  if (!cli.ok && !cli.cancelled && activeInstalls.get(depId)?.cancelRequested) {
+    const cleanup = await runDepsCli('cleanup', depId);
+    broadcastProgress({ depId, phase: 'cancelled' });
+    return { ok: false, cancelled: true, error: 'Install cancelled', dependency: cleanup.dependency };
+  }
+  const result: DependencyActionResult = {
+    ok: !!cli.ok,
+    cancelled: !!cli.cancelled,
+    error: cli.error || httpError,
+    dependency: cli.dependency,
+  };
+  if (result.ok) broadcastProgress({ depId, phase: 'done' });
+  else if (result.cancelled) broadcastProgress({ depId, phase: 'cancelled' });
+  else broadcastProgress({ depId, phase: 'error', message: result.error });
+  return result;
+}
+
+/**
+ * Stop a running install. The install removes its partial files before it reports back
+ * (``phase: 'cancelled'``); a CLI child that ignores the request is killed after a grace
+ * period and cleaned up by a separate ``cleanup`` run.
+ */
+export async function cancelDependencyInstall(depId: DependencyId): Promise<{ ok: boolean; error?: string }> {
+  const install = activeInstalls.get(depId);
+  if (!install) return { ok: false, error: 'No install is running' };
+  if (install.cancelRequested) return { ok: true };
+  install.cancelRequested = true;
+  logDeps('INFO', `cancel ${depId} requested (${install.via})`);
+  if (install.via === 'cli') {
+    const proc = install.proc;
+    if (proc && proc.exitCode === null) {
+      proc.stdin?.write('cancel\n');
+      const timer = setTimeout(() => {
+        if (proc.exitCode === null) {
+          logDeps('WARNING', `cancel ${depId}: CLI did not stop within ${CLI_CANCEL_GRACE_MS} ms; killing it`);
+          proc.kill();
+        }
+      }, CLI_CANCEL_GRACE_MS);
+      proc.once('close', () => clearTimeout(timer));
+    }
+    return { ok: true };
+  }
+  const res = await viaHttp<{ ok: boolean; error?: string }>('/runtime/deps/cancel', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ depId }),
+  });
+  if (!res?.ok) {
+    // The sidecar may not have registered the install yet, or it already finished.
+    install.cancelRequested = false;
+    logDeps('WARNING', `cancel ${depId} via HTTP not accepted: ${res?.error ?? 'no response'}`);
+    return { ok: false, error: res?.error ?? 'Could not reach the backend to cancel' };
+  }
+  return { ok: true };
 }
 
 export async function listDependencies(): Promise<{

@@ -2182,6 +2182,16 @@ export class ElectronService {
     return this.api?.depsDelete(depId) ?? Promise.resolve({ ok: false, error: 'No Electron API' });
   }
 
+  /** Stop a running install; it removes its partial files before reporting ``cancelled``. */
+  depsCancel(depId: import('@shared/index').DependencyId): Promise<{ ok: boolean; error?: string }> {
+    return this.api?.depsCancel?.(depId) ?? Promise.resolve({ ok: false, error: 'No Electron API' });
+  }
+
+  /** Show the dependency's installed path in the OS file manager. */
+  depsReveal(depId: import('@shared/index').DependencyId): Promise<{ ok: boolean; error?: string }> {
+    return this.api?.depsReveal?.(depId) ?? Promise.resolve({ ok: false, error: 'No Electron API' });
+  }
+
   openDependenciesWindow(): void {
     this.api?.openDependenciesWindow();
   }

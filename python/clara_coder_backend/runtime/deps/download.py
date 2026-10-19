@@ -8,12 +8,14 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import threading
 import time
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
 from urllib.request import Request, urlopen
 
+from clara_coder_backend.runtime.deps.cancel import current, is_cancelled, raise_if_cancelled
 from clara_coder_backend.runtime.deps.progress import PROGRESS
 
 logger = logging.getLogger('clara.runtime.deps.download')
@@ -22,6 +24,55 @@ READY_MARKER = '.clara-ready'
 
 # Lines of child output kept for the error message when a streamed step fails.
 _STREAM_ERROR_TAIL = 40
+# How often a running child is checked for a cancel request.
+_CANCEL_POLL_S = 0.25
+
+
+def terminate_process_tree(proc: subprocess.Popen) -> None:
+    """Stop ``proc`` and its children (pip / cmake spawn helpers that a plain kill would orphan)."""
+
+    if proc.poll() is not None:
+        return
+    try:
+        if sys.platform == 'win32':
+            subprocess.run(
+                ['taskkill', '/PID', str(proc.pid), '/T', '/F'],
+                capture_output=True,
+                timeout=15,
+                check=False,
+            )
+        else:
+            import signal
+
+            os.killpg(proc.pid, signal.SIGTERM)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(proc.pid, signal.SIGKILL)
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning('could not stop process tree %s: %s', proc.pid, exc)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+
+
+def _stop_on_cancel(proc: subprocess.Popen, dep_id: str | None) -> threading.Thread | None:
+    """Watch for a cancel request while ``proc`` runs (its output may be silent for minutes)."""
+
+    if dep_id is None:
+        return None
+
+    def _watch() -> None:
+        while proc.poll() is None:
+            if is_cancelled(dep_id):
+                logger.info('cancel requested for %s; stopping pid %s', dep_id, proc.pid)
+                terminate_process_tree(proc)
+                return
+            time.sleep(_CANCEL_POLL_S)
+
+    watcher = threading.Thread(target=_watch, name=f'deps-cancel-{dep_id}', daemon=True)
+    watcher.start()
+    return watcher
 
 
 def run_streaming(
@@ -56,6 +107,9 @@ def run_streaming(
     child_env.setdefault('PYTHONUNBUFFERED', '1')
     child_env.setdefault('PYTHONIOENCODING', 'utf-8')
 
+    # Cancel follows the install that is running (Kokoro's pip step is labelled python-runtime).
+    cancel_id = current() or dep_id
+    raise_if_cancelled(cancel_id)
     try:
         proc = subprocess.Popen(
             cmd,
@@ -66,11 +120,14 @@ def run_streaming(
             errors='replace',
             bufsize=1,
             env=child_env,
+            # Own process group on POSIX so a cancel can stop the whole tree.
+            start_new_session=sys.platform != 'win32',
         )
     except (FileNotFoundError, OSError) as exc:
         PROGRESS.emit(dep_id, phase, message=f'{label} failed to start: {exc}')
         raise RuntimeError(f'{label} failed: {exc}') from exc
 
+    _stop_on_cancel(proc, cancel_id)
     assert proc.stdout is not None
     collected: list[str] = []
     for line in proc.stdout:
@@ -87,6 +144,7 @@ def run_streaming(
         PROGRESS.emit(dep_id, phase, message=f'{label} timed out after {timeout}s')
         raise RuntimeError(f'{label} timed out after {timeout}s')
 
+    raise_if_cancelled(cancel_id)
     output = '\n'.join(collected)
     if proc.returncode != 0:
         PROGRESS.emit(dep_id, phase, message=f'{label} exited with code {proc.returncode}')
@@ -105,6 +163,7 @@ def download_file(
 ) -> None:
     """Download ``url`` to ``dest`` via a ``.partial`` file, reporting byte progress."""
 
+    raise_if_cancelled()
     dest.parent.mkdir(parents=True, exist_ok=True)
     partial = dest.with_suffix(dest.suffix + '.partial')
     req = Request(url, headers={'User-Agent': 'ClaraCoder-deps/1.0'})
@@ -114,6 +173,7 @@ def download_file(
             total = int(total_hdr) if total_hdr and total_hdr.isdigit() else None
             done = 0
             while True:
+                raise_if_cancelled()
                 chunk = resp.read(1024 * 256)
                 if not chunk:
                     break
@@ -267,19 +327,25 @@ def read_ready_marker(dir_path: Path) -> str | None:
 def extract_archive(archive: Path, dest: Path) -> None:
     """Extract tar.gz / zip into ``dest`` (created fresh)."""
 
+    raise_if_cancelled()
     if dest.exists():
         shutil.rmtree(dest, ignore_errors=True)
     dest.mkdir(parents=True, exist_ok=True)
     name = archive.name.lower()
+    # Member by member so a cancel stops large archives (CUDA builds) between files.
     if name.endswith('.zip'):
         with zipfile.ZipFile(archive, 'r') as zf:
-            zf.extractall(dest)
+            for member in zf.infolist():
+                raise_if_cancelled()
+                zf.extract(member, dest)
         return
     with tarfile.open(archive, 'r:*') as tar:
-        try:
-            tar.extractall(dest, filter='data')
-        except TypeError:
-            tar.extractall(dest)
+        for member in tar:
+            raise_if_cancelled()
+            try:
+                tar.extract(member, dest, filter='data')
+            except TypeError:
+                tar.extract(member, dest)
 
 
 def chmod_executable(path: Path) -> None:

@@ -15,6 +15,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from clara_coder_backend.runtime.deps import cancel as deps_cancel
+from clara_coder_backend.runtime.deps.progress import PROGRESS
+
 logger = logging.getLogger('clara.runtime.deps.jdtls_product')
 
 __all__ = [
@@ -136,9 +139,29 @@ def _product_looks_valid(product_dir: Path) -> bool:
 def _download_file(url: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     partial = dest.with_suffix(dest.suffix + '.partial')
+    # Byte progress / cancel only apply inside a Dependencies-window install of java-lsp;
+    # the LSP manager also calls this on demand, where there is nothing to report to.
+    reporting = deps_cancel.current() == 'java-lsp'
     try:
         with urllib.request.urlopen(url, timeout=120) as resp, partial.open('wb') as out:
-            shutil.copyfileobj(resp, out)
+            total_hdr = resp.headers.get('Content-Length')
+            total = int(total_hdr) if total_hdr and total_hdr.isdigit() else None
+            done = 0
+            while True:
+                deps_cancel.raise_if_cancelled()
+                chunk = resp.read(1024 * 256)
+                if not chunk:
+                    break
+                out.write(chunk)
+                done += len(chunk)
+                if reporting:
+                    PROGRESS.emit(
+                        'java-lsp',
+                        'downloading',
+                        bytes_done=done,
+                        bytes_total=total,
+                        message=f'Downloading {dest.name}…',
+                    )
         partial.replace(dest)
     except Exception:
         if partial.exists():

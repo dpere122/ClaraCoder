@@ -77,6 +77,8 @@ export type ConversationMessage =
       agentRole?: LlmAgentRole;
       streamTag?: string;
     }
+  // Retired review cards (`diff`, `copy_confirm`, `staged_transfer_batch`): nothing creates them now;
+  // they remain so older saved conversations load, render read-only and can still be restored.
   | {
       role: 'diff';
       payload: FileDiffPayload;

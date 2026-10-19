@@ -43,7 +43,6 @@ narrow the variant.
 | `tool_exec_complete` | `streamTag?`, `label?`, `exitCode?: number \| null`, `outputExcerpt?`, `outcome?: 'passed' \| 'failed'` | A tool execution stream finished. `outputExcerpt` is a tail/full replay used when live chunks were empty or incomplete (pytest/overlay). `outcome`, when set, drives the terminal badge instead of the raw exit code (watch-mode smoke tests). |
 | `token_usage` | `inputTokens: number`, `outputTokens?`, `totalTokens?` | Token accounting for a completed LLM request. `inputTokens` maps to OpenAI `prompt_tokens` / LangChain `input_tokens`. |
 | `status` | `status: LlmStatusPayload` | LLM/agent status update (state, label, detail, source, optional `streamTag` and `agentRole`). |
-| `diff` | `diff: FileDiffPayload` | A file diff to render. |
 | `accept_command` | `acceptCommand: AcceptCommandPayload` | HITL prompt to accept a shell command before running. |
 | `delete_confirm` | `deleteConfirm: DeleteConfirmPayload` | HITL prompt to confirm a deletion. |
 | `planner_progress` | `planner: PlannerProgress` | Planner step progress. |
@@ -53,7 +52,6 @@ narrow the variant.
 | `plan_confirm` | `planConfirm: PlanConfirmPayload` | HITL prompt to confirm a proposed plan. `filesToChange` is normalized via `normalizePlanConfirmFilesToChange`. |
 | `agent_question` | `agentQuestion: AgentQuestionPayload` | Agent is asking the user a structured question. |
 | `theme_proposal` | `themeProposal: ThemeProposalPayload` | Agent-authored app theme (`propose_theme` tool). Non-blocking: the card's Preview / Save / Dismiss resolve through Electron IPC, never back to Python. Gated by `isThemeProposalPayload`. |
-| `staged_transfer_batch` | `stagedTransferBatch: StagedTransferBatchPayload` | A batch of staged file transfers. |
 | `final_text` | `text: string` | Terminal, non-streamed text to append after the stream closes. |
 | `clear_primary_stream` | _(none)_ | Instructs the UI to clear the primary stream buffer. |
 | `promote_primary_to_nudge` | _(none)_ | Retags live primary (`agent`) prose as a nudge preview because the graph is jumping back to the model. |
@@ -187,7 +185,6 @@ noted) and lists the wire fields each branch reads.
 | `background_command_open` | `background_command_open` | `command_id`, `command_text`, `cwd_label`, `label`, `stream_tag` |
 | `token_usage` | `token_usage` | `input_tokens`, `output_tokens`, `total_tokens` |
 | `status` | `status` | `status.{id,label,detail,state,source,stream_tag,agent_role}` |
-| `diff` | `diff` | `diff` (object) |
 | `accept_command` | `accept_command` | `acceptCommand` (object) |
 | `delete_confirm` | `delete_confirm` | `deleteConfirm` (object) |
 | `planner_progress` | `planner_progress` | `planner` (object) |
@@ -197,7 +194,6 @@ noted) and lists the wire fields each branch reads.
 | `plan_confirm` | `plan_confirm` | `planConfirm` (object, `filesToChange` normalized) |
 | `agent_question` | `agent_question` | `agentQuestion` (object) |
 | `theme_proposal` | `theme_proposal` | `themeProposal` (object: `version: 1`, `requestId`, `title`, `summary`, `theme`, `warnings?`) |
-| `staged_transfer_batch` | `staged_transfer_batch` | `stagedTransferBatch` (object) |
 | `final_text` | `final_text` | `text` |
 | `clear_primary_stream` | `clear_primary_stream` | _(none)_ |
 | `promote_primary_to_nudge` | `promote_primary_to_nudge` | _(none)_ |

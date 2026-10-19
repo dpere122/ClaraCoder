@@ -123,7 +123,7 @@ declare global {
       callback: (
         event: unknown,
         conversationId: string,
-        usage: { inputTokens: number; outputTokens?: number; totalTokens?: number },
+        usage: { inputTokens: number; outputTokens?: number; totalTokens?: number; generationMs?: number },
       ) => void,
     ) => void;
     onMessageContextCompressed?: (

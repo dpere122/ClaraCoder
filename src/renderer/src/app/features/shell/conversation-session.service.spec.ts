@@ -85,6 +85,7 @@ function mockElectron(overrides: Partial<{
     finalText$: new Subject().asObservable(),
     clearPrimaryStream$: new Subject().asObservable(),
     promotePrimaryToNudge$: new Subject().asObservable(),
+    llmTokenUsage$: new Subject().asObservable(),
     done$: doneSubject.asObservable(),
     config$: configSubject.asObservable(),
     llamaServerLifecycle$: llamaServerLifecycleSubject.asObservable(),

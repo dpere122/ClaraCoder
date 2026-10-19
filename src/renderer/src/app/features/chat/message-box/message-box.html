@@ -124,7 +124,8 @@
           title="Approve shell commands, web requests and MCP tools automatically. Applies to commands only: file edits always land on disk and are reviewed at the end of each turn."
           (click)="autoApplyMode.set(!autoApplyMode())"
         >
-          Auto Run
+          <span class="composer-chip-label composer-chip-label--long">Auto Run</span>
+          <span class="composer-chip-label composer-chip-label--short" aria-hidden="true">Auto</span>
         </button>
         <button
           type="button"
@@ -142,11 +143,24 @@
           (click)="onAdminChipClick()"
         >
           <lucide-icon name="shield" [size]="12" class="composer-chip-icon" aria-hidden="true"></lucide-icon>
-          Admin
+          <span class="composer-chip-label composer-chip-label--admin">Admin</span>
         </button>
       </div>
     }
     <div class="composer-status-cluster">
+      @if (tokenRate(); as rate) {
+        <span
+          class="composer-token-rate"
+          [class.composer-token-rate--idle]="!rate.live"
+          [title]="tokenRateTitle()"
+          role="status"
+          [attr.aria-label]="tokenRateLabel() + ' tokens per second'"
+        >
+          <lucide-icon name="zap" [size]="11" class="composer-token-rate__icon" aria-hidden="true"></lucide-icon>
+          <span class="composer-token-rate__value">{{ tokenRateLabel() }}</span>
+          <span class="composer-token-rate__unit">tok/s</span>
+        </span>
+      }
       <app-context-capacity
         [compact]="true"
         [appConfig]="appConfig()"

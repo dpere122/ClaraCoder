@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -65,6 +66,8 @@ class GraphStreamState:
     llm_step: int = 0
     stream_chunks: int = 0
     stream_chars: int = 0
+    #: ``time.monotonic()`` of the first generated token (text, reasoning or tool args) this LLM step.
+    step_first_token_at: float | None = None
     #: True once a ``stream_tag=reasoning`` chunk was emitted for the current LLM step.
     reasoning_emitted_this_step: bool = False
     gemma_split_for_step: bool = False
@@ -195,6 +198,7 @@ def _on_chat_model_start(
     state.llm_step += 1
     state.stream_chunks = 0
     state.stream_chars = 0
+    state.step_first_token_at = None
     state.deferred_agent_text = ''
     state.reasoning_emitted_this_step = False
     state.gemma_split_for_step = False
@@ -674,6 +678,8 @@ def _on_chat_model_stream(
         return []
     delta = aimessage_chunk_sse_delta(raw)
     reason_delta = aimessage_chunk_reasoning_delta(raw)
+    if state.step_first_token_at is None and (delta or reason_delta or raw.tool_call_chunks):
+        state.step_first_token_at = time.monotonic()
     if delta and _gemma_stream_split_enabled(state, delta):
         main_delta, split_reason = state.gemma_splitter.feed(delta)
         delta = main_delta
@@ -799,6 +805,9 @@ def _on_chat_model_end(
     )
     usage_payload = _token_usage_payload(msg)
     if usage_payload is not None:
+        if state.step_first_token_at is not None:
+            # Decode time only (first token -> end), so tokens/sec excludes prompt prefill.
+            usage_payload['generation_ms'] = round((time.monotonic() - state.step_first_token_at) * 1000)
         lines.insert(0, sse_line(usage_payload))
     if not has_tool_calls:
         if record_model_end_final_text:

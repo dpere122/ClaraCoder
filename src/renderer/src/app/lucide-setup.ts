@@ -48,6 +48,7 @@ import {
   TriangleAlert,
   Undo2,
   X,
+  Zap,
   ZoomIn,
   ZoomOut,
 } from 'lucide-angular';
@@ -109,6 +110,7 @@ export const lucideAppProviders: Array<Provider | EnvironmentProviders> = [
       TriangleAlert,
       Undo2,
       X,
+      Zap,
       ZoomIn,
       ZoomOut,
     }),

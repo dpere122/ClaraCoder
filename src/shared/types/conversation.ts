@@ -30,6 +30,25 @@ export interface StreamPart {
   toolChainState?: 'running' | 'complete' | 'error';
 }
 
+/** How fast the model produced one assistant turn, summed over the turn's model calls. */
+export interface TurnGenerationStats {
+  outputTokens: number;
+  /** Decode time only (first streamed token -> model end), so prefill and tool runs are excluded. */
+  generationMs: number;
+  /** Counted from streamed text because the provider reported no usage for this turn. */
+  estimated?: boolean;
+}
+
+/** Tokens per second for {@link TurnGenerationStats}; 0 when no decode time was measured. */
+export function turnTokensPerSecond(stats: TurnGenerationStats): number {
+  return stats.generationMs > 0 ? (stats.outputTokens * 1000) / stats.generationMs : 0;
+}
+
+/** `8.4` / `42.3` / `118` — one decimal below 100 tok/s, whole numbers above. */
+export function formatTokensPerSecond(tokensPerSecond: number): string {
+  return tokensPerSecond >= 100 ? String(Math.round(tokensPerSecond)) : tokensPerSecond.toFixed(1);
+}
+
 /** Lifecycle of a proposed edit card in the chat transcript. */
 export type DiffReviewStatus = 'pending' | 'complete' | 'cancelled';
 
@@ -66,6 +85,8 @@ export type ConversationMessage =
       auxiliaryStreamTimeline?: StreamPart[];
       /** Files the agent wrote during this turn (end-of-turn review footer). */
       editedFiles?: TurnEditedFile[];
+      /** Output speed of this turn (tok/s readout under the reply and in the composer). */
+      generation?: TurnGenerationStats;
     }
   | {
       role: 'chain';

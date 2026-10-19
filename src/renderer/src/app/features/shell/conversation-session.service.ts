@@ -16,6 +16,7 @@ import type {
   PlannerProgress,
   StreamPart,
   TurnEditedFile,
+  TurnGenerationStats,
 } from '@shared/index';
 import {
   buildTurnFeed,
@@ -46,6 +47,7 @@ import {
   type TurnActivity,
 } from '../chat/chat-box/chat-box';
 import { LiveTurnActivityService } from '../chat/chat-box/live-turn-activity';
+import { GenerationRateService } from '../chat/chat-box/generation-rate';
 import { ElectronService } from '../../core/electron.service';
 import { TtsPlaybackService } from '../../core/tts-playback.service';
 import { buildAssistantTurnFromStreamParts } from './app-assistant-turn';
@@ -89,6 +91,7 @@ export class ConversationSessionService {
   private readonly electron = inject(ElectronService);
   private readonly tts = inject(TtsPlaybackService);
   private readonly liveTurnActivity = inject(LiveTurnActivityService);
+  private readonly generationRate = inject(GenerationRateService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly messages = signal<ChatMessage[]>([]);
@@ -364,6 +367,7 @@ export class ConversationSessionService {
 
     this.electron.done$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, outcome, editedFiles }) => {
       this.removePending(conversationId);
+      const generation = this.generationRate.finishTurn(conversationId);
       const parts =
         conversationId === this.activeConversationId()
           ? this.streamingParts()
@@ -396,6 +400,7 @@ export class ConversationSessionService {
             planner ?? undefined,
             undefined,
             editedFiles,
+            generation,
           );
           const speech = this.hooks.getSpeechSettings();
           if (speech.enabled) {
@@ -420,6 +425,7 @@ export class ConversationSessionService {
             turn.auxiliaryStreamTimeline,
             planner ?? undefined,
             editedFiles,
+            generation,
           )
             .then(() => this.applyMaybeAutoTitleFromMain(conversationId))
             .catch((err) => console.error('[ConversationSession] background save / auto-title failed', err));
@@ -592,6 +598,7 @@ export class ConversationSessionService {
     planner?: PlannerProgress,
     structuredContent?: readonly ChatStructuredContentPart[],
     editedFiles?: readonly TurnEditedFile[],
+    generation?: TurnGenerationStats,
   ): string | undefined {
     let nextMessage: ChatMessage;
     if (role === 'user') {
@@ -609,6 +616,7 @@ export class ConversationSessionService {
       if (auxiliaryStreamTimeline?.length) assistant.auxiliaryStreamTimeline = auxiliaryStreamTimeline;
       if (planner) assistant.planner = planner;
       if (editedFiles?.length) assistant.editedFiles = [...editedFiles];
+      if (generation) assistant.generation = generation;
       nextMessage = assistant;
     }
     this.messages.update((prev) => [...prev, nextMessage]);
@@ -827,6 +835,7 @@ export class ConversationSessionService {
     auxiliaryStreamTimeline?: StreamPart[],
     planner?: PlannerProgress,
     editedFiles?: readonly TurnEditedFile[],
+    generation?: TurnGenerationStats,
   ): Promise<void> {
     const prev = this.backgroundConversationSaveChains.get(conversationId) ?? Promise.resolve();
     const mine = prev.then(async () => {
@@ -840,6 +849,7 @@ export class ConversationSessionService {
         if (auxiliaryStreamTimeline?.length) assistant.auxiliaryStreamTimeline = auxiliaryStreamTimeline;
         if (planner) assistant.planner = planner;
         if (editedFiles?.length) assistant.editedFiles = [...editedFiles];
+        if (generation) assistant.generation = generation;
         conv.messages.push(assistant);
         conv.updatedAt = new Date().toISOString();
         await this.electron.saveConversation(conv);

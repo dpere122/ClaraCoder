@@ -90,6 +90,16 @@
             />
           }
 
+          @if (row.assistant?.generation; as gen) {
+            @if (generationSummary(gen); as summary) {
+              <div class="turn-gen-stats" [title]="summary.title">
+                <lucide-icon name="zap" [size]="11" class="turn-gen-stats__icon" aria-hidden="true"></lucide-icon>
+                <span class="turn-gen-stats__rate">{{ summary.rate }}</span>
+                <span class="turn-gen-stats__detail">{{ summary.detail }}</span>
+              </div>
+            }
+          }
+
           @if (ttsLoading() && isLastPersistedRow(slot.index)) {
             <div class="tts-loading" role="status" aria-live="polite">
               <div class="tts-ngx-host" aria-hidden="true">

@@ -1,8 +1,14 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { BehaviorSubject, Subject } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AppConfig, LlamaServerLifecycleEvent, LlamaServerStatusResult } from '@shared/index';
+import type {
+  AppConfig,
+  ConversationMessage,
+  LlamaServerLifecycleEvent,
+  LlamaServerStatusResult,
+} from '@shared/index';
 import {
   PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   PINNED_LM_STUDIO_PROVIDER_ID,
@@ -10,6 +16,8 @@ import {
 } from '@shared/index';
 import { lucideAppProviders } from '../../../lucide-setup';
 import { ElectronService } from '../../../core/electron.service';
+import { ConversationSessionService } from '../../shell/conversation-session.service';
+import { GenerationRateService, type LiveGenerationRate } from '../chat-box/generation-rate';
 import { MessageBox } from './message-box';
 
 function localLlamaConfig(modelId = 'local-model'): AppConfig {
@@ -90,7 +98,12 @@ describe('MessageBox', () => {
     }),
   );
 
+  const sessionMessages = signal<ConversationMessage[]>([]);
+  const liveRates = signal<Record<string, LiveGenerationRate>>({});
+
   beforeEach(() => {
+    sessionMessages.set([]);
+    liveRates.set({});
     llamaServerStatus.mockReset();
     llamaServerStatus.mockResolvedValue({
       ok: true,
@@ -114,6 +127,11 @@ describe('MessageBox', () => {
             refreshChatTemplateReasoning: vi.fn(async () => null),
           },
         },
+        {
+          provide: ConversationSessionService,
+          useValue: { activeConversationId: signal('conv-1'), messages: sessionMessages },
+        },
+        { provide: GenerationRateService, useValue: { live: liveRates } },
       ],
     });
   });
@@ -161,6 +179,31 @@ describe('MessageBox', () => {
 
     const send = (fixture.nativeElement as HTMLElement).querySelector('.btn-send') as HTMLButtonElement;
     expect(send.disabled).toBe(false);
+  });
+
+  it('shows the live tok/s while loading and the last saved turn dimmed afterwards', async () => {
+    sessionMessages.set([
+      { role: 'assistant', text: 'Hi', generation: { outputTokens: 341, generationMs: 2657 } },
+    ]);
+    const fixture = TestBed.createComponent(MessageBox);
+    fixture.componentRef.setInput('appConfig', openaiConfig());
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const rate = () => root.querySelector('.composer-token-rate');
+    const value = () => root.querySelector('.composer-token-rate__value')?.textContent?.trim();
+
+    expect(value()).toBe('128');
+    expect(rate()?.classList.contains('composer-token-rate--idle')).toBe(true);
+
+    // Before the first chunk of a new turn there is nothing live to show.
+    fixture.componentRef.setInput('loading', true);
+    fixture.detectChanges();
+    expect(rate()).toBeNull();
+
+    liveRates.set({ 'conv-1': { tokensPerSecond: 42.34, estimated: true } });
+    fixture.detectChanges();
+    expect(value()).toBe('~42.3');
+    expect(rate()?.classList.contains('composer-token-rate--idle')).toBe(false);
   });
 
   it('renders Auto Run and Admin as toggle chips in agent mode', async () => {

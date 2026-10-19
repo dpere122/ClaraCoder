@@ -60,7 +60,7 @@ export const createChatApi = (ipcRenderer: PreloadIpc) => ({
     callback: (
       event: unknown,
       conversationId: string,
-      usage: { inputTokens: number; outputTokens?: number; totalTokens?: number },
+      usage: { inputTokens: number; outputTokens?: number; totalTokens?: number; generationMs?: number },
     ) => void,
   ) => ipcRenderer.on('message-token-usage', callback),
   onMessageContextCompressed: (

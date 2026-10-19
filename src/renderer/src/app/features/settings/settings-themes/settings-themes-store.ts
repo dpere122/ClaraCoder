@@ -1,7 +1,7 @@
 import { Injectable, computed, inject, signal, type WritableSignal } from '@angular/core';
 import {
   BUILTIN_THEMES,
-  CLARA_DARK_THEME,
+  DEFAULT_THEME,
   DEFAULT_THEME_ID,
   THEME_GROUPS,
   builtInThemeForMode,
@@ -65,7 +65,7 @@ export class SettingsThemesStore {
       return draft;
     }
     const id = this.selectedId();
-    return this.library().find((t) => t.id === id) ?? CLARA_DARK_THEME;
+    return this.library().find((t) => t.id === id) ?? DEFAULT_THEME;
   });
 
   readonly isBuiltIn = computed(() => this.selectedTheme().builtIn === true || this.draft() === null);

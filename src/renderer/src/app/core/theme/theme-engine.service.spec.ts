@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { Subject } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '@shared/index';
-import { CLARA_DARK_THEME, CLARA_LIGHT_THEME, type ClaraThemeDocument } from '@shared/theme';
+import { CLARA_DARK_THEME, CLARA_LIGHT_THEME, DEFAULT_THEME, type ClaraThemeDocument } from '@shared/theme';
 import { ElectronService } from '../electron.service';
 import {
   THEME_GROUPS_STYLE_ID,
@@ -46,10 +46,10 @@ function groupsCss(): string {
 describe('theme-dom', () => {
   it('applyBuiltInThemeSync paints the dark built-in before bootstrap', () => {
     applyBuiltInThemeSync(document);
-    expect(document.documentElement.getAttribute('data-theme-id')).toBe('clara-dark');
+    expect(document.documentElement.getAttribute('data-theme-id')).toBe('default');
     expect(document.documentElement.getAttribute('data-theme-mode')).toBe('dark');
     expect(document.documentElement.getAttribute('data-bs-theme')).toBe('dark');
-    expect(tokensCss()).toContain(`--t-bg: ${CLARA_DARK_THEME.tokens['--t-bg']};`);
+    expect(tokensCss()).toContain(`--t-bg: ${DEFAULT_THEME.tokens['--t-bg']};`);
     expect(document.documentElement.classList.contains('theme-woodland')).toBe(false);
   });
 
@@ -118,7 +118,7 @@ describe('ThemeEngineService', () => {
   it('paints the default theme on construction and stamps a revision', () => {
     const engine = TestBed.inject(ThemeEngineService);
     TestBed.tick();
-    expect(engine.applied().id).toBe('clara-dark');
+    expect(engine.applied().id).toBe('default');
     expect(engine.revision()).toBeGreaterThan(0);
     expect(document.documentElement.getAttribute('data-theme-revision')).toBe(String(engine.revision()));
     expect(tokensCss()).toContain(':root {');
@@ -134,7 +134,7 @@ describe('ThemeEngineService', () => {
     // `woodland` from the mocked loadConfig → clara-dark.
     expect(engine.activeThemeId()).toBe('clara-dark');
     expect(listThemes).toHaveBeenCalled();
-    expect(engine.library().map((t) => t.id)).toEqual(['clara-dark', 'clara-light', 'neon']);
+    expect(engine.library().map((t) => t.id)).toEqual(['default', 'clara-dark', 'clara-light', 'neon']);
 
     configSubject.next({ themeId: 'classical' } as AppConfig);
     TestBed.tick();
@@ -189,7 +189,7 @@ describe('ThemeEngineService', () => {
   it('setLibrary keeps built-ins first and de-duplicates them', () => {
     const engine = TestBed.inject(ThemeEngineService);
     engine.setLibrary([neon, { ...CLARA_DARK_THEME }]);
-    expect(engine.library().map((t) => t.id)).toEqual(['clara-dark', 'clara-light', 'neon']);
+    expect(engine.library().map((t) => t.id)).toEqual(['default', 'clara-dark', 'clara-light', 'neon']);
     expect(engine.findTheme('neon')?.name).toBe('Neon');
   });
 });

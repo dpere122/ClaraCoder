@@ -48,7 +48,7 @@ describe('theme-store', () => {
   it('lists built-ins when no user themes exist', async () => {
     expect(await listUserThemes()).toEqual([]);
     const all = await listAllThemes();
-    expect(all.map((t) => t.id)).toEqual(['clara-dark', 'clara-light']);
+    expect(all.map((t) => t.id)).toEqual(['default', 'clara-dark', 'clara-light']);
     expect(all[0]!.builtIn).toBe(true);
   });
 

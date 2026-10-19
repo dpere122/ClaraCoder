@@ -1,7 +1,8 @@
 /** Settings window tab ids and sub-tab catalog. */
 import { THEME_GROUP_CATEGORIES } from '@shared/theme';
+import { SETTINGS_TAB_ENTRIES, isSettingsTab, type SettingsTab } from '@shared/settings-tabs';
 
-export type SettingsTab = 'general' | 'themes' | 'models' | 'modelManager' | 'tools' | 'mcp' | 'monaco' | 'audio' | 'workspaces';
+export { isSettingsTab, type SettingsTab };
 
 export type SettingsSubTabEntry = {
   id: string;
@@ -9,50 +10,23 @@ export type SettingsSubTabEntry = {
   description: string;
 };
 
-export const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; description: string }> = [
-  {
-    id: 'general',
-    label: 'General',
-    description: 'Chat font size, app fonts, and other global preferences.',
-  },
-  {
-    id: 'themes',
-    label: 'Themes',
-    description:
-      'Pick, create, import, and customize app themes: global colors, per-element-group overrides, background images, and the editor palette.',
-  },
-  {
-    id: 'models',
-    label: 'Models',
-    description: 'Chat sources, model defaults, and Start.',
-  },
-  {
-    id: 'modelManager',
-    label: 'Model Manager',
-    description: 'Local models and Hugging Face search for managed llama-server.',
-  },
-  {
-    id: 'tools',
-    label: 'Tools',
-    description: 'Workspace agent tool limits and edit modes (synced to the Python backend).',
-  },
-  {
-    id: 'mcp',
-    label: 'MCP',
-    description: 'MCP servers whose tools Clara can call. One client, many server configs.',
-  },
-  {
-    id: 'monaco',
-    label: 'Editor',
-    description: 'Monaco options for the in-app workspace file editor (color theme, font, minimap, wrap, cursor, and editing behavior).',
-  },
-  { id: 'audio', label: 'Audio', description: 'Transcription, talk-mode microphone, Kokoro assistant voice, speech speed, and end-of-speech timing.' },
-  { id: 'workspaces', label: 'Workspaces', description: 'Attached folders and active project.' },
-];
+const SETTINGS_TAB_DESCRIPTIONS: Record<SettingsTab, string> = {
+  general: 'Chat font size, app fonts, and other global preferences.',
+  themes:
+    'Pick, create, import, and customize app themes: global colors, per-element-group overrides, background images, and the editor palette.',
+  models: 'Chat sources, model defaults, and Start.',
+  modelManager: 'Local models and Hugging Face search for managed llama-server.',
+  tools: 'Workspace agent tool limits and edit modes (synced to the Python backend).',
+  mcp: 'MCP servers whose tools Clara can call. One client, many server configs.',
+  monaco:
+    'Monaco options for the in-app workspace file editor (color theme, font, minimap, wrap, cursor, and editing behavior).',
+  audio: 'Transcription, talk-mode microphone, Kokoro assistant voice, speech speed, and end-of-speech timing.',
+  workspaces: 'Attached folders and active project.',
+};
 
-export function isSettingsTab(value: unknown): value is SettingsTab {
-  return typeof value === 'string' && SETTINGS_TABS.some((tab) => tab.id === value);
-}
+export const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; description: string }> = SETTINGS_TAB_ENTRIES.map(
+  (tab) => ({ ...tab, description: SETTINGS_TAB_DESCRIPTIONS[tab.id] }),
+);
 
 /** Reads `tab=` from an Angular hash URL (`#/settings?tab=general`). */
 export function settingsTabFromHash(hash: string): SettingsTab | null {

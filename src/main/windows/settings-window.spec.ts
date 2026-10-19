@@ -32,7 +32,9 @@ import { mainState } from '../state';
 import {
   createSettingsWindow,
   notifySettingsRendererReady,
+  parseSettingsWindowTab,
   resetSettingsTabDelivery,
+  SETTINGS_WINDOW_TABS,
 } from './settings-window';
 
 function fakeWin() {
@@ -107,5 +109,20 @@ describe('settings tab delivery', () => {
     handlers.get('closed')!();
     expect(mainState.settingsWindow).toBeNull();
     expect(mainState.mainWindow?.webContents.send).toHaveBeenCalledWith('theme-preview', null);
+  });
+});
+
+describe('parseSettingsWindowTab', () => {
+  it('accepts every tab the Settings menus list', () => {
+    for (const tab of SETTINGS_WINDOW_TABS) {
+      expect(parseSettingsWindowTab(tab.id)).toBe(tab.id);
+    }
+    expect(parseSettingsWindowTab('mcp')).toBe('mcp');
+  });
+
+  it('rejects unknown and non-string values', () => {
+    expect(parseSettingsWindowTab('help')).toBeUndefined();
+    expect(parseSettingsWindowTab(undefined)).toBeUndefined();
+    expect(parseSettingsWindowTab(3)).toBeUndefined();
   });
 });

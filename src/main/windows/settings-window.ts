@@ -13,26 +13,13 @@ import {
   settingsWindowParentOptions,
 } from '../utils/reveal-browser-window';
 import { broadcastThemePreview } from '../ipc/handlers/theme-broadcast';
+import { isSettingsTab, type SettingsTab as SettingsWindowTab } from '../../shared/settings-tabs';
 
-/** Keep labels in sync with renderer `SETTINGS_TABS`. */
-export const SETTINGS_WINDOW_TABS = [
-  { id: 'general', label: 'General' },
-  { id: 'themes', label: 'Themes' },
-  { id: 'models', label: 'Models' },
-  { id: 'modelManager', label: 'Model Manager' },
-  { id: 'tools', label: 'Tools' },
-  { id: 'monaco', label: 'Editor' },
-  { id: 'audio', label: 'Audio' },
-  { id: 'workspaces', label: 'Workspaces' },
-] as const;
-
-export type SettingsWindowTab = (typeof SETTINGS_WINDOW_TABS)[number]['id'];
+export { SETTINGS_TAB_ENTRIES as SETTINGS_WINDOW_TABS } from '../../shared/settings-tabs';
+export type { SettingsTab as SettingsWindowTab } from '../../shared/settings-tabs';
 
 export function parseSettingsWindowTab(value: unknown): SettingsWindowTab | undefined {
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-  return SETTINGS_WINDOW_TABS.some((tab) => tab.id === value) ? (value as SettingsWindowTab) : undefined;
+  return isSettingsTab(value) ? value : undefined;
 }
 
 function preloadPath(): string {

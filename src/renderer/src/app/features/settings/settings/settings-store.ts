@@ -123,6 +123,7 @@ import {
   type ManagedLlamaCacheType,
   type ManagedLlamaFlashAttn,
   type ManagedLlamaModelSource,
+  setWorkspaceFavorite,
 } from '@shared/index';
 import {
   SecretValue,
@@ -136,7 +137,7 @@ import { ElectronService } from '../../../core/electron.service';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { ThemedPromptDialogService } from '../../../shared/themed-prompt-dialog/themed-prompt-dialog.service';
 import { activeStreamWorkspaceSwitchPrompt, unsavedWorkspaceSwitchPrompt } from '../../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
-import { customModelDeletePrompt } from '../../../shared/themed-confirm-dialog/format-delete-prompt';
+import { customModelDeletePrompt, workspaceRemovePrompt } from '../../../shared/themed-confirm-dialog/format-delete-prompt';
 import { DEFAULT_THEME_ID, resolveLegacyThemeId } from '@shared/theme';
 import { applyAppFontOverrides } from '../../../core/theme/app-font-overrides';
 import { ThemeEngineService } from '../../../core/theme/theme-engine.service';
@@ -960,24 +961,45 @@ export class SettingsStore {
     this.markSettingsDirty();
   }
 
-  async addWorkspace(): Promise<void> {
+  /** Pick a folder and register it; returns the new (or already-registered) workspace id. */
+  async addWorkspace(): Promise<string | null> {
     const selected = await this.electron.openDirectoryDialog();
     if (!selected) {
-      return;
+      return null;
     }
 
     const existing = this.workspaces().find((workspace) => workspace.path === selected);
     if (existing) {
-      await this.selectWorkspace(existing.id);
-      return;
+      return existing.id;
     }
 
     const name = selected.split(/[\\/]/).pop() || 'New Workspace';
-    await this.electron.addWorkspace(name, selected);
+    const added = await this.electron.addWorkspace(name, selected);
+    return added?.id ?? null;
   }
 
-  async removeWorkspace(id: string): Promise<void> {
+  /** Confirm, then drop the workspace and its app data (chats, index). The folder on disk is untouched. */
+  async removeWorkspace(id: string): Promise<boolean> {
+    const workspace = this.workspaces().find((w) => w.id === id);
+    if (!workspace) {
+      return false;
+    }
+    const proceed = (await this.themedConfirm.open(workspaceRemovePrompt(workspace.name))) === 'confirm';
+    if (!proceed) {
+      return false;
+    }
     await this.electron.removeWorkspace(id);
+    return true;
+  }
+
+  async toggleWorkspaceFavorite(id: string): Promise<void> {
+    const current = this.workspaces().find((workspace) => workspace.id === id);
+    if (!current) {
+      return;
+    }
+    const nextFavorite = !current.favorite;
+    const saved = await this.electron.setWorkspaceFavorite(id, nextFavorite);
+    this.workspaces.set(saved?.workspaces ?? setWorkspaceFavorite(this.workspaces(), id, nextFavorite));
   }
 
   async selectWorkspace(id: string): Promise<void> {

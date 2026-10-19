@@ -18,12 +18,28 @@ export function getPendingStreamIdsForWorkspace(workspaceId: string | null): str
   );
 }
 
+/**
+ * Streams cancelled because a newer stream for the same conversation replaced them. Their
+ * `message-done` must not reach the renderer: it carries only the conversation id, so it
+ * would settle the replacement turn the renderer is now showing.
+ */
+const supersededControllers = new WeakSet<AbortController>();
+
 export function beginChatStream(conversationId: string, workspaceId: string | null): AbortController {
-  streamAbortControllers.get(conversationId)?.abort();
+  const previous = streamAbortControllers.get(conversationId);
+  if (previous) {
+    supersededControllers.add(previous);
+    previous.abort();
+  }
   const abortController = new AbortController();
   streamAbortControllers.set(conversationId, abortController);
   streamWorkspaceByConversationId.set(conversationId, workspaceId);
   return abortController;
+}
+
+/** True when `controller`'s stream was cancelled by a newer stream for the same conversation. */
+export function wasChatStreamSuperseded(controller: AbortController): boolean {
+  return supersededControllers.has(controller);
 }
 
 export function endChatStream(conversationId: string, controller?: AbortController): void {

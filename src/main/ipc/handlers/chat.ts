@@ -17,6 +17,7 @@ import {
   beginChatStream,
   endChatStream,
   getPendingStreamIdsForWorkspace,
+  wasChatStreamSuperseded,
 } from './chat-stream-state';
 import { workspacePathForWorkspaceId } from './conversation-timeline';
 
@@ -34,21 +35,26 @@ interface ChatTurnRef {
  * Snapshot the turn's edited files (journal "before" vs disk "after"), then signal done with
  * the summary so the renderer can attach it to the assistant message it creates.
  */
+async function finalizeTurnEditsSafe(conversationId: string, turn: ChatTurnRef): Promise<TurnEditedFile[]> {
+  const root = workspacePathForWorkspaceId(turn.workspaceId);
+  if (!turn.userMessageId || !root) {
+    return [];
+  }
+  try {
+    return await finalizeTurnEdits(conversationId, turn.userMessageId, root);
+  } catch (err) {
+    console.error('[Chat] finalizeTurnEdits failed:', err);
+    return [];
+  }
+}
+
 async function replyMessageDone(
   event: Electron.IpcMainEvent,
   conversationId: string,
   outcome: ChatStreamOutcome,
   turn: ChatTurnRef,
 ): Promise<void> {
-  let editedFiles: TurnEditedFile[] = [];
-  const root = workspacePathForWorkspaceId(turn.workspaceId);
-  if (turn.userMessageId && root) {
-    try {
-      editedFiles = await finalizeTurnEdits(conversationId, turn.userMessageId, root);
-    } catch (err) {
-      console.error('[Chat] finalizeTurnEdits failed:', err);
-    }
-  }
+  const editedFiles = await finalizeTurnEditsSafe(conversationId, turn);
   event.reply('message-done', conversationId, outcome, editedFiles);
 }
 
@@ -195,6 +201,13 @@ export function registerChatIpc(): void {
         }
       } catch (err) {
         if (abortController.signal.aborted) {
+          if (wasChatStreamSuperseded(abortController)) {
+            // A newer message for this conversation replaced this stream; the renderer already
+            // shows that turn, so only settle this turn's edits and stay silent.
+            console.log('Stream superseded for', conversationId);
+            await finalizeTurnEditsSafe(conversationId, turn);
+            return;
+          }
           console.log('Stream aborted for', conversationId);
           await replyMessageDone(event, conversationId, 'aborted', turn);
           return;

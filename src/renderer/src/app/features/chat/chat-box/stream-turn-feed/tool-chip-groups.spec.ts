@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { hitlTrailStreamTag, toolTrailStatusStreamTag, type TurnFeedItem } from '@shared/index';
-import { queueableFeedIdentity } from './stream-preview-queue';
 import { mergedRunCommandStatusIndices, settlingChipIndices, toolChipGroupParts, toolChipLayout } from './tool-chip-groups';
 
 let seq = 0;
@@ -88,20 +87,16 @@ describe('mergedRunCommandStatusIndices', () => {
 
 describe('settlingChipIndices', () => {
   it('is empty when nothing just committed', () => {
-    const items = [read('a.py'), edit('a.py')];
-    expect(settlingChipIndices(items, new Set(), new Map()).size).toBe(0);
+    expect(settlingChipIndices(new Set(), new Map()).size).toBe(0);
   });
 
   it('marks the chips that just left the preview, and the group pill that took one in', () => {
     const items = [thought, read('a.py'), read('b.py'), edit('a.py'), md];
     const layout = toolChipLayout(items, allChips);
-    const settling = new Set([queueableFeedIdentity(items[2]!), queueableFeedIdentity(items[3]!)]);
-    expect([...settlingChipIndices(items, settling, layout.groups)].sort()).toEqual([1, 2, 3]);
+    expect([...settlingChipIndices(new Set([2, 3]), layout.groups)].sort()).toEqual([1, 2, 3]);
   });
 
   it('leaves earlier chips alone', () => {
-    const items = [read('a.py'), thought, edit('a.py')];
-    const settling = new Set([queueableFeedIdentity(items[2]!)]);
-    expect([...settlingChipIndices(items, settling, new Map())]).toEqual([2]);
+    expect([...settlingChipIndices(new Set([2]), new Map())]).toEqual([2]);
   });
 });

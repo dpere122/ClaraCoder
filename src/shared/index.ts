@@ -385,6 +385,18 @@ export {
   toolStatusStreamPartPillState,
 } from './tool-trail-pill';
 export type { ToolTrailPillState } from './tool-trail-pill';
+export {
+  humanizeToolName,
+  runCommandIdFromReport,
+  runCommandLaneId,
+  toolPillGroupLabel,
+  toolPillLabel,
+  toolPillMeta,
+  toolPillsGroupTogether,
+  toolPillVerb,
+  toolTargetFromRunningDetail,
+} from './tool-pill-label';
+export type { ToolPillCategory, ToolPillLabel } from './tool-pill-label';
 export type { ParsedAgentStreamPayload } from './stream-payload';
 export { parseAgentStreamPayload } from './stream-payload';
 export type {

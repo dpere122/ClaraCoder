@@ -10,6 +10,7 @@ import {
   mergeReadPreviewIntoToolTrailParts,
   normalizeStreamTag,
   READ_TOOL_STREAM_BODY_MARKER,
+  toolTargetFromRunningDetail,
   toolTrailStatusStreamTag,
 } from '@shared/index';
 
@@ -116,12 +117,17 @@ export function upsertToolTrailStatusStreamPart(parts: StreamPart[], status: Llm
   const streamTag = toolTrailStatusStreamTag(status.id);
   const next = [...parts];
   const idx = next.findIndex((p) => p.streamTag === streamTag);
+  // The first running detail names the call's path / query; the completed status overwrites
+  // `text` with the result, so keep it as the pill target.
+  const target =
+    status.state === 'running' && !next[idx]?.toolTarget ? toolTargetFromRunningDetail(status.detail ?? '') : '';
   const row: StreamPart = {
     streamTag,
     label: status.label,
     text: status.detail ?? '',
     toolChainState: status.state,
     ...(status.toolBatch ? { toolBatch: status.toolBatch } : {}),
+    ...(target ? { toolTarget: target } : {}),
   };
   if (idx >= 0) {
     const prev = next[idx];

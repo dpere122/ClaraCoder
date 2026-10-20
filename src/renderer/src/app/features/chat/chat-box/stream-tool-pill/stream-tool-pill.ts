@@ -11,6 +11,8 @@ import { toolSpinnerSrc, type ToolSpinnerKind } from '../tool-spinner-kind';
 })
 export class StreamToolPillComponent {
   readonly name = input.required<string>();
+  /** Hover text for the name (defaults to the name itself). */
+  readonly nameTitle = input('');
   readonly meta = input('');
   readonly state = input<ToolTrailPillState>('neutral');
   readonly expandable = input(false);

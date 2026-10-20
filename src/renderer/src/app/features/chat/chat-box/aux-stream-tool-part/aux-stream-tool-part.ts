@@ -5,11 +5,12 @@ import {
   input,
   signal,
 } from '@angular/core';
-import type { StreamPart } from '@shared/index';
+import type { StreamPart, ToolTrailPillState } from '@shared/index';
 import {
   delegatedStreamPartMeta,
   isHitlTrailStreamTag,
   isReadToolPreviewStreamTag,
+  isRunCommandStreamTag,
   isShellStyleToolStreamTag,
   isToolTrailStatusStreamTag,
   isWorkspaceReadToolLabel,
@@ -17,7 +18,8 @@ import {
   shellStreamPartBadgeMeta,
   shellStreamPartPillState,
   streamPartIsExpandable,
-  toolStatusStreamPartMeta,
+  toolPillLabel,
+  toolPillMeta,
   toolStatusStreamPartPillState,
 } from '@shared/index';
 import { DelegatedShellTerminalComponent } from '../delegated-shell-terminal/delegated-shell-terminal';
@@ -25,6 +27,34 @@ import { AnsiTerminalPreComponent } from '../../../../core/ansi-terminal-pre';
 import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
 
 export type AuxStreamToolPartKind = 'status' | 'shell' | 'delegated' | 'hitl';
+
+export function auxStreamToolPartKind(streamTag: string): AuxStreamToolPartKind {
+  if (isHitlTrailStreamTag(streamTag)) {
+    return 'hitl';
+  }
+  if (isToolTrailStatusStreamTag(streamTag)) {
+    return 'status';
+  }
+  if (isShellStyleToolStreamTag(streamTag)) {
+    return 'shell';
+  }
+  return 'delegated';
+}
+
+/** Pill colour state for one tool row (shared with the collapsed group pill). */
+export function auxStreamToolPartPillState(part: StreamPart, live: boolean): ToolTrailPillState {
+  const kind = auxStreamToolPartKind(part.streamTag);
+  if (kind === 'hitl') {
+    return 'neutral';
+  }
+  if (kind === 'status') {
+    return toolStatusStreamPartPillState(part);
+  }
+  if (kind === 'shell' || isRunCommandStreamTag(part.streamTag)) {
+    return shellStreamPartPillState(part, live);
+  }
+  return part.runComplete === false && live ? 'running' : 'neutral';
+}
 
 @Component({
   selector: 'app-aux-stream-tool-part',
@@ -42,53 +72,35 @@ export class AuxStreamToolPartComponent {
 
   readonly expanded = signal(false);
 
-  readonly kind = computed((): AuxStreamToolPartKind => {
-    const tag = this.part().streamTag;
-    if (isHitlTrailStreamTag(tag)) {
-      return 'hitl';
-    }
-    if (isToolTrailStatusStreamTag(tag)) {
-      return 'status';
-    }
-    if (isShellStyleToolStreamTag(tag)) {
-      return 'shell';
-    }
-    return 'delegated';
-  });
+  readonly kind = computed(() => auxStreamToolPartKind(this.part().streamTag));
 
   readonly hitlPending = computed(() => this.kind() === 'hitl' && this.part().toolChainState === 'running');
   readonly hitlComplete = computed(() => this.kind() === 'hitl' && this.part().toolChainState === 'complete');
   readonly hitlCancelled = computed(() => this.kind() === 'hitl' && this.part().toolChainState === 'error');
 
-  readonly pillName = computed(() => this.part().label || 'Tool');
+  /** Verb / target / outcome for the pill (`Read · src/app.ts · 42 lines`). */
+  readonly label = computed(() => toolPillLabel(this.part(), this.live()));
+
+  readonly pillName = computed(() => this.label().verb);
+  /** Raw tool name (or command) on hover, since the pill shows the friendly verb. */
+  readonly pillNameTitle = computed(() => this.part().label || this.label().verb);
   readonly pillMeta = computed(() => {
     const part = this.part();
     const k = this.kind();
     if (k === 'hitl') {
       return '';
     }
-    if (k === 'status') {
-      return toolStatusStreamPartMeta(part);
+    const meta = toolPillMeta(this.label());
+    if (meta) {
+      return meta;
     }
     if (k === 'shell') {
       return shellStreamPartBadgeMeta(part, this.live());
     }
-    return delegatedStreamPartMeta(part);
+    return k === 'delegated' ? delegatedStreamPartMeta(part) : '';
   });
 
-  readonly pillState = computed(() => {
-    const part = this.part();
-    if (this.kind() === 'hitl') {
-      return 'neutral' as const;
-    }
-    if (this.kind() === 'status') {
-      return toolStatusStreamPartPillState(part);
-    }
-    if (this.kind() === 'shell') {
-      return shellStreamPartPillState(part, this.live());
-    }
-    return part.runComplete === false && this.live() ? ('running' as const) : ('neutral' as const);
-  });
+  readonly pillState = computed(() => auxStreamToolPartPillState(this.part(), this.live()));
 
   readonly expandable = computed(() => {
     const k = this.kind();

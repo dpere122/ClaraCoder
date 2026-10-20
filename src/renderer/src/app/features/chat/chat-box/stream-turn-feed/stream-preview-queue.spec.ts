@@ -89,8 +89,8 @@ describe('previewItemLabel', () => {
     expect(previewItemLabel(thought)).toBe('Thinking');
   });
 
-  it('uses the tool label', () => {
-    expect(previewItemLabel(tool)).toBe('read_workspace_file');
+  it('uses the tool verb', () => {
+    expect(previewItemLabel(tool)).toBe('Read');
   });
 });
 
@@ -100,11 +100,16 @@ describe('previewQueueHeader', () => {
   });
 
   it('anticipates only the next inbound event', () => {
-    expect(previewQueueHeader(thought, [tool, tool2])).toBe('Thinking — read_workspace_file');
+    expect(previewQueueHeader(thought, [tool, tool2])).toBe('Thinking — Read');
   });
 
   it('never stacks a wide parallel batch past current and next', () => {
-    expect(previewQueueHeader(tool, [tool2, tool3, tool])).toBe('read_workspace_file — search_workspace');
+    expect(previewQueueHeader(tool, [tool2, tool3, tool])).toBe('Read — Search');
+  });
+
+  it('skips inbound events that share the current verb', () => {
+    expect(previewQueueHeader(tool, [tool, tool2])).toBe('Read — Search');
+    expect(previewQueueHeader(tool, [tool])).toBe('Read');
   });
 });
 
@@ -249,17 +254,13 @@ describe('splitQueuedFeed', () => {
     expect(split.committed).toEqual([]);
     expect(split.current).toEqual(thought);
     expect(split.inbound).toEqual([tool]);
-    expect(previewQueueHeader(split.current!, split.inbound)).toBe('Thinking — read_workspace_file');
+    expect(previewQueueHeader(split.current!, split.inbound)).toBe('Thinking — Read');
   });
 
   it('lists simultaneous tools after the current thought', () => {
     const split = splitQueuedFeed([thought, tool, tool2, tool3], 0);
     expect(split.current).toEqual(thought);
-    expect(split.inbound.map(previewItemLabel)).toEqual([
-      'read_workspace_file',
-      'search_workspace',
-      'list_workspace_directory',
-    ]);
+    expect(split.inbound.map(previewItemLabel)).toEqual(['Read', 'Search', 'List']);
   });
 
   it('does not queue markdown', () => {

@@ -25,7 +25,7 @@
       />
     </span>
   }
-  <span class="stream-tool-pill__name" [attr.title]="name()">{{ name() }}</span>
+  <span class="stream-tool-pill__name" [attr.title]="nameTitle() || name()">{{ name() }}</span>
   @if (meta()) {
     <span class="stream-tool-pill__sep" aria-hidden="true">·</span>
     <span class="stream-tool-pill__meta" [attr.title]="meta()">{{ meta() }}</span>

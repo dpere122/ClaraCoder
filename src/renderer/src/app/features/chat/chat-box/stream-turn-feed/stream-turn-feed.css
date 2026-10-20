@@ -23,6 +23,17 @@ app-stream-turn-feed app-aux-stream-tool-part:has(.hitl-trail-row) {
   flex: 1 1 100%;
 }
 
+app-stream-turn-feed app-tool-pill-group {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
+/* Short pills share a row; one that opens its output (or a group that opens) takes the full width. */
+app-stream-turn-feed app-aux-stream-tool-part:has(.stream-tool-pill--expanded, .aux-stream-tool-part__terminal),
+app-stream-turn-feed app-tool-pill-group:has(.tool-pill-group--expanded) {
+  flex: 1 1 100%;
+}
+
 app-stream-turn-feed .stream-turn-feed {
   display: flex;
   flex-direction: row;

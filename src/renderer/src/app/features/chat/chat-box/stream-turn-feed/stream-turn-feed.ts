@@ -12,12 +12,13 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import type { TurnFeedItem } from '@shared/index';
+import type { StreamPart, TurnFeedItem } from '@shared/index';
 import { AuxStreamToolPartComponent } from '../aux-stream-tool-part/aux-stream-tool-part';
 import { MarkdownPipe } from '../markdown.pipe';
 import { StreamNudgePillComponent } from '../stream-nudge-pill/stream-nudge-pill';
 import { StreamThoughtPillComponent } from '../stream-thought-pill/stream-thought-pill';
 import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
+import { ToolPillGroupComponent } from '../tool-pill-group/tool-pill-group';
 import type { ToolSpinnerKind } from '../tool-spinner-kind';
 import {
   decidePreviewCommit,
@@ -38,6 +39,7 @@ import {
   splitQueuedFeed,
   type FeedDisplayRole,
 } from './stream-preview-queue';
+import { toolChipGroupParts, toolChipLayout } from './tool-chip-groups';
 
 /** Spinner the open preview hosts: thought header, or the tool pill (read / write / run / web). */
 export type HostedSpinnerKind = 'think' | ToolSpinnerKind;
@@ -51,6 +53,7 @@ export type HostedSpinnerKind = 'think' | ToolSpinnerKind;
     StreamNudgePillComponent,
     StreamThoughtPillComponent,
     StreamToolPillComponent,
+    ToolPillGroupComponent,
   ],
   templateUrl: './stream-turn-feed.html',
   styleUrl: './stream-turn-feed.css',
@@ -91,6 +94,19 @@ export class StreamTurnFeedComponent {
   private commitTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly displayCommitted = computed(() => displayCommittedCount(this.items(), this.committedCount()));
+
+  /** Back-to-back same-kind tool chips collapse into one group pill; duplicate rows fold away. */
+  readonly toolChipLayout = computed(() => {
+    const items = this.items();
+    const committed = this.displayCommitted();
+    const live = this.live();
+    const layout = toolChipLayout(items, (index) => feedItemDisplayRole(items, index, committed, live), live);
+    const groupParts = new Map<number, StreamPart[]>();
+    for (const [lead, members] of layout.groups) {
+      groupParts.set(lead, toolChipGroupParts(items, members));
+    }
+    return { hidden: layout.hidden, groupParts };
+  });
 
   readonly previewHeader = computed(() => {
     const split = splitQueuedFeed(this.items(), this.displayCommitted());

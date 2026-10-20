@@ -1,6 +1,7 @@
 import {
   isHitlTrailStreamTag,
   isToolTrailStatusStreamTag,
+  toolPillLabel,
   toolStatusStreamPartMeta,
   type TurnFeedItem,
 } from '@shared/index';
@@ -120,7 +121,7 @@ export function previewItemLabel(item: TurnFeedItem): string {
     case 'nudge':
       return 'nudge';
     case 'tool':
-      return item.part.label.trim() || 'Tool';
+      return item.part.label.trim() ? toolPillLabel(item.part, true).verb : 'Tool';
     case 'markdown':
       return '';
   }
@@ -131,8 +132,9 @@ export function previewItemLabel(item: TurnFeedItem): string {
  * event is announced ahead, so a wide parallel batch never stacks a long run of names.
  */
 export function previewQueueHeader(current: TurnFeedItem, inbound: readonly TurnFeedItem[]): string {
-  const next = inbound.map(previewItemLabel).find((label) => label.length > 0);
   const head = previewItemLabel(current);
+  // Parallel calls of one kind share a verb; `Read — Read` says nothing new.
+  const next = inbound.map(previewItemLabel).find((label) => label.length > 0 && label !== head);
   return [head, next].filter((label): label is string => !!label).join(' — ');
 }
 

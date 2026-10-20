@@ -1,0 +1,69 @@
+import { Component, ViewEncapsulation, computed, input, signal } from '@angular/core';
+import {
+  toolPillGroupLabel,
+  toolPillLabel,
+  toolPillMeta,
+  type StreamPart,
+  type ToolTrailPillState,
+} from '@shared/index';
+import {
+  AuxStreamToolPartComponent,
+  auxStreamToolPartPillState,
+} from '../aux-stream-tool-part/aux-stream-tool-part';
+import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
+
+/** One pill for back-to-back tool calls of a kind (`Read · 3 files · a.ts, b.ts`); expands to each call. */
+@Component({
+  selector: 'app-tool-pill-group',
+  standalone: true,
+  imports: [AuxStreamToolPartComponent, StreamToolPillComponent],
+  templateUrl: './tool-pill-group.html',
+  styleUrl: './tool-pill-group.css',
+  encapsulation: ViewEncapsulation.None,
+})
+export class ToolPillGroupComponent {
+  readonly parts = input.required<StreamPart[]>();
+  readonly live = input(false);
+  readonly compactDetails = input(false);
+
+  readonly expanded = signal(false);
+
+  private readonly labels = computed(() => this.parts().map((part) => toolPillLabel(part, this.live())));
+  private readonly states = computed(() => this.parts().map((part) => auxStreamToolPartPillState(part, this.live())));
+
+  readonly group = computed(() => toolPillGroupLabel(this.labels()));
+
+  readonly failed = computed(() => this.states().filter((s) => s === 'error').length);
+
+  readonly meta = computed(() => {
+    const failed = this.failed();
+    const meta = this.group().meta;
+    return failed > 0 ? `${meta} · ${failed} failed` : meta;
+  });
+
+  /** Every call on hover: `Read src/a.ts · 12 lines`. */
+  readonly title = computed(() =>
+    this.labels()
+      .map((label) => [label.verb, toolPillMeta(label)].filter(Boolean).join(' '))
+      .join('\n'),
+  );
+
+  readonly state = computed((): ToolTrailPillState => {
+    const states = this.states();
+    if (states.includes('running')) {
+      return 'running';
+    }
+    if (states.includes('error')) {
+      return 'error';
+    }
+    return states.includes('complete') ? 'complete' : 'neutral';
+  });
+
+  trackPart(part: StreamPart): string {
+    return part.streamTag;
+  }
+
+  toggle(): void {
+    this.expanded.update((v) => !v);
+  }
+}

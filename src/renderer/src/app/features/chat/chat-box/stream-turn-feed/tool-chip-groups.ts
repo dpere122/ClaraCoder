@@ -8,7 +8,7 @@ import {
   type ToolPillLabel,
   type TurnFeedItem,
 } from '@shared/index';
-import { isQueueableFeedItem, queueableFeedIdentity, type FeedDisplayRole } from './stream-preview-queue';
+import type { FeedDisplayRole } from './stream-preview-queue';
 
 /** How tool chips render: grouped runs, and rows folded into another row. */
 export interface ToolChipLayout {
@@ -125,22 +125,16 @@ export function toolChipLayout(
 
 /**
  * Top-level item indices that play the settle animation: chips whose item just left the live
- * preview (`settling` holds their queue identities), and the group pill that took any of them in.
+ * preview (`settling` holds their feed indices), and the group pill that took any of them in.
  */
 export function settlingChipIndices(
-  items: readonly TurnFeedItem[],
-  settling: ReadonlySet<string>,
+  settling: ReadonlySet<number>,
   groups: ReadonlyMap<number, readonly number[]>,
 ): Set<number> {
-  const out = new Set<number>();
-  if (settling.size === 0) {
+  const out = new Set(settling);
+  if (out.size === 0) {
     return out;
   }
-  items.forEach((item, index) => {
-    if (isQueueableFeedItem(item) && settling.has(queueableFeedIdentity(item))) {
-      out.add(index);
-    }
-  });
   for (const [lead, members] of groups) {
     if (members.some((index) => out.has(index))) {
       out.add(lead);

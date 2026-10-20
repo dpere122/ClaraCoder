@@ -22,7 +22,7 @@ import { ToolPillExpansion } from '../tool-pill-expansion';
 import { ToolPillGroupComponent } from '../tool-pill-group/tool-pill-group';
 import type { ToolSpinnerKind } from '../tool-spinner-kind';
 import {
-  committedItemIdentities,
+  committedItemIndices,
   decidePreviewCommit,
   displayCommittedCount,
   feedDisplayRoles,
@@ -99,8 +99,8 @@ export class StreamTurnFeedComponent {
   private inboundAppearedAt = 0;
   private commitTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** Queue identities of items that just committed from the live preview to chips. */
-  private readonly settling = signal<ReadonlySet<string>>(new Set());
+  /** Feed indices of items that just committed from the live preview to chips. */
+  private readonly settling = signal<ReadonlySet<number>>(new Set());
   private settleTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly displayCommitted = computed(() => displayCommittedCount(this.items(), this.committedCount()));
@@ -122,7 +122,7 @@ export class StreamTurnFeedComponent {
 
   /** Chips (and group pills) that just took over from the live preview: they fade and settle in. */
   readonly settlingIndices = computed(() =>
-    settlingChipIndices(this.items(), this.settling(), this.toolChipLayout().groups),
+    settlingChipIndices(this.settling(), this.toolChipLayout().groups),
   );
 
   readonly previewHeader = computed(() => {
@@ -312,21 +312,21 @@ export class StreamTurnFeedComponent {
     const items = this.items();
     const n = this.committedCount();
     const count = previewCommitCount(items, n);
-    this.markSettling(committedItemIdentities(items, n, count));
+    this.markSettling(committedItemIndices(items, n, count));
     this.committedCount.set(displayCommittedCount(items, n + count));
     this.currentIdentity = '';
     this.inboundAppearedAt = 0;
     this.syncQueue(this.live(), items);
   }
 
-  private markSettling(ids: readonly string[]): void {
-    if (ids.length === 0) {
+  private markSettling(indices: readonly number[]): void {
+    if (indices.length === 0) {
       return;
     }
     if (this.settleTimer != null) {
       clearTimeout(this.settleTimer);
     }
-    this.settling.update((prev) => new Set([...prev, ...ids]));
+    this.settling.update((prev) => new Set([...prev, ...indices]));
     this.settleTimer = setTimeout(() => {
       this.settleTimer = null;
       this.settling.set(new Set());

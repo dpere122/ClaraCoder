@@ -289,14 +289,29 @@ export function previewCommitCount(items: readonly TurnFeedItem[], committedCoun
   return n;
 }
 
-/** Identities of the `count` items a preview commit lands as chips, starting at `committedCount`. */
-export function committedItemIdentities(
+/**
+ * Feed indices of the `count` items a preview commit lands as chips, starting at `committedCount`.
+ * Indices, not {@link queueableFeedIdentity}: every thought shares the `reasoning` tag (every
+ * nudge `nudge`), so an identity would match each earlier pill of that kind too.
+ */
+export function committedItemIndices(
   items: readonly TurnFeedItem[],
   committedCount: number,
   count: number,
-): string[] {
+): number[] {
   const start = clampCommittedCount(items, committedCount);
-  return queueableItems(items).slice(start, start + count).map(queueableFeedIdentity);
+  const out: number[] = [];
+  let q = 0;
+  items.forEach((item, index) => {
+    if (!isQueueableFeedItem(item)) {
+      return;
+    }
+    if (q >= start && q < start + count) {
+      out.push(index);
+    }
+    q += 1;
+  });
+  return out;
 }
 
 /** Inbound events that should force the current preview to yield (not sibling tools in the same batch). */

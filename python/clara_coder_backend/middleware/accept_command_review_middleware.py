@@ -48,7 +48,12 @@ class AcceptCommandReviewAfterToolMiddleware(AgentMiddleware):
                 setattr(sess, _SLOT, pending)
             return result
 
-        note = await pause_for_tool_review(session_id, ('accept_command',), {_SLOT: pending})
+        note = await pause_for_tool_review(
+            session_id,
+            ('accept_command',),
+            {_SLOT: pending},
+            tool_call_id=str(request.tool_call.get('id') or ''),
+        )
 
         tm: ToolMessage
         if isinstance(result, ToolMessage):

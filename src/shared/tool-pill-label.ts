@@ -273,6 +273,13 @@ function completedDetail(name: string, category: ToolPillCategory, text: string)
   if (/^Pending user confirmation/.test(text)) {
     return 'awaiting approval';
   }
+  // An answered approval card replaces the pending text with the answer's note.
+  if (/^User (?:cancelled|declined|dismissed)\b/.test(text)) {
+    return 'cancelled';
+  }
+  if (/^Tool `[^`]+` on MCP server `[^`]+` is denied\./.test(text)) {
+    return 'denied';
+  }
   if (name === 'mark_build_plan_steps_complete') {
     const done = /^Marked complete: ([^.]+)\./.exec(text);
     return done ? plural(done[1]!.split(',').length, 'step') : '';

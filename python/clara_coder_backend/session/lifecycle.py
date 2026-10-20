@@ -30,6 +30,7 @@ def clear_session_hitl_fields(sess: SessionState) -> None:
         pause.set()
     hitl.agent_pause_event = None
     hitl.agent_pause_note = None
+    hitl.agent_pause_run_ms = None
     hitl.pending_user_event_notes.clear()
     hitl.hitl_sse_queue = None
 

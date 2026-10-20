@@ -53,6 +53,23 @@ describe('upsertToolTrailStatusStreamPart', () => {
     expect(out[0].toolChainState).toBe('complete');
   });
 
+  it('an answered approval card replaces the pending row and brings its run time', () => {
+    const fetch = (detail: string, durationMs?: number): LlmStatus => ({
+      id: 'f1',
+      label: 'fetch_url',
+      detail,
+      state: 'complete',
+      source: 'tool',
+      ...(durationMs !== undefined ? { durationMs } : {}),
+    });
+    const pending = upsertToolTrailStatusStreamPart([], fetch('Pending user confirmation for `fetch_url`.'));
+    expect(pending[0].toolDurationMs).toBeUndefined();
+    const answered = upsertToolTrailStatusStreamPart(pending, fetch('URL: https://example.com Status: 200', 31));
+    expect(answered).toHaveLength(1);
+    expect(answered[0].text).toBe('URL: https://example.com Status: 200');
+    expect(answered[0].toolDurationMs).toBe(31);
+  });
+
   it('retags pre-tool agent prose to a Clara brief when a new tool row is appended', () => {
     const parts = [
       { streamTag: 'reasoning', label: 'Model reasoning', text: 'first think' },

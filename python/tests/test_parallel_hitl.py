@@ -35,13 +35,24 @@ def _command(call_id: str) -> dict[str, Any]:
     }
 
 
-async def _answer_cards(session_id: str, count: int, slot: str, answer: dict[str, Any]) -> list[str]:
+async def _answer_cards(
+    session_id: str,
+    count: int,
+    slot: str,
+    answer: dict[str, Any],
+    resolved: list[dict[str, Any]] | None = None,
+) -> list[str]:
     """Stand-in for the UI: answer each card the stream emits, in order, via agent-continue."""
 
     sess = get_session(session_id)
     shown: list[str] = []
     for _ in range(count):
-        await asyncio.wait_for(sess.hitl_sse_queue.get(), timeout=2)
+        item = await asyncio.wait_for(sess.hitl_sse_queue.get(), timeout=2)
+        while item[0] == 'tool_resolved':
+            # An answered call's final status, not a card.
+            if resolved is not None:
+                resolved.append(item[1])
+            item = await asyncio.wait_for(sess.hitl_sse_queue.get(), timeout=2)
         request_id = getattr(sess, slot)['request_id']
         shown.append(request_id)
         reply = await agent_continue(AgentContinueRequest(session_id=session_id, **answer(request_id)))
@@ -73,6 +84,8 @@ async def test_parallel_accept_command_cards_each_resume_their_own_call() -> Non
     session.auto_apply_mode = False
     session.pending_accept_command_request = None
     session.hitl_sse_queue = asyncio.Queue()
+    queue = session.hitl_sse_queue
+    resolved: list[dict[str, Any]] = []
     mw = AcceptCommandReviewAfterToolMiddleware()
 
     async def call(call_id: str) -> ToolMessage:
@@ -94,12 +107,22 @@ async def test_parallel_accept_command_cards_each_resume_their_own_call() -> Non
                 2,
                 'pending_accept_command_request',
                 lambda rid: {'accept_command_action': 'cancel', 'accept_command_request_id': rid},
+                resolved,
             ),
         )
     finally:
         current_session_id.reset(token)
         session.hitl_sse_queue = None
 
+    while not queue.empty():
+        kind, payload = queue.get_nowait()
+        assert kind == 'tool_resolved'
+        resolved.append(payload)
+    # Each call's pill gets its own answer; a cancelled call ran nothing, so it has no time.
+    assert sorted((r['tool_call_id'], r['text'], r['duration_ms']) for r in resolved) == [
+        ('a', 'cancelled a', None),
+        ('b', 'cancelled b', None),
+    ]
     first, second, shown = results
     assert sorted(shown) == ['req-a', 'req-b']
     assert 'cancelled a' in str(first.content) and 'cancelled b' not in str(first.content)

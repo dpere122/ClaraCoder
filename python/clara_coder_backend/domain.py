@@ -69,6 +69,9 @@ class SessionHitlState:
     hitl_pause_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     # Note from the client, appended as HumanMessage after the pause (may be empty).
     agent_pause_note: str | None = None
+    #: How long the work an approval answer ran took (the command, fetch, MCP call or delete), in ms.
+    #: None when the answer ran nothing (cancel, deny). The paused call reports it as its duration.
+    agent_pause_run_ms: int | None = None
     # UI/system events (e.g. user closed a run_command terminal tab) drained into HumanMessages.
     pending_user_event_notes: list[str] = field(default_factory=list)
     # LangGraph worker: middleware signals here so the SSE loop can emit a diff before on_tool_end.

@@ -78,6 +78,7 @@ async def execute_pending_accept_command_decision(
             confirm=confirm,
             grant_session=grant_session,
             remember_deny=remember_deny,
+            session=session,
         )
     if not confirm:
         return str(pending.get('cancel_note') or 'User cancelled the requested command.')

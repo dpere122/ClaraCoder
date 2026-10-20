@@ -68,7 +68,7 @@ async def test_middleware_queues_accept_command_when_hitl_queue_set_even_if_work
         current_session_id.reset(token)
 
     mock_pause.assert_awaited_once_with(
-        session_id, ('accept_command',), {'pending_accept_command_request': pending}
+        session_id, ('accept_command',), {'pending_accept_command_request': pending}, tool_call_id='tc-1'
     )
 
 
@@ -121,7 +121,7 @@ async def test_middleware_queues_admin_elevation_when_auto_apply_on(
         current_session_id.reset(token)
 
     mock_pause.assert_awaited_once_with(
-        session_id, ('accept_command',), {'pending_accept_command_request': pending}
+        session_id, ('accept_command',), {'pending_accept_command_request': pending}, tool_call_id='tc-admin-auto'
     )
 
 

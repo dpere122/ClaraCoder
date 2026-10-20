@@ -11,7 +11,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, NamedTuple
 
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
@@ -48,10 +48,22 @@ from clara_coder_backend.llm.model_tuning import (
     gemma_output_parsing_active,
     outer_agent_brief_enabled,
 )
+from clara_coder_backend.session.pause import PENDING_APPROVAL_PREFIX
 from clara_coder_backend.session.state import get_active_connection
 from clara_coder_backend.stream_tags import REASONING_AUXILIARY_STREAM_TAG
 from clara_coder_backend.tools.edit_diffs import take_edit_diff
 from clara_coder_backend.logging.tool_call_logging import log_llm_tool_input, log_llm_tool_output
+
+
+class AwaitingApprovalCall(NamedTuple):
+    """A call whose tool event ended on ``Pending user confirmation``: its pill waits for the answer."""
+
+    status_id: str
+    name: str
+    agent_role: str | None
+    stream_tag: str | None
+    #: How long the tool ran before it staged the card (``on_tool_start`` to ``on_tool_end``).
+    staged_ms: int | None
 
 
 @dataclass
@@ -61,6 +73,11 @@ class GraphStreamState:
     pending_tool_runs: dict[str, tuple[str, dict[str, Any]]] = field(default_factory=dict)
     #: ``time.monotonic()`` at ``on_tool_start`` per run id, for the call's duration on its finished status.
     tool_started_at: dict[str, float] = field(default_factory=dict)
+    #: Calls waiting on an approval card, by tool call id; the answer sends their final status.
+    awaiting_approval_calls: dict[str, AwaitingApprovalCall] = field(default_factory=dict)
+    #: Approval answers that arrived before this stream saw their call's tool event end (the two
+    #: travel on different queues), by tool call id. Nested specialist states share the outer dict.
+    early_approval_answers: dict[str, dict[str, Any]] = field(default_factory=dict)
     seen_tool_events: set[tuple[str, str, str]] = field(default_factory=set)
     last_final_text: str = ''
     partial_stream_text: str = ''
@@ -896,6 +913,16 @@ def _on_tool_end(
     # Edit tools leave the diff they wrote under their call id (UI only; the model never sees it).
     call_id = raw_out.tool_call_id if isinstance(raw_out, ToolMessage) else ''
     diff = take_edit_diff(call_id or '')
+    if call_id and result_text.startswith(PENDING_APPROVAL_PREFIX):
+        # Staged an approval card and has not run yet: the answer sends the result and the run time.
+        awaiting = AwaitingApprovalCall(status_id, name, agent_role, stream_tag, duration_ms)
+        early = state.early_approval_answers.pop(call_id, None)
+        if early is None:
+            state.awaiting_approval_calls[call_id] = awaiting
+            duration_ms = None
+        else:
+            result_text = early['text']
+            duration_ms = _approved_call_duration_ms(awaiting, early['duration_ms'])
     lines: list[str] = list(iter_read_tool_stream_sse(name, result_text, status_id=status_id))
     lines.append(
         sse_tool_finished(
@@ -911,6 +938,51 @@ def _on_tool_end(
         )
     )
     return lines
+
+
+def _approved_call_duration_ms(call: AwaitingApprovalCall, run_ms: int | None) -> int | None:
+    """Time the call spent working: before its card plus the approved run, never the wait.
+
+    ``run_ms`` is None when the answer ran nothing (cancel, deny), and so is the duration.
+    """
+    if run_ms is None:
+        return None
+    return (call.staged_ms or 0) + run_ms
+
+
+def approval_answer_sse_lines(payload: dict[str, Any], *, states: list[GraphStreamState]) -> list[str]:
+    """Final status for a call whose approval card was answered (``tool_resolved`` HITL item).
+
+    The pill gets the answer's text (the approved run's result, or the cancel note) and the time
+    the call spent working, which leaves out the wait for the user. ``states`` is searched like
+    :func:`tool_progress_sse_lines`; an answer that beats its call's tool event waits on the first
+    state for ``_on_tool_end``.
+    """
+    call_id = str(payload.get('tool_call_id') or '')
+    text = str(payload.get('text') or '')
+    if not call_id or not text:
+        return []
+    run = payload.get('duration_ms')
+    run_ms = run if isinstance(run, int) else None
+    for state in states:
+        call = state.awaiting_approval_calls.pop(call_id, None)
+        if call is None:
+            continue
+        return [
+            sse_tool_finished(
+                call.status_id,
+                call.name,
+                text,
+                ok=True,
+                error_detail='',
+                agent_role=call.agent_role,
+                stream_tag=call.stream_tag,
+                duration_ms=_approved_call_duration_ms(call, run_ms),
+            )
+        ]
+    if states:
+        states[0].early_approval_answers[call_id] = {'text': text, 'duration_ms': run_ms}
+    return []
 
 
 # ---------------------------------------------------------------------------

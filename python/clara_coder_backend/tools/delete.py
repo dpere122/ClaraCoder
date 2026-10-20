@@ -22,7 +22,7 @@ from clara_coder_backend.domain import SessionState
 from clara_coder_backend.lsp.file_policy import is_lsp_managed_path
 from clara_coder_backend.lsp.manager import close_session_document
 from clara_coder_backend.session.file_journal import TreeTooLargeError, emit_file_journal, snapshot_delete_payload
-from clara_coder_backend.session.pause import stage_hitl_request
+from clara_coder_backend.session.pause import stage_hitl_request, timed_approved_run
 from clara_coder_backend.session.state import current_session_id, get_session, mutation_tools_blocked_reason
 from clara_coder_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
@@ -175,7 +175,8 @@ def execute_pending_delete_decision(session: SessionState, *, confirm: bool, req
     if not root.is_dir():
         return 'Delete failed: workspace root unavailable.'
     journals = {e['relative_path']: e.get('journal') for e in pending['entries']}
-    done, failed = _delete_entries(session, pending.get('session_id'), root, pending['entries'], journals)
+    with timed_approved_run(session):
+        done, failed = _delete_entries(session, pending.get('session_id'), root, pending['entries'], journals)
     lines = done + failed
     if not lines:
         return 'Nothing to delete (paths were already removed).'

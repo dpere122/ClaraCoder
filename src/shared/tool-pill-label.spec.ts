@@ -75,6 +75,14 @@ describe('toolPillLabel', () => {
     );
   });
 
+  it('answered approval cards: cancelled and denied calls say so', () => {
+    expect(pill(status('fetch_url', 'User cancelled the pending command: Fetch URL.', { toolTarget: 'https://example.com' }))).toBe(
+      'Fetch · https://example.com · cancelled',
+    );
+    expect(pill(status('run_command', 'User declined administrator access for this agent.'))).toBe('Run · cancelled');
+    expect(pill(status('mcp__s__lookup', 'Tool `lookup` on MCP server `docs` is denied.'))).toBe('Lookup · denied');
+  });
+
   it('run-command lanes: command label and exit code', () => {
     const lane: StreamPart = { streamTag: 'run-command:6514a07e', label: 'python hello.py', text: 'Hello world\r\n', runComplete: true, exitCode: 0 };
     expect(pill(lane)).toBe('Run · python hello.py · exit 0');

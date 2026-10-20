@@ -134,28 +134,42 @@ app-chat-box .tts-loading-label {
   letter-spacing: 0.02em;
 }
 
+app-chat-box .user-bubble {
+  position: relative;
+}
+
+/* Icon-only restore control, revealed when the message is hovered (or focused via keyboard). */
 app-chat-box .msg-restore-btn {
   appearance: none;
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
-  gap: 0.28rem;
-  margin: 0 0 0.45rem;
-  padding: 0.14rem 0.55rem;
+  justify-content: center;
+  width: 1.45rem;
+  height: 1.45rem;
+  padding: 0;
   border: 1px solid color-mix(in srgb, var(--t-user-border, var(--t-border)) 55%, transparent);
-  border-radius: 999px !important;
-  background: color-mix(in srgb, var(--t-fg) 6%, transparent);
+  border-radius: 0.45rem !important;
+  background: var(--t-user-bg);
   color: var(--t-user-fg, var(--t-primary));
-  font: inherit;
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   line-height: 1;
   cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+app-chat-box .user-bubble:hover .msg-restore-btn,
+app-chat-box .msg-restore-btn:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 app-chat-box .msg-restore-btn:hover {
-  background: color-mix(in srgb, var(--t-fg) 11%, transparent);
+  background: color-mix(in srgb, var(--t-fg) 11%, var(--t-user-bg));
   border-color: color-mix(in srgb, var(--t-user-border, var(--t-border)) 80%, transparent);
 }
 

@@ -33,12 +33,15 @@ def status_event(
     agent_role: str | None = None,
     stream_tag: str | None = None,
     tool_batch: str | None = None,
+    diff: str = '',
 ) -> dict[str, Any]:
     """Build one structured status payload for the UI (tool running, errors, etc.).
 
     ``tool_batch`` names the LLM step that requested a tool. The UI batches parallel tools of one
     step into a single live pill; tools from a later step start a new pill even when no reasoning
     or prose streamed in between (e.g. Gemini via OpenRouter, whose reasoning is encrypted).
+
+    ``diff`` is the unified diff a finished edit tool wrote, shown when its pill is expanded.
     """
     row: dict[str, Any] = {
         'id': status_id,
@@ -53,6 +56,8 @@ def status_event(
         row['stream_tag'] = stream_tag
     if tool_batch:
         row['tool_batch'] = tool_batch
+    if diff:
+        row['diff'] = diff
     return {'type': 'status', 'status': row}
 
 
@@ -283,6 +288,7 @@ def sse_tool_finished(
     error_detail: str = '',
     agent_role: str | None = None,
     stream_tag: str | None = None,
+    diff: str = '',
 ) -> str:
     if not ok:
         line = truncate_text((error_detail or 'Error').replace('\n', ' '), MAX_TOOL_STATUS_LINE)
@@ -307,6 +313,7 @@ def sse_tool_finished(
             source='tool',
             agent_role=agent_role,
             stream_tag=stream_tag,
+            diff=diff,
         )
     )
 

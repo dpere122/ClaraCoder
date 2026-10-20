@@ -43,6 +43,16 @@ describe('parseAgentStreamPayload', () => {
     });
   });
 
+  it('keeps a finished edit status diff as toolDiff', () => {
+    const status = { id: 'r1', label: 'replace_workspace_lines', detail: 'Updated', state: 'complete', source: 'tool' };
+    const withDiff = parseAgentStreamPayload(JSON.stringify({ type: 'status', status: { ...status, diff: '@@ -1 +1 @@\n-a\n+b' } }));
+    expect(withDiff.type === 'status' && withDiff.status.toolDiff).toBe('@@ -1 +1 @@\n-a\n+b');
+    for (const diff of ['', 42]) {
+      const parsed = parseAgentStreamPayload(JSON.stringify({ type: 'status', status: { ...status, diff } }));
+      expect(parsed.type === 'status' && 'toolDiff' in parsed.status).toBe(false);
+    }
+  });
+
   it('parses clear_primary_stream payloads', () => {
     expect(parseAgentStreamPayload(JSON.stringify({ type: 'clear_primary_stream' }))).toEqual({
       type: 'clear_primary_stream',

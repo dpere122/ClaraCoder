@@ -10,7 +10,7 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
-from clara_coder_backend.session.state import current_tool_batch_id
+from clara_coder_backend.session.state import current_tool_batch_id, current_tool_call_id
 
 
 def tool_batch_id(tool_call: dict[str, Any], messages: Sequence[Any] | None) -> str:
@@ -30,10 +30,11 @@ def tool_batch_id(tool_call: dict[str, Any], messages: Sequence[Any] | None) -> 
 
 
 class ToolBatchMiddleware(AgentMiddleware):
-    """Set :data:`~clara_coder_backend.session.state.current_tool_batch_id` around each tool call.
+    """Set :data:`~clara_coder_backend.session.state.current_tool_batch_id` and
+    :data:`~clara_coder_backend.session.state.current_tool_call_id` around each tool call.
 
-    Edit tools use it to spot a line-range edit or whole-file rewrite whose file another call in the same
-    response already changed.
+    Edit tools use the batch to spot a line-range edit or whole-file rewrite whose file another call in the
+    same response already changed, and the call id to hand their diff to the UI.
     """
 
     async def awrap_tool_call(
@@ -44,7 +45,9 @@ class ToolBatchMiddleware(AgentMiddleware):
         state = request.state
         messages = state.get('messages') if isinstance(state, dict) else None
         token = current_tool_batch_id.set(tool_batch_id(request.tool_call, messages))
+        call_token = current_tool_call_id.set(str(request.tool_call.get('id') or ''))
         try:
             return await handler(request)
         finally:
+            current_tool_call_id.reset(call_token)
             current_tool_batch_id.reset(token)

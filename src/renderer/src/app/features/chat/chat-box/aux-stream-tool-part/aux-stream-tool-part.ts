@@ -25,6 +25,7 @@ import {
 import { DelegatedShellTerminalComponent } from '../delegated-shell-terminal/delegated-shell-terminal';
 import { AnsiTerminalPreComponent } from '../../../../core/ansi-terminal-pre';
 import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
+import { ToolEditDiffComponent } from '../tool-edit-diff/tool-edit-diff';
 
 export type AuxStreamToolPartKind = 'status' | 'shell' | 'delegated' | 'hitl';
 
@@ -59,7 +60,7 @@ export function auxStreamToolPartPillState(part: StreamPart, live: boolean): Too
 @Component({
   selector: 'app-aux-stream-tool-part',
   standalone: true,
-  imports: [StreamToolPillComponent, DelegatedShellTerminalComponent, AnsiTerminalPreComponent],
+  imports: [StreamToolPillComponent, DelegatedShellTerminalComponent, AnsiTerminalPreComponent, ToolEditDiffComponent],
   templateUrl: './aux-stream-tool-part.html',
   styleUrl: './aux-stream-tool-part.css',
   encapsulation: ViewEncapsulation.None,
@@ -125,6 +126,9 @@ export class AuxStreamToolPartComponent {
       (this.kind() === 'status' && isWorkspaceReadToolLabel(part.label))
     );
   });
+
+  /** Unified diff a finished edit call wrote (empty for other tools and older saved turns). */
+  readonly editDiff = computed(() => (this.kind() === 'status' ? (this.part().toolDiff ?? '') : ''));
 
   readonly readExpandedText = computed(() => {
     const body = readToolPreviewBody(this.part().text);

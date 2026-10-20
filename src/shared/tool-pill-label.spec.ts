@@ -48,6 +48,16 @@ describe('toolPillLabel', () => {
     );
   });
 
+  it('edits with a diff: added / removed line counts', () => {
+    const toolDiff = ['@@ -1,2 +1,3 @@', ' a', '-b', '+B', '+c'].join('\n');
+    expect(pill(status('replace_workspace_lines', 'Updated `m.py` (line-range; 2 → 3 lines).', { toolDiff }))).toBe(
+      'Edit · m.py · +2 −1',
+    );
+    expect(pill(status('write_workspace_file', 'Created `n.py` (full-file; 0 → 2 lines).', { toolDiff: '+x' }))).toBe(
+      'Create · n.py · 2 lines',
+    );
+  });
+
   it('prefers the target kept from the running status', () => {
     expect(pill(status('search_workspace', '[src/a.ts line 3] │ foo [src/b.ts line 9] │ foo', { toolTarget: 'foo' }))).toBe(
       'Search · foo · 2 matches',

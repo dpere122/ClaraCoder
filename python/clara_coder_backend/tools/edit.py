@@ -34,11 +34,13 @@ from clara_coder_backend.session.state import (
     agent_formatters_enabled,
     current_session_id,
     current_tool_batch_id,
+    current_tool_call_id,
     get_session,
     mutation_tools_blocked_reason,
     runtime_config,
 )
 from clara_coder_backend.domain import SessionState
+from clara_coder_backend.tools.edit_diffs import edit_unified_diff, record_edit_diff
 from clara_coder_backend.tools.tool_conventions import ONE_BASED, RELATIVE_PATH, VERIFY_LSP, describe, tool_output_cap
 from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
 from clara_coder_backend.workspace.formatters import format_python_source_str, format_source_via_prettier
@@ -207,7 +209,10 @@ def _lsp_footer(t: _EditTarget, text: str, formatter_note: str) -> str:
 
 
 def _write_through(t: _EditTarget, merged: str, mode: str) -> str:
-    """Format, write, journal (first write of this path per turn), and LSP-sync one edit."""
+    """Format, write, journal (first write of this path per turn), and LSP-sync one edit.
+
+    The diff of what was written goes to the UI with the finished status (see :mod:`.edit_diffs`).
+    """
     text, formatter_note = _format_in_memory(t.rel, merged, t.encoding)
     try:
         write_file_resolved(t.path, text, t.encoding, t.newline)
@@ -226,6 +231,7 @@ def _write_through(t: _EditTarget, merged: str, mode: str) -> str:
         encoding=t.encoding,
         newline=t.newline,
     )
+    record_edit_diff(current_tool_call_id.get(), edit_unified_diff(t.rel, t.old_text, text, existed=t.existed))
     before_lines = t.old_text.count('\n') + (1 if t.old_text and not t.old_text.endswith('\n') else 0)
     after_lines = text.count('\n') + (1 if text and not text.endswith('\n') else 0)
     verb = 'Updated' if t.existed else 'Created'

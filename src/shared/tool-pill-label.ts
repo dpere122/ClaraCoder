@@ -1,3 +1,5 @@
+import { formatDiffLineChangeSummary } from './diff-stats';
+import { editDiffCounts } from './edit-diff';
 import type { StreamPart } from './types/conversation';
 import {
   isHitlTrailStreamTag,
@@ -362,6 +364,11 @@ export function toolPillLabel(part: StreamPart, live = false): ToolPillLabel {
     return { category, verb: 'Create', target, detail: plural(Number(created[1]), 'line') };
   }
   let detail = completedDetail(name, category, text);
+  if (category === 'edit' && part.toolDiff) {
+    // `+4 −1` says more than the result's `6 → 9 lines`.
+    const changed = formatDiffLineChangeSummary(editDiffCounts(part.toolDiff));
+    detail = changed === '0' ? detail : changed;
+  }
   if (!target && !detail) {
     // Unknown result shape: a short excerpt beats an empty pill.
     detail = condenseToolTrailText(readToolStatusHeadline(text), 48);

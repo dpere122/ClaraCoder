@@ -7,6 +7,10 @@ app-aux-stream-tool-part .aux-stream-tool-part__terminal {
   margin-top: 0.28rem;
 }
 
+app-aux-stream-tool-part .aux-stream-tool-part__diff {
+  margin-top: 0.28rem;
+}
+
 app-aux-stream-tool-part .aux-stream-tool-part__detail {
   display: block;
   margin: 0.28rem 0 0;

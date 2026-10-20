@@ -446,6 +446,8 @@ export type { HostOsInfo } from './types/host-os';
 export type { ScriptLaunchPlan } from './types/script';
 export type { DiffRow, DiffRowKind, FileDiffPayload, WorkspaceFileWriteOptions } from './types/diff';
 export { diffLineChangeCounts, formatDiffLineChangeSummary } from './diff-stats';
+export { editDiffCounts, parseEditDiff } from './edit-diff';
+export type { EditDiffLine, EditDiffLineKind } from './edit-diff';
 export type { DiffLineChangeCounts } from './diff-stats';
 export {
   hitlTrailItemsFromArtifacts,

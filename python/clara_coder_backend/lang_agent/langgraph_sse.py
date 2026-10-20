@@ -50,6 +50,7 @@ from clara_coder_backend.llm.model_tuning import (
 )
 from clara_coder_backend.session.state import get_active_connection
 from clara_coder_backend.stream_tags import REASONING_AUXILIARY_STREAM_TAG
+from clara_coder_backend.tools.edit_diffs import take_edit_diff
 from clara_coder_backend.logging.tool_call_logging import log_llm_tool_input, log_llm_tool_output
 
 
@@ -886,6 +887,9 @@ def _on_tool_end(
         error_detail=err_detail,
     )
     status_id = _status_id_for_tool_run(state, run_id) or name
+    # Edit tools leave the diff they wrote under their call id (UI only; the model never sees it).
+    call_id = raw_out.tool_call_id if isinstance(raw_out, ToolMessage) else ''
+    diff = take_edit_diff(call_id or '')
     lines: list[str] = list(iter_read_tool_stream_sse(name, result_text, status_id=status_id))
     lines.append(
         sse_tool_finished(
@@ -896,6 +900,7 @@ def _on_tool_end(
             error_detail=err_detail,
             agent_role=agent_role,
             stream_tag=stream_tag,
+            diff=diff,
         )
     )
     return lines

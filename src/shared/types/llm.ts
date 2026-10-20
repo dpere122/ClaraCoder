@@ -47,6 +47,8 @@ export interface LlmStatus {
   agentRole?: LlmAgentRole;
   /** Tool rows: the LLM step that requested the tool. Parallel calls of one step share a batch. */
   toolBatch?: string;
+  /** Finished edit tools: unified diff of what the call wrote (UI only; the model never sees it). */
+  toolDiff?: string;
 }
 
 /** Same shape as {@link LlmStatus}; used when parsing SSE JSON from the Python backend. */

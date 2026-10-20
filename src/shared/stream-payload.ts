@@ -110,7 +110,7 @@ type RawAgentStreamPayload = {
   tokensAfter?: unknown;
   toolMessagesCompacted?: unknown;
   toolRoundsDropped?: unknown;
-  status?: LlmStatusPayload & { agent_role?: string; stream_tag?: string; tool_batch?: string };
+  status?: LlmStatusPayload & { agent_role?: string; stream_tag?: string; tool_batch?: string; diff?: unknown };
   acceptCommand?: unknown;
   command_id?: unknown;
   command_text?: unknown;
@@ -171,6 +171,7 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
           ...(optionalTrimmedString(parsed.status.tool_batch)
             ? { toolBatch: optionalTrimmedString(parsed.status.tool_batch) }
             : {}),
+          ...(typeof parsed.status.diff === 'string' && parsed.status.diff ? { toolDiff: parsed.status.diff } : {}),
         },
       };
     }

@@ -1,0 +1,29 @@
+<div class="tool-edit-diff">
+  <div class="tool-edit-diff__grid">
+    @for (line of lines(); track $index) {
+      @switch (line.kind) {
+        @case ('hunk') {
+          <div class="tool-edit-diff__hunk">{{ line.text }}</div>
+        }
+        @case ('note') {
+          <div class="tool-edit-diff__note">{{ line.text }}</div>
+        }
+        @default {
+          <div
+            class="tool-edit-diff__row"
+            [class.tool-edit-diff__row--add]="line.kind === 'add'"
+            [class.tool-edit-diff__row--del]="line.kind === 'del'"
+          >
+            <span class="tool-edit-diff__no" aria-hidden="true">{{ line.oldNo ?? '' }}</span>
+            <span class="tool-edit-diff__no" aria-hidden="true">{{ line.newNo ?? '' }}</span>
+            <span class="tool-edit-diff__sign">{{ line.kind === 'add' ? '+' : line.kind === 'del' ? '−' : '' }}</span>
+            <span class="tool-edit-diff__text">{{ line.text }}</span>
+          </div>
+        }
+      }
+    }
+  </div>
+  @if (result()) {
+    <div class="tool-edit-diff__result" [title]="result()">{{ result() }}</div>
+  }
+</div>

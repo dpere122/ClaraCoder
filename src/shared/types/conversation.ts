@@ -35,6 +35,8 @@ export interface StreamPart {
    * status (the completed status replaces `text` with the result).
    */
   toolTarget?: string;
+  /** Tool-trail rows of finished edits: unified diff of what the call wrote, shown when expanded. */
+  toolDiff?: string;
 }
 
 /** How fast the model produced one assistant turn, summed over the turn's model calls. */

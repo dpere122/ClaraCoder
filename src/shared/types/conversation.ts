@@ -37,6 +37,8 @@ export interface TurnGenerationStats {
   outputTokens: number;
   /** Decode time only (first streamed token -> model end), so prefill and tool runs are excluded. */
   generationMs: number;
+  /** Wall-clock time of the whole turn (send -> done), including prefill, tool runs and every model call. */
+  turnMs?: number;
   /** Counted from streamed text because the provider reported no usage for this turn. */
   estimated?: boolean;
 }

@@ -11,12 +11,14 @@ export interface LiveGenerationRate {
   readonly estimated: boolean;
 }
 
-/** Live estimate looks at the chunks of the last this-many ms. */
-const LIVE_WINDOW_MS = 2000;
+/** Live estimate looks at the chunks of the last this-many ms; long enough to smooth chunk bursts. */
+const LIVE_WINDOW_MS = 5000;
 /** Gaps between chunks longer than this are tool runs or prefill, not decoding. */
 const MAX_DECODE_GAP_MS = 1500;
-/** Republish the live rate at most this often so the readout stays legible. */
-const LIVE_PUBLISH_MS = 300;
+/** Republish the estimated rate at most this often; char counts are noisy, so update slowly. */
+const ESTIMATE_PUBLISH_MS = 1000;
+/** Minimum decode time before an estimate (live or final) is trusted. */
+const MIN_ESTIMATE_DECODE_MS = 300;
 const DEFAULT_CHARS_PER_TOKEN = 4;
 
 interface ChunkSample {
@@ -36,7 +38,11 @@ export class TurnRateTracker {
   private lastPublishAt = Number.NEGATIVE_INFINITY;
   live: LiveGenerationRate | null = null;
 
-  constructor(private charsPerToken: number) {}
+  /** @param startedAt when the turn was sent; enables {@link TurnGenerationStats.turnMs}. */
+  constructor(
+    private charsPerToken: number,
+    private readonly startedAt?: number,
+  ) {}
 
   /** Returns true when {@link live} changed and should be republished. */
   onChunk(chars: number, at: number): boolean {
@@ -52,11 +58,19 @@ export class TurnRateTracker {
     while (this.window.length > 0 && at - this.window[0].at > LIVE_WINDOW_MS) {
       this.window.shift();
     }
-    if (at - this.lastPublishAt < LIVE_PUBLISH_MS || this.window.length < 3) return false;
-    const span = at - this.window[0].at;
-    if (span < LIVE_PUBLISH_MS) return false;
-    // The first sample opens the window; only chars after it fall inside the span.
-    const windowChars = this.window.reduce((sum, s) => sum + s.chars, 0) - this.window[0].chars;
+    if (at - this.lastPublishAt < ESTIMATE_PUBLISH_MS || this.window.length < 3) return false;
+    // The first sample opens the window; only chars after it count. Stalls inside the window
+    // (tool runs, prefill) are not decode time, so they don't drag the rate down.
+    let span = 0;
+    let windowChars = 0;
+    for (let i = 1; i < this.window.length; i++) {
+      const gap = this.window[i].at - this.window[i - 1].at;
+      if (gap > 0 && gap < MAX_DECODE_GAP_MS) {
+        span += gap;
+        windowChars += this.window[i].chars;
+      }
+    }
+    if (span < MIN_ESTIMATE_DECODE_MS) return false;
     this.live = { tokensPerSecond: (windowChars / this.charsPerToken / span) * 1000, estimated: true };
     this.lastPublishAt = at;
     return true;
@@ -85,18 +99,24 @@ export class TurnRateTracker {
     this.charsPerToken = value;
   }
 
-  stats(): TurnGenerationStats | undefined {
+  /** @param finishedAt when the turn ended; with a start time it adds the turn's wall-clock time. */
+  stats(finishedAt?: number): TurnGenerationStats | undefined {
+    let stats: TurnGenerationStats;
     if (this.exactTokens > 0 && this.exactMs > 0) {
-      return { outputTokens: this.exactTokens, generationMs: Math.round(this.exactMs) };
-    }
-    if (this.streamedChars > 0 && this.decodeMs >= LIVE_PUBLISH_MS) {
-      return {
+      stats = { outputTokens: this.exactTokens, generationMs: Math.round(this.exactMs) };
+    } else if (this.streamedChars > 0 && this.decodeMs >= MIN_ESTIMATE_DECODE_MS) {
+      stats = {
         outputTokens: Math.max(1, Math.round(this.streamedChars / this.charsPerToken)),
         generationMs: Math.round(this.decodeMs),
         estimated: true,
       };
+    } else {
+      return undefined;
     }
-    return undefined;
+    if (this.startedAt !== undefined && finishedAt !== undefined && finishedAt > this.startedAt) {
+      stats.turnMs = Math.round(finishedAt - this.startedAt);
+    }
+    return stats;
   }
 }
 
@@ -134,20 +154,30 @@ export class GenerationRateService {
       });
   }
 
+  /** A turn was sent: start its wall clock and drop anything left over from an aborted turn. */
+  startTurn(conversationId: string): void {
+    this.clearLive(conversationId);
+    this.trackers.set(conversationId, new TurnRateTracker(this.charsPerToken, performance.now()));
+  }
+
   /** Close the conversation's turn and return what it measured (undefined when nothing streamed). */
   finishTurn(conversationId: string): TurnGenerationStats | undefined {
     const tracker = this.trackers.get(conversationId);
     this.trackers.delete(conversationId);
+    this.clearLive(conversationId);
+    return tracker?.stats(performance.now());
+  }
+
+  private clearLive(conversationId: string): void {
     if (conversationId in this.live()) {
       this.live.update(({ [conversationId]: _done, ...rest }) => rest);
     }
-    return tracker?.stats();
   }
 
   private tracker(conversationId: string): TurnRateTracker {
     let tracker = this.trackers.get(conversationId);
     if (!tracker) {
-      tracker = new TurnRateTracker(this.charsPerToken);
+      tracker = new TurnRateTracker(this.charsPerToken, performance.now());
       this.trackers.set(conversationId, tracker);
     }
     return tracker;
@@ -163,7 +193,7 @@ export class GenerationRateService {
 export interface TurnGenerationSummary {
   /** `128 tok/s` (`~` prefix when estimated). */
   readonly rate: string;
-  /** `341 tokens · 2.7s` */
+  /** `341 tokens · 2.7s` — the turn's wall-clock time when known, else decode time. */
   readonly detail: string;
   readonly title: string;
 }
@@ -182,12 +212,14 @@ export function turnGenerationSummary(stats: TurnGenerationStats): TurnGeneratio
   const tokens = `${stats.outputTokens.toLocaleString('en-US')} ${stats.outputTokens === 1 ? 'token' : 'tokens'}`;
   const seconds = formatGenerationSeconds(stats.generationMs);
   const approx = stats.estimated ? '~' : '';
-  const title = stats.estimated
+  const decode = stats.estimated
     ? `About ${tokens} in ${seconds} of streaming (estimated from text; the provider reported no usage)`
     : `${tokens} generated in ${seconds} (prompt processing and tool runs not counted)`;
+  const turnMs = stats.turnMs && stats.turnMs > 0 ? stats.turnMs : undefined;
+  const title = turnMs ? `Turn took ${formatGenerationSeconds(turnMs)}. ${decode}` : decode;
   return {
     rate: `${approx}${formatTokensPerSecond(tokensPerSecond)} tok/s`,
-    detail: `${approx}${tokens} · ${seconds}`,
+    detail: `${approx}${tokens} · ${formatGenerationSeconds(turnMs ?? stats.generationMs)}`,
     title,
   };
 }

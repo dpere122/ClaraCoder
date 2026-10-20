@@ -734,6 +734,7 @@ export class ConversationSessionService {
 
   prepareForSend(conversationId: string): void {
     this.addPending(conversationId);
+    this.generationRate.startTurn(conversationId);
     this.toolRunIds.set(new Set());
     this.streamingParts.set([]);
     this.streamingPlanner.set(null);

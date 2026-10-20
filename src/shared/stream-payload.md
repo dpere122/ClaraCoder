@@ -37,12 +37,12 @@ narrow the variant.
 | `type` | Field shape | Source / meaning |
 | --- | --- | --- |
 | `chunk` | `delta: string`, `streamTag?: string` | Free-form assistant text. `streamTag` multiplexes sub-streams (e.g. `agent`, `reasoning`). |
-| `tool_read_chunk` | `delta: string` | Preview text emitted by a read-only workspace tool while it runs. |
+| `tool_read_chunk` | `delta: string`, `statusId?: string` | Preview text emitted by a read-only workspace tool while it runs. `statusId` names the tool status row the text belongs to, so parallel reads each fill their own pill. |
 | `tool_exec_chunk` | `delta: string`, `streamTag?: string`, `label?: string` | Incremental stdout/stderr from a tool execution stream. |
 | `background_command_open` | `commandId`, `commandText`, `cwdLabel`, `label`, `streamTag` (all `string`) | A long-running/background command was opened; subsequent `tool_exec_chunk` events with the same `streamTag` belong to it. |
 | `tool_exec_complete` | `streamTag?`, `label?`, `exitCode?: number \| null`, `outputExcerpt?`, `outcome?: 'passed' \| 'failed'` | A tool execution stream finished. `outputExcerpt` is a tail/full replay used when live chunks were empty or incomplete (pytest/overlay). `outcome`, when set, drives the terminal badge instead of the raw exit code (watch-mode smoke tests). |
 | `token_usage` | `inputTokens: number`, `outputTokens?`, `totalTokens?` | Token accounting for a completed LLM request. `inputTokens` maps to OpenAI `prompt_tokens` / LangChain `input_tokens`. |
-| `status` | `status: LlmStatusPayload` | LLM/agent status update (state, label, detail, source, optional `streamTag` and `agentRole`). |
+| `status` | `status: LlmStatusPayload` | LLM/agent status update (state, label, detail, source, optional `streamTag` and `agentRole`). A finished tool status can also carry `toolBatch`, `toolDiff` (the unified diff an edit wrote) and `durationMs` (how long the call ran). |
 | `accept_command` | `acceptCommand: AcceptCommandPayload` | HITL prompt to accept a shell command before running. |
 | `delete_confirm` | `deleteConfirm: DeleteConfirmPayload` | HITL prompt to confirm a deletion. |
 | `planner_progress` | `planner: PlannerProgress` | Planner step progress. |
@@ -101,7 +101,15 @@ Parse one JSON event line from the agent stream into a typed
   [`optionalNonNegativeInt`](#optionalnonnegativeint).
 - **`status`** applies defaults: `detail ?? ''`, `state ?? 'running'`,
   `source ?? 'agent'`. `agent_role` is only kept when it is exactly
-  `'manager'` or `'worker'`; any other value is dropped.
+  `'manager'` or `'worker'`; any other value is dropped. `diff` becomes
+  `toolDiff` when it is a non-empty string, and `duration_ms` becomes
+  `durationMs` when it is a finite number of at least 0.
+- **`durationMs`** is the time the call spent working, never time spent
+  waiting for the user. A call that needs approval finishes first with a
+  `Pending user confirmation…` detail and no `durationMs`. Once the card is
+  answered, a second finished status with the same `id` carries the result
+  (or the cancel note) and the time before the card plus the approved run.
+  A cancelled or denied call ran nothing, so it has no `durationMs`.
 - **`plan_confirm`** runs `normalizePlanConfirmFilesToChange` over
   `filesToChange` so the renderer always sees a consistent shape regardless
   of which legacy form the backend emitted.
@@ -179,12 +187,12 @@ noted) and lists the wire fields each branch reads.
 | Wire `type` | Parsed `type` | Wire fields read |
 | --- | --- | --- |
 | `chunk` | `chunk` | `delta`, `stream_tag` |
-| `tool_read_chunk` | `tool_read_chunk` | `delta` |
+| `tool_read_chunk` | `tool_read_chunk` | `delta`, `status_id` |
 | `tool_exec_chunk` | `tool_exec_chunk` | `delta`, `stream_tag`, `label` |
 | `tool_exec_complete` | `tool_exec_complete` | `stream_tag`, `label`, `exit_code`, `output_excerpt`, `outcome` |
 | `background_command_open` | `background_command_open` | `command_id`, `command_text`, `cwd_label`, `label`, `stream_tag` |
 | `token_usage` | `token_usage` | `input_tokens`, `output_tokens`, `total_tokens` |
-| `status` | `status` | `status.{id,label,detail,state,source,stream_tag,agent_role}` |
+| `status` | `status` | `status.{id,label,detail,state,source,stream_tag,agent_role,tool_batch,diff,duration_ms}` |
 | `accept_command` | `accept_command` | `acceptCommand` (object) |
 | `delete_confirm` | `delete_confirm` | `deleteConfirm` (object) |
 | `planner_progress` | `planner_progress` | `planner` (object) |

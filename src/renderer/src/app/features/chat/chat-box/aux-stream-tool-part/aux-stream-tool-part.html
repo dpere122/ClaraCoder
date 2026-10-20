@@ -13,7 +13,11 @@
   <div class="aux-stream-tool-part">
     <app-stream-tool-pill
       [name]="pillName()"
+      [nameTitle]="pillNameTitle()"
       [meta]="pillMeta()"
+      [duration]="pillDuration()"
+      [durationTitle]="pillDurationTitle()"
+      [durationSlow]="pillDurationSlow()"
       [state]="pillState()"
       [expandable]="expandable()"
       [expanded]="expanded()"
@@ -42,6 +46,8 @@
           [outcome]="part().outcome"
           displayMode="full"
         />
+      } @else if (editDiff()) {
+        <app-tool-edit-diff class="aux-stream-tool-part__diff" [diff]="editDiff()" [result]="part().text" />
       } @else if (isReadToolRow()) {
         <app-ansi-terminal-pre
           class="aux-stream-tool-part__detail"

@@ -1,6 +1,7 @@
 import {
   isHitlTrailStreamTag,
   isToolTrailStatusStreamTag,
+  toolPillLabel,
   toolStatusStreamPartMeta,
   type TurnFeedItem,
 } from '@shared/index';
@@ -120,7 +121,7 @@ export function previewItemLabel(item: TurnFeedItem): string {
     case 'nudge':
       return 'nudge';
     case 'tool':
-      return item.part.label.trim() || 'Tool';
+      return item.part.label.trim() ? toolPillLabel(item.part, true).verb : 'Tool';
     case 'markdown':
       return '';
   }
@@ -131,8 +132,16 @@ export function previewItemLabel(item: TurnFeedItem): string {
  * event is announced ahead, so a wide parallel batch never stacks a long run of names.
  */
 export function previewQueueHeader(current: TurnFeedItem, inbound: readonly TurnFeedItem[]): string {
-  const next = inbound.map(previewItemLabel).find((label) => label.length > 0);
   const head = previewItemLabel(current);
+  // Parallel calls of one kind share a verb; `Read — Read` says nothing new.
+  let next: string | undefined;
+  for (const item of inbound) {
+    const label = previewItemLabel(item);
+    if (label.length > 0 && label !== head) {
+      next = label;
+      break;
+    }
+  }
   return [head, next].filter((label): label is string => !!label).join(' — ');
 }
 
@@ -280,6 +289,16 @@ export function previewCommitCount(items: readonly TurnFeedItem[], committedCoun
   return n;
 }
 
+/** Identities of the `count` items a preview commit lands as chips, starting at `committedCount`. */
+export function committedItemIdentities(
+  items: readonly TurnFeedItem[],
+  committedCount: number,
+  count: number,
+): string[] {
+  const start = clampCommittedCount(items, committedCount);
+  return queueableItems(items).slice(start, start + count).map(queueableFeedIdentity);
+}
+
 /** Inbound events that should force the current preview to yield (not sibling tools in the same batch). */
 export function pressureInbound(
   current: TurnFeedItem | undefined,
@@ -327,6 +346,33 @@ export function feedItemDisplayRole(
     return 'preview';
   }
   return 'hidden';
+}
+
+/**
+ * {@link feedItemDisplayRole} for every item in one pass. The per-index form rescans the items
+ * before it, which is quadratic over a long turn when every item asks.
+ */
+export function feedDisplayRoles(
+  items: readonly TurnFeedItem[],
+  committedCount: number,
+  live: boolean,
+): FeedDisplayRole[] {
+  const roles: FeedDisplayRole[] = [];
+  let queueableBefore = 0;
+  for (const item of items) {
+    const queueable = isQueueableFeedItem(item);
+    if (item.kind === 'markdown') {
+      roles.push('markdown');
+    } else if (!live || !queueable || queueableBefore < committedCount) {
+      roles.push('chip');
+    } else {
+      roles.push(queueableBefore === committedCount ? 'preview' : 'hidden');
+    }
+    if (queueable) {
+      queueableBefore += 1;
+    }
+  }
+  return roles;
 }
 
 /** True when a markdown block (brief or reply) sits after the current preview item in the source feed. */

@@ -25,10 +25,32 @@
       />
     </span>
   }
-  <span class="stream-tool-pill__name" [attr.title]="name()">{{ name() }}</span>
+  @if (shimmer()) {
+    <!-- Letters reuse `.processing-text__letter` (chat-box.css): the thinking preview header's glow. -->
+    <span
+      class="stream-tool-pill__name stream-tool-pill__name--shimmer"
+      [attr.title]="nameTitle() || name()"
+      [attr.aria-label]="name()"
+    >
+      @for (ch of nameChars(); track $index) {
+        <span class="processing-text__letter" [style.animation-delay]="($index * 0.08) + 's'" aria-hidden="true">{{ ch }}</span>
+      }
+    </span>
+  } @else {
+    <span class="stream-tool-pill__name" [attr.title]="nameTitle() || name()">{{ name() }}</span>
+  }
   @if (meta()) {
     <span class="stream-tool-pill__sep" aria-hidden="true">·</span>
     <span class="stream-tool-pill__meta" [attr.title]="meta()">{{ meta() }}</span>
+  }
+  @if (duration()) {
+    <span class="stream-tool-pill__sep" aria-hidden="true">·</span>
+    <span
+      class="stream-tool-pill__duration"
+      [class.stream-tool-pill__duration--slow]="durationSlow()"
+      [attr.title]="durationTitle() || null"
+      >{{ duration() }}</span
+    >
   }
   @if (expandable()) {
     <span class="stream-tool-pill__chevron" aria-hidden="true">{{ expanded() ? '▼' : '▶' }}</span>

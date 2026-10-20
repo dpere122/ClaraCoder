@@ -1,6 +1,18 @@
 import { parseAgentStreamPayload } from '@shared/index';
 
 describe('parseAgentStreamPayload', () => {
+  it('parses tool_read_chunk with and without status_id', () => {
+    expect(parseAgentStreamPayload(JSON.stringify({ type: 'tool_read_chunk', delta: 'x', status_id: 'r1' }))).toEqual({
+      type: 'tool_read_chunk',
+      delta: 'x',
+      statusId: 'r1',
+    });
+    expect(parseAgentStreamPayload(JSON.stringify({ type: 'tool_read_chunk', delta: 'x' }))).toEqual({
+      type: 'tool_read_chunk',
+      delta: 'x',
+    });
+  });
+
   it('parses status payloads and normalizes legacy snake_case fields', () => {
     const parsed = parseAgentStreamPayload(
       JSON.stringify({
@@ -29,6 +41,26 @@ describe('parseAgentStreamPayload', () => {
         streamTag: 'planning',
       },
     });
+  });
+
+  it('keeps a finished edit status diff as toolDiff', () => {
+    const status = { id: 'r1', label: 'replace_workspace_lines', detail: 'Updated', state: 'complete', source: 'tool' };
+    const withDiff = parseAgentStreamPayload(JSON.stringify({ type: 'status', status: { ...status, diff: '@@ -1 +1 @@\n-a\n+b' } }));
+    expect(withDiff.type === 'status' && withDiff.status.toolDiff).toBe('@@ -1 +1 @@\n-a\n+b');
+    for (const diff of ['', 42]) {
+      const parsed = parseAgentStreamPayload(JSON.stringify({ type: 'status', status: { ...status, diff } }));
+      expect(parsed.type === 'status' && 'toolDiff' in parsed.status).toBe(false);
+    }
+  });
+
+  it('keeps a finished tool status run time as durationMs', () => {
+    const status = { id: 'r1', label: 'read_workspace_file', detail: 'File', state: 'complete', source: 'tool' };
+    const timed = parseAgentStreamPayload(JSON.stringify({ type: 'status', status: { ...status, duration_ms: 1234 } }));
+    expect(timed.type === 'status' && timed.status.durationMs).toBe(1234);
+    for (const duration_ms of [-1, '12', null]) {
+      const parsed = parseAgentStreamPayload(JSON.stringify({ type: 'status', status: { ...status, duration_ms } }));
+      expect(parsed.type === 'status' && 'durationMs' in parsed.status).toBe(false);
+    }
   });
 
   it('parses clear_primary_stream payloads', () => {

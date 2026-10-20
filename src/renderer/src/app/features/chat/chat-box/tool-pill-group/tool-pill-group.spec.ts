@@ -1,0 +1,88 @@
+import { TestBed } from '@angular/core/testing';
+import { describe, expect, it } from 'vitest';
+import { toolTrailStatusStreamTag, type StreamPart } from '@shared/index';
+import { ToolPillExpansion } from '../tool-pill-expansion';
+import { ToolPillGroupComponent } from './tool-pill-group';
+
+function read(id: string, path: string, state: StreamPart['toolChainState']): StreamPart {
+  return {
+    streamTag: toolTrailStatusStreamTag(id),
+    label: 'read_workspace_file',
+    text: state === 'running' ? path : `File: ${path} Encoding: utf-8 Lines: 1-3 (of 3 in file)`,
+    toolChainState: state,
+    toolTarget: path,
+  };
+}
+
+function render(parts: StreamPart[], live: boolean): HTMLElement {
+  const fixture = TestBed.createComponent(ToolPillGroupComponent);
+  fixture.componentRef.setInput('parts', parts);
+  fixture.componentRef.setInput('live', live);
+  fixture.detectChanges();
+  return fixture.nativeElement as HTMLElement;
+}
+
+describe('ToolPillGroupComponent', () => {
+  it('glows the group name letter by letter while a child call runs', () => {
+    const el = render([read('a', 'a.py', 'complete'), read('b', 'b.py', 'running')], true);
+    const name = el.querySelector('.stream-tool-pill__name--shimmer');
+    expect(name?.getAttribute('aria-label')).toBe('Read');
+    expect(name?.querySelectorAll('.processing-text__letter').length).toBe(4);
+  });
+
+  it('stops glowing once every child finished', () => {
+    const el = render([read('a', 'a.py', 'complete'), read('b', 'b.py', 'complete')], true);
+    expect(el.querySelector('.stream-tool-pill__name--shimmer')).toBeNull();
+    expect(el.querySelector('.stream-tool-pill__name')?.textContent).toBe('Read');
+  });
+
+  it('never glows in a saved turn, even with a stale running row', () => {
+    const el = render([read('a', 'a.py', 'complete'), read('b', 'b.py', 'running')], false);
+    expect(el.querySelector('.stream-tool-pill__name--shimmer')).toBeNull();
+  });
+});
+
+describe('ToolPillGroupComponent duration', () => {
+  it('shows the slowest call and lists each call time on hover', () => {
+    const el = render(
+      [
+        { ...read('a', 'a.py', 'complete'), toolDurationMs: 40 },
+        { ...read('b', 'b.py', 'complete'), toolDurationMs: 2300 },
+      ],
+      false,
+    );
+    const duration = el.querySelector('.stream-tool-pill__duration');
+    expect(duration?.textContent?.trim()).toBe('2.3s');
+    expect(duration?.getAttribute('title')).toBe('Slowest of 2 calls');
+    expect(duration?.classList.contains('stream-tool-pill__duration--slow')).toBe(true);
+    const title = el.querySelector('.stream-tool-pill__name')?.getAttribute('title') ?? '';
+    expect(title).toContain('a.py');
+    expect(title).toContain('(40ms)');
+    expect(title).toContain('(2.3s)');
+  });
+
+  it('shows no time when no call was timed', () => {
+    const el = render([read('a', 'a.py', 'complete'), read('b', 'b.py', 'complete')], false);
+    expect(el.querySelector('.stream-tool-pill__duration')).toBeNull();
+  });
+});
+
+describe('ToolPillGroupComponent expansion', () => {
+  it('opens on the call the user had open before it joined the group', () => {
+    TestBed.configureTestingModule({ providers: [ToolPillExpansion] });
+    const first = read('a', 'a.py', 'complete');
+    TestBed.inject(ToolPillExpansion).set(first.streamTag, true);
+    const el = render([first, read('b', 'b.py', 'complete')], false);
+    expect(el.querySelector('.tool-pill-group--expanded')).not.toBeNull();
+    const members = el.querySelectorAll('.tool-pill-group__members app-aux-stream-tool-part');
+    expect(members.length).toBe(2);
+    expect(members[0]!.querySelector('.stream-tool-pill')?.getAttribute('aria-expanded')).toBe('true');
+    expect(members[1]!.querySelector('.stream-tool-pill')?.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('starts closed when no call was open', () => {
+    TestBed.configureTestingModule({ providers: [ToolPillExpansion] });
+    const el = render([read('a', 'a.py', 'complete'), read('b', 'b.py', 'complete')], false);
+    expect(el.querySelector('.tool-pill-group--expanded')).toBeNull();
+  });
+});

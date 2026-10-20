@@ -84,6 +84,7 @@ async def stream_agent_reply(
     # --- Turn bootstrap: clear leftover HITL / plan state from a prior stream ---
     session.agent_pause_event = None
     session.agent_pause_note = None
+    session.agent_pause_run_ms = None
     session.pending_plan_confirm_request = None
     session.plan_execute_aborted = False
     session.auto_apply_mode = auto_apply_mode

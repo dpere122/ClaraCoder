@@ -12,17 +12,20 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import type { TurnFeedItem } from '@shared/index';
+import type { StreamPart, TurnFeedItem } from '@shared/index';
 import { AuxStreamToolPartComponent } from '../aux-stream-tool-part/aux-stream-tool-part';
 import { MarkdownPipe } from '../markdown.pipe';
 import { StreamNudgePillComponent } from '../stream-nudge-pill/stream-nudge-pill';
 import { StreamThoughtPillComponent } from '../stream-thought-pill/stream-thought-pill';
 import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
+import { ToolPillExpansion } from '../tool-pill-expansion';
+import { ToolPillGroupComponent } from '../tool-pill-group/tool-pill-group';
 import type { ToolSpinnerKind } from '../tool-spinner-kind';
 import {
+  committedItemIdentities,
   decidePreviewCommit,
   displayCommittedCount,
-  feedItemDisplayRole,
+  feedDisplayRoles,
   initialLiveCommittedCount,
   firstQueueableIdentity,
   previewCommitCount,
@@ -36,8 +39,11 @@ import {
   queueableFeedIdentity,
   queueableItems,
   splitQueuedFeed,
-  type FeedDisplayRole,
 } from './stream-preview-queue';
+import { settlingChipIndices, toolChipGroupParts, toolChipLayout } from './tool-chip-groups';
+
+/** How long chips that just left the live preview play their settle animation (see the CSS). */
+export const CHIP_SETTLE_MS = 520;
 
 /** Spinner the open preview hosts: thought header, or the tool pill (read / write / run / web). */
 export type HostedSpinnerKind = 'think' | ToolSpinnerKind;
@@ -51,7 +57,10 @@ export type HostedSpinnerKind = 'think' | ToolSpinnerKind;
     StreamNudgePillComponent,
     StreamThoughtPillComponent,
     StreamToolPillComponent,
+    ToolPillGroupComponent,
   ],
+  // Open pills are tracked per feed, so a pill keeps its state when it joins a group.
+  providers: [ToolPillExpansion],
   templateUrl: './stream-turn-feed.html',
   styleUrl: './stream-turn-feed.css',
   encapsulation: ViewEncapsulation.None,
@@ -90,7 +99,31 @@ export class StreamTurnFeedComponent {
   private inboundAppearedAt = 0;
   private commitTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /** Queue identities of items that just committed from the live preview to chips. */
+  private readonly settling = signal<ReadonlySet<string>>(new Set());
+  private settleTimer: ReturnType<typeof setTimeout> | null = null;
+
   readonly displayCommitted = computed(() => displayCommittedCount(this.items(), this.committedCount()));
+
+  /** How each item renders right now (chip, preview, hidden, markdown), by item index. */
+  readonly displayRoles = computed(() => feedDisplayRoles(this.items(), this.displayCommitted(), this.live()));
+
+  /** Back-to-back same-kind tool chips collapse into one group pill; duplicate rows fold away. */
+  readonly toolChipLayout = computed(() => {
+    const items = this.items();
+    const roles = this.displayRoles();
+    const layout = toolChipLayout(items, (index) => roles[index] ?? 'hidden', this.live());
+    const groupParts = new Map<number, StreamPart[]>();
+    for (const [lead, members] of layout.groups) {
+      groupParts.set(lead, toolChipGroupParts(items, members));
+    }
+    return { hidden: layout.hidden, groupParts, groups: layout.groups };
+  });
+
+  /** Chips (and group pills) that just took over from the live preview: they fade and settle in. */
+  readonly settlingIndices = computed(() =>
+    settlingChipIndices(this.items(), this.settling(), this.toolChipLayout().groups),
+  );
 
   readonly previewHeader = computed(() => {
     const split = splitQueuedFeed(this.items(), this.displayCommitted());
@@ -139,7 +172,10 @@ export class StreamTurnFeedComponent {
   readonly previewHeaderChars = computed(() => Array.from(this.previewHeader()));
 
   constructor() {
-    this.destroyRef.onDestroy(() => this.clearTimer());
+    this.destroyRef.onDestroy(() => {
+      this.clearTimer();
+      this.clearSettle();
+    });
 
     effect(() => {
       const live = this.live();
@@ -160,10 +196,6 @@ export class StreamTurnFeedComponent {
       const kind = this.hostedSpinnerKind();
       untracked(() => this.spinnerKindChange.emit(kind));
     });
-  }
-
-  itemRole(index: number, committedCount = this.displayCommitted()): FeedDisplayRole {
-    return feedItemDisplayRole(this.items(), index, committedCount, this.live());
   }
 
   previewBodyText(item: TurnFeedItem): string {
@@ -279,10 +311,33 @@ export class StreamTurnFeedComponent {
   private commitPreview(): void {
     const items = this.items();
     const n = this.committedCount();
-    this.committedCount.set(displayCommittedCount(items, n + previewCommitCount(items, n)));
+    const count = previewCommitCount(items, n);
+    this.markSettling(committedItemIdentities(items, n, count));
+    this.committedCount.set(displayCommittedCount(items, n + count));
     this.currentIdentity = '';
     this.inboundAppearedAt = 0;
     this.syncQueue(this.live(), items);
+  }
+
+  private markSettling(ids: readonly string[]): void {
+    if (ids.length === 0) {
+      return;
+    }
+    if (this.settleTimer != null) {
+      clearTimeout(this.settleTimer);
+    }
+    this.settling.update((prev) => new Set([...prev, ...ids]));
+    this.settleTimer = setTimeout(() => {
+      this.settleTimer = null;
+      this.settling.set(new Set());
+    }, CHIP_SETTLE_MS);
+  }
+
+  private clearSettle(): void {
+    if (this.settleTimer != null) {
+      clearTimeout(this.settleTimer);
+      this.settleTimer = null;
+    }
   }
 
   private clearTimer(): void {

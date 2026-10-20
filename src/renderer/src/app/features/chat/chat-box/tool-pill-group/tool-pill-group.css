@@ -1,0 +1,28 @@
+app-tool-pill-group {
+  display: block;
+  max-width: 100%;
+}
+
+/* Expanded: the member calls stack under the group pill, indented on a guide line. */
+app-tool-pill-group .tool-pill-group__members {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  margin: 0.1rem 0 0.25rem 0.55rem;
+  padding-left: 0.5rem;
+  border-left: 1px solid color-mix(in srgb, var(--t-primary) 30%, var(--t-border-subtle));
+}
+
+app-tool-pill-group .tool-pill-group__members app-aux-stream-tool-part {
+  display: block;
+  max-width: 100%;
+}
+
+app-tool-pill-group .tool-pill-group__members app-aux-stream-tool-part:has(.stream-tool-pill--expanded, .aux-stream-tool-part__terminal) {
+  align-self: stretch;
+}
+
+app-tool-pill-group .tool-pill-group__members .aux-stream-tool-part {
+  margin: 0.08rem 0;
+}

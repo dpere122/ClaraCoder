@@ -95,10 +95,13 @@ def test_unrestorable_directory_asks_first(workspace_env, monkeypatch) -> None:
     pending = session.pending_delete_request
     assert pending is not None
 
+    session.agent_pause_run_ms = None
     note = execute_pending_delete_decision(session, confirm=True, request_id=pending['request_id'])
     assert 'Deleted directory `big`' in note
     assert not (ws / 'big').exists()
     assert session.pending_delete_request is None
+    # The delete itself is timed, so the pill shows its run time rather than the card's wait.
+    assert session.agent_pause_run_ms is not None
 
 
 def test_dependency_directory_is_never_journaled(workspace_env) -> None:
@@ -118,7 +121,9 @@ def test_cancel_keeps_files(workspace_env, monkeypatch) -> None:
     delete_workspace_entries.invoke({'relative_paths': ['big'], 'recursive': True})
     pending = session.pending_delete_request
 
+    session.agent_pause_run_ms = None
     note = execute_pending_delete_decision(session, confirm=False, request_id=pending['request_id'])
 
     assert note == 'User cancelled the delete request.'
     assert (ws / 'big' / 'a.txt').exists()
+    assert session.agent_pause_run_ms is None

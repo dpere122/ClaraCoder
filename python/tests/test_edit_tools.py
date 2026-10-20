@@ -21,6 +21,7 @@ from clara_coder_backend.hitl.tool_registry import (
 from clara_coder_backend.middleware.tool_batch_middleware import ToolBatchMiddleware
 from clara_coder_backend.session.state import current_tool_batch_id, runtime_config
 from clara_coder_backend.tools import edit as edit_module
+from clara_coder_backend.tools.edit_diffs import take_edit_diff
 from clara_coder_backend.tools.edit import (
     edit_tools,
     replace_workspace_lines,
@@ -305,3 +306,16 @@ def test_sequential_line_range_edits_outside_a_batch_are_not_refused(journaled) 
 
     assert out.startswith('Updated'), out
     assert target.read_text(encoding='utf-8') == 'ONE\nTWO\n'
+
+
+@pytest.mark.asyncio(loop_scope='function')
+async def test_each_edit_call_leaves_its_own_diff_for_the_ui(journaled) -> None:
+    (journaled.workspace / 'd.txt').write_text('alpha\nbeta\n', encoding='utf-8')
+
+    outs = await _run_batch([_snippet_call('d.txt', 'beta', 'BETA')])
+
+    assert outs[0].startswith('Updated `d.txt`')
+    # The model's result has no diff; the UI gets it under the call id.
+    assert '+BETA' not in outs[0]
+    diff = take_edit_diff('call-0')
+    assert '-beta' in diff.splitlines() and '+BETA' in diff.splitlines()

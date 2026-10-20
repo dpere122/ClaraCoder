@@ -44,6 +44,7 @@ from clara_coder_backend.middleware.vision_tool_middleware import VisionImageInj
 from clara_coder_backend.domain import SessionState
 from clara_coder_backend.lang_agent.langgraph_sse import (
     GraphStreamState,
+    approval_answer_sse_lines,
     finalize_unconsumed_gemma_previews,
     sse_lines_for_graph_event,
     tool_progress_sse_lines,
@@ -291,7 +292,11 @@ def _nested_sse_lines(
             planner = data.get('planner') if isinstance(data.get('planner'), dict) else data
             return [sse_line(planner_progress_event(planner))]
         return []
-    nested_state = nested_states.setdefault(tag, GraphStreamState())
+    nested_state = nested_states.get(tag)
+    if nested_state is None:
+        # An approval answer that beats a nested call's tool event waits in the outer stream's dict.
+        nested_state = GraphStreamState(early_approval_answers=main_state.early_approval_answers)
+        nested_states[tag] = nested_state
     return list(
         sse_lines_for_graph_event(
             ev,
@@ -509,6 +514,11 @@ async def _stream_langgraph_tool_agent(
                     if isinstance(item, tuple) and item and item[0] == 'agent_nudge':
                         main_state.last_final_text = ''
                         main_state.deferred_agent_text = ''
+                    if isinstance(item, tuple) and len(item) == 2 and item[0] == 'tool_resolved':
+                        # An answered approval card: the call's final status with its run time.
+                        for line in approval_answer_sse_lines(item[1], states=[main_state, *nested_states.values()]):
+                            yield line
+                        continue
                     for line in await _hitl_sse_lines(get_session(cfg.session_id), item):
                         yield line
                     continue

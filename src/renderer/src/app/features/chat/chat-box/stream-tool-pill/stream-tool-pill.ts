@@ -11,7 +11,15 @@ import { toolSpinnerSrc, type ToolSpinnerKind } from '../tool-spinner-kind';
 })
 export class StreamToolPillComponent {
   readonly name = input.required<string>();
+  /** Hover text for the name (defaults to the name itself). */
+  readonly nameTitle = input('');
   readonly meta = input('');
+  /** Run time after the meta (`1.2s`); empty hides it. */
+  readonly duration = input('');
+  /** Hover text for the run time. */
+  readonly durationTitle = input('');
+  /** Long call: the run time reads at full strength instead of muted. */
+  readonly durationSlow = input(false);
   readonly state = input<ToolTrailPillState>('neutral');
   readonly expandable = input(false);
   readonly expanded = input(false);
@@ -22,6 +30,10 @@ export class StreamToolPillComponent {
   readonly spinnerKind = input<ToolSpinnerKind>('write');
 
   readonly spinnerSrc = computed(() => toolSpinnerSrc(this.spinnerKind()));
+
+  /** Glow the name letter by letter (like the thinking preview header) while calls are active. */
+  readonly shimmer = input(false);
+  readonly nameChars = computed(() => Array.from(this.name()));
 
   readonly toggle = output<void>();
 

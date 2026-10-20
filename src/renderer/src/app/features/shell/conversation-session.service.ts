@@ -235,12 +235,12 @@ export class ConversationSessionService {
       }
     });
 
-    this.electron.toolReadChunk$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, delta }) => {
-      const mergeRead = (prev: StreamPart[]) => appendAndMergeReadToolPreviewChunk(prev, delta);
+    this.electron.toolReadChunk$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, delta, statusId }) => {
+      const mergeRead = (prev: StreamPart[]) => appendAndMergeReadToolPreviewChunk(prev, delta, statusId);
       if (conversationId === this.activeConversationId()) {
         this.streamingParts.update((prev) => {
           const next = mergeRead(prev);
-          this.syncChainTextFromReadToolTrail(next);
+          this.syncChainTextFromReadToolTrail(next, statusId);
           return next;
         });
       } else {
@@ -1050,8 +1050,8 @@ export class ConversationSessionService {
     return status.detail ?? '';
   }
 
-  private syncChainTextFromReadToolTrail(parts: StreamPart[]): void {
-    const idx = findReadToolTrailTargetIndex(parts);
+  private syncChainTextFromReadToolTrail(parts: StreamPart[], chunkStatusId?: string): void {
+    const idx = findReadToolTrailTargetIndex(parts, chunkStatusId);
     if (idx < 0) {
       return;
     }

@@ -33,12 +33,17 @@ def status_event(
     agent_role: str | None = None,
     stream_tag: str | None = None,
     tool_batch: str | None = None,
+    diff: str = '',
+    duration_ms: int | None = None,
 ) -> dict[str, Any]:
     """Build one structured status payload for the UI (tool running, errors, etc.).
 
     ``tool_batch`` names the LLM step that requested a tool. The UI batches parallel tools of one
     step into a single live pill; tools from a later step start a new pill even when no reasoning
     or prose streamed in between (e.g. Gemini via OpenRouter, whose reasoning is encrypted).
+
+    ``diff`` is the unified diff a finished edit tool wrote, shown when its pill is expanded.
+    ``duration_ms`` is how long a finished tool call ran (``on_tool_start`` to ``on_tool_end``).
     """
     row: dict[str, Any] = {
         'id': status_id,
@@ -53,6 +58,10 @@ def status_event(
         row['stream_tag'] = stream_tag
     if tool_batch:
         row['tool_batch'] = tool_batch
+    if diff:
+        row['diff'] = diff
+    if duration_ms is not None:
+        row['duration_ms'] = max(0, int(duration_ms))
     return {'type': 'status', 'status': row}
 
 
@@ -212,17 +221,31 @@ def is_meaningful_stream_delta(delta: str) -> bool:
     return not delta.isspace()
 
 
-def iter_read_tool_stream_sse(tool_name: str, tool_result: str) -> Iterator[str]:
-    """Yield SSE ``tool_read_chunk`` lines (separate channel from model ``chunk`` in the Electron UI)."""
+def iter_read_tool_stream_sse(
+    tool_name: str, tool_result: str, *, status_id: str | None = None
+) -> Iterator[str]:
+    """Yield SSE ``tool_read_chunk`` lines (separate channel from model ``chunk`` in the Electron UI).
+
+    ``status_id`` names the tool status row the body belongs to, so parallel read calls each
+    get their own output. The body opens with a blank line and a ``── name ──`` separator,
+    which the UI splits on to keep the status headline apart from the streamed body.
+    """
     if tool_name not in _READ_TOOL_STREAM_PREVIEW_NAMES:
         return
     body = tool_result
     if len(body) > MAX_READ_TOOL_STREAM_CHARS:
         body = body[:MAX_READ_TOOL_STREAM_CHARS] + '\n\n… [truncated for stream preview]\n'
-    formatted = f'\n\n── {tool_name} ──\n{body}\n'
-    for piece in chunk_text(formatted):
+    pieces = chunk_text(f'── {tool_name} ──\n{body}\n')
+    if not pieces:
+        return
+    # chunk_text drops leading whitespace, so the separator's line breaks go back on here.
+    pieces[0] = f'\n\n{pieces[0]}'
+    for piece in pieces:
         if is_meaningful_stream_delta(piece):
-            yield sse_line({'type': 'tool_read_chunk', 'delta': piece})
+            payload: dict[str, Any] = {'type': 'tool_read_chunk', 'delta': piece}
+            if status_id:
+                payload['status_id'] = status_id
+            yield sse_line(payload)
 
 
 def chunk_text(text: str) -> list[str]:
@@ -269,6 +292,8 @@ def sse_tool_finished(
     error_detail: str = '',
     agent_role: str | None = None,
     stream_tag: str | None = None,
+    diff: str = '',
+    duration_ms: int | None = None,
 ) -> str:
     if not ok:
         line = truncate_text((error_detail or 'Error').replace('\n', ' '), MAX_TOOL_STATUS_LINE)
@@ -281,6 +306,7 @@ def sse_tool_finished(
                 source='tool',
                 agent_role=agent_role,
                 stream_tag=stream_tag,
+                duration_ms=duration_ms,
             )
         )
     line = tool_result_one_line(result_text)
@@ -293,6 +319,8 @@ def sse_tool_finished(
             source='tool',
             agent_role=agent_role,
             stream_tag=stream_tag,
+            diff=diff,
+            duration_ms=duration_ms,
         )
     )
 

@@ -5,8 +5,10 @@ import {
   PREVIEW_INBOUND_ANNOUNCE_MS,
   PREVIEW_OPEN_DWELL_MS,
   advanceZeroDwell,
+  committedItemIdentities,
   decidePreviewCommit,
   displayCommittedCount,
+  feedDisplayRoles,
   feedItemDisplayRole,
   firstQueueableIdentity,
   hasCommitPressure,
@@ -89,8 +91,8 @@ describe('previewItemLabel', () => {
     expect(previewItemLabel(thought)).toBe('Thinking');
   });
 
-  it('uses the tool label', () => {
-    expect(previewItemLabel(tool)).toBe('read_workspace_file');
+  it('uses the tool verb', () => {
+    expect(previewItemLabel(tool)).toBe('Read');
   });
 });
 
@@ -100,11 +102,16 @@ describe('previewQueueHeader', () => {
   });
 
   it('anticipates only the next inbound event', () => {
-    expect(previewQueueHeader(thought, [tool, tool2])).toBe('Thinking — read_workspace_file');
+    expect(previewQueueHeader(thought, [tool, tool2])).toBe('Thinking — Read');
   });
 
   it('never stacks a wide parallel batch past current and next', () => {
-    expect(previewQueueHeader(tool, [tool2, tool3, tool])).toBe('read_workspace_file — search_workspace');
+    expect(previewQueueHeader(tool, [tool2, tool3, tool])).toBe('Read — Search');
+  });
+
+  it('skips inbound events that share the current verb', () => {
+    expect(previewQueueHeader(tool, [tool, tool2])).toBe('Read — Search');
+    expect(previewQueueHeader(tool, [tool])).toBe('Read');
   });
 });
 
@@ -249,17 +256,13 @@ describe('splitQueuedFeed', () => {
     expect(split.committed).toEqual([]);
     expect(split.current).toEqual(thought);
     expect(split.inbound).toEqual([tool]);
-    expect(previewQueueHeader(split.current!, split.inbound)).toBe('Thinking — read_workspace_file');
+    expect(previewQueueHeader(split.current!, split.inbound)).toBe('Thinking — Read');
   });
 
   it('lists simultaneous tools after the current thought', () => {
     const split = splitQueuedFeed([thought, tool, tool2, tool3], 0);
     expect(split.current).toEqual(thought);
-    expect(split.inbound.map(previewItemLabel)).toEqual([
-      'read_workspace_file',
-      'search_workspace',
-      'list_workspace_directory',
-    ]);
+    expect(split.inbound.map(previewItemLabel)).toEqual(['Read', 'Search', 'List']);
   });
 
   it('does not queue markdown', () => {
@@ -316,6 +319,19 @@ describe('pressureInbound', () => {
   it('ignores sibling tools in the live batch', () => {
     expect(pressureInbound(tool, [tool2, tool3])).toBeUndefined();
     expect(pressureInbound(tool, [tool2, thought])).toEqual(thought);
+  });
+});
+
+describe('feedDisplayRoles', () => {
+  it('matches feedItemDisplayRole for every item', () => {
+    const items = [thought, md, tool, tool2, md, tool3];
+    for (const live of [false, true]) {
+      for (let committed = 0; committed <= 4; committed++) {
+        expect(feedDisplayRoles(items, committed, live)).toEqual(
+          items.map((_, index) => feedItemDisplayRole(items, index, committed, live)),
+        );
+      }
+    }
   });
 });
 
@@ -558,5 +574,14 @@ describe('tool batches across LLM steps', () => {
 
   it('remounts on the latest step batch', () => {
     expect(initialLiveCommittedCount([s1a, s1b, s2a])).toBe(2);
+  });
+});
+
+describe('committedItemIdentities', () => {
+  it('names the items one preview commit lands as chips', () => {
+    const items: TurnFeedItem[] = [thought, tool, tool2, { kind: 'markdown', text: 'ok' }];
+    expect(committedItemIdentities(items, 1, 2)).toEqual([queueableFeedIdentity(tool), queueableFeedIdentity(tool2)]);
+    expect(committedItemIdentities(items, 0, 1)).toEqual([queueableFeedIdentity(thought)]);
+    expect(committedItemIdentities(items, 3, 1)).toEqual([]);
   });
 });

@@ -77,7 +77,9 @@ declare global {
     onMessageChunk: (
       callback: (event: unknown, conversationId: string, delta: string, streamTag?: string) => void,
     ) => void;
-    onMessageToolReadChunk: (callback: (event: unknown, conversationId: string, delta: string) => void) => void;
+    onMessageToolReadChunk: (
+      callback: (event: unknown, conversationId: string, delta: string, statusId?: string) => void,
+    ) => void;
     onMessageToolExecChunk: (
       callback: (
         event: unknown,

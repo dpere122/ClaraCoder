@@ -43,6 +43,18 @@ describe('mergeStreamBatchQueue', () => {
     ]);
   });
 
+  it('merges read chunks only within one tool status row', () => {
+    const q: StreamBatchItem[] = [
+      { kind: 'toolRead', msg: { conversationId: 'c1', delta: 'a', statusId: 'r1' } },
+      { kind: 'toolRead', msg: { conversationId: 'c1', delta: 'b', statusId: 'r1' } },
+      { kind: 'toolRead', msg: { conversationId: 'c1', delta: 'c', statusId: 'r2' } },
+    ];
+    expect(mergeStreamBatchQueue(q)).toEqual([
+      { kind: 'toolRead', msg: { conversationId: 'c1', delta: 'ab', statusId: 'r1' } },
+      { kind: 'toolRead', msg: { conversationId: 'c1', delta: 'c', statusId: 'r2' } },
+    ]);
+  });
+
   it('preserves interleaving across chunk kinds', () => {
     const q: StreamBatchItem[] = [
       { kind: 'chunk', msg: { conversationId: 'c1', delta: 'a', streamTag: 'agent' } },

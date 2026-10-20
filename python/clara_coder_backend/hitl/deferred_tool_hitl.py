@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from clara_coder_backend.domain import SessionState
+from clara_coder_backend.session.pause import timed_approved_run
 from clara_coder_backend.session.state import current_session_id, sessions
 from clara_coder_backend.tools.deferred_hitl import (
     DEFERRED_HITL_TOOL_NAMES,
@@ -40,7 +41,8 @@ async def execute_pending_deferred_tool(session: SessionState, pending: dict[str
     sid_token = current_session_id.set(sid) if sid else None
     hitl_token = deferred_tool_hitl_bypass.set(True)
     try:
-        result = await tool.ainvoke(tool_input)
+        with timed_approved_run(session):
+            result = await tool.ainvoke(tool_input)
         return str(result)
     finally:
         deferred_tool_hitl_bypass.reset(hitl_token)

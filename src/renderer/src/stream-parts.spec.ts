@@ -208,6 +208,23 @@ describe('appendReadToolPreviewChunk', () => {
     expect(out).toHaveLength(1);
     expect(out[0].text).toBe('draft.ts\nbody');
   });
+
+  it('appends onto the row named by statusId while parallel reads run', () => {
+    const parts: StreamPart[] = [
+      { streamTag: toolTrailStatusStreamTag('r1'), label: 'read_workspace_file', text: 'hello.py', toolChainState: 'running' },
+      { streamTag: toolTrailStatusStreamTag('r2'), label: 'search_workspace', text: 'greet', toolChainState: 'running' },
+    ];
+    const out = appendReadToolPreviewChunk(parts, '\n\n── read_workspace_file ──\nbody', 'r1');
+    expect(out[0].text).toBe('hello.py\n\n── read_workspace_file ──\nbody');
+    expect(out[1].text).toBe('greet');
+  });
+
+  it('falls back to the last read row when the statusId row is missing', () => {
+    const parts: StreamPart[] = [
+      { streamTag: toolTrailStatusStreamTag('r1'), label: 'read_workspace_file', text: 'a.py', toolChainState: 'running' },
+    ];
+    expect(appendReadToolPreviewChunk(parts, '\nbody', 'gone')[0].text).toBe('a.py\nbody');
+  });
 });
 
 describe('buildTurnFeed', () => {

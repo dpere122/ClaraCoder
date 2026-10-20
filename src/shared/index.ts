@@ -385,6 +385,21 @@ export {
   toolStatusStreamPartPillState,
 } from './tool-trail-pill';
 export type { ToolTrailPillState } from './tool-trail-pill';
+export {
+  humanizeToolName,
+  runCommandIdFromReport,
+  runCommandLaneId,
+  formatToolDuration,
+  TOOL_PILL_SLOW_MS,
+  toolPillGroupLabel,
+  toolPillSlowestMs,
+  toolPillLabel,
+  toolPillMeta,
+  toolPillsGroupTogether,
+  toolPillVerb,
+  toolTargetFromRunningDetail,
+} from './tool-pill-label';
+export type { ToolPillCategory, ToolPillLabel } from './tool-pill-label';
 export type { ParsedAgentStreamPayload } from './stream-payload';
 export { parseAgentStreamPayload } from './stream-payload';
 export type {
@@ -434,6 +449,8 @@ export type { HostOsInfo } from './types/host-os';
 export type { ScriptLaunchPlan } from './types/script';
 export type { DiffRow, DiffRowKind, FileDiffPayload, WorkspaceFileWriteOptions } from './types/diff';
 export { diffLineChangeCounts, formatDiffLineChangeSummary } from './diff-stats';
+export { editDiffCounts, parseEditDiff } from './edit-diff';
+export type { EditDiffLine, EditDiffLineKind } from './edit-diff';
 export type { DiffLineChangeCounts } from './diff-stats';
 export {
   hitlTrailItemsFromArtifacts,

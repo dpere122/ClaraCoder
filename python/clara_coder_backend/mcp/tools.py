@@ -11,7 +11,7 @@ from langchain_core.tools import StructuredTool
 from clara_coder_backend.domain import RuntimeMcpServer, SessionState
 from clara_coder_backend.mcp.manager import mcp_manager
 from clara_coder_backend.mcp.names import bound_mcp_tool_name
-from clara_coder_backend.session.pause import stage_hitl_request
+from clara_coder_backend.session.pause import stage_hitl_request, timed_approved_run
 from clara_coder_backend.mcp.trust import denial_message, trust_decision
 
 _INJECTED = frozenset({'config', 'callbacks', 'run_manager'})
@@ -78,8 +78,12 @@ async def execute_mcp_tool_decision(
     confirm: bool,
     grant_session: bool,
     remember_deny: bool,
+    session: SessionState | None = None,
 ) -> str:
-    """Apply Allow, Deny, or Allow-all, then run the tool when it is permitted."""
+    """Apply Allow, Deny, or Allow-all, then run the tool when it is permitted.
+
+    ``session`` gets the call's run time (see :func:`~clara_coder_backend.session.pause.timed_approved_run`).
+    """
 
     from clara_coder_backend.mcp.trust import set_server_trust, set_tool_decision
 
@@ -98,7 +102,8 @@ async def execute_mcp_tool_decision(
         return denial_message(label, tool_name)
     else:
         return str(pending.get('cancel_note') or 'User dismissed the MCP tool request. The choice was not remembered.')
-    return await mcp_manager.call_tool(server_id, tool_name, arguments)
+    with timed_approved_run(session):
+        return await mcp_manager.call_tool(server_id, tool_name, arguments)
 
 
 def bound_mcp_tools() -> list[StructuredTool]:

@@ -17,5 +17,17 @@ def test_iter_read_tool_stream_sse_emits_tool_read_chunks() -> None:
     assert 'line two' in joined
 
 
+def test_iter_read_tool_stream_sse_keeps_separator_and_status_id() -> None:
+    lines = list(iter_read_tool_stream_sse('read_workspace_file', 'line one\n', status_id='run-7'))
+    payloads = [
+        __import__('json').loads(line.removeprefix('data: ').strip())
+        for line in lines
+        if line.startswith('data: ')
+    ]
+    # The UI splits the status headline from the body on this blank-line separator.
+    assert payloads[0]['delta'].startswith('\n\n── read_workspace_file ──')
+    assert all(p['status_id'] == 'run-7' for p in payloads)
+
+
 def test_iter_read_tool_stream_sse_skips_unknown_tools() -> None:
     assert list(iter_read_tool_stream_sse('write_workspace_file', 'x')) == []

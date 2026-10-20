@@ -23,6 +23,17 @@ app-stream-turn-feed app-aux-stream-tool-part:has(.hitl-trail-row) {
   flex: 1 1 100%;
 }
 
+app-stream-turn-feed app-tool-pill-group {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
+/* Short pills share a row; one that opens its output (or a group that opens) takes the full width. */
+app-stream-turn-feed app-aux-stream-tool-part:has(.stream-tool-pill--expanded, .aux-stream-tool-part__terminal),
+app-stream-turn-feed app-tool-pill-group:has(.tool-pill-group--expanded) {
+  flex: 1 1 100%;
+}
+
 app-stream-turn-feed .stream-turn-feed {
   display: flex;
   flex-direction: row;
@@ -139,4 +150,45 @@ app-stream-turn-feed .stream-turn-feed__preview-body {
   color: var(--chat-details-stream-fg, color-mix(in srgb, var(--t-secondary) 88%, transparent));
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/*
+ * Hand-off from the live preview to finished chips: the chips that just took its place fade
+ * up from the preview's spot, and their pill lets go of the running glow instead of snapping.
+ */
+app-stream-turn-feed .stream-turn-feed__settle {
+  animation: stream-turn-feed-settle 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+app-stream-turn-feed app-aux-stream-tool-part.stream-turn-feed__settle .stream-tool-pill,
+app-stream-turn-feed app-tool-pill-group.stream-turn-feed__settle > .tool-pill-group > app-stream-tool-pill .stream-tool-pill {
+  animation: stream-turn-feed-settle-glow 520ms ease-out;
+}
+
+@keyframes stream-turn-feed-settle {
+  from {
+    opacity: 0.25;
+    transform: translateY(3px) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes stream-turn-feed-settle-glow {
+  from {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--t-glow-soft) 65%, transparent),
+      0 0 12px color-mix(in srgb, var(--t-glow) 38%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  app-stream-turn-feed .stream-turn-feed__settle,
+  app-stream-turn-feed app-aux-stream-tool-part.stream-turn-feed__settle .stream-tool-pill,
+  app-stream-turn-feed app-tool-pill-group.stream-turn-feed__settle > .tool-pill-group > app-stream-tool-pill .stream-tool-pill {
+    animation: none;
+  }
 }

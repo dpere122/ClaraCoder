@@ -2,14 +2,17 @@ import {
   Component,
   ViewEncapsulation,
   computed,
+  inject,
   input,
   signal,
 } from '@angular/core';
-import type { StreamPart } from '@shared/index';
+import type { StreamPart, ToolTrailPillState } from '@shared/index';
 import {
   delegatedStreamPartMeta,
+  formatToolDuration,
   isHitlTrailStreamTag,
   isReadToolPreviewStreamTag,
+  isRunCommandStreamTag,
   isShellStyleToolStreamTag,
   isToolTrailStatusStreamTag,
   isWorkspaceReadToolLabel,
@@ -17,19 +20,51 @@ import {
   shellStreamPartBadgeMeta,
   shellStreamPartPillState,
   streamPartIsExpandable,
-  toolStatusStreamPartMeta,
+  TOOL_PILL_SLOW_MS,
+  toolPillLabel,
+  toolPillMeta,
   toolStatusStreamPartPillState,
 } from '@shared/index';
 import { DelegatedShellTerminalComponent } from '../delegated-shell-terminal/delegated-shell-terminal';
 import { AnsiTerminalPreComponent } from '../../../../core/ansi-terminal-pre';
 import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
+import { ToolEditDiffComponent } from '../tool-edit-diff/tool-edit-diff';
+import { ToolPillExpansion } from '../tool-pill-expansion';
 
 export type AuxStreamToolPartKind = 'status' | 'shell' | 'delegated' | 'hitl';
+
+export function auxStreamToolPartKind(streamTag: string): AuxStreamToolPartKind {
+  if (isHitlTrailStreamTag(streamTag)) {
+    return 'hitl';
+  }
+  if (isToolTrailStatusStreamTag(streamTag)) {
+    return 'status';
+  }
+  if (isShellStyleToolStreamTag(streamTag)) {
+    return 'shell';
+  }
+  return 'delegated';
+}
+
+/** Pill colour state for one tool row (shared with the collapsed group pill). */
+export function auxStreamToolPartPillState(part: StreamPart, live: boolean): ToolTrailPillState {
+  const kind = auxStreamToolPartKind(part.streamTag);
+  if (kind === 'hitl') {
+    return 'neutral';
+  }
+  if (kind === 'status') {
+    return toolStatusStreamPartPillState(part);
+  }
+  if (kind === 'shell' || isRunCommandStreamTag(part.streamTag)) {
+    return shellStreamPartPillState(part, live);
+  }
+  return part.runComplete === false && live ? 'running' : 'neutral';
+}
 
 @Component({
   selector: 'app-aux-stream-tool-part',
   standalone: true,
-  imports: [StreamToolPillComponent, DelegatedShellTerminalComponent, AnsiTerminalPreComponent],
+  imports: [StreamToolPillComponent, DelegatedShellTerminalComponent, AnsiTerminalPreComponent, ToolEditDiffComponent],
   templateUrl: './aux-stream-tool-part.html',
   styleUrl: './aux-stream-tool-part.css',
   encapsulation: ViewEncapsulation.None,
@@ -40,55 +75,55 @@ export class AuxStreamToolPartComponent {
   /** When true, hide shell previews until the user expands. */
   readonly compactDetails = input(false);
 
-  readonly expanded = signal(false);
+  /** The feed's open-pill state, so a pill that turns into a group keeps its call open. */
+  private readonly expansion = inject(ToolPillExpansion, { optional: true });
+  private readonly localExpanded = signal(false);
+  readonly expanded = computed(() => this.expansion?.isOpen(this.part().streamTag) ?? this.localExpanded());
 
-  readonly kind = computed((): AuxStreamToolPartKind => {
-    const tag = this.part().streamTag;
-    if (isHitlTrailStreamTag(tag)) {
-      return 'hitl';
-    }
-    if (isToolTrailStatusStreamTag(tag)) {
-      return 'status';
-    }
-    if (isShellStyleToolStreamTag(tag)) {
-      return 'shell';
-    }
-    return 'delegated';
-  });
+  readonly kind = computed(() => auxStreamToolPartKind(this.part().streamTag));
 
   readonly hitlPending = computed(() => this.kind() === 'hitl' && this.part().toolChainState === 'running');
   readonly hitlComplete = computed(() => this.kind() === 'hitl' && this.part().toolChainState === 'complete');
   readonly hitlCancelled = computed(() => this.kind() === 'hitl' && this.part().toolChainState === 'error');
 
-  readonly pillName = computed(() => this.part().label || 'Tool');
+  /** Verb / target / outcome for the pill (`Read · src/app.ts · 42 lines`). */
+  readonly label = computed(() => toolPillLabel(this.part(), this.live()));
+
+  readonly pillName = computed(() => this.label().verb);
+  /** Raw tool name (or command) on hover, since the pill shows the friendly verb. */
+  readonly pillNameTitle = computed(() => this.part().label || this.label().verb);
   readonly pillMeta = computed(() => {
     const part = this.part();
     const k = this.kind();
     if (k === 'hitl') {
       return '';
     }
-    if (k === 'status') {
-      return toolStatusStreamPartMeta(part);
+    const meta = toolPillMeta(this.label());
+    if (meta) {
+      return meta;
     }
     if (k === 'shell') {
       return shellStreamPartBadgeMeta(part, this.live());
     }
-    return delegatedStreamPartMeta(part);
+    return k === 'delegated' ? delegatedStreamPartMeta(part) : '';
   });
 
-  readonly pillState = computed(() => {
-    const part = this.part();
-    if (this.kind() === 'hitl') {
-      return 'neutral' as const;
-    }
-    if (this.kind() === 'status') {
-      return toolStatusStreamPartPillState(part);
-    }
-    if (this.kind() === 'shell') {
-      return shellStreamPartPillState(part, this.live());
-    }
-    return part.runComplete === false && this.live() ? ('running' as const) : ('neutral' as const);
+  /** How long the finished call ran (`1.2s`); empty while running and for rows saved before timing. */
+  readonly durationMs = computed(() => (this.kind() === 'status' ? this.part().toolDurationMs : undefined));
+  readonly pillDuration = computed(() => {
+    const ms = this.durationMs();
+    return ms === undefined ? '' : formatToolDuration(ms);
   });
+  readonly pillDurationTitle = computed(() => {
+    const ms = this.durationMs();
+    if (ms === undefined) {
+      return '';
+    }
+    return ms < 1 ? 'Ran for under 1 ms' : `Ran for ${(ms / 1000).toFixed(ms < 1000 ? 3 : 1)} s`;
+  });
+  readonly pillDurationSlow = computed(() => (this.durationMs() ?? 0) >= TOOL_PILL_SLOW_MS);
+
+  readonly pillState = computed(() => auxStreamToolPartPillState(this.part(), this.live()));
 
   readonly expandable = computed(() => {
     const k = this.kind();
@@ -114,14 +149,23 @@ export class AuxStreamToolPartComponent {
     );
   });
 
+  /** Unified diff a finished edit call wrote (empty for other tools and older saved turns). */
+  readonly editDiff = computed(() => (this.kind() === 'status' ? (this.part().toolDiff ?? '') : ''));
+
   readonly readExpandedText = computed(() => {
     const body = readToolPreviewBody(this.part().text);
     return body.trim() ? body : this.part().text;
   });
 
   toggleExpanded(): void {
-    if (this.expandable()) {
-      this.expanded.update((v) => !v);
+    if (!this.expandable()) {
+      return;
+    }
+    const open = !this.expanded();
+    if (this.expansion) {
+      this.expansion.set(this.part().streamTag, open);
+    } else {
+      this.localExpanded.set(open);
     }
   }
 }

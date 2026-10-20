@@ -8,6 +8,8 @@ export interface BatchChunkMessage {
 export interface BatchToolReadChunkMessage {
   conversationId: string;
   delta: string;
+  /** Tool status row the read body belongs to (parallel reads stream to separate rows). */
+  statusId?: string;
 }
 
 export interface BatchToolExecChunkMessage {
@@ -68,7 +70,7 @@ export function mergeStreamBatchQueue(queue: readonly StreamBatchItem[]): Stream
     if (item.kind === 'toolRead' && last.kind === 'toolRead') {
       const a = last.msg;
       const b = item.msg;
-      if (a.conversationId === b.conversationId) {
+      if (a.conversationId === b.conversationId && (a.statusId ?? '') === (b.statusId ?? '')) {
         a.delta += b.delta;
         continue;
       }

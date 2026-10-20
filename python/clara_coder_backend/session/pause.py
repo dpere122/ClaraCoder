@@ -4,17 +4,26 @@ Parallel tool calls can each need an approval card. Every card kind keeps its re
 single session slot (``pending_accept_command_request``, ``pending_delete_request``, ...), so
 tools stage into a per-call scope instead (:func:`stage_hitl_request`), and the review
 middlewares show the cards one at a time (:func:`pause_for_tool_review`).
+
+A call that stages a card returns a ``Pending user confirmation`` result right away, so its tool
+event ends before the card goes out; the approved work runs later, in the answer handler. That
+work is timed (:func:`timed_approved_run`) and sent as the call's final status, so the pill shows
+how long the call ran, not how long the card waited.
 """
 
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
 
 from clara_coder_backend.session.state import get_session
+
+#: Start of every result a tool returns when it staged an approval card instead of running.
+PENDING_APPROVAL_PREFIX = 'Pending user confirmation'
 
 #: ``(tool call key, staged requests by session slot name)`` for the tool call running here.
 _tool_call_requests: ContextVar[tuple[str, dict[str, Any]] | None] = ContextVar(
@@ -64,12 +73,37 @@ def stage_hitl_request(session: Any, slot: str, request: Any) -> None:
         current[1][slot] = request
 
 
-async def pause_for_tool_review(session_id: str, item: tuple[Any, ...], slots: dict[str, Any]) -> str:
+@contextmanager
+def timed_approved_run(session: Any | None) -> Iterator[None]:
+    """Time the work an approval answer runs; :func:`pause_for_tool_review` reports it.
+
+    Wrap only the work itself (the command, fetch, MCP call or delete), not the card or any
+    further prompt such as UAC, so the call's duration is its run time. No-op without a session.
+    """
+
+    started = time.monotonic()
+    try:
+        yield
+    finally:
+        if session is not None:
+            session.agent_pause_run_ms = round((time.monotonic() - started) * 1000)
+
+
+async def pause_for_tool_review(
+    session_id: str,
+    item: tuple[Any, ...],
+    slots: dict[str, Any],
+    *,
+    tool_call_id: str = '',
+) -> str:
     """Show one tool call's review card and wait for the answer; returns the resume note.
 
     The lock covers putting the request in its session slots, emitting the card, and waiting.
     Parallel calls queue here, so each card shows its own call's request and each answer
     resumes the call that asked.
+
+    With ``tool_call_id``, the answer is also sent as that call's final status: the note (the
+    approved work's result, or the cancel note) and how long the approved work ran.
     """
 
     sess = get_session(session_id)
@@ -79,6 +113,7 @@ async def pause_for_tool_review(session_id: str, item: tuple[Any, ...], slots: d
         # Created before the card goes out, so an immediate answer always finds it.
         event = asyncio.Event()
         sess.agent_pause_event = event
+        sess.agent_pause_run_ms = None
         try:
             if sess.hitl_sse_queue is not None:
                 await sess.hitl_sse_queue.put(item)
@@ -86,7 +121,13 @@ async def pause_for_tool_review(session_id: str, item: tuple[Any, ...], slots: d
         finally:
             sess.agent_pause_event = None
         note = (sess.agent_pause_note or '').strip()
+        run_ms = sess.agent_pause_run_ms
         sess.agent_pause_note = None
+        sess.agent_pause_run_ms = None
+        if tool_call_id and note and sess.hitl_sse_queue is not None:
+            await sess.hitl_sse_queue.put(
+                ('tool_resolved', {'tool_call_id': tool_call_id, 'text': note, 'duration_ms': run_ms})
+            )
         return note
 
 

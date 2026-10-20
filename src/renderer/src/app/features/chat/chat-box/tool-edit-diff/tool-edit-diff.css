@@ -1,0 +1,100 @@
+app-tool-edit-diff {
+  display: block;
+  --tool-edit-diff-add: var(--t-success, #2e9d5e);
+  --tool-edit-diff-del: var(--t-danger, #c4473a);
+}
+
+app-tool-edit-diff .tool-edit-diff {
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--t-border-subtle) 55%, transparent);
+  border-radius: 0.35rem;
+  background: color-mix(in srgb, var(--t-code-bg) 65%, transparent);
+}
+
+/* One grid for every row, so the old / new line-number gutters line up across hunks. */
+app-tool-edit-diff .tool-edit-diff__grid {
+  display: grid;
+  grid-template-columns: max-content max-content 1.4ch minmax(0, 1fr);
+  max-height: min(40vh, 22rem);
+  overflow: auto;
+  padding: 0.2rem 0;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--t-code-text);
+}
+
+app-tool-edit-diff .tool-edit-diff__row {
+  display: contents;
+}
+
+app-tool-edit-diff .tool-edit-diff__row > span {
+  padding-block: 0 0.02rem;
+}
+
+app-tool-edit-diff .tool-edit-diff__no {
+  padding-inline: 0.45rem 0.2rem;
+  color: color-mix(in srgb, var(--t-secondary) 55%, transparent);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  user-select: none;
+}
+
+app-tool-edit-diff .tool-edit-diff__sign {
+  text-align: center;
+  user-select: none;
+}
+
+app-tool-edit-diff .tool-edit-diff__text {
+  padding-right: 0.6rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+app-tool-edit-diff .tool-edit-diff__row--add > span {
+  background: color-mix(in srgb, var(--tool-edit-diff-add) 14%, transparent);
+}
+
+app-tool-edit-diff .tool-edit-diff__row--add .tool-edit-diff__sign {
+  color: var(--tool-edit-diff-add);
+}
+
+app-tool-edit-diff .tool-edit-diff__row--del > span {
+  background: color-mix(in srgb, var(--tool-edit-diff-del) 14%, transparent);
+}
+
+app-tool-edit-diff .tool-edit-diff__row--del .tool-edit-diff__sign {
+  color: var(--tool-edit-diff-del);
+}
+
+app-tool-edit-diff .tool-edit-diff__hunk,
+app-tool-edit-diff .tool-edit-diff__note {
+  grid-column: 1 / -1;
+  padding: 0.12rem 0.6rem;
+  color: color-mix(in srgb, var(--t-secondary) 75%, transparent);
+  font-size: 0.68rem;
+}
+
+app-tool-edit-diff .tool-edit-diff__hunk {
+  margin-top: 0.15rem;
+  background: color-mix(in srgb, var(--t-primary) 8%, transparent);
+}
+
+app-tool-edit-diff .tool-edit-diff__hunk:first-child {
+  margin-top: 0;
+}
+
+app-tool-edit-diff .tool-edit-diff__note {
+  font-style: italic;
+}
+
+/* The tool's own result line (summary, post-edit checks), muted under the diff. */
+app-tool-edit-diff .tool-edit-diff__result {
+  overflow: hidden;
+  padding: 0.25rem 0.6rem;
+  border-top: 1px solid color-mix(in srgb, var(--t-border-subtle) 45%, transparent);
+  color: color-mix(in srgb, var(--t-secondary) 80%, transparent);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

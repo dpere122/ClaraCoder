@@ -45,6 +45,9 @@ current_session_id: contextvars.ContextVar[str] = contextvars.ContextVar('curren
 # Id of the model message whose tool calls are running (parallel calls share it); empty outside a tool call.
 current_tool_batch_id: contextvars.ContextVar[str] = contextvars.ContextVar('current_tool_batch_id', default='')
 
+# Id of the tool call now running (the model's ``tool_call_id``); empty outside a tool call.
+current_tool_call_id: contextvars.ContextVar[str] = contextvars.ContextVar('current_tool_call_id', default='')
+
 # All known sessions; created on demand via get_session().
 sessions: dict[str, SessionState] = {}
 

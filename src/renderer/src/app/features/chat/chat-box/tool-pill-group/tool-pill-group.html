@@ -1,0 +1,23 @@
+<div class="tool-pill-group" [class.tool-pill-group--expanded]="expanded()">
+  <app-stream-tool-pill
+    [name]="group().verb"
+    [nameTitle]="title()"
+    [meta]="meta()"
+    [duration]="duration()"
+    [durationTitle]="durationTitle()"
+    [durationSlow]="durationSlow()"
+    [state]="state()"
+    [shimmer]="active()"
+    [expandable]="true"
+    [expanded]="expanded()"
+    [live]="live()"
+    (toggle)="toggle()"
+  />
+  @if (expanded()) {
+    <div class="tool-pill-group__members">
+      @for (part of parts(); track trackPart(part)) {
+        <app-aux-stream-tool-part [part]="part" [live]="live()" [compactDetails]="compactDetails()" />
+      }
+    </div>
+  }
+</div>

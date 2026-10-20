@@ -1,25 +1,38 @@
 <div class="stream-turn-feed" [class.stream-turn-feed--live]="live()" aria-live="polite">
   @let committed = displayCommitted();
   @let chipLayout = toolChipLayout();
+  @let settling = settlingIndices();
   @for (item of items(); track trackItem(item, $index)) {
     @switch (itemRole($index, committed)) {
       @case ('chip') {
         @if (item.kind === 'thought') {
-          <app-stream-thought-pill [text]="item.part.text" [live]="live()" [active]="false" />
+          <app-stream-thought-pill
+            [text]="item.part.text"
+            [live]="live()"
+            [active]="false"
+            [class.stream-turn-feed__settle]="settling.has($index)"
+          />
         } @else if (item.kind === 'nudge') {
-          <app-stream-nudge-pill [text]="item.part.text" [live]="live()" [active]="false" />
+          <app-stream-nudge-pill
+            [text]="item.part.text"
+            [live]="live()"
+            [active]="false"
+            [class.stream-turn-feed__settle]="settling.has($index)"
+          />
         } @else if (item.kind === 'tool' && !chipLayout.hidden.has($index)) {
           @if (chipLayout.groupParts.get($index); as groupParts) {
             <app-tool-pill-group
               [parts]="groupParts"
               [live]="live()"
               [compactDetails]="planPanelVisible()"
+              [class.stream-turn-feed__settle]="settling.has($index)"
             />
           } @else {
             <app-aux-stream-tool-part
               [part]="item.part"
               [live]="live()"
               [compactDetails]="planPanelVisible()"
+              [class.stream-turn-feed__settle]="settling.has($index)"
             />
           }
         }
@@ -55,6 +68,7 @@
               [meta]="previewMeta()"
               state="running"
               [live]="true"
+              [shimmer]="spinnerHost() === 'pill'"
               [spinner]="spinnerHost() === 'pill'"
               [spinnerKind]="previewToolSpinnerKind()"
             />
@@ -68,7 +82,6 @@
               class="assistant-md"
               [class.streaming-live-md]="live()"
               [innerHTML]="item.text | markdown: markdownLayoutPass()"
-              [shimmer]="spinnerHost() === 'pill'"
             ></div>
             @if (showCursor() && isLastMarkdown($index)) {
               <span class="streaming-cursor streaming-cursor--live" aria-hidden="true"></span>

@@ -282,6 +282,16 @@ export function previewCommitCount(items: readonly TurnFeedItem[], committedCoun
   return n;
 }
 
+/** Identities of the `count` items a preview commit lands as chips, starting at `committedCount`. */
+export function committedItemIdentities(
+  items: readonly TurnFeedItem[],
+  committedCount: number,
+  count: number,
+): string[] {
+  const start = clampCommittedCount(items, committedCount);
+  return queueableItems(items).slice(start, start + count).map(queueableFeedIdentity);
+}
+
 /** Inbound events that should force the current preview to yield (not sibling tools in the same batch). */
 export function pressureInbound(
   current: TurnFeedItem | undefined,

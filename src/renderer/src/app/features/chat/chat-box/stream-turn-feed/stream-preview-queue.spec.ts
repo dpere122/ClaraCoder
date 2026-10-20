@@ -5,6 +5,7 @@ import {
   PREVIEW_INBOUND_ANNOUNCE_MS,
   PREVIEW_OPEN_DWELL_MS,
   advanceZeroDwell,
+  committedItemIdentities,
   decidePreviewCommit,
   displayCommittedCount,
   feedItemDisplayRole,
@@ -559,5 +560,14 @@ describe('tool batches across LLM steps', () => {
 
   it('remounts on the latest step batch', () => {
     expect(initialLiveCommittedCount([s1a, s1b, s2a])).toBe(2);
+  });
+});
+
+describe('committedItemIdentities', () => {
+  it('names the items one preview commit lands as chips', () => {
+    const items: TurnFeedItem[] = [thought, tool, tool2, { kind: 'markdown', text: 'ok' }];
+    expect(committedItemIdentities(items, 1, 2)).toEqual([queueableFeedIdentity(tool), queueableFeedIdentity(tool2)]);
+    expect(committedItemIdentities(items, 0, 1)).toEqual([queueableFeedIdentity(thought)]);
+    expect(committedItemIdentities(items, 3, 1)).toEqual([]);
   });
 });

@@ -59,6 +59,8 @@ class GraphStreamState:
     """Mutable per-stream counters for SSE event mapping."""
 
     pending_tool_runs: dict[str, tuple[str, dict[str, Any]]] = field(default_factory=dict)
+    #: ``time.monotonic()`` at ``on_tool_start`` per run id, for the call's duration on its finished status.
+    tool_started_at: dict[str, float] = field(default_factory=dict)
     seen_tool_events: set[tuple[str, str, str]] = field(default_factory=set)
     last_final_text: str = ''
     partial_stream_text: str = ''
@@ -844,6 +846,7 @@ def _on_tool_start(
     if _tool_event_seen(state, phase='start', name=name, run_id=run_id):
         return []
     state.pending_tool_runs[run_id] = (name, args)
+    state.tool_started_at[run_id] = time.monotonic()
     log_llm_tool_input(name, args, run_id=run_id, agent_role=agent_role)
     status_id = _bind_gemma_tool_preview(state, name=name, run_id=run_id, args=args)
     return [
@@ -875,6 +878,9 @@ def _on_tool_end(
     if _tool_event_seen(state, phase='end', name=name, run_id=run_id):
         return []
     state.pending_tool_runs.pop(run_id, (name, {}))
+    started_at = state.tool_started_at.pop(run_id, None)
+    # A run whose start this stream never saw (e.g. resumed after a pause) has no duration.
+    duration_ms = round((time.monotonic() - started_at) * 1000) if started_at is not None else None
     state.gemma_resume_in_thought = True
     raw_out = data.get('output')
     result_text, ok, err_detail = _tool_output_text(raw_out)
@@ -901,6 +907,7 @@ def _on_tool_end(
             agent_role=agent_role,
             stream_tag=stream_tag,
             diff=diff,
+            duration_ms=duration_ms,
         )
     )
     return lines

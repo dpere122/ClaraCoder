@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { StreamPart } from './types/conversation';
 import { toolTrailStatusStreamTag } from './stream-parts';
 import {
+  formatToolDuration,
   humanizeToolName,
   runCommandIdFromReport,
+  toolPillSlowestMs,
   toolPillGroupLabel,
   toolPillLabel,
   toolPillMeta,
@@ -154,5 +156,25 @@ describe('grouping', () => {
       meta: '3 files · a.py, b.py',
     });
     expect(toolPillGroupLabel([edit, edit])).toEqual({ verb: 'Edit', meta: '2 edits · a.py' });
+  });
+});
+
+describe('tool call durations', () => {
+  it('formats run times compactly', () => {
+    expect(formatToolDuration(0)).toBe('<1ms');
+    expect(formatToolDuration(0.4)).toBe('<1ms');
+    expect(formatToolDuration(8.4)).toBe('8ms');
+    expect(formatToolDuration(999)).toBe('999ms');
+    expect(formatToolDuration(1000)).toBe('1.0s');
+    expect(formatToolDuration(1299)).toBe('1.2s');
+    expect(formatToolDuration(9999)).toBe('9.9s');
+    expect(formatToolDuration(12_400)).toBe('12s');
+    expect(formatToolDuration(65_000)).toBe('1m 05s');
+    expect(formatToolDuration(3_725_000)).toBe('1h 02m');
+  });
+
+  it('picks the slowest timed call of a group', () => {
+    expect(toolPillSlowestMs([{ toolDurationMs: 40 }, {}, { toolDurationMs: 1200 }])).toBe(1200);
+    expect(toolPillSlowestMs([{}, {}])).toBeUndefined();
   });
 });

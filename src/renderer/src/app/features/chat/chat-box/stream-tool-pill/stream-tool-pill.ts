@@ -14,6 +14,12 @@ export class StreamToolPillComponent {
   /** Hover text for the name (defaults to the name itself). */
   readonly nameTitle = input('');
   readonly meta = input('');
+  /** Run time after the meta (`1.2s`); empty hides it. */
+  readonly duration = input('');
+  /** Hover text for the run time. */
+  readonly durationTitle = input('');
+  /** Long call: the run time reads at full strength instead of muted. */
+  readonly durationSlow = input(false);
   readonly state = input<ToolTrailPillState>('neutral');
   readonly expandable = input(false);
   readonly expanded = input(false);

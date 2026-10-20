@@ -40,3 +40,28 @@ describe('ToolPillGroupComponent', () => {
     expect(el.querySelector('.stream-tool-pill__name--shimmer')).toBeNull();
   });
 });
+
+describe('ToolPillGroupComponent duration', () => {
+  it('shows the slowest call and lists each call time on hover', () => {
+    const el = render(
+      [
+        { ...read('a', 'a.py', 'complete'), toolDurationMs: 40 },
+        { ...read('b', 'b.py', 'complete'), toolDurationMs: 2300 },
+      ],
+      false,
+    );
+    const duration = el.querySelector('.stream-tool-pill__duration');
+    expect(duration?.textContent?.trim()).toBe('2.3s');
+    expect(duration?.getAttribute('title')).toBe('Slowest of 2 calls');
+    expect(duration?.classList.contains('stream-tool-pill__duration--slow')).toBe(true);
+    const title = el.querySelector('.stream-tool-pill__name')?.getAttribute('title') ?? '';
+    expect(title).toContain('a.py');
+    expect(title).toContain('(40ms)');
+    expect(title).toContain('(2.3s)');
+  });
+
+  it('shows no time when no call was timed', () => {
+    const el = render([read('a', 'a.py', 'complete'), read('b', 'b.py', 'complete')], false);
+    expect(el.querySelector('.stream-tool-pill__duration')).toBeNull();
+  });
+});

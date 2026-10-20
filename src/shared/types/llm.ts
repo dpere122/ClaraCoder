@@ -49,6 +49,8 @@ export interface LlmStatus {
   toolBatch?: string;
   /** Finished edit tools: unified diff of what the call wrote (UI only; the model never sees it). */
   toolDiff?: string;
+  /** Finished tool rows: how long the call ran, in milliseconds. */
+  durationMs?: number;
 }
 
 /** Same shape as {@link LlmStatus}; used when parsing SSE JSON from the Python backend. */

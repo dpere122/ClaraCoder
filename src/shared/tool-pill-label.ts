@@ -436,3 +436,40 @@ export function toolPillGroupLabel(labels: readonly ToolPillLabel[]): { verb: st
   const targets = [...new Set(labels.map((l) => shortTarget(l.target)).filter((t) => t.length > 0))];
   return { verb, meta: [plural(labels.length, one, many), targets.join(', ')].filter(Boolean).join(' · ') };
 }
+
+/** Calls at least this long count as slow: their run time reads at full strength on the pill. */
+export const TOOL_PILL_SLOW_MS = 1000;
+
+/** Compact run time for a pill: `<1ms`, `8ms`, `1.2s`, `12s`, `1m 05s`, `1h 02m`. */
+export function formatToolDuration(ms: number): string {
+  const n = Math.max(0, Math.round(ms));
+  if (n < 1) {
+    return '<1ms';
+  }
+  if (n < 1000) {
+    return `${n}ms`;
+  }
+  if (n < 10_000) {
+    return `${(Math.floor(n / 100) / 10).toFixed(1)}s`;
+  }
+  const s = Math.floor(n / 1000);
+  if (s < 60) {
+    return `${s}s`;
+  }
+  if (s < 3600) {
+    return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
+  }
+  return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}m`;
+}
+
+/** Slowest run time among a group's calls (`undefined` when none was timed). */
+export function toolPillSlowestMs(parts: readonly Pick<StreamPart, 'toolDurationMs'>[]): number | undefined {
+  let slowest: number | undefined;
+  for (const part of parts) {
+    const ms = part.toolDurationMs;
+    if (typeof ms === 'number' && (slowest === undefined || ms > slowest)) {
+      slowest = ms;
+    }
+  }
+  return slowest;
+}

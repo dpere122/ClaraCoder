@@ -34,6 +34,7 @@ def status_event(
     stream_tag: str | None = None,
     tool_batch: str | None = None,
     diff: str = '',
+    duration_ms: int | None = None,
 ) -> dict[str, Any]:
     """Build one structured status payload for the UI (tool running, errors, etc.).
 
@@ -42,6 +43,7 @@ def status_event(
     or prose streamed in between (e.g. Gemini via OpenRouter, whose reasoning is encrypted).
 
     ``diff`` is the unified diff a finished edit tool wrote, shown when its pill is expanded.
+    ``duration_ms`` is how long a finished tool call ran (``on_tool_start`` to ``on_tool_end``).
     """
     row: dict[str, Any] = {
         'id': status_id,
@@ -58,6 +60,8 @@ def status_event(
         row['tool_batch'] = tool_batch
     if diff:
         row['diff'] = diff
+    if duration_ms is not None:
+        row['duration_ms'] = max(0, int(duration_ms))
     return {'type': 'status', 'status': row}
 
 
@@ -289,6 +293,7 @@ def sse_tool_finished(
     agent_role: str | None = None,
     stream_tag: str | None = None,
     diff: str = '',
+    duration_ms: int | None = None,
 ) -> str:
     if not ok:
         line = truncate_text((error_detail or 'Error').replace('\n', ' '), MAX_TOOL_STATUS_LINE)
@@ -301,6 +306,7 @@ def sse_tool_finished(
                 source='tool',
                 agent_role=agent_role,
                 stream_tag=stream_tag,
+                duration_ms=duration_ms,
             )
         )
     line = tool_result_one_line(result_text)
@@ -314,6 +320,7 @@ def sse_tool_finished(
             agent_role=agent_role,
             stream_tag=stream_tag,
             diff=diff,
+            duration_ms=duration_ms,
         )
     )
 

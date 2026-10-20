@@ -8,6 +8,7 @@ import {
 import type { StreamPart, ToolTrailPillState } from '@shared/index';
 import {
   delegatedStreamPartMeta,
+  formatToolDuration,
   isHitlTrailStreamTag,
   isReadToolPreviewStreamTag,
   isRunCommandStreamTag,
@@ -18,6 +19,7 @@ import {
   shellStreamPartBadgeMeta,
   shellStreamPartPillState,
   streamPartIsExpandable,
+  TOOL_PILL_SLOW_MS,
   toolPillLabel,
   toolPillMeta,
   toolStatusStreamPartPillState,
@@ -100,6 +102,21 @@ export class AuxStreamToolPartComponent {
     }
     return k === 'delegated' ? delegatedStreamPartMeta(part) : '';
   });
+
+  /** How long the finished call ran (`1.2s`); empty while running and for rows saved before timing. */
+  readonly durationMs = computed(() => (this.kind() === 'status' ? this.part().toolDurationMs : undefined));
+  readonly pillDuration = computed(() => {
+    const ms = this.durationMs();
+    return ms === undefined ? '' : formatToolDuration(ms);
+  });
+  readonly pillDurationTitle = computed(() => {
+    const ms = this.durationMs();
+    if (ms === undefined) {
+      return '';
+    }
+    return ms < 1 ? 'Ran for under 1 ms' : `Ran for ${(ms / 1000).toFixed(ms < 1000 ? 3 : 1)} s`;
+  });
+  readonly pillDurationSlow = computed(() => (this.durationMs() ?? 0) >= TOOL_PILL_SLOW_MS);
 
   readonly pillState = computed(() => auxStreamToolPartPillState(this.part(), this.live()));
 

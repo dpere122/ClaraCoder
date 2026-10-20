@@ -37,6 +37,8 @@ export interface StreamPart {
   toolTarget?: string;
   /** Tool-trail rows of finished edits: unified diff of what the call wrote, shown when expanded. */
   toolDiff?: string;
+  /** Tool-trail rows of finished calls: how long the call ran, in milliseconds. */
+  toolDurationMs?: number;
 }
 
 /** How fast the model produced one assistant turn, summed over the turn's model calls. */

@@ -1,6 +1,9 @@
 import { Component, ViewEncapsulation, computed, input, signal } from '@angular/core';
 import {
+  formatToolDuration,
+  TOOL_PILL_SLOW_MS,
   toolPillGroupLabel,
+  toolPillSlowestMs,
   toolPillLabel,
   toolPillMeta,
   type StreamPart,
@@ -41,10 +44,24 @@ export class ToolPillGroupComponent {
     return failed > 0 ? `${meta} · ${failed} failed` : meta;
   });
 
+  /** Slowest call's run time: parallel calls overlap, so a sum would overstate the wait. */
+  private readonly slowestMs = computed(() => toolPillSlowestMs(this.parts()));
+  readonly duration = computed(() => {
+    const ms = this.slowestMs();
+    return ms === undefined ? '' : formatToolDuration(ms);
+  });
+  readonly durationTitle = computed(() => `Slowest of ${this.parts().length} calls`);
+  readonly durationSlow = computed(() => (this.slowestMs() ?? 0) >= TOOL_PILL_SLOW_MS);
+
   /** Every call on hover: `Read src/a.ts · 12 lines`. */
   readonly title = computed(() =>
     this.labels()
-      .map((label) => [label.verb, toolPillMeta(label)].filter(Boolean).join(' '))
+      .map((label, i) => {
+        const ms = this.parts()[i]?.toolDurationMs;
+        return [label.verb, toolPillMeta(label), ms === undefined ? '' : `(${formatToolDuration(ms)})`]
+          .filter(Boolean)
+          .join(' ');
+      })
       .join('\n'),
   );
 

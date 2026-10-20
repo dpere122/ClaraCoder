@@ -53,6 +53,16 @@ describe('parseAgentStreamPayload', () => {
     }
   });
 
+  it('keeps a finished tool status run time as durationMs', () => {
+    const status = { id: 'r1', label: 'read_workspace_file', detail: 'File', state: 'complete', source: 'tool' };
+    const timed = parseAgentStreamPayload(JSON.stringify({ type: 'status', status: { ...status, duration_ms: 1234 } }));
+    expect(timed.type === 'status' && timed.status.durationMs).toBe(1234);
+    for (const duration_ms of [-1, '12', null]) {
+      const parsed = parseAgentStreamPayload(JSON.stringify({ type: 'status', status: { ...status, duration_ms } }));
+      expect(parsed.type === 'status' && 'durationMs' in parsed.status).toBe(false);
+    }
+  });
+
   it('parses clear_primary_stream payloads', () => {
     expect(parseAgentStreamPayload(JSON.stringify({ type: 'clear_primary_stream' }))).toEqual({
       type: 'clear_primary_stream',

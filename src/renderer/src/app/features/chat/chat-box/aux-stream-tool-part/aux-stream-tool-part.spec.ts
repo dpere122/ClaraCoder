@@ -41,3 +41,28 @@ describe('AuxStreamToolPartComponent edit diff', () => {
     expect(el.querySelector('.aux-stream-tool-part__detail')?.textContent).toContain('Updated `m.py`');
   });
 });
+
+describe('AuxStreamToolPartComponent duration', () => {
+  function render(part: StreamPart): HTMLElement {
+    const fixture = TestBed.createComponent(AuxStreamToolPartComponent);
+    fixture.componentRef.setInput('part', part);
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  it('shows a fast call muted and a slow one at full strength', () => {
+    const fast = render(edit({ toolDurationMs: 35 })).querySelector('.stream-tool-pill__duration');
+    expect(fast?.textContent?.trim()).toBe('35ms');
+    expect(fast?.getAttribute('title')).toBe('Ran for 0.035 s');
+    expect(fast?.classList.contains('stream-tool-pill__duration--slow')).toBe(false);
+
+    const slow = render(edit({ toolDurationMs: 4200 })).querySelector('.stream-tool-pill__duration');
+    expect(slow?.textContent?.trim()).toBe('4.2s');
+    expect(slow?.classList.contains('stream-tool-pill__duration--slow')).toBe(true);
+  });
+
+  it('shows no time for running calls or rows saved before timing', () => {
+    expect(render(edit()).querySelector('.stream-tool-pill__duration')).toBeNull();
+    expect(render(edit({ toolChainState: 'running' })).querySelector('.stream-tool-pill__duration')).toBeNull();
+  });
+});

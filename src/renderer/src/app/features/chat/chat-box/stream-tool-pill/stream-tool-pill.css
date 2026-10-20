@@ -130,6 +130,19 @@ app-stream-tool-pill .stream-tool-pill--complete .stream-tool-pill__meta {
   color: color-mix(in srgb, var(--t-process-a) 78%, var(--t-secondary));
 }
 
+/* Run time: kept whole (the meta truncates first), muted unless the call was slow. */
+app-stream-tool-pill .stream-tool-pill__duration {
+  flex-shrink: 0;
+  color: var(--t-secondary);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.6;
+  white-space: nowrap;
+}
+
+app-stream-tool-pill .stream-tool-pill__duration--slow {
+  opacity: 0.95;
+}
+
 app-stream-tool-pill .stream-tool-pill__sep {
   flex-shrink: 0;
   color: color-mix(in srgb, var(--t-primary) 55%, transparent);

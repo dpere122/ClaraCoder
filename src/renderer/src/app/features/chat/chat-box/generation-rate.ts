@@ -11,12 +11,14 @@ export interface LiveGenerationRate {
   readonly estimated: boolean;
 }
 
-/** Live estimate looks at the chunks of the last this-many ms. */
-const LIVE_WINDOW_MS = 2000;
+/** Live estimate looks at the chunks of the last this-many ms; long enough to smooth chunk bursts. */
+const LIVE_WINDOW_MS = 5000;
 /** Gaps between chunks longer than this are tool runs or prefill, not decoding. */
 const MAX_DECODE_GAP_MS = 1500;
-/** Republish the live rate at most this often so the readout stays legible. */
-const LIVE_PUBLISH_MS = 300;
+/** Republish the estimated rate at most this often; char counts are noisy, so update slowly. */
+const ESTIMATE_PUBLISH_MS = 1000;
+/** Minimum decode time before an estimate (live or final) is trusted. */
+const MIN_ESTIMATE_DECODE_MS = 300;
 const DEFAULT_CHARS_PER_TOKEN = 4;
 
 interface ChunkSample {
@@ -56,11 +58,19 @@ export class TurnRateTracker {
     while (this.window.length > 0 && at - this.window[0].at > LIVE_WINDOW_MS) {
       this.window.shift();
     }
-    if (at - this.lastPublishAt < LIVE_PUBLISH_MS || this.window.length < 3) return false;
-    const span = at - this.window[0].at;
-    if (span < LIVE_PUBLISH_MS) return false;
-    // The first sample opens the window; only chars after it fall inside the span.
-    const windowChars = this.window.reduce((sum, s) => sum + s.chars, 0) - this.window[0].chars;
+    if (at - this.lastPublishAt < ESTIMATE_PUBLISH_MS || this.window.length < 3) return false;
+    // The first sample opens the window; only chars after it count. Stalls inside the window
+    // (tool runs, prefill) are not decode time, so they don't drag the rate down.
+    let span = 0;
+    let windowChars = 0;
+    for (let i = 1; i < this.window.length; i++) {
+      const gap = this.window[i].at - this.window[i - 1].at;
+      if (gap > 0 && gap < MAX_DECODE_GAP_MS) {
+        span += gap;
+        windowChars += this.window[i].chars;
+      }
+    }
+    if (span < MIN_ESTIMATE_DECODE_MS) return false;
     this.live = { tokensPerSecond: (windowChars / this.charsPerToken / span) * 1000, estimated: true };
     this.lastPublishAt = at;
     return true;
@@ -94,7 +104,7 @@ export class TurnRateTracker {
     let stats: TurnGenerationStats;
     if (this.exactTokens > 0 && this.exactMs > 0) {
       stats = { outputTokens: this.exactTokens, generationMs: Math.round(this.exactMs) };
-    } else if (this.streamedChars > 0 && this.decodeMs >= LIVE_PUBLISH_MS) {
+    } else if (this.streamedChars > 0 && this.decodeMs >= MIN_ESTIMATE_DECODE_MS) {
       stats = {
         outputTokens: Math.max(1, Math.round(this.streamedChars / this.charsPerToken)),
         generationMs: Math.round(this.decodeMs),

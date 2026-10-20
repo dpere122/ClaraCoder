@@ -32,8 +32,14 @@ def status_event(
     source: str = 'agent',
     agent_role: str | None = None,
     stream_tag: str | None = None,
+    tool_batch: str | None = None,
 ) -> dict[str, Any]:
-    """Build one structured status payload for the UI (tool running, errors, etc.)."""
+    """Build one structured status payload for the UI (tool running, errors, etc.).
+
+    ``tool_batch`` names the LLM step that requested a tool. The UI batches parallel tools of one
+    step into a single live pill; tools from a later step start a new pill even when no reasoning
+    or prose streamed in between (e.g. Gemini via OpenRouter, whose reasoning is encrypted).
+    """
     row: dict[str, Any] = {
         'id': status_id,
         'label': label,
@@ -45,6 +51,8 @@ def status_event(
         row['agent_role'] = agent_role
     if stream_tag:
         row['stream_tag'] = stream_tag
+    if tool_batch:
+        row['tool_batch'] = tool_batch
     return {'type': 'status', 'status': row}
 
 

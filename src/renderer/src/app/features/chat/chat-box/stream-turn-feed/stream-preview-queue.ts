@@ -40,6 +40,33 @@ export function isToolBatchMember(item: TurnFeedItem): boolean {
   return item.kind === 'tool' && !isZeroDwellQueueItem(item);
 }
 
+/**
+ * True when `item` joins the live tool batch led by `lead`: parallel calls from one LLM step.
+ * A tool from a later step starts a new pill even with no thought or prose in between (models
+ * whose reasoning is encrypted stream nothing between steps). Rows without a backend
+ * `toolBatch` (subprocess output, older backends) join whatever batch is open.
+ */
+export function isSameToolBatch(lead: TurnFeedItem, item: TurnFeedItem): boolean {
+  if (!isToolBatchMember(lead) || !isToolBatchMember(item)) {
+    return false;
+  }
+  const a = lead.kind === 'tool' ? lead.part.toolBatch : undefined;
+  const b = item.kind === 'tool' ? item.part.toolBatch : undefined;
+  return !a || !b || a === b;
+}
+
+/** Inbound rows that share the current preview's tool batch. */
+function currentBatchInbound(current: TurnFeedItem, inbound: readonly TurnFeedItem[]): TurnFeedItem[] {
+  const out: TurnFeedItem[] = [];
+  for (const item of inbound) {
+    if (!isSameToolBatch(current, item)) {
+      break;
+    }
+    out.push(item);
+  }
+  return out;
+}
+
 /** Stable id for in-place text growth vs a new feed event. */
 export function queueableFeedIdentity(item: TurnFeedItem): string {
   if (item.kind === 'markdown') {
@@ -99,11 +126,14 @@ export function previewItemLabel(item: TurnFeedItem): string {
   }
 }
 
+/**
+ * Live preview label: the current event, then the next inbound one it anticipates. Only one
+ * event is announced ahead, so a wide parallel batch never stacks a long run of names.
+ */
 export function previewQueueHeader(current: TurnFeedItem, inbound: readonly TurnFeedItem[]): string {
-  const labels = [previewItemLabel(current), ...inbound.map(previewItemLabel)].filter(
-    (label) => label.length > 0,
-  );
-  return labels.join(' — ');
+  const next = inbound.map(previewItemLabel).find((label) => label.length > 0);
+  const head = previewItemLabel(current);
+  return [head, next].filter((label): label is string => !!label).join(' — ');
 }
 
 /**
@@ -118,7 +148,7 @@ export function previewQueueMeta(
   if (!current || current.kind !== 'tool') {
     return '';
   }
-  const batch = [current, ...inbound.filter(isToolBatchMember)];
+  const batch = [current, ...currentBatchInbound(current, inbound)];
   for (let i = batch.length - 1; i >= 0; i--) {
     const item = batch[i]!;
     if (item.kind !== 'tool' || !isToolTrailStatusStreamTag(item.part.streamTag)) {
@@ -147,7 +177,7 @@ export function previewQueueToolSpinnerKind(
   if (!current || current.kind !== 'tool') {
     return 'write';
   }
-  const batch = [current, ...inbound.filter(isToolBatchMember)];
+  const batch = [current, ...currentBatchInbound(current, inbound)];
   for (let i = batch.length - 1; i >= 0; i--) {
     const item = batch[i]!;
     if (item.kind !== 'tool' || item.part.toolChainState !== 'running') {
@@ -207,7 +237,7 @@ export function initialLiveCommittedCount(items: readonly TurnFeedItem[]): numbe
   let n = queueable.length - 1;
   const current = queueable[n];
   if (current && isToolBatchMember(current)) {
-    while (n > 0 && isToolBatchMember(queueable[n - 1]!)) {
+    while (n > 0 && isSameToolBatch(queueable[n - 1]!, current)) {
       n -= 1;
     }
   } else if (current?.kind === 'thought') {
@@ -244,7 +274,7 @@ export function previewCommitCount(items: readonly TurnFeedItem[], committedCoun
     return 1;
   }
   let n = 1;
-  while (i + n < queueable.length && isToolBatchMember(queueable[i + n]!)) {
+  while (i + n < queueable.length && isSameToolBatch(current, queueable[i + n]!)) {
     n += 1;
   }
   return n;
@@ -261,7 +291,7 @@ export function pressureInbound(
   if (!isToolBatchMember(current)) {
     return inbound[0];
   }
-  return inbound.find((item) => !isToolBatchMember(item));
+  return inbound.find((item) => !isSameToolBatch(current, item));
 }
 
 /**

@@ -93,6 +93,11 @@ NATIVE_TOOL_PREVIEW_STEP_CHARS = 1024
 NATIVE_TOOL_PREVIEW_SIZE_MIN_CHARS = 512
 
 
+def _tool_batch_key(state: GraphStreamState, stream_tag: str | None) -> str:
+    """Identity of the LLM step whose tool calls share one live preview pill."""
+    return f'{stream_tag or "main"}:{state.llm_step}'
+
+
 @dataclass
 class NativeToolCallDraft:
     """One OpenAI-style tool call whose JSON arguments are still streaming."""
@@ -353,6 +358,7 @@ def _emit_gemma_native_tool_previews(
                     source='tool',
                     agent_role=agent_role,
                     stream_tag=stream_tag,
+                    tool_batch=_tool_batch_key(state, stream_tag),
                 )
             )
         )
@@ -404,6 +410,7 @@ def _native_preview_line(
     *,
     agent_role: str | None,
     stream_tag: str | None,
+    tool_batch: str,
 ) -> str:
     return sse_line(
         status_event(
@@ -414,6 +421,7 @@ def _native_preview_line(
             source='tool',
             agent_role=agent_role,
             stream_tag=stream_tag,
+            tool_batch=tool_batch,
         )
     )
 
@@ -434,6 +442,7 @@ def _emit_native_tool_call_previews(
     raw_chunks = getattr(chunk, 'tool_call_chunks', None) or []
     if not raw_chunks:
         return []
+    batch = _tool_batch_key(state, stream_tag)
     lines: list[str] = []
     for tc in raw_chunks:
         if not isinstance(tc, dict):
@@ -463,7 +472,9 @@ def _emit_native_tool_call_previews(
                 {'id': preview_id, 'name': clean_name, 'args': dict(draft.args), 'consumed': False}
             )
             state.pending_tool_runs[preview_id] = (clean_name, dict(draft.args))
-            lines.append(_native_preview_line(draft, agent_role=agent_role, stream_tag=stream_tag))
+            lines.append(
+                _native_preview_line(draft, agent_role=agent_role, stream_tag=stream_tag, tool_batch=batch)
+            )
             continue
         if not isinstance(args_delta, str) or not args_delta:
             continue
@@ -482,7 +493,9 @@ def _emit_native_tool_call_previews(
                     break
             if draft.preview_id in state.pending_tool_runs:
                 state.pending_tool_runs[draft.preview_id] = (draft.name, dict(draft.args))
-        lines.append(_native_preview_line(draft, agent_role=agent_role, stream_tag=stream_tag))
+        lines.append(
+            _native_preview_line(draft, agent_role=agent_role, stream_tag=stream_tag, tool_batch=batch)
+        )
     return lines
 
 
@@ -842,6 +855,7 @@ def _on_tool_start(
                 source='tool',
                 agent_role=agent_role,
                 stream_tag=stream_tag,
+                tool_batch=_tool_batch_key(state, stream_tag),
             )
         )
     ]

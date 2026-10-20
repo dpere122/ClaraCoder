@@ -12,6 +12,7 @@ import {
   hasCommitPressure,
   initialLiveCommittedCount,
   isQueueableFeedItem,
+  isSameToolBatch,
   isToolBatchMember,
   isZeroDwellQueueItem,
   markdownAfterCurrent,
@@ -98,10 +99,12 @@ describe('previewQueueHeader', () => {
     expect(previewQueueHeader(thought, [])).toBe('Thinking');
   });
 
-  it('appends every inbound event with a dash', () => {
-    expect(previewQueueHeader(thought, [tool, tool2])).toBe(
-      'Thinking — read_workspace_file — search_workspace',
-    );
+  it('anticipates only the next inbound event', () => {
+    expect(previewQueueHeader(thought, [tool, tool2])).toBe('Thinking — read_workspace_file');
+  });
+
+  it('never stacks a wide parallel batch past current and next', () => {
+    expect(previewQueueHeader(tool, [tool2, tool3, tool])).toBe('read_workspace_file — search_workspace');
   });
 });
 
@@ -513,5 +516,47 @@ describe('decidePreviewCommit', () => {
         now: 10_000,
       }),
     ).toEqual({ action: 'stay' });
+  });
+});
+
+describe('tool batches across LLM steps', () => {
+  const stepTool = (id: string, batch: string, toolChainState: 'running' | 'complete' = 'complete'): TurnFeedItem => ({
+    kind: 'tool',
+    part: {
+      streamTag: toolTrailStatusStreamTag(id),
+      label: 'read_workspace_file',
+      text: `${id}.py`,
+      toolChainState,
+      toolBatch: batch,
+    },
+  });
+  const s1a = stepTool('s1a', 'main:1');
+  const s1b = stepTool('s1b', 'main:1');
+  const s2a = stepTool('s2a', 'main:2', 'running');
+
+  it('batches parallel tools of one step only', () => {
+    expect(isSameToolBatch(s1a, s1b)).toBe(true);
+    expect(isSameToolBatch(s1a, s2a)).toBe(false);
+    expect(previewCommitCount([s1a, s1b, s2a], 0)).toBe(2);
+  });
+
+  it('lets a later step yield the preview with no thought in between', () => {
+    expect(pressureInbound(s1a, [s1b])).toBeUndefined();
+    expect(pressureInbound(s1a, [s1b, s2a])).toEqual(s2a);
+    expect(hasCommitPressure([s1a, s1b, s2a], s1a, [s1b, s2a])).toBe(true);
+  });
+
+  it('keeps rows without a batch id in the open batch', () => {
+    expect(isSameToolBatch(s1a, tool)).toBe(true);
+    expect(previewCommitCount([tool, tool2], 0)).toBe(2);
+  });
+
+  it('reads meta and spinner from the current step only', () => {
+    expect(previewQueueMeta(s1a, [s1b, s2a])).toBe('');
+    expect(previewQueueMeta(s2a, [])).not.toBe('');
+  });
+
+  it('remounts on the latest step batch', () => {
+    expect(initialLiveCommittedCount([s1a, s1b, s2a])).toBe(2);
   });
 });

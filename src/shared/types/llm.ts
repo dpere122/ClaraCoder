@@ -45,6 +45,8 @@ export interface LlmStatus {
   streamTag?: string;
   /** When set, chain row pill shows Manager / Worker instead of generic AGENT. */
   agentRole?: LlmAgentRole;
+  /** Tool rows: the LLM step that requested the tool. Parallel calls of one step share a batch. */
+  toolBatch?: string;
 }
 
 /** Same shape as {@link LlmStatus}; used when parsing SSE JSON from the Python backend. */

@@ -28,6 +28,8 @@ export interface StreamPart {
   outcome?: 'passed' | 'failed';
   /** Present on synthetic `tool-trail:*` segments: mirrors IPC tool status in the auxiliary timeline. */
   toolChainState?: 'running' | 'complete' | 'error';
+  /** Tool-trail rows: LLM step id from the backend; the live preview never batches across steps. */
+  toolBatch?: string;
 }
 
 /** How fast the model produced one assistant turn, summed over the turn's model calls. */

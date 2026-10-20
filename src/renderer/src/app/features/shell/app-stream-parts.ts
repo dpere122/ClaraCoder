@@ -121,6 +121,7 @@ export function upsertToolTrailStatusStreamPart(parts: StreamPart[], status: Llm
     label: status.label,
     text: status.detail ?? '',
     toolChainState: status.state,
+    ...(status.toolBatch ? { toolBatch: status.toolBatch } : {}),
   };
   if (idx >= 0) {
     const prev = next[idx];

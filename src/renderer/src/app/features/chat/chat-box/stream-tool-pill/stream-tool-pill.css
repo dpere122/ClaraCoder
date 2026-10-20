@@ -102,6 +102,12 @@ app-stream-tool-pill .stream-tool-pill__name {
   text-shadow: 0 0 8px color-mix(in srgb, var(--t-glow-soft) 70%, transparent);
 }
 
+/* Shimmering name: letters carry their own colour and glow; spaces keep their width. */
+app-stream-tool-pill .stream-tool-pill__name--shimmer {
+  white-space: pre;
+  text-shadow: none;
+}
+
 app-stream-tool-pill .stream-tool-pill--error .stream-tool-pill__name {
   color: color-mix(in srgb, var(--t-log-level-error) 88%, var(--t-primary));
   text-shadow: 0 0 8px color-mix(in srgb, var(--t-log-level-error) 35%, transparent);

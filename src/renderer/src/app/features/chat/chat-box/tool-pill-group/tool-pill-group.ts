@@ -59,6 +59,12 @@ export class ToolPillGroupComponent {
     return states.includes('complete') ? 'complete' : 'neutral';
   });
 
+  /**
+   * A child call is still running in the live turn. Saved turns never glow: one stopped
+   * mid-tool can keep a `running` row forever.
+   */
+  readonly active = computed(() => this.live() && this.state() === 'running');
+
   trackPart(part: StreamPart): string {
     return part.streamTag;
   }

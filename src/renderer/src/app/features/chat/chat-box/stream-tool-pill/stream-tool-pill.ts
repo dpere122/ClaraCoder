@@ -25,6 +25,10 @@ export class StreamToolPillComponent {
 
   readonly spinnerSrc = computed(() => toolSpinnerSrc(this.spinnerKind()));
 
+  /** Glow the name letter by letter (like the thinking preview header) while calls are active. */
+  readonly shimmer = input(false);
+  readonly nameChars = computed(() => Array.from(this.name()));
+
   readonly toggle = output<void>();
 
   onClick(): void {

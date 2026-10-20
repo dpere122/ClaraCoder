@@ -885,10 +885,11 @@ def _on_tool_end(
         agent_role=agent_role,
         error_detail=err_detail,
     )
-    lines: list[str] = list(iter_read_tool_stream_sse(name, result_text))
+    status_id = _status_id_for_tool_run(state, run_id) or name
+    lines: list[str] = list(iter_read_tool_stream_sse(name, result_text, status_id=status_id))
     lines.append(
         sse_tool_finished(
-            _status_id_for_tool_run(state, run_id) or name,
+            status_id,
             name,
             result_text,
             ok=ok,

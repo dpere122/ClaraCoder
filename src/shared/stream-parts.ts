@@ -203,8 +203,19 @@ export function toolTrailStatusIdFromStreamTag(streamTag: string): string | null
   }
 }
 
-/** Index of the tool-trail row that should receive read preview text, or -1. */
-export function findReadToolTrailTargetIndex(parts: readonly StreamPart[]): number {
+/**
+ * Index of the tool-trail row that should receive read preview text, or -1. With a `statusId`
+ * (sent by current backends) that exact row; otherwise the latest read row, which is wrong when
+ * parallel reads are in flight, so it is only the fallback for older backends.
+ */
+export function findReadToolTrailTargetIndex(parts: readonly StreamPart[], statusId?: string): number {
+  if (statusId) {
+    const tag = toolTrailStatusStreamTag(statusId);
+    const exact = parts.findIndex((p) => p.streamTag === tag);
+    if (exact >= 0) {
+      return exact;
+    }
+  }
   for (let i = parts.length - 1; i >= 0; i--) {
     const part = parts[i];
     if (isToolTrailStatusStreamTag(part.streamTag) && isWorkspaceReadToolLabel(part.label)) {
@@ -240,9 +251,9 @@ export function mergeReadPreviewIntoToolTrailParts(parts: StreamPart[]): StreamP
   return out;
 }
 
-/** Append a `tool_read_chunk` delta onto the active read tool-trail row (single combined UI). */
-export function appendReadToolPreviewChunk(parts: StreamPart[], delta: string): StreamPart[] {
-  const idx = findReadToolTrailTargetIndex(parts);
+/** Append a `tool_read_chunk` delta onto its read tool-trail row (single combined UI). */
+export function appendReadToolPreviewChunk(parts: StreamPart[], delta: string, statusId?: string): StreamPart[] {
+  const idx = findReadToolTrailTargetIndex(parts, statusId);
   if (idx < 0) {
     return appendStreamPartWithTag(parts, READ_TOOL_PREVIEW_STREAM_TAG, delta, '');
   }
@@ -253,8 +264,12 @@ export function appendReadToolPreviewChunk(parts: StreamPart[], delta: string): 
 }
 
 /** Append read preview deltas and fold any orphan `tool-read-preview` lane into the tool-trail row. */
-export function appendAndMergeReadToolPreviewChunk(parts: StreamPart[], delta: string): StreamPart[] {
-  return mergeReadPreviewIntoToolTrailParts(appendReadToolPreviewChunk(parts, delta));
+export function appendAndMergeReadToolPreviewChunk(
+  parts: StreamPart[],
+  delta: string,
+  statusId?: string,
+): StreamPart[] {
+  return mergeReadPreviewIntoToolTrailParts(appendReadToolPreviewChunk(parts, delta, statusId));
 }
 
 function appendStreamPartWithTag(

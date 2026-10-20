@@ -29,7 +29,7 @@ import { parseFileJournalSsePayload } from './conversation-timeline';
  */
 export type ParsedAgentStreamPayload =
   | { type: 'chunk'; delta: string; streamTag?: string }
-  | { type: 'tool_read_chunk'; delta: string }
+  | { type: 'tool_read_chunk'; delta: string; statusId?: string }
   | { type: 'tool_exec_chunk'; delta: string; streamTag?: string; label?: string }
   | {
       type: 'background_command_open';
@@ -91,6 +91,8 @@ export type ParsedAgentStreamPayload =
 type RawAgentStreamPayload = {
   type?: string;
   delta?: string;
+  /** `tool_read_chunk`: the tool status row the read body belongs to. */
+  status_id?: string;
   stream_tag?: string;
   label?: string;
   exit_code?: unknown;
@@ -264,7 +266,8 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
     }
 
     if (parsed.type === 'tool_read_chunk' && typeof parsed.delta === 'string') {
-      return { type: 'tool_read_chunk', delta: parsed.delta };
+      const statusId = optionalTrimmedString(parsed.status_id);
+      return { type: 'tool_read_chunk', delta: parsed.delta, ...(statusId ? { statusId } : {}) };
     }
 
     if (parsed.type === 'background_command_open') {

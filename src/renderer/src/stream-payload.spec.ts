@@ -1,6 +1,18 @@
 import { parseAgentStreamPayload } from '@shared/index';
 
 describe('parseAgentStreamPayload', () => {
+  it('parses tool_read_chunk with and without status_id', () => {
+    expect(parseAgentStreamPayload(JSON.stringify({ type: 'tool_read_chunk', delta: 'x', status_id: 'r1' }))).toEqual({
+      type: 'tool_read_chunk',
+      delta: 'x',
+      statusId: 'r1',
+    });
+    expect(parseAgentStreamPayload(JSON.stringify({ type: 'tool_read_chunk', delta: 'x' }))).toEqual({
+      type: 'tool_read_chunk',
+      delta: 'x',
+    });
+  });
+
   it('parses status payloads and normalizes legacy snake_case fields', () => {
     const parsed = parseAgentStreamPayload(
       JSON.stringify({

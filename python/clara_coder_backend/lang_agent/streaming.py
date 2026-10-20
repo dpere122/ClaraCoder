@@ -212,17 +212,31 @@ def is_meaningful_stream_delta(delta: str) -> bool:
     return not delta.isspace()
 
 
-def iter_read_tool_stream_sse(tool_name: str, tool_result: str) -> Iterator[str]:
-    """Yield SSE ``tool_read_chunk`` lines (separate channel from model ``chunk`` in the Electron UI)."""
+def iter_read_tool_stream_sse(
+    tool_name: str, tool_result: str, *, status_id: str | None = None
+) -> Iterator[str]:
+    """Yield SSE ``tool_read_chunk`` lines (separate channel from model ``chunk`` in the Electron UI).
+
+    ``status_id`` names the tool status row the body belongs to, so parallel read calls each
+    get their own output. The body opens with a blank line and a ``── name ──`` separator,
+    which the UI splits on to keep the status headline apart from the streamed body.
+    """
     if tool_name not in _READ_TOOL_STREAM_PREVIEW_NAMES:
         return
     body = tool_result
     if len(body) > MAX_READ_TOOL_STREAM_CHARS:
         body = body[:MAX_READ_TOOL_STREAM_CHARS] + '\n\n… [truncated for stream preview]\n'
-    formatted = f'\n\n── {tool_name} ──\n{body}\n'
-    for piece in chunk_text(formatted):
+    pieces = chunk_text(f'── {tool_name} ──\n{body}\n')
+    if not pieces:
+        return
+    # chunk_text drops leading whitespace, so the separator's line breaks go back on here.
+    pieces[0] = f'\n\n{pieces[0]}'
+    for piece in pieces:
         if is_meaningful_stream_delta(piece):
-            yield sse_line({'type': 'tool_read_chunk', 'delta': piece})
+            payload: dict[str, Any] = {'type': 'tool_read_chunk', 'delta': piece}
+            if status_id:
+                payload['status_id'] = status_id
+            yield sse_line(payload)
 
 
 def chunk_text(text: str) -> list[str]:

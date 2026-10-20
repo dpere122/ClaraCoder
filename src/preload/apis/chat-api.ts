@@ -13,7 +13,9 @@ export const createChatApi = (ipcRenderer: PreloadIpc) => ({
   onMessageChunk: (
     callback: (event: unknown, conversationId: string, delta: string, streamTag?: string) => void,
   ) => ipcRenderer.on('message-chunk', callback),
-  onMessageToolReadChunk: (callback: (event: unknown, conversationId: string, delta: string) => void) =>
+  onMessageToolReadChunk: (
+    callback: (event: unknown, conversationId: string, delta: string, statusId?: string) => void,
+  ) =>
     ipcRenderer.on('message-tool-read-chunk', callback),
   onMessageToolExecChunk: (
     callback: (

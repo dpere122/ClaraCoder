@@ -132,6 +132,8 @@ export interface ChunkMessage {
 export interface ToolReadChunkMessage {
   conversationId: string;
   delta: string;
+  /** Tool status row the read body belongs to; absent from older backends. */
+  statusId?: string;
 }
 
 export interface ToolExecChunkMessage {
@@ -507,8 +509,8 @@ export class ElectronService {
     this.api?.onMessageChunk((_event, conversationId, delta, streamTag) => {
       this.enqueueStreamBatchItem({ kind: 'chunk', msg: { conversationId, delta, streamTag } });
     });
-    this.api?.onMessageToolReadChunk((_event, conversationId, delta) => {
-      this.enqueueStreamBatchItem({ kind: 'toolRead', msg: { conversationId, delta } });
+    this.api?.onMessageToolReadChunk((_event, conversationId, delta, statusId) => {
+      this.enqueueStreamBatchItem({ kind: 'toolRead', msg: { conversationId, delta, statusId } });
     });
     this.api?.onMessageToolExecChunk?.((_event, conversationId, delta, streamTag, label) => {
       this.enqueueStreamBatchItem({

@@ -1454,3 +1454,42 @@ def test_tool_progress_folds_into_running_tool_pill() -> None:
         agent_role=None,
         stream_tag='agent',
     ) == []
+
+
+def test_tool_rows_carry_llm_step_batch_so_ui_splits_sequential_steps() -> None:
+    """Models that stream no reasoning between steps (encrypted Gemini reasoning) still get one pill per step."""
+    state = GraphStreamState()
+    kwargs = _sse_kwargs()
+    batches: list[str] = []
+    for step, path in ((1, 'a.py'), (2, 'b.py')):
+        sse_lines_for_graph_event(
+            {'event': 'on_chat_model_start', 'data': {'input': {'messages': [HumanMessage(content='hi')]}}},
+            state,
+            **kwargs,
+        )
+        preview = sse_lines_for_graph_event(
+            {
+                'event': 'on_chat_model_stream',
+                'data': {'chunk': _native_tool_chunk(index=0, name='read_workspace_file', args=f'{{"path": "{path}"}}', call_id=f'c{step}')},
+            },
+            state,
+            **kwargs,
+        )
+        sse_lines_for_graph_event(
+            {
+                'event': 'on_chat_model_end',
+                'data': {'output': AIMessage(content='', tool_calls=[{'name': 'read_workspace_file', 'args': {'path': path}, 'id': f'c{step}'}])},
+            },
+            state,
+            **kwargs,
+        )
+        start = sse_lines_for_graph_event(
+            {'event': 'on_tool_start', 'name': 'read_workspace_file', 'run_id': f'lg-{step}', 'data': {'input': {'path': path}}},
+            state,
+            **kwargs,
+        )
+        rows = [_sse_json(ln)['status'] for ln in preview + start if '"type": "status"' in ln]
+        assert len({row['id'] for row in rows}) == 1
+        assert len({row['tool_batch'] for row in rows}) == 1
+        batches.append(rows[0]['tool_batch'])
+    assert batches[0] != batches[1]

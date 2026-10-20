@@ -134,7 +134,14 @@ export function previewItemLabel(item: TurnFeedItem): string {
 export function previewQueueHeader(current: TurnFeedItem, inbound: readonly TurnFeedItem[]): string {
   const head = previewItemLabel(current);
   // Parallel calls of one kind share a verb; `Read — Read` says nothing new.
-  const next = inbound.map(previewItemLabel).find((label) => label.length > 0 && label !== head);
+  let next: string | undefined;
+  for (const item of inbound) {
+    const label = previewItemLabel(item);
+    if (label.length > 0 && label !== head) {
+      next = label;
+      break;
+    }
+  }
   return [head, next].filter((label): label is string => !!label).join(' — ');
 }
 
@@ -339,6 +346,33 @@ export function feedItemDisplayRole(
     return 'preview';
   }
   return 'hidden';
+}
+
+/**
+ * {@link feedItemDisplayRole} for every item in one pass. The per-index form rescans the items
+ * before it, which is quadratic over a long turn when every item asks.
+ */
+export function feedDisplayRoles(
+  items: readonly TurnFeedItem[],
+  committedCount: number,
+  live: boolean,
+): FeedDisplayRole[] {
+  const roles: FeedDisplayRole[] = [];
+  let queueableBefore = 0;
+  for (const item of items) {
+    const queueable = isQueueableFeedItem(item);
+    if (item.kind === 'markdown') {
+      roles.push('markdown');
+    } else if (!live || !queueable || queueableBefore < committedCount) {
+      roles.push('chip');
+    } else {
+      roles.push(queueableBefore === committedCount ? 'preview' : 'hidden');
+    }
+    if (queueable) {
+      queueableBefore += 1;
+    }
+  }
+  return roles;
 }
 
 /** True when a markdown block (brief or reply) sits after the current preview item in the source feed. */

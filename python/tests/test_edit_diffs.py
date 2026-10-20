@@ -39,7 +39,16 @@ def test_big_diffs_are_cut_with_a_marker(monkeypatch) -> None:
     diff = edit_unified_diff('big.txt', '', ''.join(f'{i}\n' for i in range(20)), existed=False)
     lines = diff.splitlines()
     assert len(lines) == 6
-    assert lines[-1] == '\\ Diff cut: 18 more lines'
+    assert lines[-1] == '\\ Diff cut: 18 more lines (+18 -0)'
+
+
+def test_cut_marker_counts_both_sides(monkeypatch) -> None:
+    monkeypatch.setattr(edit_diffs, 'MAX_DIFF_LINES', 4)
+    old = ''.join(f'old {i}\n' for i in range(3))
+    new = ''.join(f'new {i}\n' for i in range(5))
+    lines = edit_unified_diff('m.txt', old, new).splitlines()
+    # Headers, hunk header, one deleted row kept; 2 deletions and 5 additions cut.
+    assert lines[-1] == '\\ Diff cut: 7 more lines (+5 -2)'
 
 
 def test_recorded_diff_is_taken_once() -> None:
@@ -87,3 +96,31 @@ def test_finished_status_without_a_diff_has_no_diff_field() -> None:
     }
     status = _status(sse_lines_for_graph_event(ev, GraphStreamState(), agent_role=None, status_label='', llm_event_prefix='', llm_log_context=''))
     assert 'diff' not in status
+
+
+def test_diffs_are_kept_per_session_and_appended_per_write() -> None:
+    from clara_coder_backend.session.state import current_session_id
+
+    token = current_session_id.set('s-a')
+    try:
+        record_edit_diff('gemma-tool-1', '+a1')
+        record_edit_diff('gemma-tool-1', '+a2')
+    finally:
+        current_session_id.reset(token)
+    token = current_session_id.set('s-b')
+    try:
+        # Another session's call with the same (reused) id gets nothing.
+        assert take_edit_diff('gemma-tool-1') == ''
+    finally:
+        current_session_id.reset(token)
+    token = current_session_id.set('s-a')
+    try:
+        assert take_edit_diff('gemma-tool-1') == '+a1\n+a2'
+    finally:
+        current_session_id.reset(token)
+
+
+def test_stale_diff_is_discarded_before_a_reused_id_runs() -> None:
+    record_edit_diff('xml-tool-1', '+stale')
+    edit_diffs.discard_edit_diff('xml-tool-1')
+    assert take_edit_diff('xml-tool-1') == ''

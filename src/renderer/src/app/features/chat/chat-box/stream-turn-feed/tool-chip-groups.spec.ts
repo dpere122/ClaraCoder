@@ -78,6 +78,12 @@ describe('mergedRunCommandStatusIndices', () => {
     const blocked = tool('run_command', 'Tool error: command blocked by safety policy');
     expect(mergedRunCommandStatusIndices([blocked]).size).toBe(0);
   });
+
+  it('does not pair a failed row (no id) with a later call lane', () => {
+    const blocked = tool('run_command', 'Tool error: command blocked by safety policy');
+    const ok = tool('run_command', 'Command report: - Command id: `zz` - Command: `npm test`');
+    expect([...mergedRunCommandStatusIndices([blocked, ok, lane('zz', 'npm test'), lane('other', 'npm run x')])]).toEqual([1]);
+  });
 });
 
 describe('settlingChipIndices', () => {

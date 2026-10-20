@@ -2,6 +2,7 @@ import {
   Component,
   ViewEncapsulation,
   computed,
+  inject,
   input,
   signal,
 } from '@angular/core';
@@ -28,6 +29,7 @@ import { DelegatedShellTerminalComponent } from '../delegated-shell-terminal/del
 import { AnsiTerminalPreComponent } from '../../../../core/ansi-terminal-pre';
 import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
 import { ToolEditDiffComponent } from '../tool-edit-diff/tool-edit-diff';
+import { ToolPillExpansion } from '../tool-pill-expansion';
 
 export type AuxStreamToolPartKind = 'status' | 'shell' | 'delegated' | 'hitl';
 
@@ -73,7 +75,10 @@ export class AuxStreamToolPartComponent {
   /** When true, hide shell previews until the user expands. */
   readonly compactDetails = input(false);
 
-  readonly expanded = signal(false);
+  /** The feed's open-pill state, so a pill that turns into a group keeps its call open. */
+  private readonly expansion = inject(ToolPillExpansion, { optional: true });
+  private readonly localExpanded = signal(false);
+  readonly expanded = computed(() => this.expansion?.isOpen(this.part().streamTag) ?? this.localExpanded());
 
   readonly kind = computed(() => auxStreamToolPartKind(this.part().streamTag));
 
@@ -153,8 +158,14 @@ export class AuxStreamToolPartComponent {
   });
 
   toggleExpanded(): void {
-    if (this.expandable()) {
-      this.expanded.update((v) => !v);
+    if (!this.expandable()) {
+      return;
+    }
+    const open = !this.expanded();
+    if (this.expansion) {
+      this.expansion.set(this.part().streamTag, open);
+    } else {
+      this.localExpanded.set(open);
     }
   }
 }

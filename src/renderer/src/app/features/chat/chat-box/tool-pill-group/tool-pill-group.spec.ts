@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 import { toolTrailStatusStreamTag, type StreamPart } from '@shared/index';
+import { ToolPillExpansion } from '../tool-pill-expansion';
 import { ToolPillGroupComponent } from './tool-pill-group';
 
 function read(id: string, path: string, state: StreamPart['toolChainState']): StreamPart {
@@ -63,5 +64,25 @@ describe('ToolPillGroupComponent duration', () => {
   it('shows no time when no call was timed', () => {
     const el = render([read('a', 'a.py', 'complete'), read('b', 'b.py', 'complete')], false);
     expect(el.querySelector('.stream-tool-pill__duration')).toBeNull();
+  });
+});
+
+describe('ToolPillGroupComponent expansion', () => {
+  it('opens on the call the user had open before it joined the group', () => {
+    TestBed.configureTestingModule({ providers: [ToolPillExpansion] });
+    const first = read('a', 'a.py', 'complete');
+    TestBed.inject(ToolPillExpansion).set(first.streamTag, true);
+    const el = render([first, read('b', 'b.py', 'complete')], false);
+    expect(el.querySelector('.tool-pill-group--expanded')).not.toBeNull();
+    const members = el.querySelectorAll('.tool-pill-group__members app-aux-stream-tool-part');
+    expect(members.length).toBe(2);
+    expect(members[0]!.querySelector('.stream-tool-pill')?.getAttribute('aria-expanded')).toBe('true');
+    expect(members[1]!.querySelector('.stream-tool-pill')?.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('starts closed when no call was open', () => {
+    TestBed.configureTestingModule({ providers: [ToolPillExpansion] });
+    const el = render([read('a', 'a.py', 'complete'), read('b', 'b.py', 'complete')], false);
+    expect(el.querySelector('.tool-pill-group--expanded')).toBeNull();
   });
 });

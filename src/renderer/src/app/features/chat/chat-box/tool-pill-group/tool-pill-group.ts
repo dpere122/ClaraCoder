@@ -1,4 +1,4 @@
-import { Component, ViewEncapsulation, computed, input, signal } from '@angular/core';
+import { Component, ViewEncapsulation, computed, inject, input, signal, type OnInit } from '@angular/core';
 import {
   formatToolDuration,
   TOOL_PILL_SLOW_MS,
@@ -14,6 +14,7 @@ import {
   auxStreamToolPartPillState,
 } from '../aux-stream-tool-part/aux-stream-tool-part';
 import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
+import { ToolPillExpansion } from '../tool-pill-expansion';
 
 /** One pill for back-to-back tool calls of a kind (`Read · 3 files · a.ts, b.ts`); expands to each call. */
 @Component({
@@ -24,11 +25,12 @@ import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
   styleUrl: './tool-pill-group.css',
   encapsulation: ViewEncapsulation.None,
 })
-export class ToolPillGroupComponent {
+export class ToolPillGroupComponent implements OnInit {
   readonly parts = input.required<StreamPart[]>();
   readonly live = input(false);
   readonly compactDetails = input(false);
 
+  private readonly expansion = inject(ToolPillExpansion, { optional: true });
   readonly expanded = signal(false);
 
   private readonly labels = computed(() => this.parts().map((part) => toolPillLabel(part, this.live())));
@@ -84,6 +86,14 @@ export class ToolPillGroupComponent {
 
   trackPart(part: StreamPart): string {
     return part.streamTag;
+  }
+
+  ngOnInit(): void {
+    // A single pill the user had open just turned into this group: open the group on that call.
+    const lead = this.parts()[0]?.streamTag;
+    if (lead && this.expansion?.isOpen(lead)) {
+      this.expanded.set(true);
+    }
   }
 
   toggle(): void {

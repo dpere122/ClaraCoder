@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 import { toolTrailStatusStreamTag, type StreamPart } from '@shared/index';
+import { ToolPillExpansion } from '../tool-pill-expansion';
 import { AuxStreamToolPartComponent } from './aux-stream-tool-part';
 
 function edit(extra: Partial<StreamPart> = {}): StreamPart {
@@ -64,5 +65,19 @@ describe('AuxStreamToolPartComponent duration', () => {
   it('shows no time for running calls or rows saved before timing', () => {
     expect(render(edit()).querySelector('.stream-tool-pill__duration')).toBeNull();
     expect(render(edit({ toolChainState: 'running' })).querySelector('.stream-tool-pill__duration')).toBeNull();
+  });
+});
+
+describe('AuxStreamToolPartComponent expansion', () => {
+  it('keeps its open state in the feed store, so a replacement pill opens too', () => {
+    TestBed.configureTestingModule({ providers: [ToolPillExpansion] });
+    const part = edit({ toolDiff: ['@@ -1 +1 @@', '-b', '+B'].join('\n') });
+    renderExpanded(part);
+    expect(TestBed.inject(ToolPillExpansion).isOpen(part.streamTag)).toBe(true);
+
+    const again = TestBed.createComponent(AuxStreamToolPartComponent);
+    again.componentRef.setInput('part', part);
+    again.detectChanges();
+    expect((again.nativeElement as HTMLElement).querySelector('app-tool-edit-diff')).not.toBeNull();
   });
 });

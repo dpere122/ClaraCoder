@@ -18,13 +18,14 @@ import { MarkdownPipe } from '../markdown.pipe';
 import { StreamNudgePillComponent } from '../stream-nudge-pill/stream-nudge-pill';
 import { StreamThoughtPillComponent } from '../stream-thought-pill/stream-thought-pill';
 import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
+import { ToolPillExpansion } from '../tool-pill-expansion';
 import { ToolPillGroupComponent } from '../tool-pill-group/tool-pill-group';
 import type { ToolSpinnerKind } from '../tool-spinner-kind';
 import {
   committedItemIdentities,
   decidePreviewCommit,
   displayCommittedCount,
-  feedItemDisplayRole,
+  feedDisplayRoles,
   initialLiveCommittedCount,
   firstQueueableIdentity,
   previewCommitCount,
@@ -38,7 +39,6 @@ import {
   queueableFeedIdentity,
   queueableItems,
   splitQueuedFeed,
-  type FeedDisplayRole,
 } from './stream-preview-queue';
 import { settlingChipIndices, toolChipGroupParts, toolChipLayout } from './tool-chip-groups';
 
@@ -59,6 +59,8 @@ export type HostedSpinnerKind = 'think' | ToolSpinnerKind;
     StreamToolPillComponent,
     ToolPillGroupComponent,
   ],
+  // Open pills are tracked per feed, so a pill keeps its state when it joins a group.
+  providers: [ToolPillExpansion],
   templateUrl: './stream-turn-feed.html',
   styleUrl: './stream-turn-feed.css',
   encapsulation: ViewEncapsulation.None,
@@ -103,12 +105,14 @@ export class StreamTurnFeedComponent {
 
   readonly displayCommitted = computed(() => displayCommittedCount(this.items(), this.committedCount()));
 
+  /** How each item renders right now (chip, preview, hidden, markdown), by item index. */
+  readonly displayRoles = computed(() => feedDisplayRoles(this.items(), this.displayCommitted(), this.live()));
+
   /** Back-to-back same-kind tool chips collapse into one group pill; duplicate rows fold away. */
   readonly toolChipLayout = computed(() => {
     const items = this.items();
-    const committed = this.displayCommitted();
-    const live = this.live();
-    const layout = toolChipLayout(items, (index) => feedItemDisplayRole(items, index, committed, live), live);
+    const roles = this.displayRoles();
+    const layout = toolChipLayout(items, (index) => roles[index] ?? 'hidden', this.live());
     const groupParts = new Map<number, StreamPart[]>();
     for (const [lead, members] of layout.groups) {
       groupParts.set(lead, toolChipGroupParts(items, members));
@@ -192,10 +196,6 @@ export class StreamTurnFeedComponent {
       const kind = this.hostedSpinnerKind();
       untracked(() => this.spinnerKindChange.emit(kind));
     });
-  }
-
-  itemRole(index: number, committedCount = this.displayCommitted()): FeedDisplayRole {
-    return feedItemDisplayRole(this.items(), index, committedCount, this.live());
   }
 
   previewBodyText(item: TurnFeedItem): string {

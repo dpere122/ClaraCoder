@@ -1,9 +1,9 @@
 <div class="stream-turn-feed" [class.stream-turn-feed--live]="live()" aria-live="polite">
-  @let committed = displayCommitted();
+  @let roles = displayRoles();
   @let chipLayout = toolChipLayout();
   @let settling = settlingIndices();
   @for (item of items(); track trackItem(item, $index)) {
-    @switch (itemRole($index, committed)) {
+    @switch (roles[$index]) {
       @case ('chip') {
         @if (item.kind === 'thought') {
           <app-stream-thought-pill

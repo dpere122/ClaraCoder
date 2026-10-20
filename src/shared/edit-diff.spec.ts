@@ -40,6 +40,38 @@ describe('parseEditDiff', () => {
     ]);
   });
 
+  it('does not read the next file header of a multi-file diff as rows', () => {
+    const two = ['--- a/x', '+++ b/x', '@@ -1 +1 @@', '-a', '+b', '--- /dev/null', '+++ b/y', '@@ -0,0 +1 @@', '+c'].join('\n');
+    expect(parseEditDiff(two)).toEqual([
+      { kind: 'hunk', text: '@@ -1 +1 @@' },
+      { kind: 'del', text: 'a', oldNo: 1 },
+      { kind: 'add', text: 'b', newNo: 1 },
+      { kind: 'hunk', text: '@@ -0,0 +1 @@' },
+      { kind: 'add', text: 'c', newNo: 1 },
+    ]);
+    expect(editDiffCounts(two)).toEqual({ additions: 2, deletions: 1 });
+  });
+
+  it('a cut marker ends its hunk, so the next file header is not read as rows', () => {
+    const cutThenNext = ['--- a/x', '+++ b/x', '@@ -1,3 +1,3 @@', '-a', '\\ Diff cut: 5 more lines (+3 -2)', '--- /dev/null', '+++ b/y', '@@ -0,0 +1 @@', '+c'].join(
+      '\n',
+    );
+    expect(parseEditDiff(cutThenNext)).toEqual([
+      { kind: 'hunk', text: '@@ -1,3 +1,3 @@' },
+      { kind: 'del', text: 'a', oldNo: 1 },
+      { kind: 'note', text: 'Diff cut: 5 more lines (+3 -2)' },
+      { kind: 'hunk', text: '@@ -0,0 +1 @@' },
+      { kind: 'add', text: 'c', newNo: 1 },
+    ]);
+  });
+
+  it('counts the rows a cut marker stands for', () => {
+    expect(editDiffCounts(['@@ -1,9 +1,9 @@', '-a', '+b', '\\ Diff cut: 16 more lines (+8 -8)'].join('\n'))).toEqual({
+      additions: 9,
+      deletions: 9,
+    });
+  });
+
   it('counts added and deleted lines', () => {
     expect(editDiffCounts(DIFF)).toEqual({ additions: 3, deletions: 2 });
     expect(editDiffCounts('')).toEqual({ additions: 0, deletions: 0 });

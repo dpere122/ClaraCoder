@@ -108,6 +108,21 @@ describe('toolPillLabel', () => {
     );
   });
 
+  it('running rows keep showing progress phases after the target', () => {
+    expect(
+      pill(status('write_workspace_file', 'Formatting with Prettier', { toolChainState: 'running', toolTarget: 'src/app.ts' }), true),
+    ).toBe('Write · src/app.ts · Formatting with Prettier');
+    expect(pill(status('write_workspace_file', 'src/app.ts · drafting 2.1 KB', { toolChainState: 'running', toolTarget: 'src/app.ts' }), true)).toBe(
+      'Write · src/app.ts',
+    );
+  });
+
+  it('a wait that timed out reads as still running', () => {
+    expect(
+      pill(status('wait_for_command', 'Command report: - Command id: `ab12` - Command: `npm test` - Working directory: `.` - Status: still running after 30s (waited 30s this call)')),
+    ).toBe('Wait · npm test · running');
+  });
+
   it('unknown tools get a humanized name and an excerpt', () => {
     expect(pill(status('mcp__abc__get_addon_status', 'Error checking addon status: Could not connect.'))).toBe(
       'Get addon status · Error checking addon status: Could not connect.',

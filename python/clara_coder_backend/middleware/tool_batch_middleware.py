@@ -11,6 +11,7 @@ from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
 from clara_coder_backend.session.state import current_tool_batch_id, current_tool_call_id
+from clara_coder_backend.tools.edit_diffs import discard_edit_diff
 
 
 def tool_batch_id(tool_call: dict[str, Any], messages: Sequence[Any] | None) -> str:
@@ -45,7 +46,10 @@ class ToolBatchMiddleware(AgentMiddleware):
         state = request.state
         messages = state.get('messages') if isinstance(state, dict) else None
         token = current_tool_batch_id.set(tool_batch_id(request.tool_call, messages))
-        call_token = current_tool_call_id.set(str(request.tool_call.get('id') or ''))
+        call_id = str(request.tool_call.get('id') or '')
+        call_token = current_tool_call_id.set(call_id)
+        # Call ids can repeat across steps; a diff an earlier same-id call left untaken is not this call's.
+        discard_edit_diff(call_id)
         try:
             return await handler(request)
         finally:

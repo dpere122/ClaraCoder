@@ -33,7 +33,13 @@ export function mergedRunCommandStatusIndices(items: readonly TurnFeedItem[]): S
       return;
     }
     if (item.part.label.trim() === 'run_command' && !runCommandLaneId(item.part.streamTag)) {
-      open.push({ index, id: runCommandIdFromReport(item.part.text) });
+      const id = runCommandIdFromReport(item.part.text);
+      // A call that failed without a command id never got a lane; pairing it with a later
+      // lane would hide the failure.
+      const failed = item.part.toolChainState === 'error' || /^Tool error:/.test(item.part.text.trim());
+      if (id !== null || !failed) {
+        open.push({ index, id });
+      }
       return;
     }
     const laneId = runCommandLaneId(item.part.streamTag);

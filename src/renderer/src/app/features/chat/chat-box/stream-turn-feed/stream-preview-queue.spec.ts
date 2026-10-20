@@ -8,6 +8,7 @@ import {
   committedItemIdentities,
   decidePreviewCommit,
   displayCommittedCount,
+  feedDisplayRoles,
   feedItemDisplayRole,
   firstQueueableIdentity,
   hasCommitPressure,
@@ -318,6 +319,19 @@ describe('pressureInbound', () => {
   it('ignores sibling tools in the live batch', () => {
     expect(pressureInbound(tool, [tool2, tool3])).toBeUndefined();
     expect(pressureInbound(tool, [tool2, thought])).toEqual(thought);
+  });
+});
+
+describe('feedDisplayRoles', () => {
+  it('matches feedItemDisplayRole for every item', () => {
+    const items = [thought, md, tool, tool2, md, tool3];
+    for (const live of [false, true]) {
+      for (let committed = 0; committed <= 4; committed++) {
+        expect(feedDisplayRoles(items, committed, live)).toEqual(
+          items.map((_, index) => feedItemDisplayRole(items, index, committed, live)),
+        );
+      }
+    }
   });
 });
 

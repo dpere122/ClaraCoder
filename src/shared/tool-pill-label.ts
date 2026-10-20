@@ -249,7 +249,8 @@ function runDetail(text: string): string {
   if (exit) {
     return `exit ${exit[1]}`;
   }
-  return /Status: running/.test(text) ? 'running' : '';
+  // A wait that timed out reports `Status: still running after 30s (waited 30s this call)`.
+  return /Status: (?:still )?running/.test(text) ? 'running' : '';
 }
 
 function lspDetail(text: string): string {
@@ -353,7 +354,10 @@ export function toolPillLabel(part: StreamPart, live = false): ToolPillLabel {
   const target = (part.toolTarget ?? '').trim() || (state === 'running' ? '' : targetFromResult(name, category, text));
 
   if (state === 'running') {
-    return { category, verb, target: target || toolTargetFromRunningDetail(text), detail: '' };
+    const current = toolTargetFromRunningDetail(readToolStatusHeadline(text));
+    // Out-of-band progress (write-job phases) replaces the running detail once the target is kept.
+    const progress = target && current && current !== target ? condenseToolTrailText(current, 48) : '';
+    return { category, verb, target: target || current, detail: progress };
   }
   if (state === 'error' || /^Tool error:/.test(text)) {
     const message = text.replace(/^Tool error:\s*/, '');

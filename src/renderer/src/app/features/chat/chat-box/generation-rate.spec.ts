@@ -35,6 +35,16 @@ describe('TurnRateTracker', () => {
     expect(tracker.stats()).toEqual({ outputTokens: 100, generationMs: 1500, estimated: true });
   });
 
+  it('adds the wall-clock turn time when the turn has a start time', () => {
+    const tracker = new TurnRateTracker(4, 1000);
+    tracker.onChunk(400, 2000);
+    tracker.onUsage(100, 1000, 3000);
+    // Tool run, then the final answer step.
+    tracker.onUsage(100, 1000, 20_000);
+    expect(tracker.stats(21_000)).toEqual({ outputTokens: 200, generationMs: 2000, turnMs: 20_000 });
+    expect(tracker.stats()).toEqual({ outputTokens: 200, generationMs: 2000 });
+  });
+
   it('reports nothing for a turn that streamed nothing', () => {
     expect(new TurnRateTracker(4).stats()).toBeUndefined();
   });
@@ -47,6 +57,13 @@ describe('turnGenerationSummary', () => {
     );
     expect(turnGenerationSummary({ outputTokens: 341, generationMs: 2657 })?.rate).toBe('128 tok/s');
     expect(turnGenerationSummary({ outputTokens: 9000, generationMs: 125_000 })?.detail).toBe('9,000 tokens · 2m 05s');
+  });
+
+  it('shows the whole turn time while the rate stays on decode time', () => {
+    const summary = turnGenerationSummary({ outputTokens: 1234, generationMs: 29_000, turnMs: 95_000 });
+    expect(summary?.rate).toBe('42.6 tok/s');
+    expect(summary?.detail).toBe('1,234 tokens · 1m 35s');
+    expect(summary?.title).toMatch(/^Turn took 1m 35s\. 1,234 tokens generated in 29s/);
   });
 
   it('marks estimates and skips stats without decode time', () => {

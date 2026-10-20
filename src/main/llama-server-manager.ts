@@ -803,11 +803,12 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
   if (running.has(modelId)) {
     return { ok: false, error: 'Managed servers already running for this model preset.' };
   }
-  // A stop for this preset may still be draining (CTRL_C grace). Let the old
-  // pair release its VRAM before a new one loads the weights again.
-  const draining = pendingStops.get(modelId);
-  if (draining) {
-    await draining;
+  // Stops may still be draining (CTRL_C grace). VRAM is shared across presets and
+  // ``-ngl auto`` (``--fit``) sizes the load to the VRAM free at spawn, so wait for
+  // every draining pair, not just this preset's, or the new load shrinks its context
+  // or spills layers to system RAM around memory that is about to be freed.
+  if (pendingStops.size > 0) {
+    await Promise.all([...pendingStops.values()]);
     if (running.has(modelId)) {
       return { ok: false, error: 'Managed servers already running for this model preset.' };
     }
@@ -1226,7 +1227,8 @@ interface HealthWaitContext {
   spawnError?: () => Error | undefined;
 }
 
-const HEALTH_POLL_MS = 500;
+/** Refused connects and llama-server's loading 503 both return at once, so a short poll is cheap. */
+const HEALTH_POLL_MS = 250;
 /** Default wait when the command does not look like a remote HF pull (local GGUF load). */
 const HEALTH_WAIT_DEFAULT_MS = 600_000;
 /** First-time ``-hf`` pulls can take a long time; keep polling until ready or hard cap. */
@@ -1631,12 +1633,14 @@ export async function getManagedLlamaStatus(
     return attachCachedReasoning(statusCache.result);
   }
 
-  const ch = await probeOnce(st.chatHealthHost, st.chatPort);
-  let emb: LlamaServerStatusPayload['embed'];
-  if (st.embedPort != null && st.embedHealthHost) {
-    const eh = await probeOnce(st.embedHealthHost, st.embedPort);
-    emb = { port: st.embedPort, health: eh };
-  }
+  const embedPort = st.embedPort;
+  const embedHost = st.embedHealthHost;
+  const [ch, emb] = await Promise.all([
+    probeOnce(st.chatHealthHost, st.chatPort),
+    embedPort != null && embedHost
+      ? probeOnce(embedHost, embedPort).then((health) => ({ port: embedPort, health }))
+      : Promise.resolve(undefined),
+  ]);
 
   const out: LlamaServerStatusPayload = attachCachedReasoning({
     ok: true,

@@ -67,7 +67,6 @@ import {
   firstTopLevelConversation,
   pickTtsFlushText,
 } from './conversation-session.service';
-import { abandonStaleHitlMessages } from './abandon-stale-hitl';
 import { conversationRestorePrompt } from '../../shared/themed-confirm-dialog/format-restore-prompt';
 
 export { pickTtsFlushText };
@@ -1411,14 +1410,20 @@ export class App implements OnInit, OnDestroy {
     if (this.contextChatBlocked()) {
       return;
     }
+    // Read while `convId` is still the active conversation: the user may switch during the awaits
+    // below (the interrupt drain can take seconds), and admin elevation is per conversation.
+    const workspaceId = this.conversationSession.getActiveConversation()?.workspaceId ?? this.currentWorkspaceId();
+    const mode = this.composerMode();
+    const speechEnabled = this.speechEnabled();
+    const adminElevationGranted = this.adminElevationGranted();
     if (interrupting) {
       this.conversationSession.interruptLiveTurn(convId);
     }
     this.conversationSession.prepareForSend(convId);
-    if (this.speechEnabled()) {
-      await this.tts.beginAssistantSpeechTurn();
-    }
     try {
+      if (speechEnabled) {
+        await this.tts.beginAssistantSpeechTurn();
+      }
       const structuredContent = await this.buildStructuredContent(normalized, attachments);
       this.clearChatContextFiles();
       const userMessageId = this.conversationSession.pushMessage(
@@ -1434,9 +1439,11 @@ export class App implements OnInit, OnDestroy {
       if (interrupting) {
         // Python must have stopped the old turn (and its done must be in) before the new one starts.
         await this.conversationSession.drainInterruptedTurn(convId);
+        if (!this.pendingIds().has(convId)) {
+          // Deleted or restored during the drain: the turn was discarded, send nothing.
+          return;
+        }
       }
-      const workspaceId = this.conversationSession.getActiveConversation()?.workspaceId ?? this.currentWorkspaceId();
-      const mode = this.composerMode();
       const workspaceNotes = this.conversationSession.takeWorkspaceNotes(convId);
       this.electron.sendMessage(
         convId,
@@ -1446,17 +1453,21 @@ export class App implements OnInit, OnDestroy {
         structuredContentForBackendRequest(structuredContent),
         workspaceId,
         composerModeForBackend(mode),
-        this.speechEnabled(),
+        speechEnabled,
         this.appConfig()?.audioTranscription?.ttsProvider === 'openai-compatible'
           ? 'openai-compatible'
           : DEFAULT_TTS_PROVIDER,
         userMessageId,
-        this.adminElevationGranted(),
+        adminElevationGranted,
         workspaceNotes,
       );
       this.conversationSession.markMessagesDirtyAndAutoSave();
     } catch (err) {
       console.error('[App] onMessageSent failed:', err);
+      if (interrupting) {
+        // Still stop the interrupted turn and end its drain, or the conversation stays blocked.
+        await this.conversationSession.drainInterruptedTurn(convId);
+      }
       this.conversationSession.resetStreamUiOnSendFailure(convId);
     }
   }
@@ -1551,8 +1562,9 @@ export class App implements OnInit, OnDestroy {
       return;
     }
     const draft = selected?.role === 'user' ? selected.text : '';
-    this.conversationSession.applyRestoredMessages(abandonStaleHitlMessages(result.messages));
+    // Forget the deleted sub-agents first: their cards are stale, a still-running one's are not.
     this.conversationSession.forgetConversations(result.deletedSubagentIds ?? []);
+    this.conversationSession.applyRestoredMessages(this.conversationSession.abandonStaleHitl(result.messages));
     this.conversationSession.removePending(convId);
     this.conversationSession.updateConversationMeta(convId, { updatedAt: new Date().toISOString() });
     this.composerDraft.set(draft);

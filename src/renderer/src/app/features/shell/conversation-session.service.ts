@@ -665,6 +665,11 @@ export class ConversationSessionService {
     }
   }
 
+  /** Cancel the pending cards in `messages` no one can answer any more (a running sub-agent's still can). */
+  abandonStaleHitl(messages: ConversationMessage[]): ConversationMessage[] {
+    return abandonStaleHitlMessages(messages, (m) => this.isRunningSubagentCard(m));
+  }
+
   /** A pending card raised by a sub-agent that is still running (it can still be answered). */
   private isRunningSubagentCard(message: ConversationMessage): boolean {
     if (message.role !== 'accept_command' && message.role !== 'delete_confirm') {

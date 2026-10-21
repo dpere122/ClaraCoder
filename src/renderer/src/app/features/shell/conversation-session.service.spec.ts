@@ -618,6 +618,36 @@ describe('ConversationSessionService', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(service.subagentRunsFor('test-conv')).toEqual([]);
   });
+  it('abandons stale cards of restored messages but keeps the cards of running sub-agents', () => {
+    const { service } = setup();
+    service.addPending('child-1');
+    const card = (requestId: string, subagent?: { conversationId: string; name: string }) => ({
+      role: 'accept_command' as const,
+      id: requestId,
+      payload: {
+        version: 1 as const,
+        requestId,
+        kind: 'deferred_tool' as const,
+        title: 'Run npm test',
+        message: '',
+        confirmLabel: 'Run',
+        cancelLabel: 'Cancel',
+        commandText: 'npm test',
+        details: [],
+        ...(subagent ? { subagent } : {}),
+      },
+    });
+    const restored = service.abandonStaleHitl([
+      card('main-req'),
+      card('child-req', { conversationId: 'child-1', name: 'Reader' }),
+      card('gone-req', { conversationId: 'child-gone', name: 'Old' }),
+    ] as unknown as Parameters<typeof service.abandonStaleHitl>[0]);
+    expect(restored.map((m) => (m as { reviewStatus?: string }).reviewStatus)).toEqual([
+      'cancelled',
+      undefined,
+      'cancelled',
+    ]);
+  });
   it('keeps a finished sub-agent card until a turn of its parent ends, even if it ended between turns', async () => {
     const { service, subagentStartedSubject, doneSubject } = setup();
     service.conversations.set([

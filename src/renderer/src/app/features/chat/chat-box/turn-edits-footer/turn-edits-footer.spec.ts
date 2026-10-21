@@ -4,10 +4,12 @@ import type { ResetTurnFilesResult, TurnEditedFile, TurnEditedFileRow } from '@s
 import { lucideAppProviders } from '../../../../lucide-setup';
 import { ElectronService } from '../../../../core/electron.service';
 import { ConversationSessionService } from '../../../shell/conversation-session.service';
+import { ThemedConfirmDialogService } from '../../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import {
   TurnEditsFooterComponent,
   splitTurnFilePath,
   turnEditedFileDisplayStatus,
+  turnResetConfirmPrompt,
   turnResetWorkspaceNote,
 } from './turn-edits-footer';
 
@@ -34,6 +36,16 @@ describe('turn-edits-footer helpers', () => {
   it('formats the reset note sent to the agent', () => {
     expect(turnResetWorkspaceNote('a.py', 3)).toBe('User reset `a.py` from turn 3 to its pre-edit state');
   });
+
+  it('formats the reset confirmation for one file and for Reset all', () => {
+    expect(turnResetConfirmPrompt('a.py', 3)).toMatchObject({
+      title: 'Reset file?',
+      message: 'Restore "a.py" to its state before turn 3? Changes made since then will be lost.',
+      confirmText: 'Reset',
+      variant: 'warning',
+    });
+    expect(turnResetConfirmPrompt(null, 3)).toMatchObject({ title: 'Reset all files?', confirmText: 'Reset all' });
+  });
 });
 
 describe('TurnEditsFooterComponent', () => {
@@ -45,8 +57,10 @@ describe('TurnEditsFooterComponent', () => {
     applyTurnEditedFiles: ReturnType<typeof vi.fn>;
     queueWorkspaceNote: ReturnType<typeof vi.fn>;
   };
+  let themedConfirm: { open: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
+    themedConfirm = { open: vi.fn(async () => 'confirm') };
     electron = {
       listTurnFiles: vi.fn(async (): Promise<TurnEditedFileRow[]> => files.map((f) => ({ ...f, changedSinceTurn: false }))),
       resetTurnFiles: vi.fn(),
@@ -58,6 +72,7 @@ describe('TurnEditsFooterComponent', () => {
         ...lucideAppProviders,
         { provide: ElectronService, useValue: electron },
         { provide: ConversationSessionService, useValue: session },
+        { provide: ThemedConfirmDialogService, useValue: themedConfirm },
       ],
     });
   });
@@ -128,6 +143,7 @@ describe('TurnEditsFooterComponent', () => {
     (host.querySelector('.turn-edits__reset') as HTMLButtonElement).click();
     await settle(fixture);
 
+    expect(themedConfirm.open).toHaveBeenCalledWith(turnResetConfirmPrompt('src/a.py', 2));
     expect(electron.resetTurnFiles).toHaveBeenCalledWith({
       conversationId: 'c1',
       userMessageId: 'u1',
@@ -139,6 +155,18 @@ describe('TurnEditsFooterComponent', () => {
       'c1',
       'User reset `src/a.py` from turn 2 to its pre-edit state',
     );
+  });
+
+  it('does nothing when the reset confirmation is cancelled', async () => {
+    themedConfirm.open.mockResolvedValue('cancel');
+    const { fixture, host } = mount();
+
+    (host.querySelector('.turn-edits__reset-all') as HTMLButtonElement).click();
+    await settle(fixture);
+
+    expect(themedConfirm.open).toHaveBeenCalledWith(turnResetConfirmPrompt(null, 2));
+    expect(electron.resetTurnFiles).not.toHaveBeenCalled();
+    expect(session.applyTurnEditedFiles).not.toHaveBeenCalled();
   });
 
   it('asks to overwrite on conflict and retries with force', async () => {

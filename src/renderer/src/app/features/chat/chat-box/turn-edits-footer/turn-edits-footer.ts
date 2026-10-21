@@ -3,6 +3,10 @@ import { LucideAngularModule } from 'lucide-angular';
 import type { TurnEditedFile, TurnEditedFileRow } from '@shared/index';
 import { ElectronService } from '../../../../core/electron.service';
 import { ConversationSessionService } from '../../../shell/conversation-session.service';
+import {
+  ThemedConfirmDialogService,
+  type ThemedConfirmOpenOptions,
+} from '../../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 
 /** Open the read-only before/after diff of one file a turn edited. */
 export interface TurnDiffOpenRequest {
@@ -27,6 +31,18 @@ interface TurnResetConflict {
 /** Note queued for the agent's next request after a path is reset. */
 export function turnResetWorkspaceNote(relativePath: string, turnNumber: number): string {
   return `User reset \`${relativePath}\` from turn ${turnNumber} to its pre-edit state`;
+}
+
+/** Copy for confirming a reset of one path, or of every kept file when the path is null. */
+export function turnResetConfirmPrompt(relativePath: string | null, turnNumber: number): ThemedConfirmOpenOptions {
+  const target = relativePath === null ? 'every file this turn edited' : `"${relativePath}"`;
+  return {
+    title: relativePath === null ? 'Reset all files?' : 'Reset file?',
+    message: `Restore ${target} to its state before turn ${turnNumber}? Changes made since then will be lost.`,
+    cancelText: 'Cancel',
+    confirmText: relativePath === null ? 'Reset all' : 'Reset',
+    variant: 'warning',
+  };
 }
 
 export function turnEditedFileDisplayStatus(
@@ -61,6 +77,7 @@ export function splitTurnFilePath(relativePath: string): { name: string; dir: st
 export class TurnEditsFooterComponent {
   private readonly electron = inject(ElectronService);
   private readonly session = inject(ConversationSessionService);
+  private readonly themedConfirm = inject(ThemedConfirmDialogService);
 
   readonly conversationId = input<string | null>(null);
   /** User message that started the turn (journal / turn-files key). */
@@ -118,11 +135,17 @@ export class TurnEditsFooterComponent {
 
   async onResetFile(row: TurnEditedFileDisplayRow, event?: Event): Promise<void> {
     event?.stopPropagation();
+    if (!(await this.confirmReset(row.relativePath))) {
+      return;
+    }
     await this.reset([row.relativePath], false);
   }
 
   async onResetAll(event?: Event): Promise<void> {
     event?.stopPropagation();
+    if (!(await this.confirmReset(null))) {
+      return;
+    }
     await this.reset(null, false);
   }
 
@@ -185,6 +208,10 @@ export class TurnEditsFooterComponent {
 
   pathParts(relativePath: string): { name: string; dir: string } {
     return splitTurnFilePath(relativePath);
+  }
+
+  private async confirmReset(relativePath: string | null): Promise<boolean> {
+    return (await this.themedConfirm.open(turnResetConfirmPrompt(relativePath, this.turnNumber()))) === 'confirm';
   }
 
   private async refreshLiveRows(): Promise<void> {

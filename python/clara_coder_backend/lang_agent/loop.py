@@ -44,6 +44,8 @@ class LangGraphWorkerOutcome:
     final_text: str = ''
     partial_text: str = ''
     error_detail: str = ''
+    #: Text the model was streaming when the turn stopped, which no checkpoint holds (the step never ended).
+    uncommitted_text: str = ''
 
     def best_available_text(self) -> str:
         final_text = self.final_text.strip()

@@ -30,6 +30,13 @@ describe('ToolPillGroupComponent', () => {
     expect(name?.querySelectorAll('.processing-text__letter').length).toBe(4);
   });
 
+  it('counts calls its turn cut off as stopped, not failed', () => {
+    const stopped: StreamPart = { ...read('b', 'b.py', 'error'), toolStopped: true };
+    const failed: StreamPart = { ...read('c', 'c.py', 'error'), text: 'Tool error: boom' };
+    const el = render([read('a', 'a.py', 'complete'), stopped, failed], false);
+    expect(el.querySelector('.stream-tool-pill__meta')?.textContent).toContain('1 failed · 1 stopped');
+  });
+
   it('stops glowing once every child finished', () => {
     const el = render([read('a', 'a.py', 'complete'), read('b', 'b.py', 'complete')], true);
     expect(el.querySelector('.stream-tool-pill__name--shimmer')).toBeNull();

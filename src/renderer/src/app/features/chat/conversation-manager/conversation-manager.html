@@ -1,52 +1,94 @@
 <div class="conv-manager" data-theme-group="chat.conversation-list">
   <div class="conv-list">
-    @for (conv of conversations(); track conv.id) {
-      <div
-        class="conv-item"
-        [class.active]="conv.id === activeId()"
-        (click)="selectConversation.emit(conv.id)"
-        (contextmenu)="onConvContextMenu($event, conv)"
-      >
-        @if (editingId() === conv.id) {
-          <input
-            class="rename-input"
-            [ngModel]="editTitle()"
-            (ngModelChange)="editTitle.set($event)"
-            (keydown.enter)="confirmRename(conv.id)"
-            (keydown.escape)="cancelRename()"
-            (blur)="cancelRename()"
-            (click)="$event.stopPropagation()"
-            autofocus
-          />
-        } @else {
-          @let act = activity().get(conv.id);
-          @if (act) {
-            <span
-              class="conv-activity"
-              [class]="'conv-activity--' + act"
-              role="status"
-              [attr.aria-label]="activityLabel(act)"
-              [attr.title]="activityLabel(act)"
-            >
-              @if (activitySpinnerSrc(act); as src) {
-                <img class="conv-activity__spinner" [src]="src" alt="" />
-              } @else if (act === 'review') {
-                <lucide-icon name="circle-alert" [size]="14" />
-              } @else {
-                <span class="conv-activity__cursor" aria-hidden="true"></span>
-              }
-            </span>
+    @for (node of tree(); track node.conversation.id) {
+      <ng-container
+        *ngTemplateOutlet="row; context: { $implicit: node.conversation, node: node, subagent: false }"
+      />
+      @if (node.children.length > 0 && isExpanded(node)) {
+        <div class="conv-children" role="group" [attr.aria-label]="'Sub-agents of ' + node.conversation.title">
+          @for (child of node.children; track child.id) {
+            <ng-container *ngTemplateOutlet="row; context: { $implicit: child, node: null, subagent: true }" />
           }
-          <span class="conv-title">{{ conv.title }}</span>
-          <button class="delete-btn" (click)="onDelete(conv.id, $event)" title="Delete conversation">
-            <lucide-icon name="trash" [size]="14" />
-          </button>
-        }
-      </div>
+        </div>
+      }
     } @empty {
       <p class="empty-hint">No conversations yet.</p>
     }
   </div>
+
+  <ng-template #row let-conv let-node="node" let-subagent="subagent">
+    <div
+      class="conv-item"
+      [class.active]="conv.id === activeId()"
+      [class.conv-item--subagent]="subagent"
+      (click)="selectConversation.emit(conv.id)"
+      (contextmenu)="onConvContextMenu($event, conv)"
+    >
+      @if (editingId() === conv.id) {
+        <input
+          class="rename-input"
+          [ngModel]="editTitle()"
+          (ngModelChange)="editTitle.set($event)"
+          (keydown.enter)="confirmRename(conv.id)"
+          (keydown.escape)="cancelRename()"
+          (blur)="cancelRename()"
+          (click)="$event.stopPropagation()"
+          autofocus
+        />
+      } @else {
+        @if (node && node.children.length > 0) {
+          <button
+            type="button"
+            class="conv-expand"
+            [attr.aria-expanded]="isExpanded(node)"
+            [attr.aria-label]="(isExpanded(node) ? 'Hide' : 'Show') + ' ' + node.children.length + ' sub-agent conversations'"
+            [title]="(isExpanded(node) ? 'Hide' : 'Show') + ' sub-agents'"
+            (click)="toggleExpanded(node, $event)"
+          >
+            <lucide-icon [name]="isExpanded(node) ? 'chevron-down' : 'chevron-right'" [size]="13" />
+          </button>
+        }
+        @let act = activity().get(conv.id);
+        @if (act) {
+          <span
+            class="conv-activity"
+            [class]="'conv-activity--' + act"
+            role="status"
+            [attr.aria-label]="activityLabel(act)"
+            [attr.title]="activityLabel(act)"
+          >
+            @if (activitySpinnerSrc(act); as src) {
+              <img class="conv-activity__spinner" [src]="src" alt="" />
+            } @else if (act === 'review') {
+              <lucide-icon name="circle-alert" [size]="14" />
+            } @else {
+              <span class="conv-activity__cursor" aria-hidden="true"></span>
+            }
+          </span>
+        } @else if (subagent) {
+          <span class="conv-subagent-icon" aria-hidden="true">
+            <lucide-icon name="bot" [size]="13" />
+          </span>
+        }
+        <span class="conv-title" [attr.title]="subagent ? 'Sub-agent · ' + conv.title : null">{{ conv.title }}</span>
+        @if (node && node.children.length > 0 && !isExpanded(node)) {
+          <span class="conv-subagent-count" [title]="node.children.length + ' sub-agents'">
+            <lucide-icon name="bot" [size]="11" />{{ node.children.length }}
+          </span>
+        }
+        @if (!(subagent && act)) {
+          <!-- A running sub-agent is stopped from its card, not deleted from here. -->
+          <button
+            class="delete-btn"
+            (click)="onDelete(conv.id, $event)"
+            [title]="subagent ? 'Delete sub-agent conversation' : 'Delete conversation'"
+          >
+            <lucide-icon name="trash" [size]="14" />
+          </button>
+        }
+      }
+    </div>
+  </ng-template>
 
   @if (contextMenuVisible()) {
     <div

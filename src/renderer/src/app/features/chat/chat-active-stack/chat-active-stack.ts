@@ -27,7 +27,10 @@ import { handleChatContextDragOver, handleChatContextDrop, type ChatContextDropp
 import { type ChatContextFile } from '../chat-context-bar/chat-context-file';
 import { HitlComposerDockComponent } from '../hitl-composer-dock/hitl-composer-dock';
 import { MessageBox } from '../message-box/message-box';
+import { SubagentDockComponent } from '../subagent-dock/subagent-dock';
 import { TalkMode } from '../../speech/talk-mode/talk-mode';
+import { ConversationSessionService } from '../../shell/conversation-session.service';
+import { LucideAngularModule } from 'lucide-angular';
 import type { AcceptCommandFinishedEvent } from '@shared/index';
 import type { TurnDiffOpenRequest } from '../chat-box/turn-edits-footer/turn-edits-footer';
 export type ChatLayoutMode = 'sidebar' | 'expanded';
@@ -35,7 +38,7 @@ export type ChatLayoutMode = 'sidebar' | 'expanded';
 /** Chat transcript, composer, and status bar — shared by sidebar hub and expanded main overlay. */
 @Component({
   selector: 'app-chat-active-stack',
-  imports: [ChatBox, HitlComposerDockComponent, MessageBox, TalkMode],
+  imports: [ChatBox, HitlComposerDockComponent, LucideAngularModule, MessageBox, SubagentDockComponent, TalkMode],
   templateUrl: './chat-active-stack.html',
   styleUrl: './chat-active-stack.css',
   host: {
@@ -48,6 +51,8 @@ export type ChatLayoutMode = 'sidebar' | 'expanded';
       'layout() === "expanded" && resolvedContainerSize() === "full-width"',
     '[class.chat-active-stack--ready]': 'emptyStateReady()',
     '[class.chat-active-stack--empty]': 'showBrandEtch()',
+    // OPEN_CONVERSATION_DOM_EVENT, bubbling up from a sub-agent pill in the transcript.
+    '(clara-open-conversation)': 'onOpenConversationRequested($event)',
   },
 })
 export class ChatActiveStackComponent implements OnDestroy {
@@ -130,6 +135,46 @@ export class ChatActiveStackComponent implements OnDestroy {
   readonly pendingHitlDockArtifacts = computed((): HitlTrailArtifact[] =>
     pendingHitlArtifactsForDock(this.messages()) as HitlTrailArtifact[],
   );
+
+  // --- Sub-agent conversations: read-only, with a banner in place of the composer ---
+
+  private readonly session = inject(ConversationSessionService);
+
+  /** The conversation whose agent spawned the open one, when it is a sub-agent's. */
+  protected readonly subagentParentId = computed(() =>
+    this.conversationId() === this.session.activeConversationId() ? this.session.activeParentConversationId() : null,
+  );
+
+  protected readonly parentTitle = computed(() => {
+    const parentId = this.subagentParentId();
+    return this.session.conversations().find((c) => c.id === parentId)?.title ?? 'the main agent';
+  });
+
+  /** One of this sub-agent's approval cards is waiting in its parent's dock. */
+  protected readonly subagentAwaitingApproval = computed(() => {
+    const id = this.conversationId();
+    return id != null && (this.session.pendingSubagentApprovals().get(id)?.length ?? 0) > 0;
+  });
+
+  protected openParent(parentId: string): void {
+    this.session.openConversation(parentId);
+  }
+
+  /** A sub-agent pill in the transcript asked to open that sub-agent's conversation. */
+  protected onOpenConversationRequested(event: Event): void {
+    const id = (event as CustomEvent<unknown>).detail;
+    if (typeof id === 'string' && id) {
+      event.stopPropagation();
+      this.session.openConversation(id);
+    }
+  }
+
+  protected stopSubagent(): void {
+    const id = this.conversationId();
+    if (id) {
+      this.session.stopSubagent(id);
+    }
+  }
 
   // --- Empty-state composer centering (expanded layout only) ---
   //

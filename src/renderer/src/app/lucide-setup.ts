@@ -2,6 +2,8 @@ import { EnvironmentProviders, importProvidersFrom, Provider } from '@angular/co
 import {
   Activity,
   ArrowDown,
+  ArrowLeft,
+  Bot,
   Brain,
   Check,
   ChevronDown,
@@ -66,6 +68,8 @@ export const lucideAppProviders: Array<Provider | EnvironmentProviders> = [
     LucideAngularModule.pick({
       Activity,
       ArrowDown,
+      ArrowLeft,
+      Bot,
       Brain,
       Check,
       ChevronDown,

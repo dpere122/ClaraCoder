@@ -185,7 +185,7 @@
         <app-workspace
           [workspaces]='workspaces()'
           [currentWorkspaceId]='currentWorkspaceId()'
-          [activeConversationId]='activeConversationId()'
+          [activeConversationId]='workspaceSessionId()'
           [activeFileRelativePath]='activeFileRelativePath()'
           [outlineSymbols]='monacoOutlineState().symbols'
           [outlineRelativePath]='monacoOutlineState().relativePath'
@@ -296,7 +296,7 @@
                     [openFileRelativePaths]='view.monacoOpenFileRelativePaths'
                     [editorSettings]='appConfig()?.monacoWorkspaceEditor ?? null'
                     [readOnlyDiff]='turnDiffForSlot(view)'
-                    [conversationId]='activeConversationId()'
+                    [conversationId]='workspaceSessionId()'
                     [pendingEditorReveal]='focused ? monacoRevealPending() : null'
                     [forcePreviewForKeys]='monacoForcePreviewKeys()'
                     [buildPlanLiveContent]='buildPlanLiveContent()'
@@ -371,7 +371,7 @@
                 [voiceActive]='talkEnabled() && speechEnabled()'
                 (voiceToggle)='toggleVoice()'
                 [contextBlocked]='contextChatBlocked()'
-                (messageSent)='onMessageSent($event)'
+                (messageSent)='onComposerMessageSent($event)'
                 (abortRequested)='onAbortRequested()'
                 [usedTokens]='contextCapacity().usedTokens'
                 [maxTokens]='contextCapacity().maxTokens'
@@ -414,7 +414,7 @@
           <app-workspace-terminal-dock
             [workspacePath]='currentWorkspacePath()'
             [appConfig]='appConfig()'
-            [conversationId]='activeConversationId() ?? ""'
+            [conversationId]='workspaceSessionId() ?? ""'
             [editorDiagnostics]='monacoDiagnosticsState().diagnostics'
             [editorDiagnosticsRelativePath]='monacoDiagnosticsState().relativePath'
             (revealEditorDiagnostic)='onRevealEditorDiagnostic($event)'
@@ -483,7 +483,7 @@
         [voiceActive]='talkEnabled() && speechEnabled()'
         (voiceToggle)='toggleVoice()'
         [contextBlocked]='contextChatBlocked()'
-        (messageSent)='onMessageSent($event)'
+        (messageSent)='onComposerMessageSent($event)'
         (abortRequested)='onAbortRequested()'
         [usedTokens]='contextCapacity().usedTokens'
         [maxTokens]='contextCapacity().maxTokens'
@@ -506,7 +506,7 @@
       </div>
       <div class="app-status-footer__end">
         <app-editor-lsp-status
-          [conversationId]="activeConversationId()"
+          [conversationId]="workspaceSessionId()"
           [workspacePath]="currentWorkspacePath()"
           [activeFileRelativePath]="activeFileRelativePath()"
           [activeFileDirty]="activeFileIsDirty()"

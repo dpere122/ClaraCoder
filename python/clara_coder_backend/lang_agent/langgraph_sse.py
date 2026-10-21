@@ -48,6 +48,7 @@ from clara_coder_backend.llm.model_tuning import (
     gemma_output_parsing_active,
     outer_agent_brief_enabled,
 )
+from clara_coder_backend.lang_agent.subagents import SUBAGENT_STARTED_EVENT, announce_subagent
 from clara_coder_backend.session.pause import PENDING_APPROVAL_PREFIX
 from clara_coder_backend.session.state import get_active_connection
 from clara_coder_backend.stream_tags import REASONING_AUXILIARY_STREAM_TAG
@@ -913,6 +914,9 @@ def _on_tool_end(
     # Edit tools leave the diff they wrote under their call id (UI only; the model never sees it).
     call_id = raw_out.tool_call_id if isinstance(raw_out, ToolMessage) else ''
     diff = take_edit_diff(call_id or '')
+    # ``spawn_subagent`` links its pill to the child conversation through the result's artifact.
+    artifact = raw_out.artifact if isinstance(raw_out, ToolMessage) else None
+    subagent = artifact.get('subagent') if isinstance(artifact, dict) else None
     if call_id and result_text.startswith(PENDING_APPROVAL_PREFIX):
         # Staged an approval card and has not run yet: the answer sends the result and the run time.
         awaiting = AwaitingApprovalCall(status_id, name, agent_role, stream_tag, duration_ms)
@@ -935,8 +939,51 @@ def _on_tool_end(
             stream_tag=stream_tag,
             diff=diff,
             duration_ms=duration_ms,
+            subagent=subagent if isinstance(subagent, dict) else None,
         )
     )
+    return lines
+
+
+def _on_subagent_started(
+    ev: dict[str, Any],
+    data: dict[str, Any],
+    state: GraphStreamState,
+    *,
+    agent_role: str | None,
+    stream_tag: str | None,
+) -> list[str]:
+    """``spawn_subagent`` forked a child: announce it on the sub-agent bus, and tag the call's pill.
+
+    The custom event's run id is the spawn call's tool run (Gemma / native previews alias it to the
+    pill they opened), so ``subagent_started`` carries the pill's status id. Announcing lets the child
+    start streaming; its events follow on the bus. This stream only gets the pill's running update.
+    """
+    child_id = data.get('conversation_id')
+    if not isinstance(child_id, str) or not child_id.strip():
+        return []
+    run_id = str(ev.get('run_id') or '')
+    status_id = _status_id_for_tool_run(state, run_id) if run_id else ''
+    name = str(data.get('name') or '')
+    _tool_name, args = state.pending_tool_runs.get(run_id, ('spawn_subagent', {}))
+    lines: list[str] = []
+    if status_id:
+        lines.append(
+            sse_line(
+                status_event(
+                    status_id,
+                    'spawn_subagent',
+                    detail=name or tool_running_detail('spawn_subagent', args),
+                    state='running',
+                    source='tool',
+                    agent_role=agent_role,
+                    stream_tag=stream_tag,
+                    tool_batch=_tool_batch_key(state, stream_tag),
+                    subagent={'conversation_id': child_id, 'name': name},
+                )
+            )
+        )
+    announce_subagent(data, status_id)
     return lines
 
 
@@ -1043,6 +1090,8 @@ def sse_lines_for_graph_event(
         return _on_tool_start(ev, data, state, agent_role=agent_role, stream_tag=stream_tag)
     if et == 'on_tool_end':
         return _on_tool_end(ev, data, state, agent_role=agent_role, stream_tag=stream_tag)
+    if et == 'on_custom_event' and ev.get('name') == SUBAGENT_STARTED_EVENT:
+        return _on_subagent_started(ev, data, state, agent_role=agent_role, stream_tag=stream_tag)
     if et == 'agent_nudge' or (et == 'on_custom_event' and ev.get('name') == 'agent_nudge'):
         state.last_final_text = ''
         state.deferred_agent_text = ''

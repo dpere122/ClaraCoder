@@ -1,3 +1,5 @@
+import type { SubagentRef } from './subagent';
+
 /** Composer Admin chip: grant the agent elevated ``run_command`` for this conversation. */
 export const ACCEPT_COMMAND_KIND_ADMIN_ELEVATION = 'admin_elevation';
 /** Agent-requested Admin grant (same card; resumes the paused tool after Allow). */
@@ -26,6 +28,11 @@ export interface AcceptCommandPayload {
   /** Set when `kind` is `mcp_tool`, so Allow / Deny can be stored on that server. */
   mcpServerId?: string;
   mcpToolName?: string;
+  /**
+   * Set by main (never by the backend) when a sub-agent asked: the card shows in the parent's dock
+   * and the answer goes to the sub-agent's session.
+   */
+  subagent?: SubagentRef;
 }
 
 /** User decision on an accept-command HITL card. */
@@ -37,6 +44,8 @@ export interface AcceptCommandFinishedEvent {
   summary?: string;
   action?: AcceptCommandAction;
   kind?: string;
+  /** Set when the card came from a sub-agent: its grants belong to that session, not the composer. */
+  subagentConversationId?: string;
 }
 
 /** Deferred tool card (e.g. an elevated `run_command`); Python's `ACCEPT_COMMAND_KIND_DEFERRED_TOOL`. */

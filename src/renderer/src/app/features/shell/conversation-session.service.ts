@@ -8,6 +8,7 @@ import type {
   AppConfig,
   ChatStructuredContentPart,
   Conversation,
+  ConversationMessage,
   ConversationMeta,
   HitlTrailArtifact,
   LlamaServerLifecycleEvent,
@@ -15,7 +16,10 @@ import type {
   LlmStatus,
   PlannerProgress,
   StreamPart,
+  SubagentOutcome,
+  SubagentStartedEvent,
   TurnEditedFile,
+  TurnEndedEarly,
   TurnGenerationStats,
 } from '@shared/index';
 import {
@@ -48,9 +52,9 @@ import {
 import { LiveTurnActivityService } from '../chat/chat-box/live-turn-activity';
 import { toolSpinnerKind } from '../chat/chat-box/tool-spinner-kind';
 import { GenerationRateService } from '../chat/chat-box/generation-rate';
-import { ElectronService } from '../../core/electron.service';
+import { ElectronService, type DoneMessage } from '../../core/electron.service';
 import { TtsPlaybackService } from '../../core/tts-playback.service';
-import { buildAssistantTurnFromStreamParts } from './app-assistant-turn';
+import { buildAssistantTurnFromStreamParts, type AssistantTurnPayload } from './app-assistant-turn';
 import {
   appendStreamPart,
   markToolExecStreamComplete,
@@ -58,7 +62,71 @@ import {
   upsertToolTrailStatusStreamPart,
 } from './app-stream-parts';
 import { abandonStaleHitlMessages } from './abandon-stale-hitl';
-import { filter, merge } from 'rxjs';
+import {
+  attachTurnEditedFiles,
+  cancelSubagentApprovals,
+  settleInFlightStreamParts,
+  settleLiveTurnMessages,
+} from './ended-turn';
+import { filter, merge, type MonoTypeOperatorFunction } from 'rxjs';
+
+/** How long an interrupt waits for the old turn's `message-done` before sending anyway. */
+const INTERRUPT_DRAIN_TIMEOUT_MS = 5000;
+
+/** First conversation the user can type in (sub-agent conversations are read-only). */
+export function firstTopLevelConversation(list: readonly ConversationMeta[]): ConversationMeta {
+  return list.find((c) => !c.parentConversationId) ?? list[0]!;
+}
+
+/** One sub-agent the main agent spawned this session (drives the sub-agent dock). */
+export interface SubagentRun {
+  conversationId: string;
+  parentConversationId: string;
+  /** The parent user message whose turn spawned it. */
+  parentTurnId?: string;
+  name: string;
+  task: string;
+  /** `Date.now()` when its stream started. */
+  startedAt: number;
+  endedAt?: number;
+  /** Set once its turn ended. */
+  outcome?: SubagentOutcome;
+  /** Status id of the parent's `spawn_subagent` pill. */
+  statusId?: string;
+  /** Started in the background: the parent agent kept working instead of waiting for it. */
+  background?: boolean;
+}
+
+/** An interrupted turn whose stream is being stopped; its late events are dropped until its done. */
+interface DrainingTurn {
+  /** The interrupted turn's user message id (may be empty for turns sent without one). */
+  turnId: string;
+  resolve: () => void;
+  settled: Promise<void>;
+}
+
+/** Extra fields of a persisted assistant message beyond {@link AssistantTurnPayload}. */
+interface AssistantTurnExtras {
+  planner?: PlannerProgress;
+  editedFiles?: readonly TurnEditedFile[];
+  generation?: TurnGenerationStats;
+  endedEarly?: TurnEndedEarly;
+}
+
+function assistantMessageFromTurn(
+  turn: AssistantTurnPayload,
+  extras: AssistantTurnExtras,
+): Extract<ChatMessage, { role: 'assistant' }> {
+  const assistant: Extract<ChatMessage, { role: 'assistant' }> = { role: 'assistant', text: turn.text };
+  if (turn.toolStreams?.length) assistant.toolStreams = turn.toolStreams;
+  if (turn.reasoningStreams?.length) assistant.reasoningStreams = turn.reasoningStreams;
+  if (turn.auxiliaryStreamTimeline?.length) assistant.auxiliaryStreamTimeline = turn.auxiliaryStreamTimeline;
+  if (extras.planner) assistant.planner = extras.planner;
+  if (extras.editedFiles?.length) assistant.editedFiles = [...extras.editedFiles];
+  if (extras.generation) assistant.generation = extras.generation;
+  if (extras.endedEarly) assistant.endedEarly = extras.endedEarly;
+  return assistant;
+}
 /** Choose text for end-of-turn TTS flush (see App for rationale). */
 export function pickTtsFlushText(streamedPrimary: string, finalText: string): string {
   const a = streamedPrimary.trim();
@@ -108,6 +176,14 @@ export class ConversationSessionService {
   readonly chatHubView = signal<ChatHubView>('activeChat');
   /** True while save + `new-conversation` IPC is in flight (drives the chat-panel overlay). */
   readonly creatingConversation = signal(false);
+  /** Set while a sub-agent conversation is open: the conversation that spawned it (read-only view). */
+  readonly activeParentConversationId = signal<string | null>(null);
+  /** Sub-agents spawned this session whose parent turn is still live, oldest first. */
+  readonly subagentRuns = signal<readonly SubagentRun[]>([]);
+  /** Sub-agent id -> request ids of its approval cards waiting in the parent's dock. */
+  readonly pendingSubagentApprovals = signal<ReadonlyMap<string, readonly string[]>>(new Map());
+  /** Conversations whose interrupted turn is still being stopped (Send waits on these). */
+  readonly drainingConversationIds = signal<ReadonlySet<string>>(new Set());
 
   private readonly toolRunIds = signal<Set<string>>(new Set());
   /** True while a tool status is running or a shell/overlay stream has not completed. */
@@ -167,8 +243,7 @@ export class ConversationSessionService {
           feed: buildTurnFeed(parts, finalText),
           primaryLiveText: resolvePrimaryStreamLiveText(finalText, parts, toolsActive),
           toolsActive,
-          // Background tool statuses only reach `backgroundToolRuns` (tool-trail rows snapshotted
-          // into `parts` at switch-away stop updating), so the latest live run wins over parts.
+          // The latest live run names the spinner; parts are the fallback once runs settle.
           toolKind:
             latestRunLabel != null
               ? toolSpinnerKind(latestRunLabel, '')
@@ -195,6 +270,16 @@ export class ConversationSessionService {
   private readonly backgroundConversationSaveChains = new Map<string, Promise<void>>();
   /** Notes for the agent about out-of-band workspace changes (e.g. turn resets), per conversation. */
   private readonly pendingWorkspaceNotes = new Map<string, string[]>();
+  /** User message id of each conversation's live turn, matched against `message-done`. */
+  private readonly liveTurnIds = new Map<string, string>();
+  /**
+   * Turns the renderer already ended (interrupted, discarded, settled after a llama stop). Their
+   * late `message-done` must not touch the turn the conversation shows now.
+   */
+  private readonly settledTurnIds = new Set<string>();
+  private readonly drainingTurns = new Map<string, DrainingTurn>();
+  /** Conversations deleted this session: a save still queued for one is dropped. */
+  private readonly deletedConversationIds = new Set<string>();
 
   private hooks: ConversationSessionHooks = {
     getCurrentWorkspaceId: () => null,
@@ -214,7 +299,7 @@ export class ConversationSessionService {
       untracked(() => this.syncLiveHitlTrailIntoStreamParts(messages));
     });
 
-    this.electron.chunk$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, delta, streamTag }) => {
+    this.electron.chunk$.pipe(this.unfenced(), takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, delta, streamTag }) => {
       const toolRunInProgress = this.toolRunIds().size > 0;
       if (shouldIgnoreWhitespaceOnlyModelChunkDuringTool(delta, toolRunInProgress)) {
         return;
@@ -235,7 +320,7 @@ export class ConversationSessionService {
       }
     });
 
-    this.electron.toolReadChunk$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, delta, statusId }) => {
+    this.electron.toolReadChunk$.pipe(this.unfenced(), takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, delta, statusId }) => {
       const mergeRead = (prev: StreamPart[]) => appendAndMergeReadToolPreviewChunk(prev, delta, statusId);
       if (conversationId === this.activeConversationId()) {
         this.streamingParts.update((prev) => {
@@ -249,7 +334,7 @@ export class ConversationSessionService {
       }
     });
 
-    this.electron.toolExecChunk$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, delta, streamTag, label }) => {
+    this.electron.toolExecChunk$.pipe(this.unfenced(), takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, delta, streamTag, label }) => {
       if (conversationId === this.activeConversationId()) {
         this.streamingParts.update((prev) => appendStreamPart(prev, streamTag, delta, label ?? ''));
       } else {
@@ -258,7 +343,7 @@ export class ConversationSessionService {
       }
     });
 
-    this.electron.toolExecComplete$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, streamTag, exitCode, outputExcerpt, outcome }) => {
+    this.electron.toolExecComplete$.pipe(this.unfenced(), takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, streamTag, exitCode, outputExcerpt, outcome }) => {
       if (conversationId === this.activeConversationId()) {
         this.streamingParts.update((prev) =>
           markToolExecStreamComplete(prev, streamTag, exitCode, outputExcerpt, outcome),
@@ -275,22 +360,24 @@ export class ConversationSessionService {
     // `file_journal` rows are persisted by main as they stream (no renderer append), and agent
     // edits land on disk directly; the turn's edited files arrive with `done$`.
 
-    this.electron.acceptCommand$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, payload }) => {
+    this.electron.acceptCommand$.pipe(this.unfencedOrSubagent(), takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, payload }) => {
       if (payload.version !== 1 || !payload.requestId || !payload.title) return;
       const artifact = { role: 'accept_command', payload, reviewStatus: 'pending' as const } satisfies ChatMessage;
       this.appendHitlArtifact(conversationId, artifact);
+      this.trackSubagentApproval(payload.subagent?.conversationId, payload.requestId);
     });
 
-    this.electron.deleteConfirm$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, payload }) => {
+    this.electron.deleteConfirm$.pipe(this.unfencedOrSubagent(), takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, payload }) => {
       if (payload.version !== 1 || !payload.requestId) return;
       const batchOk = Array.isArray(payload.entries) && payload.entries.length > 0;
       const singleOk = typeof payload.relativePath === 'string' && payload.relativePath.trim().length > 0;
       if (!batchOk && !singleOk) return;
       const artifact = { role: 'delete_confirm', payload, reviewStatus: 'pending' as const } satisfies ChatMessage;
       this.appendHitlArtifact(conversationId, artifact);
+      this.trackSubagentApproval(payload.subagent?.conversationId, payload.requestId);
     });
 
-    this.electron.plannerProgress$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, planner }) => {
+    this.electron.plannerProgress$.pipe(this.unfenced(), takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, planner }) => {
       if (conversationId === this.activeConversationId()) {
         this.streamingPlanner.set(planner);
       } else {
@@ -298,29 +385,33 @@ export class ConversationSessionService {
       }
     });
 
-    this.electron.planConfirm$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, payload }) => {
+    this.electron.planConfirm$.pipe(this.unfenced(), takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, payload }) => {
       if (payload.version !== 1 || !payload.requestId || !payload.title) return;
       const artifact = { role: 'plan_confirm', payload, reviewStatus: 'pending' as const } satisfies ChatMessage;
       this.appendHitlArtifact(conversationId, artifact, { mergeBackgroundTrail: false });
     });
 
-    this.electron.agentQuestion$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, payload }) => {
+    this.electron.agentQuestion$.pipe(this.unfenced(), takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, payload }) => {
       if (payload.version !== 1 || !payload.requestId || !payload.title) return;
       const artifact = { role: 'agent_question', payload, reviewStatus: 'pending' as const } satisfies ChatMessage;
       this.appendHitlArtifact(conversationId, artifact, { mergeBackgroundTrail: false });
     });
 
-    this.electron.themeProposal$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, payload }) => {
+    this.electron.themeProposal$.pipe(this.unfenced(), takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, payload }) => {
       if (payload.version !== 1 || !payload.requestId || !payload.title) return;
       const artifact = { role: 'theme_proposal', payload, reviewStatus: 'pending' as const } satisfies ChatMessage;
       this.appendHitlArtifact(conversationId, artifact, { mergeBackgroundTrail: false });
     });
 
-    this.electron.llmStatus$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, status }) => {
+    this.electron.llmStatus$.pipe(this.unfenced(), takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, status }) => {
       const src = (status.source ?? 'agent').toLowerCase();
       if (conversationId !== this.activeConversationId()) {
-        if (src === 'tool') {
+        if (src === 'tool' && this.pendingIds().has(conversationId)) {
           this.syncBackgroundToolRun(conversationId, status);
+          // Keep the pill in the background turn too, so a turn that streams in the background
+          // (a sub-agent, a chat the user switched away from) saves and previews its tool calls.
+          const prev = this.backgroundStreamParts.get(conversationId) ?? [];
+          this.setBackgroundParts(conversationId, upsertToolTrailStatusStreamPart(prev, status));
         }
         return;
       }
@@ -339,7 +430,7 @@ export class ConversationSessionService {
       this.upsertChainMessage(status);
     });
 
-    this.electron.finalText$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, text }) => {
+    this.electron.finalText$.pipe(this.unfenced(), takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, text }) => {
       this.pendingFinalText.set(conversationId, text);
       if (conversationId === this.activeConversationId()) {
         this.streamingFinalText.set(text);
@@ -348,7 +439,7 @@ export class ConversationSessionService {
       }
     });
 
-    this.electron.clearPrimaryStream$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId }) => {
+    this.electron.clearPrimaryStream$.pipe(this.unfenced(), takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId }) => {
       if (conversationId === this.activeConversationId()) {
         this.streamingParts.update((prev) => clearPrimaryStreamParts(prev));
         return;
@@ -357,7 +448,7 @@ export class ConversationSessionService {
       this.setBackgroundParts(conversationId, clearPrimaryStreamParts(prev));
     });
 
-    this.electron.promotePrimaryToNudge$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId }) => {
+    this.electron.promotePrimaryToNudge$.pipe(this.unfenced(), takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId }) => {
       this.pendingFinalText.delete(conversationId);
       if (conversationId === this.activeConversationId()) {
         this.streamingParts.update((prev) => promotePrimaryToNudgeParts(prev));
@@ -368,73 +459,11 @@ export class ConversationSessionService {
       this.setBackgroundParts(conversationId, promotePrimaryToNudgeParts(prev));
     });
 
-    this.electron.done$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, outcome, editedFiles }) => {
-      this.removePending(conversationId);
-      const generation = this.generationRate.finishTurn(conversationId);
-      const parts =
-        conversationId === this.activeConversationId()
-          ? this.streamingParts()
-          : (this.backgroundStreamParts.get(conversationId) ?? []);
-      const turn = buildAssistantTurnFromStreamParts(parts, this.pendingFinalText.get(conversationId));
-      const planner =
-        conversationId === this.activeConversationId()
-          ? this.streamingPlanner()
-          : (this.backgroundStreamPlanner.get(conversationId) ?? null);
-      this.pendingFinalText.delete(conversationId);
-      this.backgroundStreamPlanner.delete(conversationId);
-      const persistAssistant = outcome === 'completed';
+    this.electron.done$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((done) => this.onTurnDone(done));
 
-      if (planner?.phase === 'complete') {
-        this.hooks.onPlannerComplete?.(conversationId);
-      }
-
-      if (conversationId === this.activeConversationId()) {
-        this.toolRunIds.set(new Set());
-        this.streamingParts.set([]);
-        this.streamingPlanner.set(null);
-        this.streamingFinalText.set(undefined);
-        if (persistAssistant && turn) {
-          this.pushMessage(
-            'assistant',
-            turn.text,
-            turn.toolStreams,
-            turn.reasoningStreams,
-            turn.auxiliaryStreamTimeline,
-            planner ?? undefined,
-            undefined,
-            editedFiles,
-            generation,
-          );
-          const speech = this.hooks.getSpeechSettings();
-          if (speech.enabled) {
-            const streamedPrimary = primaryAssistantTextFromParts(parts);
-            const ttsText = pickTtsFlushText(streamedPrimary, turn.text);
-            if (ttsText.trim()) {
-              void this.tts.flushStreamingAssistantText(ttsText, speech.voice, speech.speed);
-            }
-          }
-          void this.persistActiveAssistantTurnThenMaybeAutoTitle(conversationId).catch((err) =>
-            console.error('[ConversationSession] persist assistant / auto-title failed', err),
-          );
-        }
-      } else {
-        this.clearBackgroundStream(conversationId);
-        if (persistAssistant && turn) {
-          void this.saveMessageToConversation(
-            conversationId,
-            turn.text,
-            turn.toolStreams,
-            turn.reasoningStreams,
-            turn.auxiliaryStreamTimeline,
-            planner ?? undefined,
-            editedFiles,
-            generation,
-          )
-            .then(() => this.applyMaybeAutoTitleFromMain(conversationId))
-            .catch((err) => console.error('[ConversationSession] background save / auto-title failed', err));
-        }
-      }
-    });
+    this.electron.subagentStarted$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((started) => this.onSubagentStarted(started));
 
     this.electron.config$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((config) => {
       this.lastConfig = config;
@@ -477,6 +506,466 @@ export class ConversationSessionService {
     });
   }
 
+  /** Remember the user message id of `conversationId`'s live turn (matched against its done). */
+  beginLiveTurn(conversationId: string, userMessageId: string | undefined): void {
+    if (userMessageId) {
+      this.liveTurnIds.set(conversationId, userMessageId);
+    } else {
+      this.liveTurnIds.delete(conversationId);
+    }
+  }
+
+  /**
+   * The user sent a message while `conversationId` was still answering: end the live turn now as
+   * interrupted (its partial reply is kept) and drop that stream's late events until its done
+   * arrives. Await {@link drainInterruptedTurn} before sending the new message.
+   */
+  interruptLiveTurn(conversationId: string): void {
+    if (!this.pendingIds().has(conversationId) || this.drainingTurns.has(conversationId)) {
+      return;
+    }
+    // Chunks still queued for the next frame belong to the turn being interrupted.
+    this.electron.flushPendingStreamBatch();
+    let resolve!: () => void;
+    const settled = new Promise<void>((r) => {
+      resolve = r;
+    });
+    this.drainingTurns.set(conversationId, { turnId: this.liveTurnIds.get(conversationId) ?? '', resolve, settled });
+    this.drainingConversationIds.update((s) => new Set(s).add(conversationId));
+    this.endLiveTurnLocally(conversationId, 'interrupted');
+  }
+
+  /**
+   * Stop the interrupted turn's stream and wait (bounded) for its done, so its late events never
+   * reach the next turn and its edited files land on the interrupted reply.
+   */
+  async drainInterruptedTurn(conversationId: string): Promise<void> {
+    const drain = this.drainingTurns.get(conversationId);
+    if (!drain) {
+      return;
+    }
+    try {
+      // Main aborts the fetch and has told Python to stop before this resolves.
+      await this.electron.abortMessage(conversationId);
+    } catch {
+      // The stream already ended; its done is on its way or already handled.
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      drain.settled,
+      new Promise<void>((r) => {
+        timer = setTimeout(r, INTERRUPT_DRAIN_TIMEOUT_MS);
+      }),
+    ]);
+    clearTimeout(timer);
+    if (this.drainingTurns.get(conversationId) === drain) {
+      this.drainingTurns.delete(conversationId);
+      this.drainingConversationIds.update((s) => {
+        const next = new Set(s);
+        next.delete(conversationId);
+        return next;
+      });
+    }
+  }
+
+  /** Drop the live turn of `conversationId` without saving it (restore / delete replace it). */
+  discardLiveTurn(conversationId: string): void {
+    if (this.pendingIds().has(conversationId)) {
+      this.endLiveTurnLocally(conversationId, null);
+    }
+  }
+
+  /** Before deleting `id`: drop its live turn and its sub-agents' (nothing of them is saved). */
+  prepareDeleteConversation(id: string): void {
+    const ids = [id, ...this.conversations().filter((c) => c.parentConversationId === id).map((c) => c.id)];
+    for (const convId of ids) {
+      this.deletedConversationIds.add(convId);
+      this.discardLiveTurn(convId);
+    }
+    this.forgetSubagentRuns(ids);
+  }
+
+  /** Conversations main deleted (e.g. sub-agents of turns a restore removed): drop them here too. */
+  forgetConversations(ids: readonly string[]): void {
+    if (ids.length === 0) {
+      return;
+    }
+    for (const id of ids) {
+      this.deletedConversationIds.add(id);
+      this.discardLiveTurn(id);
+    }
+    const gone = new Set(ids);
+    this.conversations.update((list) => list.filter((c) => !gone.has(c.id)));
+    this.forgetSubagentRuns(ids);
+  }
+
+  /** True when `conversationId` is a sub-agent's (read-only) conversation. */
+  isSubagentConversation(conversationId: string): boolean {
+    if (conversationId === this.activeConversationId() && this.activeParentConversationId()) {
+      return true;
+    }
+    return (
+      !!this.conversations().find((c) => c.id === conversationId)?.parentConversationId ||
+      // Its meta is listed only while its workspace is on screen; its run is tracked regardless.
+      this.subagentRuns().some((r) => r.conversationId === conversationId)
+    );
+  }
+
+  /** Live stream parts of a conversation's in-flight turn (reactive for background ones too). */
+  streamPartsFor(conversationId: string): StreamPart[] {
+    if (conversationId === this.activeConversationId()) {
+      return this.streamingParts();
+    }
+    this.backgroundStreamVersion();
+    return this.backgroundStreamParts.get(conversationId) ?? [];
+  }
+
+  /** Clean final text the backend sent for a conversation's in-flight turn, if any. */
+  finalTextFor(conversationId: string): string | undefined {
+    if (conversationId === this.activeConversationId()) {
+      return this.streamingFinalText();
+    }
+    this.backgroundStreamVersion();
+    return this.pendingFinalText.get(conversationId);
+  }
+
+  /** Sub-agent runs of `parentConversationId`'s live turn. */
+  subagentRunsFor(parentConversationId: string): SubagentRun[] {
+    return this.subagentRuns().filter((r) => r.parentConversationId === parentConversationId);
+  }
+
+  /** Open a conversation from inside the chat (a sub-agent's Open link, the banner's Back link). */
+  openConversation(conversationId: string): void {
+    void this.onSelectConversation(conversationId, this.hooks.getCurrentWorkspaceId()).catch((err) =>
+      console.error('[ConversationSession] open conversation failed', err),
+    );
+  }
+
+  /** Stop one sub-agent; its parent gets a partial report and keeps going. */
+  stopSubagent(conversationId: string): void {
+    if (this.pendingIds().has(conversationId)) {
+      void this.electron.abortMessage(conversationId);
+    }
+  }
+
+  /** A sub-agent approval card was answered in the parent's dock. */
+  resolveSubagentApproval(requestId: string): void {
+    const current = this.pendingSubagentApprovals();
+    let changed = false;
+    const next = new Map<string, readonly string[]>();
+    for (const [childId, ids] of current) {
+      const kept = ids.filter((id) => id !== requestId);
+      changed ||= kept.length !== ids.length;
+      if (kept.length > 0) {
+        next.set(childId, kept);
+      }
+    }
+    if (changed) {
+      this.pendingSubagentApprovals.set(next);
+    }
+  }
+
+  /** Cancel the pending cards in `messages` no one can answer any more (a running sub-agent's still can). */
+  abandonStaleHitl(messages: ConversationMessage[]): ConversationMessage[] {
+    return abandonStaleHitlMessages(messages, (m) => this.isRunningSubagentCard(m));
+  }
+
+  /** A pending card raised by a sub-agent that is still running (it can still be answered). */
+  private isRunningSubagentCard(message: ConversationMessage): boolean {
+    if (message.role !== 'accept_command' && message.role !== 'delete_confirm') {
+      return false;
+    }
+    const childId = message.payload.subagent?.conversationId;
+    return !!childId && this.pendingIds().has(childId);
+  }
+
+  private trackSubagentApproval(subagentConversationId: string | undefined, requestId: string): void {
+    if (!subagentConversationId) {
+      return;
+    }
+    this.pendingSubagentApprovals.update((map) => {
+      const next = new Map(map);
+      next.set(subagentConversationId, [...(map.get(subagentConversationId) ?? []), requestId]);
+      return next;
+    });
+  }
+
+  private clearSubagentApprovals(subagentConversationId: string): void {
+    if (!this.pendingSubagentApprovals().has(subagentConversationId)) {
+      return;
+    }
+    this.pendingSubagentApprovals.update((map) => {
+      const next = new Map(map);
+      next.delete(subagentConversationId);
+      return next;
+    });
+  }
+
+  private forgetSubagentRuns(conversationIds: readonly string[]): void {
+    const gone = new Set(conversationIds);
+    this.subagentRuns.update((runs) =>
+      runs.filter((r) => !gone.has(r.conversationId) && !gone.has(r.parentConversationId)),
+    );
+    for (const id of conversationIds) {
+      this.clearSubagentApprovals(id);
+    }
+  }
+
+  /** Drop events of a conversation whose interrupted turn is draining (see {@link interruptLiveTurn}). */
+  private unfenced<T extends { conversationId: string }>(): MonoTypeOperatorFunction<T> {
+    return filter((e) => !this.drainingTurns.has(e.conversationId));
+  }
+
+  /**
+   * Like {@link unfenced}, but a sub-agent's approval card always passes: sub-agents outlive the
+   * parent turn being interrupted, so their cards are not part of that turn's late events.
+   */
+  private unfencedOrSubagent<T extends { conversationId: string; payload: { subagent?: unknown } }>(): MonoTypeOperatorFunction<T> {
+    return filter((e) => !this.drainingTurns.has(e.conversationId) || !!e.payload.subagent);
+  }
+
+  private onSubagentStarted(started: SubagentStartedEvent): void {
+    const meta = started.meta;
+    const parentId = meta.parentConversationId;
+    if (!parentId || this.deletedConversationIds.has(parentId)) {
+      return;
+    }
+    // List it under its parent when the parent is in the listed workspace.
+    const list = this.conversations();
+    if (list.some((c) => c.id === parentId) && !list.some((c) => c.id === meta.id)) {
+      this.conversations.set([meta, ...list]);
+    }
+    this.addPending(meta.id);
+    this.generationRate.startTurn(meta.id);
+    this.beginLiveTurn(meta.id, started.userMessageId);
+    const run: SubagentRun = {
+      conversationId: meta.id,
+      parentConversationId: parentId,
+      ...(meta.parentTurnId ? { parentTurnId: meta.parentTurnId } : {}),
+      name: meta.title,
+      task: started.task,
+      startedAt: Date.now(),
+      ...(started.statusId ? { statusId: started.statusId } : {}),
+      ...(started.background ? { background: true } : {}),
+    };
+    this.subagentRuns.update((runs) => [...runs.filter((r) => r.conversationId !== meta.id), run]);
+  }
+
+  private onTurnDone(done: DoneMessage): void {
+    const { conversationId, outcome, editedFiles, userMessageId } = done;
+    const drain = this.drainingTurns.get(conversationId);
+    if (drain && (!userMessageId || userMessageId === drain.turnId)) {
+      // The interrupted turn's stream ended. Its reply was saved when it was interrupted.
+      this.attachLateEditedFiles(conversationId, userMessageId || drain.turnId, editedFiles);
+      drain.resolve();
+      return;
+    }
+    const live = this.liveTurnIds.get(conversationId);
+    if (userMessageId && (this.settledTurnIds.has(userMessageId) || (live !== undefined && live !== userMessageId))) {
+      // A late done of a turn the renderer already ended: it must not settle the current turn.
+      this.attachLateEditedFiles(conversationId, userMessageId, editedFiles);
+      return;
+    }
+    if (userMessageId) {
+      this.settledTurnIds.add(userMessageId);
+    }
+    this.liveTurnIds.delete(conversationId);
+    const generation = this.generationRate.finishTurn(conversationId);
+    const isActive = conversationId === this.activeConversationId();
+    const { parts, planner, finalText } = this.takeLiveTurnState(conversationId);
+    this.removePending(conversationId);
+
+    if (planner?.phase === 'complete') {
+      this.hooks.onPlannerComplete?.(conversationId);
+    }
+    const endedEarly: TurnEndedEarly | undefined =
+      outcome === 'completed' ? undefined : outcome === 'aborted' ? 'stopped' : 'error';
+    const turn = this.persistTurn(conversationId, parts, finalText, {
+      planner: planner ?? undefined,
+      editedFiles,
+      generation,
+      endedEarly,
+    });
+    if (isActive && !endedEarly && turn) {
+      const speech = this.hooks.getSpeechSettings();
+      if (speech.enabled) {
+        const streamedPrimary = primaryAssistantTextFromParts(parts);
+        const ttsText = pickTtsFlushText(streamedPrimary, turn.text);
+        if (ttsText.trim()) {
+          void this.tts.flushStreamingAssistantText(ttsText, speech.voice, speech.speed);
+        }
+      }
+    }
+    this.onConversationTurnEnded(conversationId, outcome);
+  }
+
+  /**
+   * End `conversationId`'s live turn in the renderer (it will not wait for the stream's done):
+   * save its partial reply as `endedEarly`, or drop it when `endedEarly` is null.
+   */
+  private endLiveTurnLocally(conversationId: string, endedEarly: TurnEndedEarly | null): void {
+    const turnId = this.liveTurnIds.get(conversationId) ?? '';
+    if (turnId) {
+      this.settledTurnIds.add(turnId);
+    }
+    this.liveTurnIds.delete(conversationId);
+    const generation = this.generationRate.finishTurn(conversationId);
+    const { parts, planner, finalText } = this.takeLiveTurnState(conversationId);
+    this.removePending(conversationId);
+    if (endedEarly) {
+      this.persistTurn(conversationId, parts, finalText, { planner: planner ?? undefined, generation, endedEarly });
+    }
+    this.onConversationTurnEnded(conversationId, 'aborted');
+  }
+
+  /** Read and clear the in-flight turn state of `conversationId` (active signals or background maps). */
+  private takeLiveTurnState(conversationId: string): {
+    parts: StreamPart[];
+    planner: PlannerProgress | null;
+    finalText: string | undefined;
+  } {
+    const active = conversationId === this.activeConversationId();
+    const parts = active ? this.streamingParts() : (this.backgroundStreamParts.get(conversationId) ?? []);
+    const planner = active ? this.streamingPlanner() : (this.backgroundStreamPlanner.get(conversationId) ?? null);
+    const finalText = this.pendingFinalText.get(conversationId);
+    this.pendingFinalText.delete(conversationId);
+    this.backgroundStreamPlanner.delete(conversationId);
+    if (active) {
+      this.toolRunIds.set(new Set());
+      this.streamingParts.set([]);
+      this.streamingPlanner.set(null);
+      this.streamingFinalText.set(undefined);
+    } else {
+      this.clearBackgroundStream(conversationId);
+    }
+    return { parts, planner, finalText };
+  }
+
+  /**
+   * Save a turn's reply into its conversation (in memory when it is open, else on disk). An
+   * `endedEarly` turn keeps its partial progress with nothing left looking in flight.
+   */
+  private persistTurn(
+    conversationId: string,
+    parts: StreamPart[],
+    finalText: string | undefined,
+    extras: AssistantTurnExtras,
+  ): AssistantTurnPayload | null {
+    const endedEarly = extras.endedEarly;
+    let turn = buildAssistantTurnFromStreamParts(
+      endedEarly ? settleInFlightStreamParts(parts) : parts,
+      finalText,
+      { endedEarly },
+    );
+    if (!turn && endedEarly && this.isSubagentConversation(conversationId)) {
+      // Stopped before it streamed anything: a read-only sub-agent conversation still says why it
+      // has no reply (the user's own empty turns are left out; they know they stopped them).
+      turn = { text: '' };
+    }
+    if (!turn && !endedEarly) {
+      return null;
+    }
+    const titled = !endedEarly && !this.isSubagentConversation(conversationId);
+    if (conversationId === this.activeConversationId()) {
+      let next = endedEarly ? settleLiveTurnMessages(this.messages()) : this.messages();
+      if (turn) {
+        next = [...next, assistantMessageFromTurn(turn, extras)];
+      }
+      this.messages.set(next);
+      if (this.activeConversation) {
+        this.activeConversation.messages = [...next];
+        this.pendingSave = true;
+      }
+      if (titled) {
+        void this.persistActiveAssistantTurnThenMaybeAutoTitle(conversationId).catch((err) =>
+          console.error('[ConversationSession] persist assistant / auto-title failed', err),
+        );
+      } else {
+        this.autoSave();
+      }
+      return turn;
+    }
+    void this.mutateConversationOnDisk(conversationId, (conv) => {
+      if (endedEarly) {
+        conv.messages = settleLiveTurnMessages(conv.messages);
+      }
+      if (turn) {
+        conv.messages.push(assistantMessageFromTurn(turn, extras));
+      }
+    })
+      .then(() => (titled ? this.applyMaybeAutoTitleFromMain(conversationId) : undefined))
+      .catch((err) => console.error('[ConversationSession] background save / auto-title failed', err));
+    return turn;
+  }
+
+  /** Files a turn the renderer already ended turned out to have edited (they arrive with its done). */
+  private attachLateEditedFiles(
+    conversationId: string,
+    userMessageId: string,
+    files: readonly TurnEditedFile[] | undefined,
+  ): void {
+    if (!userMessageId || !files?.length) {
+      return;
+    }
+    if (conversationId === this.activeConversationId()) {
+      const next = attachTurnEditedFiles(this.messages(), userMessageId, files);
+      if (next !== this.messages()) {
+        this.messages.set(next);
+        this.markMessagesDirtyAndAutoSave();
+      }
+      return;
+    }
+    void this.mutateConversationOnDisk(conversationId, (conv) => {
+      conv.messages = attachTurnEditedFiles(conv.messages, userMessageId, files);
+    });
+  }
+
+  /** Sub-agent bookkeeping after any conversation's turn ended (`turnId` is that turn's user message id). */
+  /**
+   * Sub-agent bookkeeping after any conversation's turn ended. A sub-agent's card turns Done /
+   * Stopped / Failed when its own turn ends; finished cards leave the dock when a turn of their
+   * parent ends (the one that took in their reports). Running sub-agents outlive parent turns.
+   */
+  private onConversationTurnEnded(conversationId: string, outcome: SubagentOutcome): void {
+    const run = this.subagentRuns().find((r) => r.conversationId === conversationId);
+    if (run && run.endedAt === undefined) {
+      this.clearSubagentApprovals(conversationId);
+      this.cancelParentApprovalsFor(run.parentConversationId, conversationId);
+      this.subagentRuns.update((runs) =>
+        runs.map((r) => (r.conversationId === conversationId ? { ...r, endedAt: Date.now(), outcome } : r)),
+      );
+    }
+    if (this.subagentRuns().some((r) => r.parentConversationId === conversationId && r.endedAt !== undefined)) {
+      this.subagentRuns.update((runs) =>
+        runs.filter((r) => r.parentConversationId !== conversationId || r.endedAt === undefined),
+      );
+    }
+  }
+
+  /** Stop every running sub-agent of `parentConversationId` (the dock's Stop all). */
+  stopAllSubagents(parentConversationId: string): void {
+    for (const run of this.subagentRunsFor(parentConversationId)) {
+      if (run.endedAt === undefined) {
+        this.stopSubagent(run.conversationId);
+      }
+    }
+  }
+
+  /** A sub-agent ended: nobody waits for the approval cards it raised in its parent's dock. */
+  private cancelParentApprovalsFor(parentConversationId: string, subagentConversationId: string): void {
+    if (parentConversationId === this.activeConversationId()) {
+      const next = cancelSubagentApprovals(this.messages(), subagentConversationId);
+      if (next !== this.messages()) {
+        this.messages.set(next);
+        this.markMessagesDirtyAndAutoSave();
+      }
+      return;
+    }
+    void this.mutateConversationOnDisk(parentConversationId, (conv) => {
+      conv.messages = cancelSubagentApprovals(conv.messages, subagentConversationId);
+    });
+  }
+
   getPendingStreamIdsForWorkspace(workspaceId: string | null): string[] {
     return [...this.pendingIds()].filter((id) => {
       const conv = this.conversations().find((c) => c.id === id);
@@ -507,7 +996,8 @@ export class ConversationSessionService {
       const key = wsId ?? '';
       const remembered = config.lastActiveConversationByWorkspaceId?.[key];
       const match = remembered ? list.find((c) => c.id === remembered) : undefined;
-      const conv = match ?? list[0];
+      // Open a conversation the user can type in, never a (read-only) sub-agent's.
+      const conv = (match && !match.parentConversationId ? match : undefined) ?? firstTopLevelConversation(list);
       await this.loadConversation(conv.id, conv.workspaceId);
     }
   }
@@ -528,6 +1018,7 @@ export class ConversationSessionService {
       this.snapshotActiveStreamToBackground();
       this.activeConversation = conv;
       this.activeConversationId.set(conv.id);
+      this.activeParentConversationId.set(null);
       this.messages.set([]);
       this.toolRunIds.set(new Set());
       this.streamingParts.set([]);
@@ -555,14 +1046,24 @@ export class ConversationSessionService {
     workspaceId?: string | null,
     loadOpts?: { skipPythonResync?: boolean },
   ): Promise<void> {
+    // A background write still queued for this conversation (a reply, an approval card) lands first.
+    const queuedWrite = this.backgroundConversationSaveChains.get(id);
+    if (queuedWrite) {
+      await queuedWrite;
+    }
+    const isSubagent = !!this.conversations().find((c) => c.id === id)?.parentConversationId;
     const skipPython =
-      loadOpts?.skipPythonResync !== undefined
-        ? loadOpts.skipPythonResync
-        : this.pendingIds().has(id);
+      isSubagent ||
+      (loadOpts?.skipPythonResync !== undefined ? loadOpts.skipPythonResync : this.pendingIds().has(id));
     const conv = await this.electron.loadConversation(id, workspaceId, { skipPythonResync: skipPython });
+    if (this.pendingSave && this.activeConversation) {
+      // Edits the open conversation got while the load was in flight belong to it, not the next one.
+      await this.saveCurrentConversation();
+    }
     this.snapshotActiveStreamToBackground();
     this.activeConversation = conv;
     this.activeConversationId.set(conv.id);
+    this.activeParentConversationId.set(conv.parentConversationId ?? null);
     this.messages.set(conv.messages);
     this.toolRunIds.set(new Set());
     const stillStreaming = this.pendingIds().has(conv.id);
@@ -575,7 +1076,7 @@ export class ConversationSessionService {
       this.streamingParts.set([]);
       this.clearBackgroundStream(conv.id);
       this.streamingFinalText.set(undefined);
-      const abandoned = abandonStaleHitlMessages(conv.messages);
+      const abandoned = abandonStaleHitlMessages(conv.messages, (m) => this.isRunningSubagentCard(m));
       if (abandoned !== conv.messages) {
         this.messages.set(abandoned);
         if (this.activeConversation) {
@@ -635,33 +1136,11 @@ export class ConversationSessionService {
    * turn started by `userMessageId`, then save.
    */
   applyTurnEditedFiles(userMessageId: string, files: readonly TurnEditedFile[]): void {
-    const msgs = this.messages();
-    const userIdx = msgs.findIndex((m) => m.role === 'user' && m.id === userMessageId);
-    if (userIdx < 0) {
+    const next = attachTurnEditedFiles(this.messages(), userMessageId, files);
+    if (next === this.messages()) {
       return;
     }
-    let assistantIdx = -1;
-    for (let i = userIdx + 1; i < msgs.length; i++) {
-      const m = msgs[i];
-      if (m.role === 'user') {
-        break;
-      }
-      if (m.role === 'assistant') {
-        assistantIdx = i;
-        break;
-      }
-    }
-    if (assistantIdx < 0) {
-      return;
-    }
-    this.messages.update((prev) => {
-      const copy = [...prev];
-      const m = copy[assistantIdx];
-      if (m?.role === 'assistant') {
-        copy[assistantIdx] = { ...m, editedFiles: [...files] };
-      }
-      return copy;
-    });
+    this.messages.set(next);
     this.markMessagesDirtyAndAutoSave();
   }
 
@@ -741,6 +1220,50 @@ export class ConversationSessionService {
     this.streamingFinalText.set(undefined);
   }
 
+  /**
+   * Start-of-turn bookkeeping for a turn the app starts on its own, to hand the main agent the
+   * reports of sub-agents that finished while no turn was running. Writes the turn's marker
+   * message (in memory when the conversation is open, else on disk first) and marks it live.
+   * Returns null when the conversation is busy or gone (a live turn picks the reports up itself).
+   */
+  async beginSubagentResultsTurn(
+    conversationId: string,
+    names: readonly string[],
+  ): Promise<{ userMessageId: string; text: string; workspaceId: string | null } | null> {
+    if (this.pendingIds().has(conversationId) || this.deletedConversationIds.has(conversationId)) {
+      return null;
+    }
+    const userMessageId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `user-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const message: ChatMessage = {
+      role: 'user',
+      id: userMessageId,
+      text: names.length ? `Results from sub-agents: ${names.join(', ')}` : 'Results from sub-agents',
+      subagentResults: [...names],
+    };
+    let workspaceId: string | null;
+    if (conversationId === this.activeConversationId()) {
+      this.prepareForSend(conversationId);
+      this.messages.update((prev) => [...prev, message]);
+      this.markMessagesDirtyAndAutoSave();
+      workspaceId = this.activeConversation?.workspaceId ?? this.hooks.getCurrentWorkspaceId();
+    } else {
+      this.addPending(conversationId);
+      this.generationRate.startTurn(conversationId);
+      this.clearBackgroundStream(conversationId);
+      // On disk before the turn's reply, which is saved on the same per-conversation chain.
+      await this.mutateConversationOnDisk(conversationId, (conv) => {
+        conv.messages.push(message);
+      });
+      workspaceId =
+        this.conversations().find((c) => c.id === conversationId)?.workspaceId ?? this.hooks.getCurrentWorkspaceId();
+    }
+    this.beginLiveTurn(conversationId, userMessageId);
+    return { userMessageId, text: message.text, workspaceId };
+  }
+
   resetStreamUiOnSendFailure(conversationId: string): void {
     this.removePending(conversationId);
   }
@@ -778,17 +1301,9 @@ export class ConversationSessionService {
     }
   }
 
+  /** The chat server went away: keep what the turn produced (as failed) instead of waiting for done. */
   private settleInFlightAsAborted(conversationId: string): void {
-    this.removePending(conversationId);
-    this.pendingFinalText.delete(conversationId);
-    this.backgroundStreamPlanner.delete(conversationId);
-    this.clearBackgroundStream(conversationId);
-    if (conversationId === this.activeConversationId()) {
-      this.toolRunIds.set(new Set());
-      this.streamingParts.set([]);
-      this.streamingPlanner.set(null);
-      this.streamingFinalText.set(undefined);
-    }
+    this.endLiveTurnLocally(conversationId, 'error');
   }
 
   private async flushSaveCurrentConversation(): Promise<void> {
@@ -831,30 +1346,22 @@ export class ConversationSessionService {
     }
   }
 
-  private async saveMessageToConversation(
-    conversationId: string,
-    text: string,
-    toolStreams?: StreamPart[],
-    reasoningStreams?: StreamPart[],
-    auxiliaryStreamTimeline?: StreamPart[],
-    planner?: PlannerProgress,
-    editedFiles?: readonly TurnEditedFile[],
-    generation?: TurnGenerationStats,
-  ): Promise<void> {
+  /**
+   * Read-modify-write a conversation that is not open, chained per conversation so concurrent
+   * writes (a background turn's reply, its approval cards, a sub-agent cancelling one) never
+   * overwrite each other. Deleted conversations are skipped.
+   */
+  private mutateConversationOnDisk(conversationId: string, mutate: (conv: Conversation) => void): Promise<void> {
     const prev = this.backgroundConversationSaveChains.get(conversationId) ?? Promise.resolve();
     const mine = prev.then(async () => {
+      if (this.deletedConversationIds.has(conversationId)) {
+        return;
+      }
       try {
         const convMeta = this.conversations().find((c) => c.id === conversationId);
         const workspaceId = convMeta?.workspaceId ?? this.hooks.getCurrentWorkspaceId();
         const conv = await this.electron.readConversationFromDisk(conversationId, workspaceId);
-        const assistant: Extract<ChatMessage, { role: 'assistant' }> = { role: 'assistant', text };
-        if (toolStreams?.length) assistant.toolStreams = toolStreams;
-        if (reasoningStreams?.length) assistant.reasoningStreams = reasoningStreams;
-        if (auxiliaryStreamTimeline?.length) assistant.auxiliaryStreamTimeline = auxiliaryStreamTimeline;
-        if (planner) assistant.planner = planner;
-        if (editedFiles?.length) assistant.editedFiles = [...editedFiles];
-        if (generation) assistant.generation = generation;
-        conv.messages.push(assistant);
+        mutate(conv);
         conv.updatedAt = new Date().toISOString();
         await this.electron.saveConversation(conv);
         this.bumpConversation(conversationId);
@@ -869,29 +1376,10 @@ export class ConversationSessionService {
     return mine;
   }
 
-  private async persistArtifactToConversation(
-    conversationId: string,
-    message: ChatMessage,
-  ): Promise<void> {
-    const prev = this.backgroundConversationSaveChains.get(conversationId) ?? Promise.resolve();
-    const mine = prev.then(async () => {
-      try {
-        const convMeta = this.conversations().find((c) => c.id === conversationId);
-        const workspaceId = convMeta?.workspaceId ?? this.hooks.getCurrentWorkspaceId();
-        const conv = await this.electron.readConversationFromDisk(conversationId, workspaceId);
-        conv.messages.push(message);
-        conv.updatedAt = new Date().toISOString();
-        await this.electron.saveConversation(conv);
-        this.bumpConversation(conversationId);
-      } catch {
-        // conversation may have been deleted
-      }
+  private persistArtifactToConversation(conversationId: string, message: ChatMessage): Promise<void> {
+    return this.mutateConversationOnDisk(conversationId, (conv) => {
+      conv.messages.push(message);
     });
-    this.backgroundConversationSaveChains.set(
-      conversationId,
-      mine.catch((err) => console.error('[ConversationSession] background artifact save failed:', err)),
-    );
-    return mine;
   }
 
   private bumpConversation(id: string): void {
@@ -900,7 +1388,8 @@ export class ConversationSessionService {
 
   private async rememberLastActiveForWorkspace(conv: Conversation): Promise<void> {
     const key = conv.workspaceId ?? '';
-    await this.electron.setLastActiveConversation(key, conv.id);
+    // Startup reopens a conversation the user can type in, so a sub-agent's stands for its parent.
+    await this.electron.setLastActiveConversation(key, conv.parentConversationId || conv.id);
   }
 
   appendLocalHitlArtifact(conversationId: string, artifact: ChatMessage): void {

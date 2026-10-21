@@ -24,7 +24,7 @@ from clara_coder_backend.lsp.registry import (
 )
 from clara_coder_backend.lsp.server_plugin import LspServerPlugin
 from clara_coder_backend.lsp.overlay_hooks import clear_lsp_staging_overlay
-from clara_coder_backend.session.state import current_session_id, get_session
+from clara_coder_backend.session.state import current_session_id, get_session, sessions
 from clara_coder_backend.workspace.paths import normalize_relative_path
 from clara_coder_backend.workspace.workspace_text_io import read_file_for_tools, validate_workspace_encoding
 
@@ -1395,10 +1395,22 @@ class SessionWorkspaceLspManager:
 PythonLspManager = SessionWorkspaceLspManager
 
 
+def lsp_owner_session_id(session_id: str) -> str:
+    """Session whose language servers serve ``session_id``: a sub-agent uses its parent's.
+
+    A sub-agent shares the parent's workspace and ``lsp`` state, so keying its managers by the parent
+    means no second set of language-server processes starts per sub-agent.
+    """
+    sess = sessions.get(session_id)
+    parent = (getattr(sess, 'subagent_parent_session_id', '') or '').strip() if sess is not None else ''
+    return parent or session_id
+
+
 def _resolve_session_and_root(session_id: str | None) -> tuple[str, SessionState, Path]:
     sid = (session_id or current_session_id.get() or '').strip()
     if not sid:
         raise ValueError('No active session is available for LSP.')
+    sid = lsp_owner_session_id(sid)
     session = get_session(sid)
     if not session.workspace_path:
         raise ValueError('This conversation does not have a workspace attached.')
@@ -1663,6 +1675,8 @@ def sync_session_document(
     wait_for_diagnostics: bool = True,
 ) -> list[dict[str, Any]]:
     sid = (session_id or current_session_id.get() or '').strip() or None
+    if sid is not None:
+        sid = lsp_owner_session_id(sid)
     server = lsp_server_for_path(relative_path)
     if not server:
         raise ValueError(f'No LSP server is configured for `{relative_path}`.')
@@ -1690,6 +1704,7 @@ def close_session_document(
     sid = (session_id or current_session_id.get() or '').strip()
     if not sid:
         return
+    sid = lsp_owner_session_id(sid)
     desired = _normalize_lsp_scope(scope) if scope else None
     with _MANAGERS_LOCK:
         managers = [

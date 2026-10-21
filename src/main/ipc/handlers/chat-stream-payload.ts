@@ -1,27 +1,41 @@
-import { parseAgentStreamPayload, parseFileJournalSsePayload } from '../../../shared';
+import type { ParsedAgentStreamPayload } from '../../../shared';
+import { parseAgentStreamPayload } from '../../../shared';
 import { appendConversationFileJournal } from '../../conversations-db';
 
 export const parseStreamPayload = parseAgentStreamPayload;
+
+type FileJournalRow = Extract<ParsedAgentStreamPayload, { type: 'file_journal' }>['fileJournal'];
 
 /**
  * Persist a `file_journal` row here, where the stream's conversation id is known, so the
  * end-of-turn snapshot at `[DONE]` never races a renderer round-trip.
  */
-function persistFileJournal(conversationId: string, raw: unknown): void {
-  const parsed = parseFileJournalSsePayload(raw);
-  if (!parsed) {
-    return;
-  }
+export function persistFileJournal(conversationId: string, row: FileJournalRow): void {
   try {
-    appendConversationFileJournal({ conversationId, ...parsed });
+    appendConversationFileJournal({ conversationId, ...row });
   } catch (err) {
     console.error('[Chat] Failed to persist file journal row:', err);
   }
 }
 
-/** Map one SSE `data:` JSON payload to the renderer IPC channel(s) for this conversation. */
-export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: string, payload: string): void {
-  const parsed = parseStreamPayload(payload);
+/** Delivers one renderer IPC message (a chat stream's `event.reply`, or the main window's `send`). */
+export type RendererSend = (channel: string, ...args: unknown[]) => void;
+
+/** `event.reply` of a chat stream: its messages reach only the frame that sent the turn. */
+export function replyTo(event: Electron.IpcMainEvent): RendererSend {
+  return (channel, ...args) => event.reply(channel, ...args);
+}
+
+/**
+ * Map one parsed stream payload to the renderer IPC channel(s) for this conversation. `target` is
+ * the chat stream's IPC event (replies reach the frame that sent the turn) or a send function.
+ */
+export function dispatchParsedPayload(
+  target: Electron.IpcMainEvent | RendererSend,
+  conversationId: string,
+  parsed: ParsedAgentStreamPayload,
+): void {
+  const event = { reply: typeof target === 'function' ? target : replyTo(target) };
   if (parsed.type === 'status') {
     event.reply('message-status', conversationId, parsed.status);
   } else if (parsed.type === 'accept_command') {
@@ -89,4 +103,10 @@ export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: 
   } else if (parsed.type === 'file_journal') {
     persistFileJournal(conversationId, parsed.fileJournal);
   }
+  // `subagent_*` payloads are routed by the stream's sub-agent relay before they get here.
+}
+
+/** Map one SSE `data:` JSON payload to the renderer IPC channel(s) for this conversation. */
+export function sendParsedPayload(event: Electron.IpcMainEvent, conversationId: string, payload: string): void {
+  dispatchParsedPayload(event, conversationId, parseStreamPayload(payload));
 }

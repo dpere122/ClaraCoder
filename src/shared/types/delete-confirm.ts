@@ -1,3 +1,5 @@
+import type { SubagentRef } from './subagent';
+
 /** One path in a batch delete confirmation (mirrors Python pending entry). */
 export interface DeleteConfirmEntry {
   relativePath: string;
@@ -15,4 +17,6 @@ export interface DeleteConfirmPayload {
   relativePath?: string;
   kind?: 'file' | 'directory';
   recursive?: boolean;
+  /** Set by main when a sub-agent asked; the answer goes to the sub-agent's session. */
+  subagent?: SubagentRef;
 }

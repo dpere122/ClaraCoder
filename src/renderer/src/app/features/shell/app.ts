@@ -62,8 +62,11 @@ import {
   type EditorSelectionPayload,
 } from '../chat/chat-context-bar/chat-context-file';
 import type { ChatContextDroppedPath } from '../chat/chat-context-bar/chat-context-drop';
-import { ConversationSessionService, pickTtsFlushText } from './conversation-session.service';
-import { abandonStaleHitlMessages } from './abandon-stale-hitl';
+import {
+  ConversationSessionService,
+  firstTopLevelConversation,
+  pickTtsFlushText,
+} from './conversation-session.service';
 import { conversationRestorePrompt } from '../../shared/themed-confirm-dialog/format-restore-prompt';
 
 export { pickTtsFlushText };
@@ -152,7 +155,7 @@ import {
 import { normalizePathSlashes, workspaceRelativePathIfUnderRoot } from '../../utils/workspace-relative-path';
 import { LucideAngularModule } from 'lucide-angular';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
-import type { AcceptCommandFinishedEvent } from '@shared/index';
+import type { AcceptCommandFinishedEvent, SubagentResultsReadyEvent } from '@shared/index';
 
 const NEW_CONV_EXPANDED_SPINNER = {
   fullScreen: false as const,
@@ -260,6 +263,13 @@ export class App implements OnInit, OnDestroy {
   protected readonly loading = this.conversationSession.loading;
   protected readonly conversations = this.conversationSession.conversations;
   protected readonly activeConversationId = this.conversationSession.activeConversationId;
+  /**
+   * Session that owns the workspace attachment (LSP, editor, terminals): a sub-agent's conversation
+   * is viewed under its parent's, since the sub-agent's own session has no workspace of its own.
+   */
+  protected readonly workspaceSessionId = computed(
+    () => this.conversationSession.activeParentConversationId() ?? this.activeConversationId(),
+  );
   protected readonly streamingParts = this.conversationSession.streamingParts;
   protected readonly streamingPlanner = this.conversationSession.streamingPlanner;
   protected readonly streamingFinalText = this.conversationSession.streamingFinalText;
@@ -689,7 +699,8 @@ export class App implements OnInit, OnDestroy {
       const convId = this.activeConversationId();
       const mode = this.composerMode();
       const effectiveAutoApply = composerApplyMode(mode) && this.autoApplyMode();
-      if (convId) {
+      // A sub-agent inherits Auto Run from its parent's session; opening it must not change it.
+      if (convId && !this.conversationSession.activeParentConversationId()) {
         void this.electron.syncAutoApplyMode(convId, effectiveAutoApply);
       }
     });
@@ -709,7 +720,8 @@ export class App implements OnInit, OnDestroy {
       untracked(() => {
         const granted = this.adminElevationByConversation.get(convId ?? '') ?? false;
         this.adminElevationGranted.set(granted);
-        if (convId) {
+        // Sub-agents never run elevated; their session is not the composer's to change.
+        if (convId && !this.conversationSession.activeParentConversationId()) {
           void this.electron.syncAdminElevation(convId, granted);
         }
       });
@@ -718,7 +730,7 @@ export class App implements OnInit, OnDestroy {
     effect(() => {
       const granted = this.adminElevationGranted();
       const convId = untracked(() => this.activeConversationId());
-      if (!convId) {
+      if (!convId || untracked(() => this.conversationSession.activeParentConversationId())) {
         return;
       }
       const previous = this.adminElevationByConversation.get(convId) ?? false;
@@ -826,6 +838,14 @@ export class App implements OnInit, OnDestroy {
         speed: this.ttsSpeechSpeed(),
       }),
       onPlannerComplete: (conversationId) => this.setBuildPlanTabInactive(conversationId),
+    });
+
+    // Sub-agents outlive the turn that started them: when their reports land with no turn running,
+    // start one so the main agent takes them in (a live turn picks them up itself).
+    this.electron.subagentResultsReady$.pipe(takeUntilDestroyed()).subscribe((ready) => {
+      void this.startSubagentResultsTurn(ready).catch((err) =>
+        console.error('[App] sub-agent results turn failed:', err),
+      );
     });
 
     this.electron.llmTokenUsage$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, inputTokens }) => {
@@ -1328,20 +1348,82 @@ export class App implements OnInit, OnDestroy {
     await this.conversationSession.loadConversationsForWorkspace(this.currentWorkspaceId());
   }
 
-  async onMessageSent(text: string): Promise<void> {
+  /**
+   * Hand the main agent of `parentConversationId` the reports of sub-agents that finished while
+   * none of its turns was running. The conversation need not be open; the turn uses the
+   * composer's current mode (agent mode when it is set to plan, since plan mode spawns none).
+   */
+  private async startSubagentResultsTurn(ready: SubagentResultsReadyEvent): Promise<void> {
+    const convId = ready.parentConversationId;
+    const turn = await this.conversationSession.beginSubagentResultsTurn(convId, ready.names);
+    if (!turn) {
+      return;
+    }
+    const mode = this.composerMode() === 'plan' ? 'agent' : this.composerMode();
+    const admin =
+      convId === this.activeConversationId()
+        ? this.adminElevationGranted()
+        : (this.adminElevationByConversation.get(convId) ?? false);
+    this.electron.sendMessage(
+      convId,
+      // Python builds the model input from the waiting reports; this is the transcript marker.
+      turn.text,
+      composerApplyMode(mode),
+      composerApplyMode(mode) && this.autoApplyMode(),
+      undefined,
+      turn.workspaceId,
+      composerModeForBackend(mode),
+      false,
+      this.appConfig()?.audioTranscription?.ttsProvider === 'openai-compatible'
+        ? 'openai-compatible'
+        : DEFAULT_TTS_PROVIDER,
+      turn.userMessageId,
+      admin,
+      this.conversationSession.takeWorkspaceNotes(convId),
+      true,
+    );
+  }
+
+  /** Composer Send / Enter: while the agent is answering, the message interrupts that turn. */
+  onComposerMessageSent(text: string): Promise<void> {
+    return this.onMessageSent(text, { interrupt: true });
+  }
+
+  /**
+   * Send a user turn. With `interrupt`, a turn still streaming in this conversation is ended
+   * first (its partial reply is kept as interrupted); otherwise a pending turn blocks the send
+   * (voice capture, HITL `send-response`).
+   */
+  async onMessageSent(text: string, opts?: { interrupt?: boolean }): Promise<void> {
     const convId = this.activeConversationId();
     if (!convId) return;
+    if (this.conversationSession.isSubagentConversation(convId)) {
+      // Sub-agent conversations are read-only: only the main agent prompts them.
+      return;
+    }
     const normalized = text.trim();
     const attachments = this.composerContextFiles();
-    if ((!normalized && attachments.length === 0) || this.pendingIds().has(convId)) return;
+    if (!normalized && attachments.length === 0) return;
+    if (this.conversationSession.drainingConversationIds().has(convId)) return;
+    const interrupting = this.pendingIds().has(convId);
+    if (interrupting && !opts?.interrupt) return;
     if (this.contextChatBlocked()) {
       return;
     }
-    this.conversationSession.prepareForSend(convId);
-    if (this.speechEnabled()) {
-      await this.tts.beginAssistantSpeechTurn();
+    // Read while `convId` is still the active conversation: the user may switch during the awaits
+    // below (the interrupt drain can take seconds), and admin elevation is per conversation.
+    const workspaceId = this.conversationSession.getActiveConversation()?.workspaceId ?? this.currentWorkspaceId();
+    const mode = this.composerMode();
+    const speechEnabled = this.speechEnabled();
+    const adminElevationGranted = this.adminElevationGranted();
+    if (interrupting) {
+      this.conversationSession.interruptLiveTurn(convId);
     }
+    this.conversationSession.prepareForSend(convId);
     try {
+      if (speechEnabled) {
+        await this.tts.beginAssistantSpeechTurn();
+      }
       const structuredContent = await this.buildStructuredContent(normalized, attachments);
       this.clearChatContextFiles();
       const userMessageId = this.conversationSession.pushMessage(
@@ -1353,8 +1435,15 @@ export class App implements OnInit, OnDestroy {
         undefined,
         structuredContent,
       );
-      const workspaceId = this.conversationSession.getActiveConversation()?.workspaceId ?? this.currentWorkspaceId();
-      const mode = this.composerMode();
+      this.conversationSession.beginLiveTurn(convId, userMessageId);
+      if (interrupting) {
+        // Python must have stopped the old turn (and its done must be in) before the new one starts.
+        await this.conversationSession.drainInterruptedTurn(convId);
+        if (!this.pendingIds().has(convId)) {
+          // Deleted or restored during the drain: the turn was discarded, send nothing.
+          return;
+        }
+      }
       const workspaceNotes = this.conversationSession.takeWorkspaceNotes(convId);
       this.electron.sendMessage(
         convId,
@@ -1364,17 +1453,21 @@ export class App implements OnInit, OnDestroy {
         structuredContentForBackendRequest(structuredContent),
         workspaceId,
         composerModeForBackend(mode),
-        this.speechEnabled(),
+        speechEnabled,
         this.appConfig()?.audioTranscription?.ttsProvider === 'openai-compatible'
           ? 'openai-compatible'
           : DEFAULT_TTS_PROVIDER,
         userMessageId,
-        this.adminElevationGranted(),
+        adminElevationGranted,
         workspaceNotes,
       );
       this.conversationSession.markMessagesDirtyAndAutoSave();
     } catch (err) {
       console.error('[App] onMessageSent failed:', err);
+      if (interrupting) {
+        // Still stop the interrupted turn and end its drain, or the conversation stays blocked.
+        await this.conversationSession.drainInterruptedTurn(convId);
+      }
       this.conversationSession.resetStreamUiOnSendFailure(convId);
     }
   }
@@ -1455,6 +1548,8 @@ export class App implements OnInit, OnDestroy {
       return;
     }
     if (this.pendingIds().has(convId)) {
+      // The restore replaces the transcript: drop the live turn so its late done saves nothing.
+      this.conversationSession.discardLiveTurn(convId);
       await this.electron.abortMessage(convId);
     }
     const result = await this.electron.restoreConversationTimeline({
@@ -1467,7 +1562,9 @@ export class App implements OnInit, OnDestroy {
       return;
     }
     const draft = selected?.role === 'user' ? selected.text : '';
-    this.conversationSession.applyRestoredMessages(abandonStaleHitlMessages(result.messages));
+    // Forget the deleted sub-agents first: their cards are stale, a still-running one's are not.
+    this.conversationSession.forgetConversations(result.deletedSubagentIds ?? []);
+    this.conversationSession.applyRestoredMessages(this.conversationSession.abandonStaleHitl(result.messages));
     this.conversationSession.removePending(convId);
     this.conversationSession.updateConversationMeta(convId, { updatedAt: new Date().toISOString() });
     this.composerDraft.set(draft);
@@ -1482,6 +1579,7 @@ export class App implements OnInit, OnDestroy {
     status: 'complete' | 'cancelled';
     summary?: string;
   }): void {
+    this.conversationSession.resolveSubagentApproval(event.requestId);
     this.messages.update((prev) => {
       const copy = [...prev];
       for (let i = copy.length - 1; i >= 0; i--) {
@@ -1525,7 +1623,9 @@ export class App implements OnInit, OnDestroy {
       return copy;
     });
     this.conversationSession.markMessagesDirtyAndAutoSave();
-    if (acceptCommandGrantsAdminElevation(event)) {
+    this.conversationSession.resolveSubagentApproval(event.requestId);
+    // A sub-agent's "for this session" grant belongs to its session, not this composer's Admin chip.
+    if (!event.subagentConversationId && acceptCommandGrantsAdminElevation(event)) {
       this.adminElevationGranted.set(true);
     }
   }
@@ -1638,9 +1738,15 @@ export class App implements OnInit, OnDestroy {
   async onDeleteConversation(id: string): Promise<void> {
     const conv = this.conversations().find((c) => c.id === id);
     const convWorkspaceId = conv?.workspaceId ?? this.currentWorkspaceId();
+    // Its sub-agent conversations go with it (main deletes them too).
+    const deletedIds = [id, ...this.conversations().filter((c) => c.parentConversationId === id).map((c) => c.id)];
+    const activeId = this.activeConversationId();
+    const isActive = activeId !== null && deletedIds.includes(activeId);
+    this.conversationSession.prepareDeleteConversation(id);
     await this.electron.deleteConversation(id, convWorkspaceId);
-    this.removeContextMetricsForConversation(id);
-    const isActive = id === this.activeConversationId();
+    for (const deletedId of deletedIds) {
+      this.removeContextMetricsForConversation(deletedId);
+    }
     const wsId = this.currentWorkspaceId();
     const list = await this.electron.getConversations(wsId);
     this.conversations.set(list);
@@ -1648,7 +1754,7 @@ export class App implements OnInit, OnDestroy {
     if (isActive) {
       this.conversationSession.clearActiveConversationAfterDelete();
       if (list.length > 0) {
-        const nextConv = list[0];
+        const nextConv = firstTopLevelConversation(list);
         await this.conversationSession.loadConversation(nextConv.id, nextConv.workspaceId ?? wsId);
       } else {
         await this.onNewConversation();

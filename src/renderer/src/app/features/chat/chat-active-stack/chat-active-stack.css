@@ -155,6 +155,85 @@
   min-width: 0;
 }
 
+/* Sub-agent conversations: the banner stands where the composer would be. */
+.chat-active-stack__subagent-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.55rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--t-border-subtle);
+  border-radius: 1rem !important;
+  background: var(--t-bg-surface, var(--t-bg));
+  color: var(--t-secondary);
+  font-size: 0.78rem;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.chat-active-stack__subagent-banner-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--t-primary);
+}
+
+.chat-active-stack__subagent-banner-text {
+  display: flex;
+  /* In a narrow chat column the buttons wrap below rather than squeezing the text into a sliver. */
+  flex: 1 1 6rem;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.chat-active-stack__subagent-banner-text strong {
+  color: var(--t-primary);
+  font-weight: 600;
+}
+
+.chat-active-stack__subagent-banner-review {
+  font-size: 0.72rem;
+  color: var(--t-warn);
+}
+
+.chat-active-stack__subagent-banner-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 0.35rem;
+  margin-left: auto;
+}
+
+.chat-active-stack__subagent-banner-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.22rem 0.65rem;
+  border: 1px solid var(--t-border-subtle);
+  border-radius: 999px !important;
+  background: transparent;
+  color: var(--t-primary);
+  font-family: inherit;
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.chat-active-stack__subagent-banner-btn:hover {
+  border-color: var(--t-primary);
+  background: var(--t-hover-bg);
+}
+
+.chat-active-stack__subagent-banner-btn--stop {
+  color: #e05050;
+  border-color: color-mix(in srgb, #e05050 55%, var(--t-border));
+}
+
+.chat-active-stack__subagent-banner-btn--stop:hover {
+  border-color: #e05050;
+  background-color: rgba(224, 80, 80, 0.15);
+}
+
 .chat-active-stack__composer-input {
   display: flex;
   align-items: stretch;

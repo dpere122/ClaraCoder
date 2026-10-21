@@ -1,0 +1,268 @@
+app-subagent-dock {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Slides up above the HITL dock and the INPUT, like the review dock (grid-rows 0fr -> 1fr). */
+app-subagent-dock .subagent-dock {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.28s ease;
+}
+
+app-subagent-dock .subagent-dock--open {
+  grid-template-rows: 1fr;
+}
+
+app-subagent-dock .subagent-dock__panel {
+  min-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(0.75rem);
+  transition:
+    opacity 0.22s ease,
+    transform 0.28s ease;
+}
+
+app-subagent-dock .subagent-dock--open .subagent-dock__panel {
+  opacity: 1;
+  transform: translateY(0);
+  padding: 0.35rem 0 0.45rem;
+  margin-bottom: 0.15rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--t-border-subtle) 70%, transparent);
+}
+
+app-subagent-dock .subagent-dock__header-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+app-subagent-dock .subagent-dock__stop-all {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.2rem;
+  padding: 0.08rem 0.55rem;
+  border: 1px solid color-mix(in srgb, #e05050 55%, var(--t-border));
+  border-radius: 999px !important;
+  background: transparent;
+  color: #e05050;
+  font-family: inherit;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+app-subagent-dock .subagent-dock__stop-all:hover {
+  border-color: #e05050;
+  background-color: rgba(224, 80, 80, 0.15);
+}
+
+app-subagent-dock .subagent-card__mode {
+  flex-shrink: 0;
+  font-size: 0.64rem;
+  letter-spacing: 0.04em;
+  color: var(--t-text-muted);
+}
+
+app-subagent-dock .subagent-dock__header {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.1rem 0.25rem 0.3rem;
+  border: 0;
+  background: transparent;
+  color: var(--t-secondary);
+  font-family: inherit;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+}
+
+app-subagent-dock .subagent-dock__header:hover {
+  color: var(--t-primary);
+}
+
+app-subagent-dock .subagent-dock__title {
+  font-weight: 600;
+}
+
+app-subagent-dock .subagent-dock__summary {
+  flex: 1;
+  min-width: 0;
+  color: var(--t-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+app-subagent-dock .subagent-dock__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  /* Many parallel sub-agents scroll here instead of pushing the composer off screen. */
+  max-height: min(30vh, 18rem);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+app-subagent-dock .subagent-card {
+  padding: 0.45rem 0.65rem 0.5rem;
+  border: 1px solid var(--t-border-subtle, var(--t-border));
+  border-radius: 0.85rem !important;
+  background: var(--t-bg-surface, var(--t-bg));
+  cursor: pointer;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+
+app-subagent-dock .subagent-card:hover {
+  border-color: var(--t-primary);
+  background: var(--t-hover-bg, var(--t-bg-surface, var(--t-bg)));
+}
+
+app-subagent-dock .subagent-card__head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+app-subagent-dock .subagent-card__status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.15rem;
+  height: 1.15rem;
+  color: var(--t-secondary);
+}
+
+app-subagent-dock .subagent-card__spinner {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+app-subagent-dock .subagent-card__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--t-primary);
+}
+
+app-subagent-dock .subagent-card__state {
+  flex-shrink: 0;
+  padding: 0.02rem 0.45rem;
+  border: 1px solid var(--t-border-subtle, var(--t-border));
+  border-radius: 999px !important;
+  font-size: 0.66rem;
+  color: var(--t-secondary);
+}
+
+app-subagent-dock .subagent-card__elapsed {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--t-text-muted);
+}
+
+app-subagent-dock .subagent-card__actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 0.25rem;
+}
+
+app-subagent-dock .subagent-card__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.45rem;
+  height: 1.45rem;
+  padding: 0;
+  border: 1px solid var(--t-border-subtle, var(--t-border));
+  border-radius: 999px !important;
+  background: transparent;
+  color: var(--t-secondary);
+  cursor: pointer;
+}
+
+app-subagent-dock .subagent-card__btn--stop {
+  color: #e05050;
+  border-color: color-mix(in srgb, #e05050 55%, var(--t-border));
+}
+
+app-subagent-dock .subagent-card__btn--stop:hover {
+  background-color: rgba(224, 80, 80, 0.15);
+  border-color: #e05050;
+}
+
+app-subagent-dock .subagent-card__task,
+app-subagent-dock .subagent-card__activity,
+app-subagent-dock .subagent-card__text {
+  margin: 0.2rem 0 0 1.6rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
+}
+
+app-subagent-dock .subagent-card__task {
+  color: var(--t-secondary);
+}
+
+app-subagent-dock .subagent-card__activity {
+  font-family: var(--t-font-mono, ui-monospace, monospace);
+  font-size: 0.68rem;
+  color: var(--t-text-muted);
+}
+
+app-subagent-dock .subagent-card__text {
+  color: var(--t-text-muted);
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+app-subagent-dock .subagent-card--review {
+  border-color: color-mix(in srgb, var(--t-warn) 60%, var(--t-border));
+}
+
+app-subagent-dock .subagent-card--review .subagent-card__status,
+app-subagent-dock .subagent-card--review .subagent-card__state {
+  color: var(--t-warn);
+}
+
+app-subagent-dock .subagent-card--done .subagent-card__status {
+  color: var(--t-success, var(--t-primary));
+}
+
+app-subagent-dock .subagent-card--failed .subagent-card__status,
+app-subagent-dock .subagent-card--failed .subagent-card__state {
+  color: var(--t-danger, #c44);
+}
+
+app-subagent-dock .subagent-card--done,
+app-subagent-dock .subagent-card--stopped,
+app-subagent-dock .subagent-card--failed {
+  opacity: 0.8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  app-subagent-dock .subagent-dock,
+  app-subagent-dock .subagent-dock__panel {
+    transition: none;
+  }
+}

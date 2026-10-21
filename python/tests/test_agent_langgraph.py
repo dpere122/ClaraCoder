@@ -258,3 +258,135 @@ async def test_stream_watchdog_does_not_fire_while_tool_running(
     session.abort_event.set()
     await asyncio.wait_for(task, timeout=2)
     assert outcome.state == AgentLoopOutcome.ABORTED
+
+
+async def _forever() -> None:
+    await asyncio.Future()
+
+
+async def test_stop_llm_pump_cancels_the_pump_even_when_closing_the_response_is_cancelled() -> None:
+    """A cancellation landing on the HTTP close must not leave ``astream_events`` running."""
+    from clara_coder_backend.lang_agent.graph import _stop_llm_pump
+
+    pump = asyncio.create_task(_forever())
+    await asyncio.sleep(0)
+
+    async def _cancelled_close(_sid: str) -> None:
+        raise asyncio.CancelledError
+
+    with patch('clara_coder_backend.lang_agent.graph.abort_in_flight_llm_requests', side_effect=_cancelled_close):
+        with pytest.raises(asyncio.CancelledError):
+            await _stop_llm_pump(pump, 'sess-stop')
+    assert pump.cancelled()
+
+
+async def test_stop_llm_pump_closes_the_response_after_cancelling() -> None:
+    from clara_coder_backend.lang_agent.graph import _stop_llm_pump
+
+    order: list[str] = []
+    pump = asyncio.create_task(_forever())
+    await asyncio.sleep(0)
+    cancel = pump.cancel
+
+    def _recording_cancel(*args: Any, **kwargs: Any) -> bool:
+        order.append('cancel pump')
+        return cancel(*args, **kwargs)
+
+    pump.cancel = _recording_cancel  # type: ignore[method-assign]
+
+    async def _close(_sid: str) -> None:
+        order.append('close response')
+
+    with patch('clara_coder_backend.lang_agent.graph.abort_in_flight_llm_requests', side_effect=_close):
+        await _stop_llm_pump(pump, 'sess-stop')
+    assert order == ['cancel pump', 'close response'] and pump.cancelled()
+
+
+@patch('clara_coder_backend.lang_agent.graph.build_clara_single_outer_graph')
+@patch('clara_coder_backend.lang_agent.graph.build_llm')
+@patch('clara_coder_backend.lang_agent.graph.get_graph_checkpointer')
+async def test_abort_mid_step_reports_uncommitted_text_and_uses_sync_durability(
+    mock_get_cp: MagicMock,
+    mock_build_llm: MagicMock,
+    mock_build_graph: MagicMock,
+) -> None:
+    from langchain_core.messages import AIMessageChunk
+
+    mock_get_cp.return_value = MagicMock()
+    mock_build_llm.return_value = MagicMock()
+    seen_kwargs: dict[str, Any] = {}
+
+    async def _stream_then_hang(*_args: Any, **kwargs: Any):
+        seen_kwargs.update(kwargs)
+        yield {'event': 'on_chat_model_start', 'name': 'm', 'run_id': 'm1', 'data': {'input': {}}}
+        yield {'event': 'on_chat_model_stream', 'name': 'm', 'run_id': 'm1', 'data': {'chunk': AIMessageChunk(content='half a ')}}
+        yield {'event': 'on_chat_model_stream', 'name': 'm', 'run_id': 'm1', 'data': {'chunk': AIMessageChunk(content='sentence')}}
+        await asyncio.Future()
+
+    mock_graph = MagicMock()
+    mock_graph.astream_events = _stream_then_hang
+    mock_graph.aget_state = AsyncMock(return_value=MagicMock(values={}))
+    mock_build_graph.return_value = mock_graph
+
+    session = SessionState()
+    outcome = LangGraphWorkerOutcome()
+    task = asyncio.create_task(
+        _collect_lines(stream_single_agent_langgraph(session, 'hello', True, session_id='sess-mid', outcome=outcome))
+    )
+    for _ in range(50):
+        if outcome.partial_text == 'half a sentence':
+            break
+        await asyncio.sleep(0.01)
+    session.abort_event.set()
+    await asyncio.wait_for(task, timeout=2)
+
+    assert outcome.state == AgentLoopOutcome.ABORTED
+    assert outcome.uncommitted_text == 'half a sentence'
+    assert seen_kwargs.get('durability') == 'sync'
+    # The live chat turn binds ``spawn_subagent``.
+    assert mock_build_graph.call_args.kwargs.get('allow_subagents') is True
+
+
+@patch('clara_coder_backend.lang_agent.graph.build_clara_single_outer_graph')
+@patch('clara_coder_backend.lang_agent.graph.build_llm')
+@patch('clara_coder_backend.lang_agent.graph.get_graph_checkpointer')
+async def test_open_tool_calls_of_a_stopped_turn_are_answered_before_the_new_input(
+    mock_get_cp: MagicMock,
+    mock_build_llm: MagicMock,
+    mock_build_graph: MagicMock,
+) -> None:
+    from types import SimpleNamespace
+
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    stopped_step = AIMessage(content='', tool_calls=[{'name': 'spawn_subagent', 'args': {}, 'id': 's1'}])
+    saved = SimpleNamespace(
+        checkpoint={'channel_values': {'messages': [HumanMessage('before'), stopped_step]}},
+        pending_writes=[],
+    )
+    mock_get_cp.return_value = MagicMock(aget_tuple=AsyncMock(return_value=saved))
+    mock_build_llm.return_value = MagicMock()
+    seen_inputs: list[Any] = []
+
+    async def _done(inputs: Any, *_args: Any, **_kwargs: Any):
+        seen_inputs.append(inputs)
+        if False:
+            yield {}
+
+    mock_graph = MagicMock()
+    mock_graph.astream_events = _done
+    mock_graph.aget_state = AsyncMock(return_value=MagicMock(values={'messages': [HumanMessage('before'), stopped_step]}))
+    mock_build_graph.return_value = mock_graph
+
+    session = SessionState()
+    session.subagent_interrupted_reports['s1'] = 'Sub-agent `x` was stopped; partial report.'
+    session.pending_user_event_notes.append('Your previous reply was interrupted.')
+    outcome = LangGraphWorkerOutcome()
+    await _collect_lines(stream_single_agent_langgraph(session, 'again', True, session_id='sess-repair', outcome=outcome))
+
+    messages = seen_inputs[0]['messages']
+    assert isinstance(messages[0], ToolMessage) and messages[0].tool_call_id == 's1'
+    assert messages[0].content == 'Sub-agent `x` was stopped; partial report.'
+    assert [type(m).__name__ for m in messages[1:]] == ['HumanMessage', 'HumanMessage']
+    assert 'interrupted' in messages[1].content and 'again' in messages[2].content
+    assert session.subagent_interrupted_reports == {}

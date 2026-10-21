@@ -93,4 +93,30 @@ describe('HitlComposerDockComponent', () => {
     expect(fixture.componentInstance.open()).toBe(false);
     expect(fixture.componentInstance.pendingArtifacts()).toHaveLength(0);
   });
+
+  it('names the sub-agent that asked, and keys its card apart from the main agent cards', () => {
+    const fixture = TestBed.createComponent(HitlComposerDockComponent);
+    const card = (subagent?: { conversationId: string; name: string }): HitlTrailArtifact => ({
+      role: 'delete_confirm',
+      payload: {
+        version: 1,
+        requestId: 'same-id',
+        relativePath: 'a.ts',
+        kind: 'file',
+        recursive: false,
+        ...(subagent ? { subagent } : {}),
+      },
+      reviewStatus: 'pending',
+    });
+    const artifacts = [card(), card({ conversationId: 'child-1', name: 'Cleaner' })];
+    fixture.componentRef.setInput('artifacts', artifacts);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelectorAll('app-delete-confirm')).toHaveLength(2);
+    const badges = host.querySelectorAll('.hitl-composer-dock__subagent');
+    expect(badges).toHaveLength(1);
+    expect(badges[0]!.textContent).toContain('Sub-agent · Cleaner');
+    const keys = artifacts.map((a) => fixture.componentInstance.artifactTrackKey(a));
+    expect(new Set(keys).size).toBe(2);
+  });
 });

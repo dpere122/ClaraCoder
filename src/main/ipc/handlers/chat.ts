@@ -10,8 +10,10 @@ import {
 } from '../assert-trusted-renderer';
 import { mainState } from '../../state';
 import { createSettingsWindow, notifySettingsRendererReady, parseSettingsWindowTab } from '../../windows/settings-window';
+import { getConversationMetaById } from '../../conversations-db';
 import { finalizeTurnEdits } from '../../turn-edits';
-import { sendParsedPayload } from './chat-stream-payload';
+import { dispatchParsedPayload, parseStreamPayload } from './chat-stream-payload';
+import { rememberConversationRenderer } from './conversation-renderers';
 import {
   abortChatStream,
   beginChatStream,
@@ -48,14 +50,24 @@ async function finalizeTurnEditsSafe(conversationId: string, turn: ChatTurnRef):
   }
 }
 
+/**
+ * `message-done` carries the turn's user message id so the renderer can tell a late done of an
+ * interrupted turn from the done of the turn it is showing now.
+ */
 async function replyMessageDone(
   event: Electron.IpcMainEvent,
   conversationId: string,
   outcome: ChatStreamOutcome,
   turn: ChatTurnRef,
+  controller: AbortController,
 ): Promise<void> {
   const editedFiles = await finalizeTurnEditsSafe(conversationId, turn);
-  event.reply('message-done', conversationId, outcome, editedFiles);
+  if (wasChatStreamSuperseded(controller)) {
+    // A newer stream replaced this one while its edits were being snapshotted: this done would
+    // settle the newer turn the renderer is now showing.
+    return;
+  }
+  event.reply('message-done', conversationId, outcome, editedFiles, turn.userMessageId);
 }
 
 function workspaceNotesFromIpc(raw: unknown): string[] {
@@ -122,12 +134,20 @@ export function registerChatIpc(): void {
       userMessageId = '',
       adminElevationGranted = false,
       workspaceNotes: unknown = [],
+      continueWithSubagentResults = false,
     ) => {
       if (!isTrustedMainRenderer(event.sender)) {
         return;
       }
       console.log('Received message for', conversationId, ':', msg);
+      if (getConversationMetaById(conversationId)?.parentConversationId) {
+        // Sub-agent conversations are read-only: only the main agent prompts them.
+        event.reply('message-done', conversationId, 'error', [], typeof userMessageId === 'string' ? userMessageId : '');
+        return;
+      }
 
+      // Its sub-agents' events (which outlive this stream) go back to this same renderer.
+      rememberConversationRenderer(conversationId, event);
       const abortController = beginChatStream(conversationId, workspaceId ?? null);
       const turn: ChatTurnRef = {
         userMessageId: typeof userMessageId === 'string' ? userMessageId.trim() : '',
@@ -151,6 +171,10 @@ export function registerChatIpc(): void {
       if (notes.length > 0) {
         body.workspace_notes = notes;
       }
+      if (continueWithSubagentResults === true) {
+        // The turn hands the main agent the reports of sub-agents that finished with no turn running.
+        body.continue_with_subagent_results = true;
+      }
       if (Array.isArray(structuredContent) && structuredContent.length > 0) {
         const ok = structuredContent.every((p) => p !== null && typeof p === 'object' && !Array.isArray(p));
         if (ok) {
@@ -159,6 +183,13 @@ export function registerChatIpc(): void {
           console.warn('[Chat] Ignoring structuredContent: expected array of objects');
         }
       }
+
+      // Sub-agents' own events arrive on their channel (`subagent-events.ts`), not on this stream.
+      const forward = (payload: string): void => {
+        dispatchParsedPayload(event, conversationId, parseStreamPayload(payload));
+      };
+      const completeTurn = (): Promise<void> =>
+        replyMessageDone(event, conversationId, 'completed', turn, abortController);
 
       try {
         const res = await pythonSsePost('/chat/stream', body, abortController.signal);
@@ -183,9 +214,9 @@ export function registerChatIpc(): void {
             if (!line.startsWith('data: ')) continue;
             const payload = line.slice(6);
             if (payload === '[DONE]') {
-              await replyMessageDone(event, conversationId, 'completed', turn);
+              await completeTurn();
             } else {
-              sendParsedPayload(event, conversationId, payload);
+              forward(payload);
             }
           }
         }
@@ -193,14 +224,15 @@ export function registerChatIpc(): void {
         if (buffer.startsWith('data: ')) {
           const payload = buffer.slice(6);
           if (payload === '[DONE]') {
-            await replyMessageDone(event, conversationId, 'completed', turn);
+            await completeTurn();
           } else if (payload) {
-            sendParsedPayload(event, conversationId, payload);
-            await replyMessageDone(event, conversationId, 'completed', turn);
+            forward(payload);
+            await completeTurn();
           }
         }
       } catch (err) {
         if (abortController.signal.aborted) {
+          // Stopped or replaced. Its sub-agents keep running and report on their own channel.
           if (wasChatStreamSuperseded(abortController)) {
             // A newer message for this conversation replaced this stream; the renderer already
             // shows that turn, so only settle this turn's edits and stay silent.
@@ -209,7 +241,7 @@ export function registerChatIpc(): void {
             return;
           }
           console.log('Stream aborted for', conversationId);
-          await replyMessageDone(event, conversationId, 'aborted', turn);
+          await replyMessageDone(event, conversationId, 'aborted', turn, abortController);
           return;
         }
         console.error('Failed to reach Python server:', err);
@@ -221,7 +253,7 @@ export function registerChatIpc(): void {
           source: 'agent',
         } as LlmStatusPayload);
         event.reply('message-chunk', conversationId, 'Error: could not reach the AI backend.');
-        await replyMessageDone(event, conversationId, 'error', turn);
+        await replyMessageDone(event, conversationId, 'error', turn, abortController);
       } finally {
         endChatStream(conversationId, abortController);
       }

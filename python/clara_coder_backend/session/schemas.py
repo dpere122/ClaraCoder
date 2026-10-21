@@ -61,6 +61,12 @@ class ChatRequest(BaseModel):
         default='kokoro',
         validation_alias=AliasChoices('tts_provider', 'ttsProvider'),
     )
+    #: Continue the conversation with the sub-agent reports waiting on it (after ``subagent_results_ready``):
+    #: ``message`` / ``structured_content`` are ignored and the turn's input is built from the reports.
+    continue_with_subagent_results: bool = Field(
+        default=False,
+        validation_alias=AliasChoices('continue_with_subagent_results', 'continueWithSubagentResults'),
+    )
 
     @field_validator('structured_content')
     @classmethod
@@ -76,6 +82,9 @@ class ChatRequest(BaseModel):
     def _user_turn_non_empty(self) -> 'ChatRequest':
         from clara_coder_backend.session.chat_input import effective_user_message_content, validate_user_turn_not_empty
 
+        if self.continue_with_subagent_results:
+            # The input comes from the waiting sub-agent reports, not from the request.
+            return self
         eff = effective_user_message_content(self.message, self.structured_content)
         validate_user_turn_not_empty(eff)
         return self

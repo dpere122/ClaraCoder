@@ -13,7 +13,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Clara's replies, including rendered markdown and code blocks.",
     selector: "[data-theme-group=\"chat.assistant-bubble\"]",
     component: "app/features/chat/chat-box",
-    tokens: ["--t-assistant-bg", "--t-assistant-border", "--t-assistant-fg", "--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-chat-bg", "--t-code-bg", "--t-code-inline-bg", "--t-code-text", "--t-fg", "--t-glow", "--t-glow-soft", "--t-hljs-attr", "--t-hljs-class", "--t-hljs-comment", "--t-hljs-function", "--t-hljs-keyword", "--t-hljs-meta", "--t-hljs-name", "--t-hljs-number", "--t-hljs-operator", "--t-hljs-params", "--t-hljs-property", "--t-hljs-punctuation", "--t-hljs-selector", "--t-hljs-string", "--t-hljs-symbol", "--t-hljs-tag", "--t-hover-bg", "--t-log-level-warning", "--t-primary", "--t-secondary", "--t-surface-2", "--t-text-muted", "--t-tui-clara-frame", "--t-user-bg", "--t-user-border", "--t-user-fg"],
+    tokens: ["--t-assistant-bg", "--t-assistant-border", "--t-assistant-fg", "--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-chat-bg", "--t-code-bg", "--t-code-inline-bg", "--t-code-text", "--t-danger", "--t-fg", "--t-glow", "--t-glow-soft", "--t-hljs-attr", "--t-hljs-class", "--t-hljs-comment", "--t-hljs-function", "--t-hljs-keyword", "--t-hljs-meta", "--t-hljs-name", "--t-hljs-number", "--t-hljs-operator", "--t-hljs-params", "--t-hljs-property", "--t-hljs-punctuation", "--t-hljs-selector", "--t-hljs-string", "--t-hljs-symbol", "--t-hljs-tag", "--t-hover-bg", "--t-log-level-warning", "--t-primary", "--t-secondary", "--t-surface-2", "--t-text-muted", "--t-tui-clara-frame", "--t-user-bg", "--t-user-border", "--t-user-fg"],
     supportsBackground: false,
   },
   {
@@ -72,6 +72,28 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     supportsBackground: false,
   },
   {
+    id: "chat.subagent-banner",
+    label: "Sub-agent banner",
+    category: "chat",
+    categoryLabel: "Chat",
+    description: "Read-only banner shown in place of the composer in a sub-agent conversation.",
+    selector: "[data-theme-group=\"chat.subagent-banner\"]",
+    component: "app/features/chat/chat-active-stack",
+    tokens: ["--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-edge-light", "--t-fg", "--t-hover-bg", "--t-primary", "--t-secondary", "--t-text-muted", "--t-warn"],
+    supportsBackground: false,
+  },
+  {
+    id: "chat.subagent-dock",
+    label: "Sub-agent preview",
+    category: "chat",
+    categoryLabel: "Chat",
+    description: "Live cards for the sub-agents a reply is running, above the composer.",
+    selector: "[data-theme-group=\"chat.subagent-dock\"]",
+    component: "app/features/chat/subagent-dock",
+    tokens: ["--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-danger", "--t-font-mono", "--t-hover-bg", "--t-primary", "--t-secondary", "--t-success", "--t-text-muted", "--t-warn"],
+    supportsBackground: false,
+  },
+  {
     id: "chat.transcript",
     label: "Transcript",
     category: "chat",
@@ -102,7 +124,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Your messages in the transcript.",
     selector: "[data-theme-group=\"chat.user-bubble\"]",
     component: "app/features/chat/chat-box",
-    tokens: ["--t-assistant-bg", "--t-assistant-border", "--t-assistant-fg", "--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-chat-bg", "--t-code-bg", "--t-code-inline-bg", "--t-code-text", "--t-fg", "--t-glow", "--t-glow-soft", "--t-hljs-attr", "--t-hljs-class", "--t-hljs-comment", "--t-hljs-function", "--t-hljs-keyword", "--t-hljs-meta", "--t-hljs-name", "--t-hljs-number", "--t-hljs-operator", "--t-hljs-params", "--t-hljs-property", "--t-hljs-punctuation", "--t-hljs-selector", "--t-hljs-string", "--t-hljs-symbol", "--t-hljs-tag", "--t-hover-bg", "--t-log-level-warning", "--t-primary", "--t-secondary", "--t-surface-2", "--t-text-muted", "--t-tui-user-frame", "--t-user-bg", "--t-user-border", "--t-user-fg"],
+    tokens: ["--t-assistant-bg", "--t-assistant-border", "--t-assistant-fg", "--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-chat-bg", "--t-code-bg", "--t-code-inline-bg", "--t-code-text", "--t-danger", "--t-fg", "--t-glow", "--t-glow-soft", "--t-hljs-attr", "--t-hljs-class", "--t-hljs-comment", "--t-hljs-function", "--t-hljs-keyword", "--t-hljs-meta", "--t-hljs-name", "--t-hljs-number", "--t-hljs-operator", "--t-hljs-params", "--t-hljs-property", "--t-hljs-punctuation", "--t-hljs-selector", "--t-hljs-string", "--t-hljs-symbol", "--t-hljs-tag", "--t-hover-bg", "--t-log-level-warning", "--t-primary", "--t-secondary", "--t-surface-2", "--t-text-muted", "--t-tui-user-frame", "--t-user-bg", "--t-user-border", "--t-user-fg"],
     supportsBackground: false,
   },
   {
@@ -268,7 +290,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Panel above the composer that holds pending review cards.",
     selector: "[data-theme-group=\"hitl.dock\"]",
     component: "app/features/chat/hitl-composer-dock",
-    tokens: ["--t-border-subtle"],
+    tokens: ["--t-border-subtle", "--t-secondary"],
     supportsBackground: false,
   },
   {
@@ -435,6 +457,8 @@ export type ThemeGroupId =
   | "chat.conversation-list"
   | "chat.plan-panel"
   | "chat.stream-pills"
+  | "chat.subagent-banner"
+  | "chat.subagent-dock"
   | "chat.transcript"
   | "chat.turn-edits"
   | "chat.user-bubble"

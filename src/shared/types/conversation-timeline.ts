@@ -49,6 +49,8 @@ export type RestoreConversationTimelineResult =
       messages: import('./conversation').ConversationMessage[];
       revertedPaths: string[];
       skippedPaths: string[];
+      /** Sub-agent conversations spawned by the truncated turns; main deleted them. */
+      deletedSubagentIds?: string[];
     }
   | { ok: false; error: string; revertedPaths?: string[]; skippedPaths?: string[] };
 

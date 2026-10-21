@@ -25,6 +25,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from clara_coder_backend.logging.app_logging import configure_logging
 from clara_coder_backend.config import env_clara
 from clara_coder_backend.session.checkpointing import init_graph_checkpointing, shutdown_graph_checkpointing
+from clara_coder_backend.session.turns import stop_all_turns
 from clara_coder_backend.lsp.manager import shutdown_all_lsp_managers
 from clara_coder_backend.routes.audio import router as audio_router
 from clara_coder_backend.routes.build_plan import router as build_plan_router
@@ -37,6 +38,7 @@ from clara_coder_backend.routes.lsp import router as lsp_router
 from clara_coder_backend.routes.mcp import router as mcp_router
 from clara_coder_backend.routes.runtime import router as runtime_router
 from clara_coder_backend.routes.session import router as session_router
+from clara_coder_backend.routes.subagents import router as subagents_router
 
 _raw_log = env_clara('CLARA_LOG_DIR', '').strip()
 configure_logging(Path(_raw_log) if _raw_log else None)
@@ -140,6 +142,19 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await init_graph_checkpointing()
     yield
     try:
+        # Detached turns outlive their requests: stop them first, while their checkpointer,
+        # language servers and MCP clients are still up.
+        await stop_all_turns()
+    except Exception:
+        _logger.exception('Stopping chat turns failed during app lifespan cleanup')
+    try:
+        # Sub-agents outlive their parent turns too.
+        from clara_coder_backend.lang_agent.subagents import stop_all_subagents
+
+        await stop_all_subagents()
+    except Exception:
+        _logger.exception('Stopping sub-agents failed during app lifespan cleanup')
+    try:
         shutdown_all_lsp_managers()
     except Exception:
         _logger.exception('LSP manager shutdown failed during app lifespan cleanup')
@@ -166,6 +181,7 @@ app.include_router(mcp_router)
 app.include_router(deps_router)
 app.include_router(session_router)
 app.include_router(chat_router)
+app.include_router(subagents_router)
 app.include_router(conversation_title_router)
 app.include_router(audio_router)
 app.include_router(lsp_router)

@@ -850,6 +850,18 @@ async def handle_background_command_terminal_closed(session_id: str, command_id:
     return True, note
 
 
+async def stop_running_session_commands(session_id: str) -> list[str]:
+    """Kill the session's still-running background commands; return a ``` `id` (`command`) ``` line each.
+
+    A sub-agent's jobs stop when its task ends, and its report lists them.
+    """
+    stopped: list[str] = []
+    for job in _running_session_jobs(session_id):
+        await _kill_job(job)
+        stopped.append(f'`{job.job_id}` (`{_run_command_tab_label(job.command_text)}`)')
+    return stopped
+
+
 async def kill_session_background_commands(session_id: str) -> None:
     """Terminate and drop every job for a session (used when the session is cleared)."""
     for job_id, job in list(_JOBS.items()):

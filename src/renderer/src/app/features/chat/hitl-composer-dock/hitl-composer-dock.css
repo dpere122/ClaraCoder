@@ -40,3 +40,16 @@ app-hitl-composer-dock .hitl-composer-dock--open .hitl-composer-dock__panel {
 app-hitl-composer-dock .hitl-composer-dock__card + .hitl-composer-dock__card {
   margin-top: 0.65rem;
 }
+
+/* A card a sub-agent raised: names who is asking (the answer goes to that sub-agent). */
+app-hitl-composer-dock .hitl-composer-dock__subagent {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0 0 0.3rem 0.35rem;
+  padding: 0.05rem 0.55rem;
+  border: 1px solid var(--t-border-subtle);
+  border-radius: 999px !important;
+  font-size: 0.68rem;
+  color: var(--t-secondary);
+}

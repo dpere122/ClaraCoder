@@ -36,6 +36,12 @@
       />
     }
     @if (expanded()) {
+      @if (subagentId()) {
+        <button type="button" class="aux-stream-tool-part__subagent-link" (click)="openSubagent($event)">
+          <lucide-icon name="bot" [size]="12" aria-hidden="true" />
+          <span>Open {{ part().toolSubagentName || 'sub-agent' }}'s conversation</span>
+        </button>
+      }
       @if (kind() === 'shell') {
         <app-delegated-shell-terminal
           class="aux-stream-tool-part__terminal"

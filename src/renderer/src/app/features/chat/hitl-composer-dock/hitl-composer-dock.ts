@@ -5,6 +5,7 @@ import { AgentQuestionComponent } from '../../diff/agent-question/agent-question
 import { DeleteConfirmComponent } from '../../diff/delete-confirm/delete-confirm';
 import { PlanConfirmComponent } from '../../diff/plan-confirm/plan-confirm';
 import { ThemeProposalComponent } from '../../diff/theme-proposal/theme-proposal';
+import { LucideAngularModule } from 'lucide-angular';
 import type { AcceptCommandFinishedEvent } from '@shared/index';
 
 /** Legacy roles: edits land on disk (reviewed at end of turn) and copies run without a card. */
@@ -24,6 +25,7 @@ const READ_ONLY_HITL_ROLES = new Set<HitlTrailArtifact['role']>(['diff', 'staged
     PlanConfirmComponent,
     AgentQuestionComponent,
     ThemeProposalComponent,
+    LucideAngularModule,
   ],
   templateUrl: './hitl-composer-dock.html',
   styleUrl: './hitl-composer-dock.css',
@@ -59,10 +61,11 @@ export class HitlComposerDockComponent {
 
   artifactTrackKey(artifact: HitlTrailArtifact): string {
     switch (artifact.role) {
+      // Cards from the agent and its sub-agents share the dock; key by who asked as well.
       case 'accept_command':
-        return `accept:${artifact.payload.requestId}`;
+        return `accept:${artifact.payload.subagent?.conversationId ?? ''}:${artifact.payload.requestId}`;
       case 'delete_confirm':
-        return `del:${artifact.payload.requestId}`;
+        return `del:${artifact.payload.subagent?.conversationId ?? ''}:${artifact.payload.requestId}`;
       case 'plan_confirm':
         return `plan:${artifact.payload.requestId}`;
       case 'agent_question':

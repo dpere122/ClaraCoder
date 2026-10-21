@@ -76,6 +76,9 @@ const TOOL_SPECS: Readonly<Record<string, ToolSpec>> = {
   mark_build_plan_steps_complete: { verb: 'Plan progress', category: 'other' },
   java_bootstrap_project: { verb: 'Bootstrap Java', category: 'other' },
   activate_context: { verb: 'Load context', category: 'other' },
+  spawn_subagent: { verb: 'Sub-agent', category: 'other' },
+  wait_for_subagents: { verb: 'Waiting for sub-agents', category: 'other' },
+  stop_subagent: { verb: 'Stop sub-agent', category: 'other' },
 };
 
 /** `lsp_update_typescript_file` / `lsp_create_java_file`: language-routed full-file writes. */
@@ -358,8 +361,26 @@ export function toolPillLabel(part: StreamPart, live = false): ToolPillLabel {
   const { verb, category } = toolSpec(name);
   const text = part.text.trim();
   const state = part.toolChainState;
-  const target = (part.toolTarget ?? '').trim() || (state === 'running' ? '' : targetFromResult(name, category, text));
+  const target =
+    // A sub-agent pill names the sub-agent, not the task text its running detail carries.
+    (part.toolSubagentName ?? '').trim() ||
+    (part.toolTarget ?? '').trim() ||
+    (state === 'running' ? '' : targetFromResult(name, category, text));
 
+  if (part.toolStopped) {
+    // Still running when its turn was stopped or interrupted: it has no result. A sub-agent is
+    // not stopped with it: only the wait for its report ended (the report reaches a later turn).
+    return {
+      category,
+      verb,
+      target: target || toolTargetFromRunningDetail(readToolStatusHeadline(text)),
+      detail: isSubagentSpawnCall(part) ? 'kept running' : 'stopped',
+    };
+  }
+  if (state === 'running' && part.toolSubagentName) {
+    // The sub-agent dock shows its task and live activity; the pill stays a compact name.
+    return { category, verb, target, detail: '' };
+  }
   if (state === 'running') {
     const current = toolTargetFromRunningDetail(readToolStatusHeadline(text));
     // Out-of-band progress (write-job phases) replaces the running detail once the target is kept.
@@ -385,6 +406,11 @@ export function toolPillLabel(part: StreamPart, live = false): ToolPillLabel {
     detail = condenseToolTrailText(readToolStatusHeadline(text), 48);
   }
   return { category, verb, target, detail };
+}
+
+/** A `spawn_subagent` call: its sub-agent outlives the turn, so a cut-off call did not stop it. */
+export function isSubagentSpawnCall(part: Pick<StreamPart, 'label'>): boolean {
+  return part.label.trim() === 'spawn_subagent';
 }
 
 /** Pill meta line: `target · detail` (either may be empty). */

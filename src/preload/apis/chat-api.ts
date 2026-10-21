@@ -2,6 +2,8 @@ import type { PreloadIpc } from '../preload-ipc';
 import type {
   AcceptCommandPayload,
   DeleteConfirmPayload,
+  SubagentResultsReadyEvent,
+  SubagentStartedEvent,
   TtsProvider,
   TurnEditedFile,
   TtsStreamPacket,
@@ -56,8 +58,16 @@ export const createChatApi = (ipcRenderer: PreloadIpc) => ({
       conversationId: string,
       outcome?: 'completed' | 'aborted' | 'error',
       editedFiles?: TurnEditedFile[],
+      /** The finished turn's user message id (empty for turns sent without one). */
+      userMessageId?: string,
     ) => void,
   ) => ipcRenderer.on('message-done', callback),
+  /** Main created a sub-agent's conversation row; its stream follows on the parent's response. */
+  onSubagentStarted: (callback: (event: unknown, payload: SubagentStartedEvent) => void) =>
+    ipcRenderer.on('subagent-started', callback),
+  /** Sub-agent reports wait for a parent with no turn running; start one to hand them over. */
+  onSubagentResultsReady: (callback: (event: unknown, payload: SubagentResultsReadyEvent) => void) =>
+    ipcRenderer.on('subagent-results-ready', callback),
   onMessageTokenUsage: (
     callback: (
       event: unknown,
@@ -125,6 +135,7 @@ export const createChatApi = (ipcRenderer: PreloadIpc) => ({
     userMessageId?: string,
     adminElevationGranted?: boolean,
     workspaceNotes?: string[],
+    continueWithSubagentResults?: boolean,
   ) =>
     ipcRenderer.send(
       'message',
@@ -140,6 +151,7 @@ export const createChatApi = (ipcRenderer: PreloadIpc) => ({
       userMessageId ?? '',
       adminElevationGranted ?? false,
       workspaceNotes ?? [],
+      continueWithSubagentResults ?? false,
     ),
   abortMessage: (conversationId: string) => ipcRenderer.invoke('abort-message', conversationId),
   cancelBuildPlan: (conversationId: string, planId: string) =>

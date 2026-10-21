@@ -93,12 +93,14 @@ python -m pytest python/tests/test_tool_budget.py -q
 ```
 
 On failure the assertion prints a per-tool cost table (name + tokens, descending)
-so the bloat source is obvious. Current baselines:
+so the bloat source is obvious. `read_only` and `editor` are measured as the
+agent-mode chat turn binds them, i.e. with the sub-agent tools (`spawn_subagent`,
+`wait_for_subagents`, `stop_subagent`, ~0.55k). Current baselines:
 
-- `read_only` — ~3.0k (15 tools)
-- `editor`    — ~5.3k (25 tools)
-- `plan`      — ~5.4k
-- `editor` + web + formatters — ~5.6k
+- `read_only` — ~3.8k (19 tools)
+- `editor`    — ~6.1k (29 tools)
+- `plan`      — ~5.7k
+- `editor` + web + formatters — ~6.5k
 
 If a description change pushes a mode over the cap, compose with shared
 constants or move detail into `Annotated` param hints rather than dropping
@@ -150,3 +152,54 @@ semantics, etc.) belong in **context packs**, not always-on operational prose.
 Do **not** grow `_outer_agent_operational_block` with family playbooks—extend a
 pack instead. Tool `describe()` / `Annotated` hints stay for existence and arg
 shape; packs carry workflow knowledge.
+
+## 9. Sub-agents (`spawn_subagent`, `wait_for_subagents`, `stop_subagent`)
+
+`spawn_subagent(task, name, background=false)` (`clara_coder_backend/tools/spawn_subagent.py`)
+hands a self-contained task to an independent clone of the main agent.
+`wait_for_subagents(names?, timeout_seconds=600)` and `stop_subagent(name)`
+(`clara_coder_backend/tools/subagent_control.py`) address sub-agents by name (unique among a
+session's live ones: a repeated name gets `-2`, `-3`, …) or id. Family `Sub-agents`. The session
+fork, ownership, report delivery and the event contract live in
+`clara_coder_backend/lang_agent/subagents.py`.
+
+- **Where they are bound:** only the agent-mode chat turn of a main session
+  (`build_clara_single_outer_graph(..., allow_subagents=True)` from
+  `stream_single_agent_langgraph`, via `worker_tools_and_map(...,
+  include_subagent_tool=True)`), in Editor and Ask, together with
+  `SubagentResultsMiddleware`. Never in plan mode (plan discovery shares the
+  default builder) and never for a sub-agent.
+- **What a sub-agent gets:** the main agent's model, prompt (plus
+  `subagent_role_block`) and tools, minus the three sub-agent tools and
+  `propose_theme`. It inherits Editor / Auto Run, never Admin, and shares the
+  parent's workspace, LSP state (language servers are keyed by the parent) and
+  edit journal (one journal row per path per user turn; a sub-agent journals
+  under the turn that spawned it). It cannot ask the user; its approval cards
+  still appear (in the parent's dock) and are answered with the child's session id.
+- **Waiting or not:** by default the spawn call waits and returns the report.
+  With `background=true` it returns at once ("Started sub-agent `x` in the
+  background …"). Calls in one response run in parallel, up to
+  `CLARA_SUBAGENT_MAX_CONCURRENCY` (default 3) per main session; the rest wait
+  for a slot.
+- **Ownership:** a sub-agent belongs to the conversation, not to the turn. It
+  keeps running when the turn ends for any reason (new message, Stop, error).
+  Only its report, its card's Stop (`/chat/abort` with the child id),
+  `stop_subagent`, `/clear` / `/dispose` of the parent or app shutdown end it;
+  `/load` does not. A waiting spawn call cut off by the end of its turn gets
+  "still running independently … wait_for_subagents or stop_subagent" as its
+  result on the next turn (`lang_agent/interrupt_repair.py`).
+- **Reports reach the main agent exactly once:** as the waiting spawn call's
+  result; from `wait_for_subagents`; as a message before the next model call
+  of a live turn (or in the next turn's input); at the end of a turn, which
+  waits for running sub-agents (a `wait_for_subagents` pill) and then continues
+  with their reports; or, with no turn live, through `subagent_results_ready` on
+  the bus, after which Electron starts a turn with `continue_with_subagent_results`.
+  A report is the sub-agent's final reply (capped), a status line, the files it
+  changed and any background commands it left running (stopped when it ends).
+  The spawn result's artifact `{'subagent': {conversation_id, name}}` links the
+  pill to the child conversation and is never shown to the model.
+- **Events** go on `GET /subagents/events`, never on the parent's `/chat/stream`.
+- **No follow-ups:** a sub-agent ends with its report; a new task needs a new call.
+
+New tools that must not run inside a sub-agent are dropped in
+`worker_tools_and_map` for sessions with `subagent_parent_session_id` set.

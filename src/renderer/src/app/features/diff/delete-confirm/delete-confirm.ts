@@ -44,6 +44,11 @@ export class DeleteConfirmComponent implements OnDestroy {
     void this.ngxSpinner.hide(this.busySpinnerName);
   }
 
+  /** A sub-agent's card (shown in its parent's dock) resumes the sub-agent's session. */
+  private targetSessionId(): string | null {
+    return this.payload().subagent?.conversationId ?? this.conversationId();
+  }
+
   resolvedEntries(): DeleteConfirmEntry[] {
     const p = this.payload();
     if (p.entries?.length) {
@@ -79,7 +84,7 @@ export class DeleteConfirmComponent implements OnDestroy {
 
   async onConfirm(): Promise<void> {
     if (this.continueSent || this.busy() || this.reviewStatus() !== 'pending') return;
-    const id = this.conversationId();
+    const id = this.targetSessionId();
     if (!id) return;
     this.busy.set(true);
     this.continueSent = true;
@@ -100,7 +105,7 @@ export class DeleteConfirmComponent implements OnDestroy {
 
   async onCancel(): Promise<void> {
     if (this.continueSent || this.busy() || this.reviewStatus() !== 'pending') return;
-    const id = this.conversationId();
+    const id = this.targetSessionId();
     if (!id) return;
     this.busy.set(true);
     this.continueSent = true;

@@ -58,6 +58,7 @@
         "--t-code-bg",
         "--t-code-inline-bg",
         "--t-code-text",
+        "--t-danger",
         "--t-fg",
         "--t-glow",
         "--t-glow-soft",
@@ -211,6 +212,53 @@
       "description": "Live thought, nudge, and tool-status pills during a reply."
     },
     {
+      "id": "chat.subagent-banner",
+      "label": "Sub-agent banner",
+      "category": "chat",
+      "categoryLabel": "Chat",
+      "selector": "[data-theme-group=\"chat.subagent-banner\"]",
+      "component": "app/features/chat/chat-active-stack",
+      "tokens": [
+        "--t-bg",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-edge-light",
+        "--t-fg",
+        "--t-hover-bg",
+        "--t-primary",
+        "--t-secondary",
+        "--t-text-muted",
+        "--t-warn"
+      ],
+      "supportsBackground": false,
+      "description": "Read-only banner shown in place of the composer in a sub-agent conversation."
+    },
+    {
+      "id": "chat.subagent-dock",
+      "label": "Sub-agent preview",
+      "category": "chat",
+      "categoryLabel": "Chat",
+      "selector": "[data-theme-group=\"chat.subagent-dock\"]",
+      "component": "app/features/chat/subagent-dock",
+      "tokens": [
+        "--t-bg",
+        "--t-bg-surface",
+        "--t-border",
+        "--t-border-subtle",
+        "--t-danger",
+        "--t-font-mono",
+        "--t-hover-bg",
+        "--t-primary",
+        "--t-secondary",
+        "--t-success",
+        "--t-text-muted",
+        "--t-warn"
+      ],
+      "supportsBackground": false,
+      "description": "Live cards for the sub-agents a reply is running, above the composer."
+    },
+    {
       "id": "chat.transcript",
       "label": "Transcript",
       "category": "chat",
@@ -317,6 +365,7 @@
         "--t-code-bg",
         "--t-code-inline-bg",
         "--t-code-text",
+        "--t-danger",
         "--t-fg",
         "--t-glow",
         "--t-glow-soft",
@@ -724,7 +773,8 @@
       "selector": "[data-theme-group=\"hitl.dock\"]",
       "component": "app/features/chat/hitl-composer-dock",
       "tokens": [
-        "--t-border-subtle"
+        "--t-border-subtle",
+        "--t-secondary"
       ],
       "supportsBackground": false,
       "description": "Panel above the composer that holds pending review cards."

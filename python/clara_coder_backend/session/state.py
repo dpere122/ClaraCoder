@@ -120,6 +120,9 @@ def _session_is_idle_evictable(sid: str, sess: SessionState, *, now: float, prot
         return False
     if sess.active_langgraph_agent_streams > 0:
         return False
+    # Sub-agents end (and tear down) on their own; a parent keeps its running ones and waiting reports.
+    if sess.subagent_parent_session_id or sess.subagent_children or sess.subagent_pending_reports:
+        return False
     touched = float(sess.last_touched or 0.0)
     if touched <= 0.0:
         return True

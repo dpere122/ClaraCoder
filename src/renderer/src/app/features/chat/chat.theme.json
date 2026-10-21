@@ -41,6 +41,14 @@
       "label": "Conversation list",
       "description": "Saved conversations in the sidebar hub.",
       "styleSources": ["features/chat/chat-conversation-hub"]
+    },
+    "chat.subagent-dock": {
+      "label": "Sub-agent preview",
+      "description": "Live cards for the sub-agents a reply is running, above the composer."
+    },
+    "chat.subagent-banner": {
+      "label": "Sub-agent banner",
+      "description": "Read-only banner shown in place of the composer in a sub-agent conversation."
     }
   }
 }

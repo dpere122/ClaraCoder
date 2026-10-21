@@ -83,6 +83,12 @@ export class AcceptCommandComponent implements OnDestroy {
 
   readonly acceptCommandFinished = output<AcceptCommandFinishedEvent>();
 
+  /**
+   * Session the answer goes to: a sub-agent's card (shown in its parent's dock) resumes the
+   * sub-agent, every other card the conversation it is shown in.
+   */
+  private readonly targetSessionId = computed(() => this.payload().subagent?.conversationId ?? this.conversationId());
+
   readonly busy = signal(false);
   readonly busySpinnerName = newHitlBtnSpinnerName('accept');
   readonly busySpinnerType = HITL_BTN_SPINNER_TYPE;
@@ -171,14 +177,14 @@ export class AcceptCommandComponent implements OnDestroy {
     const req = this.payload().requestId;
     const kind = this.payload().kind;
     if (kind === 'mcp_tool') {
-      const id = this.conversationId();
+      const id = this.targetSessionId();
       if (!id) return;
       this.busy.set(true);
       this.continueSent = true;
       await this.persistMcpDecision('deny');
       await this.electron.notifyAgentContinue(id, '', undefined, undefined, 'deny', req);
       this.busy.set(false);
-      this.acceptCommandFinished.emit({
+      this.emitFinished({
         requestId: req,
         status: 'cancelled',
         summary: 'Denied.',
@@ -189,7 +195,7 @@ export class AcceptCommandComponent implements OnDestroy {
     }
     if (this.isLocalAdminGrant()) {
       this.continueSent = true;
-      this.acceptCommandFinished.emit({
+      this.emitFinished({
         requestId: req,
         status: 'cancelled',
         summary: 'Cancelled.',
@@ -198,7 +204,7 @@ export class AcceptCommandComponent implements OnDestroy {
       });
       return;
     }
-    const id = this.conversationId();
+    const id = this.targetSessionId();
     if (!id) return;
     this.busy.set(true);
     this.continueSent = true;
@@ -211,13 +217,18 @@ export class AcceptCommandComponent implements OnDestroy {
       req,
     );
     this.busy.set(false);
-    this.acceptCommandFinished.emit({
+    this.emitFinished({
       requestId: req,
       status: 'cancelled',
       summary: 'Cancelled.',
       action: 'cancel',
       kind,
     });
+  }
+
+  private emitFinished(event: Omit<AcceptCommandFinishedEvent, 'subagentConversationId'>): void {
+    const subagentConversationId = this.payload().subagent?.conversationId;
+    this.acceptCommandFinished.emit(subagentConversationId ? { ...event, subagentConversationId } : event);
   }
 
   /** Store Allow, Deny, or Allow-all before the agent resumes, so a later Settings save cannot drop it. */
@@ -249,7 +260,7 @@ export class AcceptCommandComponent implements OnDestroy {
       this.busy.set(false);
       if (!res.ok) {
         this.continueSent = false;
-        this.acceptCommandFinished.emit({
+        this.emitFinished({
           requestId: req,
           status: 'cancelled',
           summary: res.error ?? 'Administrator prompt was cancelled or failed.',
@@ -258,7 +269,7 @@ export class AcceptCommandComponent implements OnDestroy {
         });
         return;
       }
-      this.acceptCommandFinished.emit({
+      this.emitFinished({
         requestId: req,
         status: 'complete',
         summary: `${summaryLabel} granted for this agent.`,
@@ -267,7 +278,7 @@ export class AcceptCommandComponent implements OnDestroy {
       });
       return;
     }
-    const id = this.conversationId();
+    const id = this.targetSessionId();
     if (!id) return;
     // Lock the card before any await: a second click while the decision is saved would
     // otherwise send a second (or contradicting) answer.
@@ -289,7 +300,7 @@ export class AcceptCommandComponent implements OnDestroy {
         );
         this.busy.set(false);
         this.continueSent = false;
-        this.acceptCommandFinished.emit({
+        this.emitFinished({
           requestId: req,
           status: 'cancelled',
           summary: grant.error ?? 'Administrator prompt was cancelled or failed.',
@@ -310,7 +321,7 @@ export class AcceptCommandComponent implements OnDestroy {
     this.busy.set(false);
     if (!res.ok) {
       this.continueSent = false;
-      this.acceptCommandFinished.emit({
+      this.emitFinished({
         requestId: req,
         status: 'cancelled',
         summary: res.error ?? 'Request failed',
@@ -319,7 +330,7 @@ export class AcceptCommandComponent implements OnDestroy {
       });
       return;
     }
-    this.acceptCommandFinished.emit({
+    this.emitFinished({
       requestId: req,
       status: 'complete',
       summary: `${summaryLabel} sent; assistant resuming.`,

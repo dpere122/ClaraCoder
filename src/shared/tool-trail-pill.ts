@@ -121,6 +121,10 @@ export function delegatedStreamPartMeta(part: StreamPart): string {
 export type ToolTrailPillState = 'running' | 'complete' | 'error' | 'neutral';
 
 export function toolStatusStreamPartPillState(part: StreamPart): ToolTrailPillState {
+  if (part.toolStopped) {
+    // Cut off when its turn was stopped or interrupted: it never finished, but it did not fail.
+    return 'neutral';
+  }
   if (part.toolChainState === 'running') {
     return 'running';
   }
@@ -146,6 +150,10 @@ export function shellStreamPartPillState(part: StreamPart, live: boolean): ToolT
 /** True when the part has detail worth revealing on expand. */
 export function streamPartIsExpandable(part: StreamPart, kind: 'status' | 'shell' | 'delegated'): boolean {
   if (kind === 'shell') {
+    return true;
+  }
+  if (part.toolSubagentId) {
+    // The expanded body carries the Open link even before the sub-agent reports back.
     return true;
   }
   if (isReadToolPreviewStreamTag(part.streamTag)) {

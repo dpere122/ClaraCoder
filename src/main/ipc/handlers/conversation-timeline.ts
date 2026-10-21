@@ -23,31 +23,19 @@ import { loadConfigSync } from '../../config/load-save';
 import { applyTimelineInvertActions } from '../../conversation-timeline';
 import {
   appendConversationFileJournal,
+  deleteConversationById,
   deleteConversationFileJournalForUserIds,
   getConversationById,
+  listChildConversationIdsForTurns,
   listConversationFileJournal,
+  markConversationsDeleted,
   upsertConversation,
 } from '../../conversations-db';
+import { pythonHistoryFromMessages } from '../../python-history';
 import { ensurePythonReady } from '../../python/server';
 import { pythonControlFetch } from '../../python/http-client';
 import { getTurnFileDiff, listTurnFiles, resetTurnFiles } from '../../turn-edits';
 import { assertTrustedMainRenderer } from '../assert-trusted-renderer';
-
-function pythonHistoryMessages(messages: ConversationFile['messages']): unknown[] {
-  const pyMessages: unknown[] = [];
-  for (const m of messages) {
-    if (m.role === 'user') {
-      pyMessages.push({
-        role: 'user',
-        message: m.text,
-        ...(m.structuredContent?.length ? { structuredContent: m.structuredContent } : {}),
-      });
-    } else if (m.role === 'assistant') {
-      pyMessages.push({ role: 'assistant', content: m.text });
-    }
-  }
-  return pyMessages;
-}
 
 async function resyncPythonHistory(conversationId: string, messages: ConversationFile['messages']): Promise<void> {
   try {
@@ -55,10 +43,42 @@ async function resyncPythonHistory(conversationId: string, messages: Conversatio
     await pythonControlFetch('/load', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: conversationId, messages: pythonHistoryMessages(messages) }),
+      body: JSON.stringify({ session_id: conversationId, messages: pythonHistoryFromMessages(messages) }),
     });
   } catch (err) {
     console.error('[ConversationTimeline] Failed to sync history with Python:', err);
+  }
+}
+
+/**
+ * Stop the sub-agents of the turns a restore removes, before their files are reverted: one still
+ * running would keep writing. `/dispose` drops their reports, so the rolled-back work never comes
+ * back to the main agent.
+ */
+async function stopChildrenOfTurns(conversationId: string, turnIds: readonly string[]): Promise<string[]> {
+  const childIds = listChildConversationIdsForTurns(conversationId, turnIds);
+  for (const childId of childIds) {
+    try {
+      await pythonControlFetch('/dispose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: childId }),
+      });
+    } catch (err) {
+      console.error('[ConversationTimeline] Failed to dispose sub-agent session:', err);
+    }
+  }
+  return childIds;
+}
+
+/** Delete the sub-agent conversations a restore truncated away (their parent turns no longer exist). */
+function deleteChildConversations(childIds: readonly string[]): void {
+  if (childIds.length === 0) {
+    return;
+  }
+  markConversationsDeleted(childIds);
+  for (const childId of childIds) {
+    deleteConversationById(childId);
   }
 }
 
@@ -197,6 +217,10 @@ export function registerConversationTimelineIpc(): void {
       if (!conv) {
         return { ok: false, error: 'Conversation not found.' };
       }
+      if (conv.parentConversationId) {
+        // A sub-agent's edits are journaled under its parent's turn; restore that turn instead.
+        return { ok: false, error: 'Sub-agent conversations are read-only.' };
+      }
       const keepThrough = resolveRestoreUserIndex(conv.messages, request);
       if (keepThrough < 0) {
         return { ok: false, error: 'Restore point is not a user message.' };
@@ -220,6 +244,7 @@ export function registerConversationTimelineIpc(): void {
       if (actions.length > 0 && !workspaceRoot) {
         return { ok: false, error: 'No workspace root for this conversation; cannot revert files.' };
       }
+      const childIds = await stopChildrenOfTurns(conversationId, [...invertIds]);
       if (workspaceRoot && actions.length > 0) {
         const applied = await applyTimelineInvertActions(workspaceRoot, actions);
         revertedPaths = applied.revertedPaths;
@@ -239,9 +264,16 @@ export function registerConversationTimelineIpc(): void {
       conv.updatedAt = new Date().toISOString();
       upsertConversation(conv);
       deleteConversationFileJournalForUserIds(conversationId, [...invertIds]);
+      deleteChildConversations(childIds);
       await resyncPythonHistory(conversationId, nextMessages);
 
-      return { ok: true, messages: nextMessages, revertedPaths, skippedPaths };
+      return {
+        ok: true,
+        messages: nextMessages,
+        revertedPaths,
+        skippedPaths,
+        ...(childIds.length ? { deletedSubagentIds: childIds } : {}),
+      };
     },
   );
 }

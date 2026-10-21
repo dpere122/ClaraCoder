@@ -86,6 +86,9 @@ class SessionEditJournalState:
     journal_turn_id: str = ''
     #: Workspace-relative POSIX paths whose pre-turn bytes were already journaled this turn.
     journaled_paths: set[str] = field(default_factory=set)
+    #: ``journaled_paths`` of recent earlier turns (bounded): a background sub-agent still journals under
+    #: the turn that started it while the main agent works on a newer one; neither re-journals a path.
+    journal_earlier_turns: dict[str, set[str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -161,6 +164,39 @@ class SessionPlanState:
     active_build_plan_path: str = ''
 
 
+@dataclass
+class SessionAgentState:
+    """Sub-agent links: a child's parent, a parent's running children, and their per-call bookkeeping.
+
+    Sub-agents belong to the parent conversation, not to the turn that started them: they outlive it,
+    and their reports wait here until the main agent gets them. Fields carry a ``subagent_`` prefix
+    because every nested field is also a flat ``SessionState`` name.
+    """
+
+    #: Parent session id when this session is a sub-agent (one-shot clone of the main agent); empty otherwise.
+    subagent_parent_session_id: str = ''
+    #: Short label the main agent gave this sub-agent (``spawn_subagent`` ``name``).
+    subagent_name: str = ''
+    #: Running sub-agent turns by child session id (parent sessions only).
+    subagent_children: dict[str, asyncio.Task] = field(default_factory=dict)
+    #: Caps this parent's concurrent sub-agents; created on the first spawn (binds to the running loop).
+    subagent_semaphore: asyncio.Semaphore | None = None
+    #: Workspace-relative paths this sub-agent mutated (every mutation, not only the journaled first one).
+    subagent_touched_paths: set[str] = field(default_factory=set)
+    #: Results for spawn calls an ended turn left open, by the call's ``tool_call_id`` (parent only).
+    subagent_interrupted_reports: dict[str, str] = field(default_factory=dict)
+    #: Finished sub-agents' reports the main agent has not received yet, by child id in finish order
+    #: (parent only). Kept across ``/load``; dropped with the conversation (``/clear``, ``/dispose``).
+    subagent_pending_reports: dict[str, Any] = field(default_factory=dict)
+    #: Reports the live turn took (its input, spawn / wait results, injected messages); put back if the
+    #: turn's thread is dropped (it failed, or a plan turn stopped), so none is lost (parent only).
+    subagent_turn_reports: list[Any] = field(default_factory=list)
+    #: Chat turns of this main session in progress (reports queued meanwhile go to them, not the bus).
+    subagent_live_turns: int = 0
+    #: Stop requested before or while this sub-agent's turn starts (its composer clears ``abort_event``).
+    subagent_cancel_requested: bool = False
+
+
 def _nest_prop(nest: str, attr: str):
     def g(self):  # noqa: ANN001
         return getattr(getattr(self, nest), attr)
@@ -178,6 +214,7 @@ _NEST_CLASSES: dict[str, type] = {
     'lsp': SessionLspState,
     'stream': SessionStreamState,
     'plans': SessionPlanState,
+    'agents': SessionAgentState,
 }
 
 _FLAT_FIELD_TO_NEST: dict[str, tuple[str, str]] = {}
@@ -197,6 +234,7 @@ class SessionState:
     lsp: SessionLspState
     stream: SessionStreamState
     plans: SessionPlanState
+    agents: SessionAgentState
 
     def __init__(self, **kwargs: Any) -> None:
         self.history = kwargs.pop('history', [])

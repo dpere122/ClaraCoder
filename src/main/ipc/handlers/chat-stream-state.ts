@@ -37,6 +37,11 @@ export function beginChatStream(conversationId: string, workspaceId: string | nu
   return abortController;
 }
 
+/** True while a `/chat/stream` for this conversation is open. */
+export function hasActiveChatStream(conversationId: string): boolean {
+  return streamAbortControllers.has(conversationId);
+}
+
 /** True when `controller`'s stream was cancelled by a newer stream for the same conversation. */
 export function wasChatStreamSuperseded(controller: AbortController): boolean {
   return supersededControllers.has(controller);

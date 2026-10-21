@@ -1,0 +1,89 @@
+<div
+  class="subagent-dock"
+  data-theme-group="chat.subagent-dock"
+  [class.subagent-dock--open]="open()"
+  [attr.aria-hidden]="open() ? null : 'true'"
+>
+  <div class="subagent-dock__panel" role="region" aria-label="Running sub-agents">
+    <div class="subagent-dock__header-row">
+      <button
+        type="button"
+        class="subagent-dock__header"
+        [attr.aria-expanded]="!collapsed()"
+        (click)="toggleCollapsed()"
+      >
+        <lucide-icon class="subagent-dock__header-icon" name="bot" [size]="14" />
+        <span class="subagent-dock__title">Sub-agents</span>
+        <span class="subagent-dock__summary">{{ summary() }}</span>
+        <lucide-icon class="subagent-dock__chevron" [name]="collapsed() ? 'chevron-right' : 'chevron-down'" [size]="13" />
+      </button>
+      @if (runningCount() > 1) {
+        <button
+          type="button"
+          class="subagent-dock__stop-all"
+          title="Stop every running sub-agent (the main agent gets their partial reports)"
+          (click)="stopAll()"
+        >
+          <lucide-icon name="square" [size]="10" aria-hidden="true" />
+          Stop all
+        </button>
+      }
+    </div>
+    @if (!collapsed()) {
+      <ul class="subagent-dock__list">
+        @for (card of cards(); track card.conversationId) {
+          <li
+            class="subagent-card"
+            [class]="'subagent-card subagent-card--' + card.state"
+            (click)="openSubagent(card)"
+            [title]="'Open ' + card.name"
+          >
+            <div class="subagent-card__head">
+              <span class="subagent-card__status" aria-hidden="true">
+                @if (spinnerSrc(card); as src) {
+                  <img class="subagent-card__spinner" [src]="src" alt="" />
+                } @else if (card.state === 'review') {
+                  <lucide-icon name="circle-alert" [size]="13" />
+                } @else if (card.state === 'done') {
+                  <lucide-icon name="check" [size]="13" />
+                } @else if (card.state === 'failed') {
+                  <lucide-icon name="triangle-alert" [size]="13" />
+                } @else if (card.state === 'stopped') {
+                  <lucide-icon name="square" [size]="11" />
+                } @else {
+                  <lucide-icon name="bot" [size]="13" />
+                }
+              </span>
+              <span class="subagent-card__name">{{ card.name }}</span>
+              <span class="subagent-card__state" role="status">{{ card.stateLabel }}</span>
+              @if (card.background) {
+                <span class="subagent-card__mode" title="The main agent kept working instead of waiting for this one">background</span>
+              }
+              <span class="subagent-card__elapsed">{{ card.elapsed }}</span>
+              <span class="subagent-card__actions">
+                @if (card.live) {
+                  <button
+                    type="button"
+                    class="subagent-card__btn subagent-card__btn--stop"
+                    title="Stop this sub-agent"
+                    [attr.aria-label]="'Stop ' + card.name"
+                    (click)="stopSubagent(card, $event)"
+                  >
+                    <lucide-icon name="square" [size]="11" />
+                  </button>
+                }
+              </span>
+            </div>
+            <div class="subagent-card__task" [title]="card.taskFull">{{ card.task }}</div>
+            @if (card.activity) {
+              <div class="subagent-card__activity">{{ card.activity }}</div>
+            }
+            @if (card.textTail) {
+              <div class="subagent-card__text">{{ card.textTail }}</div>
+            }
+          </li>
+        }
+      </ul>
+    }
+  </div>
+</div>

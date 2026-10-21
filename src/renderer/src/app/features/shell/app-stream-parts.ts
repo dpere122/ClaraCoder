@@ -130,6 +130,10 @@ export function upsertToolTrailStatusStreamPart(parts: StreamPart[], status: Llm
     ...(target ? { toolTarget: target } : {}),
     ...(status.toolDiff ? { toolDiff: status.toolDiff } : {}),
     ...(status.durationMs !== undefined ? { toolDurationMs: status.durationMs } : {}),
+    // Later statuses without the link (e.g. a plain progress update) keep it via the merge below.
+    ...(status.subagent
+      ? { toolSubagentId: status.subagent.conversationId, toolSubagentName: status.subagent.name }
+      : {}),
   };
   if (idx >= 0) {
     const prev = next[idx];

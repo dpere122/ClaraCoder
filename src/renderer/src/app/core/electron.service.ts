@@ -49,6 +49,8 @@ import type {
   BuildPlanOpenPayload,
   BuildPlanStreamEndPayload,
   PythonInterpreterListItem,
+  SubagentResultsReadyEvent,
+  SubagentStartedEvent,
   SystemFontInfo,
   TtsProvider,
   TtsStreamPacket,
@@ -169,6 +171,8 @@ export interface DoneMessage {
   outcome: ChatStreamOutcome;
   /** Files the turn wrote, snapshotted by main at stream end (empty when none). */
   editedFiles: TurnEditedFile[];
+  /** The finished turn's user message id; empty when main did not know it. */
+  userMessageId: string;
 }
 
 export interface LlmStatusMessage {
@@ -373,6 +377,8 @@ export class ElectronService {
   private readonly planConfirmSubject = new Subject<PlanConfirmMessage>();
   private readonly agentQuestionSubject = new Subject<AgentQuestionMessage>();
   private readonly themeProposalSubject = new Subject<ThemeProposalMessage>();
+  private readonly subagentStartedSubject = new Subject<SubagentStartedEvent>();
+  private readonly subagentResultsReadySubject = new Subject<SubagentResultsReadyEvent>();
   private readonly configSubject = new Subject<AppConfig>();
   private readonly themeLibrarySubject = new Subject<ClaraThemeDocument[]>();
   private readonly themePreviewSubject = new Subject<ClaraThemeDocument | null>();
@@ -434,6 +440,10 @@ export class ElectronService {
   readonly agentQuestion$ = this.agentQuestionSubject.asObservable();
   /** Agent-authored theme proposals (`propose_theme` tool) for the Preview / Save card. */
   readonly themeProposal$ = this.themeProposalSubject.asObservable();
+  /** The main agent spawned a sub-agent; main has already created its conversation row. */
+  readonly subagentStarted$ = this.subagentStartedSubject.asObservable();
+  /** Sub-agent reports wait for a parent conversation with no turn running (start one to deliver them). */
+  readonly subagentResultsReady$ = this.subagentResultsReadySubject.asObservable();
   readonly config$ = this.configSubject.asObservable();
   /** Full theme library (built-ins + user themes) after any mutation in main. */
   readonly themeLibrary$ = this.themeLibrarySubject.asObservable();
@@ -475,6 +485,19 @@ export class ElectronService {
       return;
     }
     this.streamBatchRaf = requestAnimationFrame(() => this.flushStreamBatch());
+  }
+
+  /**
+   * Deliver queued chunks now instead of on the next frame. Events that settle or reshape a turn
+   * (done, final text, clear / promote primary, sub-agent start) are not batched, so they flush
+   * first: otherwise a turn's last chunks would land after it ended.
+   */
+  flushPendingStreamBatch(): void {
+    if (this.streamBatchRaf == null) {
+      return;
+    }
+    cancelAnimationFrame(this.streamBatchRaf);
+    this.flushStreamBatch();
   }
 
   private flushStreamBatch(): void {
@@ -560,11 +583,33 @@ export class ElectronService {
         }),
       );
     });
-    this.api?.onMessageDone((_event, conversationId, outcome, editedFiles) => {
+    this.api?.onMessageDone((_event, conversationId, outcome, editedFiles, userMessageId) => {
       const resolved: ChatStreamOutcome =
         outcome === 'aborted' || outcome === 'error' || outcome === 'completed' ? outcome : 'completed';
       const files = Array.isArray(editedFiles) ? editedFiles : [];
-      this.zone.run(() => this.doneSubject.next({ conversationId, outcome: resolved, editedFiles: files }));
+      const turnId = typeof userMessageId === 'string' ? userMessageId : '';
+      this.flushPendingStreamBatch();
+      this.zone.run(() =>
+        this.doneSubject.next({ conversationId, outcome: resolved, editedFiles: files, userMessageId: turnId }),
+      );
+    });
+    this.api?.onSubagentStarted?.((_event, payload) => {
+      if (!payload || typeof payload !== 'object' || !payload.meta?.id) {
+        return;
+      }
+      this.flushPendingStreamBatch();
+      this.zone.run(() => this.subagentStartedSubject.next(payload));
+    });
+    this.api?.onSubagentResultsReady?.((_event, payload) => {
+      if (!payload || typeof payload !== 'object' || !payload.parentConversationId) {
+        return;
+      }
+      this.zone.run(() =>
+        this.subagentResultsReadySubject.next({
+          parentConversationId: payload.parentConversationId,
+          names: Array.isArray(payload.names) ? payload.names : [],
+        }),
+      );
     });
     this.api?.onMessageTokenUsage?.((_event, conversationId, usage) => {
       const u = usage && typeof usage === 'object' ? usage : {};
@@ -609,12 +654,15 @@ export class ElectronService {
       this.zone.run(() => this.llmStatusSubject.next({ conversationId, status }));
     });
     this.api?.onMessageFinalText?.((_event, conversationId, text) => {
+      this.flushPendingStreamBatch();
       this.zone.run(() => this.finalTextSubject.next({ conversationId, text }));
     });
     this.api?.onMessageClearPrimaryStream?.((_event, conversationId) => {
+      this.flushPendingStreamBatch();
       this.zone.run(() => this.clearPrimaryStreamSubject.next({ conversationId }));
     });
     this.api?.onMessagePromotePrimaryToNudge?.((_event, conversationId) => {
+      this.flushPendingStreamBatch();
       this.zone.run(() => this.promotePrimaryToNudgeSubject.next({ conversationId }));
     });
     this.api?.onMessageAcceptCommand?.((_event, conversationId, payload) => {
@@ -776,6 +824,8 @@ export class ElectronService {
     userMessageId?: string,
     adminElevationGranted = false,
     workspaceNotes: readonly string[] = [],
+    /** The turn hands the main agent its waiting sub-agent reports (see `subagentResultsReady$`). */
+    continueWithSubagentResults = false,
   ): void {
     this.api?.sendMessage(
       conversationId,
@@ -790,6 +840,7 @@ export class ElectronService {
       userMessageId,
       adminElevationGranted,
       [...workspaceNotes],
+      continueWithSubagentResults,
     );
   }
 

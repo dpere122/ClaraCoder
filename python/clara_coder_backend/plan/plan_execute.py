@@ -13,6 +13,7 @@ import re
 import time
 import uuid
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 from typing import Any
 
 from langchain_core.messages import AIMessageChunk, HumanMessage
@@ -857,17 +858,20 @@ async def _stream_plan_discovery_phase(
     # this phase. ``run_command`` is not bound here (apply_mode=False).
     hitl_bypass_token = deferred_tool_hitl_bypass.set(True)
     try:
-        async for line in _stream_langgraph_tool_agent(
-            session,
-            False,
-            discovery_prompt,
-            cfg=discover_cfg,
-            outcome=discover_outcome,
-        ):
-            if session.abort_event.is_set():
-                discover_outcome.mark_aborted()
-                break
-            yield line
+        async with aclosing(
+            _stream_langgraph_tool_agent(
+                session,
+                False,
+                discovery_prompt,
+                cfg=discover_cfg,
+                outcome=discover_outcome,
+            )
+        ) as lines:
+            async for line in lines:
+                if session.abort_event.is_set():
+                    discover_outcome.mark_aborted()
+                    break
+                yield line
     finally:
         deferred_tool_hitl_bypass.reset(hitl_bypass_token)
 
@@ -922,16 +926,19 @@ async def stream_plan_execute_langgraph(
 
     try:
         discovery_summary_box: list[str] = ['']
-        async for line in _stream_plan_discovery_phase(
-            session,
-            user_input,
-            session_id=session_id,
-            summary_out=discovery_summary_box,
-        ):
-            if session.abort_event.is_set():
-                outcome.mark_aborted()
-                return
-            yield line
+        async with aclosing(
+            _stream_plan_discovery_phase(
+                session,
+                user_input,
+                session_id=session_id,
+                summary_out=discovery_summary_box,
+            )
+        ) as lines:
+            async for line in lines:
+                if session.abort_event.is_set():
+                    outcome.mark_aborted()
+                    return
+                yield line
         discovery_summary = discovery_summary_box[0] if discovery_summary_box else ''
     except Exception as exc:
         logger.exception('Plan mode discovery failed')
@@ -993,18 +1000,21 @@ async def stream_plan_execute_langgraph(
 
     md_box: list[str] = ['']
     try:
-        async for line in _stream_planner_md(
-            user_input,
-            session=session,
-            apply_mode=tool_apply_mode,
-            discovery_summary=discovery_summary,
-            record=record,
-            md_out=md_box,
-        ):
-            if session.abort_event.is_set():
-                outcome.mark_aborted()
-                return
-            yield line
+        async with aclosing(
+            _stream_planner_md(
+                user_input,
+                session=session,
+                apply_mode=tool_apply_mode,
+                discovery_summary=discovery_summary,
+                record=record,
+                md_out=md_box,
+            )
+        ) as lines:
+            async for line in lines:
+                if session.abort_event.is_set():
+                    outcome.mark_aborted()
+                    return
+                yield line
     except Exception as exc:
         logger.exception('Plan mode planner failed')
         log_llm_failure(exc, context='plan:planner', agent_role=None)
@@ -1085,27 +1095,30 @@ async def stream_plan_execute_langgraph(
 
         followup_box: list[str] = ['']
         try:
-            async for line in _stream_plan_discovery_phase(
-                session,
-                user_input,
-                session_id=session_id,
-                summary_out=followup_box,
-                prompt=build_followup_discovery_prompt(
+            async with aclosing(
+                _stream_plan_discovery_phase(
+                    session,
                     user_input,
-                    resolved_answers=resolved_answers_text,
-                    prior_summary=discovery_summary,
-                ),
-                checkpoint_session_key=f'{session_id}:plan_discover_followup',
-                graph_name='plan_discover_followup',
-                thread_kind='plan_discover_followup',
-                status_detail='Follow-up discovery from your answers (read-only).',
-                llm_event_prefix='discover_followup',
-                event_id_prefix='plan-discover-followup',
-            ):
-                if session.abort_event.is_set():
-                    outcome.mark_aborted()
-                    return
-                yield line
+                    session_id=session_id,
+                    summary_out=followup_box,
+                    prompt=build_followup_discovery_prompt(
+                        user_input,
+                        resolved_answers=resolved_answers_text,
+                        prior_summary=discovery_summary,
+                    ),
+                    checkpoint_session_key=f'{session_id}:plan_discover_followup',
+                    graph_name='plan_discover_followup',
+                    thread_kind='plan_discover_followup',
+                    status_detail='Follow-up discovery from your answers (read-only).',
+                    llm_event_prefix='discover_followup',
+                    event_id_prefix='plan-discover-followup',
+                )
+            ) as lines:
+                async for line in lines:
+                    if session.abort_event.is_set():
+                        outcome.mark_aborted()
+                        return
+                    yield line
         except Exception:
             logger.exception('Follow-up discovery failed; continuing with the original summary')
             followup_box = ['']
@@ -1140,20 +1153,23 @@ async def stream_plan_execute_langgraph(
         )
         rewrite_box: list[str] = ['']
         try:
-            async for line in _stream_planner_md(
-                user_input,
-                session=session,
-                apply_mode=tool_apply_mode,
-                discovery_summary=combined_summary,
-                record=record,
-                md_out=rewrite_box,
-                resolved_answers=resolved_answers_text,
-                prior_plan_md=prior_md,
-            ):
-                if session.abort_event.is_set():
-                    outcome.mark_aborted()
-                    return
-                yield line
+            async with aclosing(
+                _stream_planner_md(
+                    user_input,
+                    session=session,
+                    apply_mode=tool_apply_mode,
+                    discovery_summary=combined_summary,
+                    record=record,
+                    md_out=rewrite_box,
+                    resolved_answers=resolved_answers_text,
+                    prior_plan_md=prior_md,
+                )
+            ) as lines:
+                async for line in lines:
+                    if session.abort_event.is_set():
+                        outcome.mark_aborted()
+                        return
+                    yield line
         except Exception as exc:
             logger.exception('Plan rewrite failed; binding answers into the prior draft')
             log_llm_failure(exc, context='plan:rewrite', agent_role=None)
@@ -1325,18 +1341,21 @@ async def stream_plan_execute_langgraph(
 
     # Keep deferred-tool HITL active (``run_command``, staging overlay, web tools) so
     # auto-apply-off still pauses for accept-command during execution.
-    async for line in _stream_langgraph_tool_agent(
-        session,
-        tool_apply_mode,
-        exec_prompt,
-        cfg=exec_cfg,
-        outcome=exec_outcome,
-        outer_graph_builder=_plan_execute_outer_graph_builder,
-    ):
-        if session.abort_event.is_set():
-            exec_outcome.mark_aborted()
-            break
-        yield line
+    async with aclosing(
+        _stream_langgraph_tool_agent(
+            session,
+            tool_apply_mode,
+            exec_prompt,
+            cfg=exec_cfg,
+            outcome=exec_outcome,
+            outer_graph_builder=_plan_execute_outer_graph_builder,
+        )
+    ) as lines:
+        async for line in lines:
+            if session.abort_event.is_set():
+                exec_outcome.mark_aborted()
+                break
+            yield line
 
     exec_result = exec_outcome.best_available_text()
     exec_ok = exec_outcome.state == AgentLoopOutcome.COMPLETED

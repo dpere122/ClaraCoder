@@ -8,6 +8,8 @@
   ``format_workspace_file``), plus ``copy_workspace_files``, ``delete_workspace_entries`` and
   ``java_bootstrap_project``.
 - With Editor on: background ``run_command`` jobs and MCP tools.
+- Agent-mode chat turns of a main session: ``spawn_subagent``, ``wait_for_subagents``, ``stop_subagent``.
+  Sub-agents get none of them, nor ``propose_theme``.
 
 Edits, copies and deletes land on disk immediately and are journaled per turn. The user reviews and resets
 them after the reply. There is no staging, transfer step or diff card.
@@ -87,23 +89,33 @@ def worker_tools_and_map(
     *,
     session: SessionState | None = None,
     edit_tools_strict_override: bool | None = None,
+    include_subagent_tool: bool = False,
 ) -> tuple[list[Any], dict[str, Any]]:
     """Tools for the outer Clara agent: reads always; mutators, commands and MCP when Editor is on.
 
     ``edit_tools_strict_override`` — when set, drives the snippet-tool omission instead of runtime Settings.
+    ``include_subagent_tool`` — bind the sub-agent tools (``spawn_subagent``, ``wait_for_subagents``,
+    ``stop_subagent``; the chat turn of a main session, plan mode never). A sub-agent ``session`` never gets
+    them or ``propose_theme``.
     The bound set never depends on Auto Run: that toggle only skips command approval cards.
     """
-    del session  # Kept for call-site compatibility; bindings no longer vary per session.
     from clara_coder_backend.theme.propose_theme import propose_theme_tool
     from clara_coder_backend.tools.user_terminals import check_user_terminals_tool
 
+    is_subagent = bool(session is not None and session.subagent_parent_session_id)
     tools: list[Any] = [
         *TOOLS,
         *ACTIVATE_CONTEXT_TOOLS,
         *LSP_READ_TOOLS,
         check_user_terminals_tool,
-        propose_theme_tool,
     ]
+    if not is_subagent:
+        tools.append(propose_theme_tool)
+    if include_subagent_tool and not is_subagent:
+        from clara_coder_backend.tools.spawn_subagent import spawn_subagent_tool
+        from clara_coder_backend.tools.subagent_control import stop_subagent_tool, wait_for_subagents_tool
+
+        tools.extend([spawn_subagent_tool, wait_for_subagents_tool, stop_subagent_tool])
     if getattr(runtime_config.tools, 'allow_web_access', False):
         from clara_coder_backend.tools.fetch_url import fetch_url_tool
         from clara_coder_backend.tools.web_search import web_search_tool
@@ -179,6 +191,7 @@ TOOL_FAMILIES: list[tuple[str, tuple[str, ...]]] = [
         ),
     ),
     ('Build plan', ('read_build_plan', 'mark_build_plan_steps_complete')),
+    ('Sub-agents', ('spawn_subagent', 'wait_for_subagents', 'stop_subagent')),
     ('App theme', ('propose_theme',)),
     ('Other', ()),
 ]

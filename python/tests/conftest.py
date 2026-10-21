@@ -27,6 +27,22 @@ def _sidecar_auth_optional(monkeypatch):
     monkeypatch.setenv('CLARA_SIDECAR_AUTH_OPTIONAL', '1')
 
 
+@pytest.fixture(autouse=True)
+def _reset_turns_and_subagents():
+    """Per-session turn locks bind to the loop that first waited on them; tests each get a new loop.
+
+    The sub-agent registry and its event bus (buffered events, subscribers) are process-wide too.
+    """
+    from clara_coder_backend.lang_agent.subagents import reset_subagents_for_tests
+    from clara_coder_backend.session.turns import reset_turns_for_tests
+
+    reset_turns_for_tests()
+    reset_subagents_for_tests()
+    yield
+    reset_turns_for_tests()
+    reset_subagents_for_tests()
+
+
 @pytest.fixture()
 def workspace_env():
     """Editor-mode session with a temp workspace for the write-through edit tools."""
@@ -47,6 +63,7 @@ def workspace_env():
     session.current_user_message_id = 'turn-1'
     session.edits.journal_turn_id = ''
     session.edits.journaled_paths = set()
+    session.edits.journal_earlier_turns = {}
     session.hitl_sse_queue = None
     session.abort_event.clear()
     session.planning_nested_events_q = None

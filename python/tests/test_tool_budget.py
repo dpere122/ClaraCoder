@@ -47,10 +47,16 @@ def test_tool_budget_measures_known_tools() -> None:
     assert result['count'] > 0
     names = [name for name, _ in result['per_tool']]
     assert 'read_workspace_file' in names
-    # Sanity-check the low-level helper too: same set, same total.
-    from clara_coder_backend.hitl.tool_registry import planner_discovery_tools_and_map
+    # Sanity-check the low-level helper too: same set, same total (the agent-mode Ask set).
+    from clara_coder_backend.hitl.tool_registry import worker_tools_and_map
 
-    tools, _ = planner_discovery_tools_and_map(session=SessionState())
+    tools, _ = worker_tools_and_map(False, session=SessionState(), include_subagent_tool=True)
     direct = measure_tools(tools)
     assert direct['total'] == result['total']
     assert direct['count'] == result['count']
+
+
+def test_budget_modes_measure_with_the_subagent_tools_bound() -> None:
+    for mode in ('read_only', 'editor'):
+        names = [name for name, _ in measure_mode(mode, session=SessionState())['per_tool']]
+        assert {'spawn_subagent', 'wait_for_subagents', 'stop_subagent'} <= set(names), mode

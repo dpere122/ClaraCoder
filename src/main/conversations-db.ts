@@ -46,18 +46,31 @@ function rowToConversationFile(row: ConversationRow): ConversationFile {
     workspaceId: row.workspace_id,
     themeId: row.theme_id || FIRST_THEME_ID,
     customTitle: customTitleFromSqlite(row.custom_title),
+    parentConversationId: row.parent_conversation_id ?? null,
+    parentTurnId: row.parent_turn_id ?? null,
   };
 }
 
-interface ConversationRow {
+/** Columns every conversation SELECT reads except the (large) `messages_json`. */
+const META_COLUMNS =
+  'id, workspace_id, title, created_at, updated_at, theme_id, custom_title, parent_conversation_id, parent_turn_id';
+
+interface ConversationMetaRow {
   id: string;
   workspace_id: string | null;
   title: string;
   created_at: string;
   updated_at: string;
   theme_id: string;
-  messages_json: string;
   custom_title: number;
+  /** Sub-agent conversations: the conversation whose agent spawned this one. */
+  parent_conversation_id: string | null;
+  /** Sub-agent conversations: the parent user message whose turn spawned this one. */
+  parent_turn_id: string | null;
+}
+
+interface ConversationRow extends ConversationMetaRow {
+  messages_json: string;
 }
 
 interface SummaryRow {
@@ -137,6 +150,20 @@ function migrateCustomTitleColumn(database: SqliteDatabase): void {
   }
   database.exec(
     'ALTER TABLE conversations ADD COLUMN custom_title INTEGER NOT NULL DEFAULT 0',
+  );
+}
+
+/** Add the sub-agent parent links when upgrading from older DBs (idempotent). */
+function migrateSubagentColumns(database: SqliteDatabase): void {
+  const cols = database.prepare('PRAGMA table_info(conversations)').all() as { name: string }[];
+  if (!cols.some((c) => c.name === 'parent_conversation_id')) {
+    database.exec('ALTER TABLE conversations ADD COLUMN parent_conversation_id TEXT');
+  }
+  if (!cols.some((c) => c.name === 'parent_turn_id')) {
+    database.exec('ALTER TABLE conversations ADD COLUMN parent_turn_id TEXT');
+  }
+  database.exec(
+    'CREATE INDEX IF NOT EXISTS idx_conversations_parent ON conversations (parent_conversation_id)',
   );
 }
 
@@ -233,6 +260,7 @@ export function openConversationsDb(): void {
   database.pragma('journal_mode = WAL');
   migrateSchema(database);
   migrateCustomTitleColumn(database);
+  migrateSubagentColumns(database);
   migrateFileJournalTable(database);
   migrateTurnFilesTable(database);
   importLegacyJsonIfNeeded(database);
@@ -246,6 +274,19 @@ function getDb(): SqliteDatabase {
   return db;
 }
 
+export function rowToConversationMeta(r: ConversationMetaRow): ConversationMeta {
+  return {
+    id: r.id,
+    title: r.title,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    workspaceId: r.workspace_id,
+    customTitle: customTitleFromSqlite(r.custom_title),
+    ...(r.parent_conversation_id ? { parentConversationId: r.parent_conversation_id } : {}),
+    ...(r.parent_turn_id ? { parentTurnId: r.parent_turn_id } : {}),
+  };
+}
+
 /** `workspaceId === null` lists conversations with no workspace (legacy general bucket). */
 export function getConversationMetas(workspaceId: string | null): ConversationMeta[] {
   const database = getDb();
@@ -253,43 +294,110 @@ export function getConversationMetas(workspaceId: string | null): ConversationMe
     workspaceId === null
       ? (database
           .prepare(
-            `SELECT id, workspace_id, title, created_at, updated_at, theme_id, messages_json, custom_title
+            `SELECT ${META_COLUMNS}
              FROM conversations
              WHERE workspace_id IS NULL
              ORDER BY updated_at DESC`,
           )
-          .all() as ConversationRow[])
+          .all() as ConversationMetaRow[])
       : (database
           .prepare(
-            `SELECT id, workspace_id, title, created_at, updated_at, theme_id, messages_json, custom_title
+            `SELECT ${META_COLUMNS}
              FROM conversations
              WHERE workspace_id = ?
              ORDER BY updated_at DESC`,
           )
-          .all(workspaceId) as ConversationRow[]);
+          .all(workspaceId) as ConversationMetaRow[]);
 
-  return rows.map((r) => ({
-    id: r.id,
-    title: r.title,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-    workspaceId: r.workspace_id,
-    customTitle: customTitleFromSqlite(r.custom_title),
-  }));
+  return rows.map(rowToConversationMeta);
+}
+
+export function getConversationMetaById(id: string): ConversationMeta | null {
+  const row = getDb()
+    .prepare(`SELECT ${META_COLUMNS} FROM conversations WHERE id = ?`)
+    .get(id) as ConversationMetaRow | undefined;
+  return row ? rowToConversationMeta(row) : null;
 }
 
 export function getConversationById(id: string): ConversationFile | null {
   const database = getDb();
   const row = database
-    .prepare(
-      `SELECT id, workspace_id, title, created_at, updated_at, theme_id, messages_json, custom_title
-       FROM conversations WHERE id = ?`,
-    )
+    .prepare(`SELECT ${META_COLUMNS}, messages_json FROM conversations WHERE id = ?`)
     .get(id) as ConversationRow | undefined;
   return row ? rowToConversationFile(row) : null;
 }
 
+/**
+ * Conversations deleted this run. A save already in flight (a background turn, a sub-agent the
+ * relay is still finishing) must not bring a deleted row back.
+ */
+const deletedConversationIds = new Set<string>();
+
+export function markConversationsDeleted(ids: readonly string[]): void {
+  for (const id of ids) {
+    deletedConversationIds.add(id);
+  }
+}
+
+export function isConversationDeleted(id: string): boolean {
+  return deletedConversationIds.has(id);
+}
+
+/**
+ * Create a sub-agent's conversation row. Insert-only: an id that already exists (or was deleted
+ * this run) is left alone and `false` is returned.
+ */
+export function createSubagentConversation(conv: ConversationFile): boolean {
+  if (deletedConversationIds.has(conv.id)) {
+    return false;
+  }
+  const res = getDb()
+    .prepare(
+      `INSERT INTO conversations
+        (id, workspace_id, title, created_at, updated_at, theme_id, messages_json, custom_title,
+         parent_conversation_id, parent_turn_id)
+       VALUES (@id, @workspace_id, @title, @created_at, @updated_at, @theme_id, @messages_json, 1,
+         @parent_conversation_id, @parent_turn_id)
+       ON CONFLICT(id) DO NOTHING`,
+    )
+    .run({
+      id: conv.id,
+      workspace_id: conv.workspaceId,
+      title: conv.title,
+      created_at: conv.createdAt,
+      updated_at: conv.updatedAt,
+      theme_id: conv.themeId || FIRST_THEME_ID,
+      messages_json: JSON.stringify(conv.messages),
+      parent_conversation_id: conv.parentConversationId ?? null,
+      parent_turn_id: conv.parentTurnId ?? null,
+    });
+  return res.changes > 0;
+}
+
+/** Sub-agent conversations spawned from `parentId`, oldest first. */
+export function listChildConversationIds(parentId: string): string[] {
+  const rows = getDb()
+    .prepare('SELECT id FROM conversations WHERE parent_conversation_id = ? ORDER BY created_at ASC')
+    .all(parentId) as { id: string }[];
+  return rows.map((row) => row.id);
+}
+
+/** Sub-agent conversations spawned during the given parent turns (user message ids). */
+export function listChildConversationIdsForTurns(parentId: string, turnIds: readonly string[]): string[] {
+  if (turnIds.length === 0) {
+    return [];
+  }
+  const wanted = new Set(turnIds);
+  const rows = getDb()
+    .prepare('SELECT id, parent_turn_id FROM conversations WHERE parent_conversation_id = ?')
+    .all(parentId) as { id: string; parent_turn_id: string | null }[];
+  return rows.filter((row) => row.parent_turn_id != null && wanted.has(row.parent_turn_id)).map((row) => row.id);
+}
+
 export function upsertConversation(conv: ConversationFile): void {
+  if (deletedConversationIds.has(conv.id)) {
+    return;
+  }
   const database = getDb();
   const existing = database
     .prepare('SELECT theme_id, custom_title FROM conversations WHERE id = ?')
@@ -306,8 +414,10 @@ export function upsertConversation(conv: ConversationFile): void {
   database
     .prepare(
       `INSERT INTO conversations
-        (id, workspace_id, title, created_at, updated_at, theme_id, messages_json, custom_title)
-       VALUES (@id, @workspace_id, @title, @created_at, @updated_at, @theme_id, @messages_json, @custom_title)
+        (id, workspace_id, title, created_at, updated_at, theme_id, messages_json, custom_title,
+         parent_conversation_id, parent_turn_id)
+       VALUES (@id, @workspace_id, @title, @created_at, @updated_at, @theme_id, @messages_json, @custom_title,
+         @parent_conversation_id, @parent_turn_id)
        ON CONFLICT(id) DO UPDATE SET
          workspace_id = excluded.workspace_id,
          title = excluded.title,
@@ -315,7 +425,9 @@ export function upsertConversation(conv: ConversationFile): void {
          updated_at = excluded.updated_at,
          theme_id = excluded.theme_id,
          messages_json = excluded.messages_json,
-         custom_title = excluded.custom_title`,
+         custom_title = excluded.custom_title,
+         parent_conversation_id = COALESCE(excluded.parent_conversation_id, conversations.parent_conversation_id),
+         parent_turn_id = COALESCE(excluded.parent_turn_id, conversations.parent_turn_id)`,
     )
     .run({
       id: conv.id,
@@ -326,14 +438,28 @@ export function upsertConversation(conv: ConversationFile): void {
       theme_id: conv.themeId,
       messages_json: JSON.stringify(conv.messages),
       custom_title: conv.customTitle ? 1 : 0,
+      // A renderer save that does not carry the link (older shapes) keeps the stored one.
+      parent_conversation_id: conv.parentConversationId ?? null,
+      parent_turn_id: conv.parentTurnId ?? null,
     });
 }
 
-export function deleteConversationById(id: string): void {
+/** Delete a conversation and its sub-agent conversations (with their journal rows). Returns removed ids. */
+export function deleteConversationById(id: string): string[] {
   const database = getDb();
-  database.prepare('DELETE FROM conversation_file_journal WHERE conversation_id = ?').run(id);
-  database.prepare('DELETE FROM conversation_turn_files WHERE conversation_id = ?').run(id);
-  database.prepare('DELETE FROM conversations WHERE id = ?').run(id);
+  const ids = [id, ...listChildConversationIds(id)];
+  const deleteJournal = database.prepare('DELETE FROM conversation_file_journal WHERE conversation_id = ?');
+  const deleteTurnFiles = database.prepare('DELETE FROM conversation_turn_files WHERE conversation_id = ?');
+  const deleteConv = database.prepare('DELETE FROM conversations WHERE id = ?');
+  const tx = database.transaction(() => {
+    for (const convId of ids) {
+      deleteJournal.run(convId);
+      deleteTurnFiles.run(convId);
+      deleteConv.run(convId);
+    }
+  });
+  tx();
+  return ids;
 }
 
 /** Conversation ids stored under a workspace (empty when none). */
@@ -688,14 +814,20 @@ export function openConversationsDbForTests(dbPath: string): void {
   database.pragma('journal_mode = WAL');
   migrateSchema(database);
   migrateCustomTitleColumn(database);
+  migrateSubagentColumns(database);
   migrateFileJournalTable(database);
   migrateTurnFilesTable(database);
   db = database;
 }
 
+/** Most recently updated top-level conversations (sub-agent conversations are not listed). */
 export function getRecentConversationSummaries(limit: number): ConversationSummary[] {
   const rows = getDb()
-    .prepare('SELECT id, title, updated_at FROM conversations ORDER BY updated_at DESC LIMIT ?')
+    .prepare(
+      `SELECT id, title, updated_at FROM conversations
+       WHERE parent_conversation_id IS NULL
+       ORDER BY updated_at DESC LIMIT ?`,
+    )
     .all(limit) as SummaryRow[];
   return rows.map((r) => ({ id: r.id, title: r.title, updatedAt: r.updated_at }));
 }

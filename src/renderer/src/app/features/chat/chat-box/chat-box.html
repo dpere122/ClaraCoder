@@ -46,6 +46,17 @@
               }
             </div>
           }
+          @if (slot.row.msg.fromAgent) {
+            <div class="user-from-agent">
+              <lucide-icon name="bot" [size]="11" aria-hidden="true"></lucide-icon>
+              <span>Task from the main agent</span>
+            </div>
+          } @else if (slot.row.msg.subagentResults) {
+            <div class="user-from-agent" title="Sent automatically: sub-agents reported while no reply was running">
+              <lucide-icon name="bot" [size]="11" aria-hidden="true"></lucide-icon>
+              <span>Sent automatically</span>
+            </div>
+          }
           @if (slot.row.msg.text) {
             <div class="user-message-text">{{ slot.row.msg.text }}</div>
           }
@@ -88,6 +99,18 @@
               [files]="row.assistant?.editedFiles ?? []"
               (openDiff)="openTurnDiff.emit($event)"
             />
+          }
+
+          @if (row.assistant?.endedEarly; as endedEarly) {
+            <div
+              class="turn-ended-early"
+              [class]="'turn-ended-early turn-ended-early--' + endedEarly"
+              role="note"
+              [title]="endedEarlyTitle(endedEarly)"
+            >
+              <lucide-icon [name]="endedEarly === 'error' ? 'triangle-alert' : 'square'" [size]="10" aria-hidden="true"></lucide-icon>
+              <span>{{ endedEarlyLabel(endedEarly) }}</span>
+            </div>
           }
 
           @if (row.assistant?.generation; as gen) {

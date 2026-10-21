@@ -216,6 +216,37 @@ app-chat-box .user-message-text {
   white-space: pre-wrap;
 }
 
+/* Sub-agent transcripts: the first message is the main agent's task, not something the user typed. */
+app-chat-box .user-from-agent {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--t-text-muted);
+}
+
+/* A reply kept after it was stopped, interrupted or failed: says why it reads unfinished. */
+app-chat-box .turn-ended-early {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0.35rem 0 0.1rem;
+  padding: 0.05rem 0.5rem;
+  border: 1px solid var(--t-border-subtle);
+  border-radius: 999px !important;
+  font-size: 0.68rem;
+  color: var(--t-text-muted);
+  cursor: default;
+}
+
+app-chat-box .turn-ended-early--error {
+  color: var(--t-danger, #c44);
+  border-color: color-mix(in srgb, var(--t-danger, #c44) 45%, var(--t-border-subtle));
+}
+
 app-chat-box .assistant-bubble {
   width: var(--chat-response-bubble-width);
   max-width: var(--chat-response-bubble-width);

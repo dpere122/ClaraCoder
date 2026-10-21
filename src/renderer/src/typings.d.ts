@@ -119,7 +119,14 @@ declare global {
         conversationId: string,
         outcome?: 'completed' | 'aborted' | 'error',
         editedFiles?: import('@shared/index').TurnEditedFile[],
+        userMessageId?: string,
       ) => void,
+    ) => void;
+    onSubagentStarted?: (
+      callback: (event: unknown, payload: import('@shared/index').SubagentStartedEvent) => void,
+    ) => void;
+    onSubagentResultsReady?: (
+      callback: (event: unknown, payload: import('@shared/index').SubagentResultsReadyEvent) => void,
     ) => void;
     onMessageTokenUsage?: (
       callback: (
@@ -198,6 +205,7 @@ declare global {
       userMessageId?: string,
       adminElevationGranted?: boolean,
       workspaceNotes?: string[],
+      continueWithSubagentResults?: boolean,
     ) => void;
     abortMessage: (conversationId: string) => Promise<{ ok: boolean; error?: string }>;
     cancelBuildPlan: (conversationId: string, planId: string) => Promise<{ ok: boolean; error?: string }>;

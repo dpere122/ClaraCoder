@@ -142,9 +142,22 @@ export {
   type ToolChainGroup,
   type TurnActivity,
 } from './chat-box-display';
-import type { AcceptCommandFinishedEvent } from '@shared/index';
+import type { AcceptCommandFinishedEvent, TurnEndedEarly } from '@shared/index';
 
 export type ChatLayoutMode = 'sidebar' | 'expanded';
+
+/** Footer chip text for replies that ended before the agent finished them. */
+const END_EARLY_LABELS: Readonly<Record<TurnEndedEarly, string>> = {
+  stopped: 'Stopped',
+  interrupted: 'Interrupted',
+  error: 'Did not finish',
+};
+
+const END_EARLY_TITLES: Readonly<Record<TurnEndedEarly, string>> = {
+  stopped: 'You stopped this reply; it shows what was done until then.',
+  interrupted: 'You sent a new message before this reply finished; it shows what was done until then.',
+  error: 'This reply failed before it finished; it shows what was done until then.',
+};
 
 /** ngx-spinner names scoped to this component (hidden in `ngOnDestroy`). */
 const SPINNER_CHAT_TTS = 'chat-tts';
@@ -194,7 +207,19 @@ export class ChatBox implements OnDestroy {
   /** Template helper: tok/s footer under a finished reply. */
   readonly generationSummary = turnGenerationSummary;
 
+  /** Footer chip for a reply that ended before the agent finished it. */
+  endedEarlyLabel(endedEarly: TurnEndedEarly): string {
+    return END_EARLY_LABELS[endedEarly];
+  }
+
+  endedEarlyTitle(endedEarly: TurnEndedEarly): string {
+    return END_EARLY_TITLES[endedEarly];
+  }
+
   canRestoreUserRow(msg: Extract<ChatMessage, { role: 'user' }>): boolean {
+    if (this.readOnly()) {
+      return false;
+    }
     const messages = this.messages();
     const idx = messages.indexOf(msg);
     return canRestoreToUserMessage(messages, idx, { streaming: this.loading() });
@@ -317,6 +342,9 @@ export class ChatBox implements OnDestroy {
 
   /** Bridges `send-response` DOM events from nested HITL / run-button UI to `sendResponse` output. */
   private readonly onSendResponseDom: EventListener = ((event: Event) => {
+    if (this.readOnly()) {
+      return;
+    }
     const detail = (event as CustomEvent<string>).detail;
     this.sendResponse.emit(typeof detail === 'string' ? detail : String(detail ?? ''));
   }) as EventListener;
@@ -325,6 +353,8 @@ export class ChatBox implements OnDestroy {
 
   /** Full conversation transcript (user, assistant, chain, artifact messages). */
   readonly messages = input<ChatMessage[]>([]);
+  /** Sub-agent transcripts: nothing here sends to the agent or restores (only the main agent prompts it). */
+  readonly readOnly = input(false);
   /** Active conversation; changes reset virtual heights and scroll tracking. */
   readonly conversationId = input<string | null>(null);
   /** True while an assistant reply is in flight (shows live bubble + spinners). */

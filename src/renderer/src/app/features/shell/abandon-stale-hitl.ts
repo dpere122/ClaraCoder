@@ -18,24 +18,31 @@ const HITL_ARTIFACT_ROLES = new Set<ConversationMessage['role']>([
   'agent_question',
 ]);
 
-type HitlArtifactMessage = Extract<
+export type HitlArtifactMessage = Extract<
   ConversationMessage,
   { reviewStatus?: DiffReviewStatus; reviewSummary?: string }
 >;
 
-function isHitlArtifactMessage(m: ConversationMessage): m is HitlArtifactMessage {
+/** True for cards whose pending state means the agent is paused waiting for the answer. */
+export function isHitlArtifactMessage(m: ConversationMessage): m is HitlArtifactMessage {
   return HITL_ARTIFACT_ROLES.has(m.role);
 }
 
 /**
  * Cancel pending HITL artifacts after a non-streaming load (Python pause state is gone).
+ * `stillWaiting` keeps a card whose asker is still running elsewhere (a sub-agent outlives its
+ * parent's turn, so its card in the parent's transcript can still be answered).
  * Returns the same array reference when nothing changes.
  */
-export function abandonStaleHitlMessages(messages: ConversationMessage[]): ConversationMessage[] {
+export function abandonStaleHitlMessages(
+  messages: ConversationMessage[],
+  stillWaiting?: (message: HitlArtifactMessage) => boolean,
+): ConversationMessage[] {
   let changed = false;
   const next = messages.map((m) => {
     if (!isHitlArtifactMessage(m)) return m;
     if ((m.reviewStatus ?? 'pending') !== 'pending') return m;
+    if (stillWaiting?.(m)) return m;
     changed = true;
     return {
       ...m,

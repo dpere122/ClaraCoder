@@ -1,8 +1,10 @@
-import { Component, HostListener, input, output, signal, ViewEncapsulation } from '@angular/core';
+import { Component, computed, HostListener, input, output, signal, ViewEncapsulation } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import type { ConversationMeta } from '@shared/index';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
 import { turnActivitySpinnerSrc, type TurnActivity } from '../chat-box/chat-box';
+import { buildConversationTree, type ConversationTreeNode } from './conversation-tree';
 
 /** Screen-reader label for each live turn activity shown on a conversation row. */
 const ACTIVITY_LABELS: Record<TurnActivity, string> = {
@@ -18,7 +20,7 @@ const ACTIVITY_LABELS: Record<TurnActivity, string> = {
 
 @Component({
   selector: 'app-conversation-manager',
-  imports: [FormsModule, LucideAngularModule],
+  imports: [FormsModule, LucideAngularModule, NgTemplateOutlet],
   templateUrl: './conversation-manager.html',
   styleUrl: './conversation-manager.css',
   encapsulation: ViewEncapsulation.None,
@@ -33,6 +35,11 @@ export class ConversationManager {
   readonly deleteConversation = output<string>();
   readonly renameConversation = output<{ id: string; title: string }>();
 
+  /** Top-level conversations with their sub-agent conversations nested under them. */
+  protected readonly tree = computed(() => buildConversationTree(this.conversations()));
+  /** Parents the user expanded (`true`) or collapsed (`false`); others follow {@link isExpanded}'s default. */
+  private readonly expandOverrides = signal<ReadonlyMap<string, boolean>>(new Map());
+
   protected editingId = signal<string | null>(null);
   protected editTitle = signal('');
   protected contextMenuVisible = signal(false);
@@ -46,6 +53,29 @@ export class ConversationManager {
 
   protected activityLabel(activity: TurnActivity): string {
     return ACTIVITY_LABELS[activity];
+  }
+
+  /**
+   * Sub-agents show by default while they matter: the parent or one of them is open, or one is
+   * still running. Otherwise they fold away so finished delegations do not crowd the list.
+   */
+  protected isExpanded(node: ConversationTreeNode): boolean {
+    const override = this.expandOverrides().get(node.conversation.id);
+    if (override !== undefined) {
+      return override;
+    }
+    const active = this.activeId();
+    const activity = this.activity();
+    return (
+      node.conversation.id === active ||
+      node.children.some((c) => c.id === active || activity.has(c.id))
+    );
+  }
+
+  protected toggleExpanded(node: ConversationTreeNode, event: Event): void {
+    event.stopPropagation();
+    const next = !this.isExpanded(node);
+    this.expandOverrides.update((map) => new Map(map).set(node.conversation.id, next));
   }
 
   startRename(conv: ConversationMeta, event?: Event): void {

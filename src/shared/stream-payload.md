@@ -56,6 +56,15 @@ narrow the variant.
 | `clear_primary_stream` | _(none)_ | Instructs the UI to clear the primary stream buffer. |
 | `promote_primary_to_nudge` | _(none)_ | Retags live primary (`agent`) prose as a nudge preview because the graph is jumping back to the model. |
 | `context_compressed` | `tokensBefore`, `tokensAfter`, `toolMessagesCompacted`, `toolRoundsDropped` (all `number`) | Context window compaction event. |
+| `subagent_started` | `conversationId`, `name`, `task`, `parentConversationId?`, `parentTurnId?`, `statusId?`, `background?` | The main agent's `spawn_subagent` call started a sub-agent. Sent before any of its events. Main creates the sub-agent's conversation row from it. |
+| `subagent_event` | `conversationId`, `payload: ParsedAgentStreamPayload \| null` | One event of a sub-agent's own stream, including its `file_journal` rows (journaled under the parent turn). `payload` is `null` (dropped) when the wrapped event is invalid or itself a `subagent_*` event. |
+| `subagent_finished` | `conversationId`, `outcome: 'completed' \| 'aborted' \| 'error'` | The sub-agent's turn ended (sent once, after all its events). Unknown outcomes read as `error`. |
+| `subagent_results_ready` | `parentConversationId`, `names: string[]` | Sub-agent reports wait for a parent with no turn running; the renderer starts one (`continue_with_subagent_results`) to hand them to the main agent. |
+
+The `subagent_*` events arrive on the sub-agent channel (`GET /subagents/events`, consumed by
+`src/main/ipc/handlers/subagent-events.ts`), never on a `/chat/stream`: a sub-agent outlives the
+turn that spawned it. A `status` for a `spawn_subagent` pill can carry
+`subagent: { conversationId, name }` (the sub-agent it runs).
 
 > Note: `ParsedAgentStreamPayload` is the only type re-exported for consumers.
 > The internal `RawAgentStreamPayload` shape (snake_case wire fields) is not
@@ -192,7 +201,7 @@ noted) and lists the wire fields each branch reads.
 | `tool_exec_complete` | `tool_exec_complete` | `stream_tag`, `label`, `exit_code`, `output_excerpt`, `outcome` |
 | `background_command_open` | `background_command_open` | `command_id`, `command_text`, `cwd_label`, `label`, `stream_tag` |
 | `token_usage` | `token_usage` | `input_tokens`, `output_tokens`, `total_tokens` |
-| `status` | `status` | `status.{id,label,detail,state,source,stream_tag,agent_role,tool_batch,diff,duration_ms}` |
+| `status` | `status` | `status.{id,label,detail,state,source,stream_tag,agent_role,tool_batch,diff,duration_ms,subagent.{conversation_id,name}}` |
 | `accept_command` | `accept_command` | `acceptCommand` (object) |
 | `delete_confirm` | `delete_confirm` | `deleteConfirm` (object) |
 | `planner_progress` | `planner_progress` | `planner` (object) |
@@ -206,6 +215,10 @@ noted) and lists the wire fields each branch reads.
 | `clear_primary_stream` | `clear_primary_stream` | _(none)_ |
 | `promote_primary_to_nudge` | `promote_primary_to_nudge` | _(none)_ |
 | `context_compressed` | `context_compressed` | `tokens_before`/`tokensBefore`, `tokens_after`/`tokensAfter`, `tool_messages_compacted`/`toolMessagesCompacted`, `tool_rounds_dropped`/`toolRoundsDropped` |
+| `subagent_started` | `subagent_started` | `conversation_id`, `parent_conversation_id`, `parent_turn_id`, `name`, `task`, `status_id`, `background` |
+| `subagent_event` | `subagent_event` | `conversation_id`, `payload` (object, parsed with `parseAgentStreamValue`) |
+| `subagent_finished` | `subagent_finished` | `conversation_id`, `outcome` |
+| `subagent_results_ready` | `subagent_results_ready` | `parent_conversation_id`, `names` |
 
 > The wire protocol is a mix of snake_case (top-level scalar fields) and
 > camelCase (nested object payloads), reflecting historical emitter

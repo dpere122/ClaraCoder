@@ -100,9 +100,11 @@ describe('MessageBox', () => {
 
   const sessionMessages = signal<ConversationMessage[]>([]);
   const liveRates = signal<Record<string, LiveGenerationRate>>({});
+  const drainingIds = signal<ReadonlySet<string>>(new Set());
 
   beforeEach(() => {
     sessionMessages.set([]);
+    drainingIds.set(new Set());
     liveRates.set({});
     llamaServerStatus.mockReset();
     llamaServerStatus.mockResolvedValue({
@@ -129,7 +131,11 @@ describe('MessageBox', () => {
         },
         {
           provide: ConversationSessionService,
-          useValue: { activeConversationId: signal('conv-1'), messages: sessionMessages },
+          useValue: {
+            activeConversationId: signal('conv-1'),
+            messages: sessionMessages,
+            drainingConversationIds: drainingIds,
+          },
         },
         { provide: GenerationRateService, useValue: { live: liveRates } },
       ],
@@ -281,5 +287,38 @@ describe('MessageBox', () => {
     const send = (fixture.nativeElement as HTMLElement).querySelector('.btn-send') as HTMLButtonElement;
     expect(send).toBeTruthy();
     expect(send.disabled).toBe(true);
+  });
+
+  it('sends while a reply streams (an interrupt), keeping Stop, and waits while the old reply drains', async () => {
+    const fixture = TestBed.createComponent(MessageBox);
+    const sent = vi.fn();
+    fixture.componentInstance.messageSent.subscribe(sent);
+    fixture.componentRef.setInput('appConfig', openaiConfig());
+    fixture.componentRef.setInput('loading', true);
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    // Nothing typed: only Stop.
+    expect(host.querySelector('.btn-send')).toBeNull();
+    expect(host.querySelector('.btn-abort')).toBeTruthy();
+
+    fixture.componentInstance.composerDraft.set('actually, use the other file');
+    fixture.detectChanges();
+    const send = host.querySelector('.btn-send--interrupt') as HTMLButtonElement;
+    expect(send).toBeTruthy();
+    expect(send.title).toContain('interrupts');
+    expect(host.querySelector('.btn-abort')).toBeTruthy();
+
+    drainingIds.set(new Set(['conv-1']));
+    fixture.detectChanges();
+    expect(send.disabled).toBe(true);
+    fixture.componentInstance.send();
+    expect(sent).not.toHaveBeenCalled();
+
+    drainingIds.set(new Set());
+    fixture.detectChanges();
+    send.click();
+    expect(sent).toHaveBeenCalledWith('actually, use the other file');
   });
 });

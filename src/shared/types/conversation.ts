@@ -39,7 +39,16 @@ export interface StreamPart {
   toolDiff?: string;
   /** Tool-trail rows of finished calls: how long the call ran, in milliseconds. */
   toolDurationMs?: number;
+  /** Tool-trail rows of `spawn_subagent`: the sub-agent conversation the call ran (Open link). */
+  toolSubagentId?: string;
+  /** Tool-trail rows of `spawn_subagent`: the sub-agent's label. */
+  toolSubagentName?: string;
+  /** Tool-trail rows still running when their turn was stopped or interrupted. */
+  toolStopped?: true;
 }
+
+/** Why an assistant turn ended before the agent finished it. */
+export type TurnEndedEarly = 'stopped' | 'interrupted' | 'error';
 
 /** How fast the model produced one assistant turn, summed over the turn's model calls. */
 export interface TurnGenerationStats {
@@ -74,6 +83,10 @@ export interface ConversationMeta {
   workspaceId: string | null;
   /** When true, the user renamed the title; the app will not overwrite it with model-generated titles. */
   customTitle: boolean;
+  /** Set on sub-agent conversations: the conversation whose agent spawned this one. */
+  parentConversationId?: string | null;
+  /** Set on sub-agent conversations: the parent user message whose turn spawned this one. */
+  parentTurnId?: string | null;
 }
 
 /** One message in the chat UI (user/assistant text or tool chain row). */
@@ -84,6 +97,13 @@ export type ConversationMessage =
       /** Stable restore-point id (assigned when the user sends). Optional on older transcripts. */
       id?: string;
       structuredContent?: readonly ChatStructuredContentPart[];
+      /** Sub-agent conversations: the task the main agent sent, not something the user typed. */
+      fromAgent?: true;
+      /**
+       * Set on a turn the app started on its own to hand the main agent the reports of sub-agents
+       * that finished while no turn was running: their names (the reports themselves go to the model).
+       */
+      subagentResults?: string[];
     }
   | {
       role: 'assistant';
@@ -100,6 +120,8 @@ export type ConversationMessage =
       editedFiles?: TurnEditedFile[];
       /** Output speed of this turn (tok/s readout under the reply and in the composer). */
       generation?: TurnGenerationStats;
+      /** Set when the turn was stopped, interrupted by a new message, or failed: the reply is partial. */
+      endedEarly?: TurnEndedEarly;
     }
   | {
       role: 'chain';
@@ -187,6 +209,10 @@ export interface ConversationFile {
   themeId: string;
   /** When true, the user renamed the title; the app will not overwrite it with model-generated titles. */
   customTitle: boolean;
+  /** Sub-agent conversations: the spawning conversation (see {@link ConversationMeta}). */
+  parentConversationId?: string | null;
+  /** Sub-agent conversations: the parent user message whose turn spawned this one. */
+  parentTurnId?: string | null;
 }
 
 /** Result of IPC `maybe-auto-title-conversation` (model-generated sidebar title). */

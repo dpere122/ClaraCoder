@@ -19,6 +19,7 @@ import { normalizePlanConfirmFilesToChange } from './types/plan-confirm';
 import type { ThemeProposalPayload } from './types/theme-proposal';
 import { isThemeProposalPayload } from './types/theme-proposal';
 import type { AppendConversationFileJournalRequest } from './types/conversation-timeline';
+import type { SubagentOutcome, SubagentRef } from './types/subagent';
 import { parseFileJournalSsePayload } from './conversation-timeline';
 
 /**
@@ -81,6 +82,34 @@ export type ParsedAgentStreamPayload =
       tokensAfter: number;
       toolMessagesCompacted: number;
       toolRoundsDropped: number;
+    }
+  | {
+      type: 'subagent_started';
+      /** The sub-agent's conversation id (also its Python session id). */
+      conversationId: string;
+      /** The conversation whose agent spawned it. */
+      parentConversationId?: string;
+      /** The parent user message whose turn spawned it (its edits are journaled under that turn). */
+      parentTurnId?: string;
+      name: string;
+      task: string;
+      /** Status id of the parent's `spawn_subagent` pill. */
+      statusId?: string;
+      /** Started with `background: true`: the parent agent did not wait for its report. */
+      background?: boolean;
+    }
+  | {
+      type: 'subagent_event';
+      conversationId: string;
+      /** One event of the sub-agent's own stream; `null` when it was invalid or itself a `subagent_*` event. */
+      payload: ParsedAgentStreamPayload | null;
+    }
+  | { type: 'subagent_finished'; conversationId: string; outcome: SubagentOutcome }
+  | {
+      /** Reports of sub-agents wait for a parent with no turn running: start one to hand them over. */
+      type: 'subagent_results_ready';
+      parentConversationId: string;
+      names: string[];
     };
 
 /**
@@ -110,7 +139,14 @@ type RawAgentStreamPayload = {
   tokensAfter?: unknown;
   toolMessagesCompacted?: unknown;
   toolRoundsDropped?: unknown;
-  status?: LlmStatusPayload & { agent_role?: string; stream_tag?: string; tool_batch?: string; diff?: unknown; duration_ms?: unknown };
+  status?: LlmStatusPayload & {
+    agent_role?: string;
+    stream_tag?: string;
+    tool_batch?: string;
+    diff?: unknown;
+    duration_ms?: unknown;
+    subagent?: unknown;
+  };
   acceptCommand?: unknown;
   command_id?: unknown;
   command_text?: unknown;
@@ -124,7 +160,41 @@ type RawAgentStreamPayload = {
   buildPlanChunk?: unknown;
   buildPlanStreamEnd?: unknown;
   fileJournal?: unknown;
+  /** `subagent_*`: the sub-agent's conversation id. */
+  conversation_id?: unknown;
+  parent_conversation_id?: unknown;
+  parent_turn_id?: unknown;
+  name?: unknown;
+  task?: unknown;
+  background?: unknown;
+  names?: unknown;
+  /** `subagent_event`: the wrapped event of the sub-agent's stream. */
+  payload?: unknown;
 };
+
+const SUBAGENT_OUTCOMES: ReadonlySet<string> = new Set(['completed', 'aborted', 'error']);
+
+/** `{conversation_id, name}` from the wire, or `undefined` when the id is missing. */
+function optionalSubagentRef(value: unknown): SubagentRef | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+  const raw = value as { conversation_id?: unknown; name?: unknown };
+  const conversationId = optionalTrimmedString(raw.conversation_id);
+  if (!conversationId) {
+    return undefined;
+  }
+  return { conversationId, name: optionalTrimmedString(raw.name) ?? 'Sub-agent' };
+}
+
+function isSubagentPayload(payload: ParsedAgentStreamPayload): boolean {
+  return (
+    payload.type === 'subagent_started' ||
+    payload.type === 'subagent_event' ||
+    payload.type === 'subagent_finished' ||
+    payload.type === 'subagent_results_ready'
+  );
+}
 
 /** Returns the trimmed string if non-empty after trimming, else `undefined`. Empty/whitespace values are dropped so consumers can rely on truthy checks. */
 function optionalTrimmedString(value: unknown): string | undefined {
@@ -142,15 +212,39 @@ function optionalNonNegativeInt(value: unknown): number | undefined {
 /**
  * Parse one JSON event line into a typed `ParsedAgentStreamPayload`.
  *
- * Branches are checked most-specific-first (e.g. `tool_exec_chunk` before the
- * generic `chunk`) so specific events are not shadowed. Each branch validates
- * the minimum required fields; on failure it falls through to the next branch.
- * If no branch matches, or `JSON.parse` throws, the raw payload is returned as
- * a plain-text `chunk` — see the module contract above.
+ * If no branch of {@link parseAgentStreamValue} matches, or `JSON.parse`
+ * throws, the raw payload is returned as a plain-text `chunk` — see the module
+ * contract above.
  */
 export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPayload {
   try {
-    const parsed = JSON.parse(payload) as RawAgentStreamPayload;
+    const parsed = parseAgentStreamValue(JSON.parse(payload));
+    if (parsed) {
+      return parsed;
+    }
+  } catch {
+    // Fall through to plain text chunks — see the module contract: never throw on bad input.
+  }
+
+  // Last-resort fallback: treat the raw payload as assistant text so a malformed line renders instead of crashing the stream.
+  return { type: 'chunk', delta: payload };
+}
+
+/**
+ * Parse one already-decoded event object, or `null` when it matches no event.
+ *
+ * Branches are checked most-specific-first (e.g. `tool_exec_chunk` before the
+ * generic `chunk`) so specific events are not shadowed. Each branch validates
+ * the minimum required fields; on failure it falls through to the next branch.
+ * Unlike {@link parseAgentStreamPayload} there is no text fallback, so a
+ * sub-agent's wrapped event that does not parse is dropped, not shown as text.
+ */
+export function parseAgentStreamValue(value: unknown): ParsedAgentStreamPayload | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  try {
+    const parsed = value as RawAgentStreamPayload;
     if (parsed.type === 'status' && parsed.status) {
       // Only 'manager'/'worker' are valid agent roles; anything else is dropped to avoid surfacing stale/unknown enum values.
       const rawRole = parsed.status.agent_role;
@@ -177,8 +271,60 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
           parsed.status.duration_ms >= 0
             ? { durationMs: parsed.status.duration_ms }
             : {}),
+          ...(optionalSubagentRef(parsed.status.subagent)
+            ? { subagent: optionalSubagentRef(parsed.status.subagent) }
+            : {}),
         },
       };
+    }
+
+    if (parsed.type === 'subagent_started') {
+      const conversationId = optionalTrimmedString(parsed.conversation_id);
+      if (conversationId) {
+        const parentConversationId = optionalTrimmedString(parsed.parent_conversation_id);
+        const parentTurnId = optionalTrimmedString(parsed.parent_turn_id);
+        const statusId = optionalTrimmedString(parsed.status_id);
+        return {
+          type: 'subagent_started',
+          conversationId,
+          name: optionalTrimmedString(parsed.name) ?? 'Sub-agent',
+          task: typeof parsed.task === 'string' ? parsed.task : '',
+          ...(parentConversationId ? { parentConversationId } : {}),
+          ...(parentTurnId ? { parentTurnId } : {}),
+          ...(statusId ? { statusId } : {}),
+          ...(parsed.background === true ? { background: true } : {}),
+        };
+      }
+    }
+
+    if (parsed.type === 'subagent_results_ready') {
+      const parentConversationId = optionalTrimmedString(parsed.parent_conversation_id);
+      if (parentConversationId) {
+        const names = Array.isArray(parsed.names)
+          ? parsed.names.filter((n): n is string => typeof n === 'string' && n.trim().length > 0).map((n) => n.trim())
+          : [];
+        return { type: 'subagent_results_ready', parentConversationId, names };
+      }
+    }
+
+    if (parsed.type === 'subagent_event') {
+      const conversationId = optionalTrimmedString(parsed.conversation_id);
+      if (conversationId) {
+        const inner = parseAgentStreamValue(parsed.payload);
+        // Sub-agents cannot spawn, so a nested `subagent_*` event is never forwarded.
+        return { type: 'subagent_event', conversationId, payload: inner && !isSubagentPayload(inner) ? inner : null };
+      }
+    }
+
+    if (parsed.type === 'subagent_finished') {
+      const conversationId = optionalTrimmedString(parsed.conversation_id);
+      if (conversationId) {
+        const outcome =
+          typeof parsed.outcome === 'string' && SUBAGENT_OUTCOMES.has(parsed.outcome)
+            ? (parsed.outcome as SubagentOutcome)
+            : 'error';
+        return { type: 'subagent_finished', conversationId, outcome };
+      }
     }
 
     if (parsed.type === 'accept_command' && parsed.acceptCommand && typeof parsed.acceptCommand === 'object') {
@@ -406,9 +552,7 @@ export function parseAgentStreamPayload(payload: string): ParsedAgentStreamPaylo
       }
     }
   } catch {
-    // Fall through to plain text chunks — see the module contract: never throw on bad input.
+    // A normalizer choked on a malformed nested object: no event (see the module contract).
   }
-
-  // Last-resort fallback: treat the raw payload as assistant text so a malformed line renders instead of crashing the stream.
-  return { type: 'chunk', delta: payload };
+  return null;
 }

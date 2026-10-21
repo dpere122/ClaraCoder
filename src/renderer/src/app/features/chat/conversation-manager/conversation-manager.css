@@ -194,6 +194,81 @@ app-conversation-manager .conv-item.active .conv-activity__cursor {
   50% { opacity: 0; }
 }
 
+/* Sub-agent conversations: indented under the conversation that spawned them, with a guide line. */
+app-conversation-manager .conv-children {
+  position: relative;
+  margin: 0 0 0.2rem 1.15rem;
+  padding-left: 0.2rem;
+}
+
+app-conversation-manager .conv-children::before {
+  content: '';
+  position: absolute;
+  left: 0.15rem;
+  top: 0.15rem;
+  bottom: 0.35rem;
+  width: 1px;
+  background: var(--t-border-subtle, var(--t-border));
+}
+
+app-conversation-manager .conv-item--subagent {
+  margin-top: 0.06rem;
+  margin-bottom: 0.06rem;
+  padding-top: 0.28rem;
+  padding-bottom: 0.28rem;
+}
+
+app-conversation-manager .conv-item--subagent .conv-title {
+  font-size: 0.75rem;
+}
+
+app-conversation-manager .conv-subagent-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-right: 0.35rem;
+  color: var(--t-text-muted);
+}
+
+app-conversation-manager .conv-item--subagent.active .conv-subagent-icon {
+  color: var(--t-primary);
+}
+
+app-conversation-manager .conv-expand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0 0.25rem 0 -0.35rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 999px !important;
+  background: transparent;
+  color: var(--t-text-muted);
+  cursor: pointer;
+}
+
+app-conversation-manager .conv-expand:hover {
+  color: var(--t-primary);
+  border-color: var(--t-border);
+}
+
+/* Collapsed parent: how many sub-agent conversations are folded under it. */
+app-conversation-manager .conv-subagent-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex-shrink: 0;
+  margin-left: 0.35rem;
+  font-size: 0.68rem;
+  color: var(--t-text-muted);
+}
+
 app-conversation-manager .empty-hint {
   color: var(--t-text-muted);
   font-size: 0.75rem;

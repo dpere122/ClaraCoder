@@ -21,6 +21,8 @@ FILE_JOURNAL_MAX_CHARS = 2_000_000
 TREE_SNAPSHOT_MAX_FILES = 2_000
 TREE_SNAPSHOT_MAX_BYTES = 20_000_000
 _TREE_SNAPSHOT_SKIP_DIRS = frozenset({'.git', 'node_modules', '.venv', 'venv', '__pycache__'})
+#: Earlier turns whose journaled paths are remembered (a sub-agent may outlive a few main-agent turns).
+_EARLIER_TURNS_KEPT = 16
 
 FileJournalOp = Literal['create', 'modify', 'delete', 'delete-tree', 'copy']
 
@@ -130,8 +132,13 @@ def first_mutation_this_turn(session: SessionState, relative_path: str) -> bool:
     turn_id = (getattr(session, 'current_user_message_id', '') or '').strip()
     edits = session.edits
     if edits.journal_turn_id != turn_id:
+        # Park the previous turn's set: a background sub-agent may still journal under that turn.
+        if edits.journal_turn_id:
+            edits.journal_earlier_turns[edits.journal_turn_id] = edits.journaled_paths
+            while len(edits.journal_earlier_turns) > _EARLIER_TURNS_KEPT:
+                edits.journal_earlier_turns.pop(next(iter(edits.journal_earlier_turns)))
         edits.journal_turn_id = turn_id
-        edits.journaled_paths = set()
+        edits.journaled_paths = edits.journal_earlier_turns.pop(turn_id, set())
     key = (relative_path or '').strip().replace('\\', '/')
     if key in edits.journaled_paths:
         return False
@@ -140,11 +147,18 @@ def first_mutation_this_turn(session: SessionState, relative_path: str) -> bool:
 
 
 def emit_file_journal(session: SessionState, payload: dict[str, Any]) -> None:
-    """Queue a ``file_journal`` HITL SSE item for the first mutation of a path in the current turn."""
+    """Queue a ``file_journal`` HITL SSE item for the first mutation of a path in the current turn.
+
+    A sub-agent shares its parent's ``edits`` and journals under the turn that started it, so the family
+    journals each path once per user turn; the sub-agent still records every path it touched for its report.
+    """
+    rel = str(payload.get('relativePath') or '')
+    if getattr(session, 'subagent_parent_session_id', '') and rel.strip():
+        session.subagent_touched_paths.add(rel.strip().replace('\\', '/'))
     turn_id = (getattr(session, 'current_user_message_id', '') or '').strip()
     if not turn_id:
         return
-    if not first_mutation_this_turn(session, str(payload.get('relativePath') or '')):
+    if not first_mutation_this_turn(session, rel):
         return
     body = dict(payload)
     body['userMessageId'] = turn_id

@@ -55,6 +55,17 @@
       }
     </div>
     @if (loading()) {
+      @if (hasDraft()) {
+        <button
+          class="btn btn-send btn-send--interrupt"
+          type="button"
+          (click)="send()"
+          [disabled]="sendDisabled() || draining()"
+          [title]="sendDisabled() ? sendTitle() : 'Send now — interrupts the current reply'"
+        >
+          SEND >>
+        </button>
+      }
       <button class="btn btn-abort" type="button" (click)="abort()" title="Stop generation">
         <lucide-icon name="square" [size]="16" class="stop-icon"></lucide-icon>
       </button>

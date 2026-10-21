@@ -13,12 +13,22 @@ HITL pauses (diff / copy / delete / accept-command review) happen *inside* the g
 runners via middleware. While paused, this generator simply does not yield until the
 graph unblocks after ``POST /chat/agent-continue``. Abort is cooperative: the UI sets
 ``session.abort_event`` and this loop breaks on the next yielded line.
+
+A stopped agent-mode turn keeps its checkpoint and is committed to history with an
+``[Interrupted by the user]`` marker; the next turn gets a note with what was cut off.
+Sub-agents (:mod:`~clara_coder_backend.lang_agent.subagents`) call this directly for their
+one-shot turn and skip that bookkeeping.
+
+A main session's turn counts as live for its sub-agents' reports while it runs; when it ends with
+reports still waiting (and no other turn queued), ``subagent_results_ready`` goes out so Electron can
+continue with them (``continue_with_subagent_results``).
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 from typing import Any
 
 from fastapi import HTTPException
@@ -30,10 +40,21 @@ from clara_coder_backend.session.checkpointing import delete_outer_thread
 from clara_coder_backend.lang_agent.context_compression import maybe_compact_outer_checkpoint
 from clara_coder_backend.lang_agent.streaming import model_chunk_sse_line, sse_line, status_event
 from clara_coder_backend.config import MAX_TOOL_STATUS_LINE
+from clara_coder_backend.domain import SessionState
 from clara_coder_backend.llm.factory import build_llm
 from clara_coder_backend.logging.llm_interaction_logging import log_llm_user_request
 from clara_coder_backend.llm.messages import stringify_content
 from clara_coder_backend.session.state import current_session_id, get_session, touch_session
+from clara_coder_backend.session.user_events import INTERRUPTED_TURN_MARKER, queue_interrupted_turn_note
+from clara_coder_backend.lang_agent.subagents import (
+    CONTINUE_WITH_REPORTS_TEXT,
+    NO_NEW_REPORTS_TEXT,
+    SubagentReport,
+    drain_subagent_reports,
+    format_subagent_reports,
+    maybe_publish_results_ready,
+    requeue_subagent_reports,
+)
 from clara_coder_backend.tools.workspace import truncate_text
 
 logger = logging.getLogger('clara.agent')
@@ -51,6 +72,8 @@ async def stream_agent_reply(
     user_message_id: str = '',
     admin_elevation_granted: bool = False,
     workspace_notes: list[str] | None = None,
+    outcome_sink: LangGraphWorkerOutcome | None = None,
+    continue_with_subagent_results: bool = False,
 ) -> AsyncIterator[str]:
     """Run one user turn and yield SSE lines until ``data: [DONE]``.
 
@@ -77,6 +100,11 @@ async def stream_agent_reply(
         TTS backend for this turn (``kokoro`` or ``openai-compatible``); mood-tag prompt is OpenAI-only.
     workspace_notes:
         Facts from the UI since the last turn (e.g. files the user reset); injected before the first model call.
+    outcome_sink:
+        Filled with the turn's outcome on every exit path (a sub-agent's caller reads its report from it).
+    continue_with_subagent_results:
+        Ignore ``user_message``: this turn's input is the sub-agent reports waiting on the session (or a
+        short "nothing new" line), and history records that text as the user message.
     """
     session = get_session(session_id)
     touch_session(session)
@@ -103,6 +131,16 @@ async def stream_agent_reply(
     )
     session.current_user_message_id = (user_message_id or '').strip()
     session.pending_user_event_notes.extend(n.strip() for n in workspace_notes or [] if n and n.strip())
+    is_subagent = bool(session.subagent_parent_session_id)
+    # Reports this turn took as its input; put back if it fails, so they are not lost.
+    continue_reports: list[SubagentReport] = []
+    if continue_with_subagent_results and not is_subagent:
+        continue_reports = drain_subagent_reports(session)
+        user_message = (
+            format_subagent_reports(continue_reports, closing=CONTINUE_WITH_REPORTS_TEXT)
+            if continue_reports
+            else NO_NEW_REPORTS_TEXT
+        )
 
     # ContextVar so tools/middleware can resolve the active session without threading ids.
     token = current_session_id.set(session_id)
@@ -118,12 +156,18 @@ async def stream_agent_reply(
     )
 
     session.abort_event.clear()
+    # Shared outcome bag: graph runners mutate this; we use it after the stream ends.
+    graph_outcome = outcome_sink if outcome_sink is not None else LangGraphWorkerOutcome()
+    if not is_subagent:
+        # Sub-agent reports queued from now on go to this turn instead of ``subagent_results_ready``.
+        session.subagent_live_turns += 1
 
     try:
         # Fail fast with a user-visible SSE error if no LLM connection is configured.
         try:
             build_llm()
         except HTTPException as exc:
+            graph_outcome.mark_failed_configuration(str(exc.detail), final_text=str(exc.detail))
             yield sse_line(
                 status_event(
                     'bootstrap',
@@ -136,8 +180,6 @@ async def stream_agent_reply(
             yield 'data: [DONE]\n\n'
             return
 
-        # Shared outcome bag: graph runners mutate this; we use it after the stream ends.
-        graph_outcome = LangGraphWorkerOutcome()
         mode = (composer_mode or 'agent').strip().lower()
         stream_fn = stream_plan_execute_langgraph if mode == 'plan' else stream_single_agent_langgraph
         stream_kwargs: dict[str, Any] = {
@@ -152,33 +194,47 @@ async def stream_agent_reply(
             stream_kwargs['resume_checkpoint_id'] = resume_checkpoint_id
 
         # --- Relay graph SSE; honor abort between lines ---
-        async for line in stream_fn(**stream_kwargs):
-            if session.abort_event.is_set():
-                if graph_outcome.state == AgentLoopOutcome.RUNNING:
+        # ``aclosing`` runs the runner's cleanup (pump stop, stream counters) before the post-stream
+        # chores below, not later from the event loop's async-generator hooks.
+        async with aclosing(stream_fn(**stream_kwargs)) as graph_lines:
+            async for line in graph_lines:
+                # Once the runner has seen the abort itself it is winding down in order (e.g. settling
+                # its sub-agent waiting pill); only a still-running stream is cut here.
+                if session.abort_event.is_set() and graph_outcome.state == AgentLoopOutcome.RUNNING:
                     graph_outcome.mark_aborted(partial_text=graph_outcome.partial_text)
-                logger.info('Stream aborted for session %s', session_id)
-                break
-            yield line
+                    logger.info('Stream aborted for session %s', session_id)
+                    break
+                yield line
 
         # --- Post-stream: compact / drop checkpoints based on outcome ---
         if (
             graph_outcome.state == AgentLoopOutcome.COMPLETED
             and mode != 'plan'
             and session.active_langgraph_agent_streams == 0
+            and not is_subagent
         ):
             # Shrink outer checkpoint when the single-agent turn finished cleanly.
             compact_stats = await maybe_compact_outer_checkpoint(session_id, apply_mode, session)
             if compact_stats is not None and compact_stats.changed:
                 yield sse_line(compact_stats.to_sse_payload())
 
-        if graph_outcome.state != AgentLoopOutcome.COMPLETED:
-            # Incomplete turns leave a partial thread; delete so the next turn starts clean.
+        # A stopped agent turn keeps its thread: the next turn repairs its open tool calls instead.
+        kept_interrupted = graph_outcome.state == AgentLoopOutcome.ABORTED and mode != 'plan'
+        if graph_outcome.state != AgentLoopOutcome.COMPLETED and not kept_interrupted:
+            # Failed turns (and stopped plan turns) leave a partial thread; delete so the next turn starts clean.
             thread_kind = 'plan' if mode == 'plan' else 'single'
             ck_apply = PLAN_EXECUTE_APPLY_MODE if mode == 'plan' else apply_mode
             await delete_outer_thread(session_id, thread_kind, apply_mode=ck_apply)
+            # No thread left to repair: results stashed for its open spawn calls must not linger.
+            session.subagent_interrupted_reports.clear()
 
         # Persist this turn in the in-memory session history (Electron may also mirror to SQLite).
-        if DEFAULT_AGENT_LOOP_POLICY.should_commit_history(graph_outcome):
+        # Sub-agents are one-shot: their report goes back to the parent, not into a history.
+        if is_subagent:
+            pass
+        elif kept_interrupted:
+            _commit_interrupted_turn(session, user_message, graph_outcome)
+        elif DEFAULT_AGENT_LOOP_POLICY.should_commit_history(graph_outcome):
             session.history.append({'role': 'user', 'content': user_message})
             session.history.append({'role': 'assistant', 'content': graph_outcome.best_available_text()})
 
@@ -190,6 +246,11 @@ async def stream_agent_reply(
         yield 'data: [DONE]\n\n'
     except Exception as exc:
         # Unexpected failure: drop the checkpoint thread and surface a fatal SSE status.
+        graph_outcome.mark_failed_runtime(
+            f'{type(exc).__name__}: {exc}',
+            final_text='Error: the LangChain backend failed while generating a response.',
+            partial_text=graph_outcome.partial_text,
+        )
         try:
             thread_kind = 'plan' if (composer_mode or 'agent').strip().lower() == 'plan' else 'single'
             ck_apply = PLAN_EXECUTE_APPLY_MODE if thread_kind == 'plan' else apply_mode
@@ -207,7 +268,55 @@ async def stream_agent_reply(
         yield model_chunk_sse_line('Error: the LangChain backend failed while generating a response.', 'agent')
         yield 'data: [DONE]\n\n'
     finally:
+        if graph_outcome.state == AgentLoopOutcome.RUNNING:
+            # Closed or cancelled before the runner settled (e.g. a sub-agent hard-stopped).
+            graph_outcome.mark_aborted(partial_text=graph_outcome.partial_text)
         current_session_id.reset(token)
+        if not is_subagent:
+            _end_parent_turn(session_id, session, graph_outcome, continue_reports)
+
+
+def _end_parent_turn(
+    session_id: str,
+    session: SessionState,
+    outcome: LangGraphWorkerOutcome,
+    continue_reports: list[SubagentReport],
+) -> None:
+    """A main session's turn ended: reports still waiting go out as ``subagent_results_ready``.
+
+    A failed continue turn puts its reports back without notifying (the next turn gets them; a fresh
+    notification would only start another turn that fails the same way).
+    """
+    session.subagent_live_turns = max(0, session.subagent_live_turns - 1)
+    failed = outcome.state in (AgentLoopOutcome.FAILED_CONFIGURATION, AgentLoopOutcome.FAILED_RUNTIME)
+    if continue_reports and failed:
+        requeue_subagent_reports(session, continue_reports)
+        return
+    try:
+        maybe_publish_results_ready(session_id, ending_turn=True)
+    except Exception:
+        logger.warning('sub-agent results notification failed session=%s', session_id, exc_info=True)
+
+
+def _commit_interrupted_turn(
+    session: SessionState,
+    user_message: str | list[dict[str, Any]],
+    outcome: LangGraphWorkerOutcome,
+) -> None:
+    """Keep a stopped agent turn: history gets the partial reply with a marker, the next turn a note.
+
+    The checkpoint stays too, so the model sees its finished steps; the note carries what no
+    checkpoint holds (the text of a step cut off mid-stream). A card still waiting when the turn
+    stopped can no longer be answered, so its slot is cleared.
+    """
+    partial = outcome.partial_text.strip()
+    session.history.append({'role': 'user', 'content': user_message})
+    session.history.append(
+        {'role': 'assistant', 'content': f'{partial}\n\n{INTERRUPTED_TURN_MARKER}' if partial else INTERRUPTED_TURN_MARKER}
+    )
+    queue_interrupted_turn_note(session, user_message, outcome.uncommitted_text)
+    session.pending_accept_command_request = None
+    session.pending_delete_request = None
 
 
 __all__ = ['stream_agent_reply']

@@ -1,4 +1,4 @@
-import type { StreamPart } from '@shared/index';
+import type { StreamPart, TurnEndedEarly } from '@shared/index';
 import {
   delegatedStreamPartsForDisplay,
   emptyPrimaryAssistantFallbackMessage,
@@ -17,10 +17,15 @@ export interface AssistantTurnPayload {
   auxiliaryStreamTimeline?: StreamPart[];
 }
 
-/** Collapse streamed parts into a persisted assistant message (active or background conversation). */
+/**
+ * Collapse streamed parts into a persisted assistant message (active or background conversation).
+ * `endedEarly` turns keep only what streamed: no "tooling finished" placeholder for a reply that
+ * never got to write one.
+ */
 export function buildAssistantTurnFromStreamParts(
   parts: StreamPart[],
   pendingFinalText: string | undefined,
+  opts?: { endedEarly?: TurnEndedEarly },
 ): AssistantTurnPayload | null {
   const normalizedParts = parts
     .map(normalizeStreamPart)
@@ -43,6 +48,7 @@ export function buildAssistantTurnFromStreamParts(
   }
   if (
     !text.trim() &&
+    !opts?.endedEarly &&
     (parts.length > 0 ||
       (toolStreams?.length ?? 0) > 0 ||
       (reasoningStreams?.length ?? 0) > 0 ||

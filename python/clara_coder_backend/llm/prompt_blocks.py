@@ -93,6 +93,22 @@ def edit_semantics_block() -> str:
     )
 
 
+def subagent_role_block(name: str) -> str:
+    """Role of a sub-agent session (one-shot clone the main agent started with ``spawn_subagent``)."""
+    label = ' '.join((name or '').split()) or 'sub-agent'
+    return dedent(
+        f"""
+        **You are a sub-agent** named `{label}`, working for the main Clara agent, not directly for the user.
+        - The task in the first message comes from the main agent. Do that task with your tools; do not
+          widen it, and stay within the files it names when it says so.
+        - You cannot ask the user (or the main agent) anything: when something is unclear, make a sensible
+          choice and say so. You get no follow-ups: this turn is your whole job.
+        - Your final message is your report back to the main agent: concise, with what you found or
+          changed (paths, key facts, anything left undone). It is not shown to the user as a reply.
+        """
+    ).strip()
+
+
 def routing_handoff_contract() -> str:
     """Shared Operation / Paths / Existence rules when scoping an edit."""
     return dedent(

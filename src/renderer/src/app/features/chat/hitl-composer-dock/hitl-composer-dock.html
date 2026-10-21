@@ -8,6 +8,12 @@
     @for (artifact of pendingArtifacts(); track artifactTrackKey(artifact)) {
       @if (artifact.role === 'delete_confirm') {
         <div class="hitl-composer-dock__card hitl-composer-dock__card--delete" data-theme-group="hitl.cards">
+          @if (artifact.payload.subagent; as subagent) {
+            <div class="hitl-composer-dock__subagent" [title]="'Asked by the sub-agent ' + subagent.name">
+              <lucide-icon name="bot" [size]="12" aria-hidden="true" />
+              <span>Sub-agent · {{ subagent.name }}</span>
+            </div>
+          }
           <app-delete-confirm
             [conversationId]="conversationId()"
             [payload]="artifact.payload"
@@ -18,6 +24,12 @@
         </div>
       } @else if (artifact.role === 'accept_command') {
         <div class="hitl-composer-dock__card hitl-composer-dock__card--accept" data-theme-group="hitl.cards">
+          @if (artifact.payload.subagent; as subagent) {
+            <div class="hitl-composer-dock__subagent" [title]="'Asked by the sub-agent ' + subagent.name">
+              <lucide-icon name="bot" [size]="12" aria-hidden="true" />
+              <span>Sub-agent · {{ subagent.name }}</span>
+            </div>
+          }
           <app-accept-command
             [conversationId]="conversationId()"
             [payload]="artifact.payload"

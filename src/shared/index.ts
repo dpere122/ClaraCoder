@@ -305,8 +305,15 @@ export type {
   DiffReviewStatus,
   MaybeAutoTitleResult,
   StreamPart,
+  TurnEndedEarly,
   TurnGenerationStats,
 } from './types/conversation';
+export type {
+  SubagentOutcome,
+  SubagentRef,
+  SubagentResultsReadyEvent,
+  SubagentStartedEvent,
+} from './types/subagent';
 export { formatTokensPerSecond, turnTokensPerSecond } from './types/conversation';
 export {
   auxiliaryTimelineEmbedsToolStatus,
@@ -387,6 +394,7 @@ export {
 export type { ToolTrailPillState } from './tool-trail-pill';
 export {
   humanizeToolName,
+  isSubagentSpawnCall,
   runCommandIdFromReport,
   runCommandLaneId,
   formatToolDuration,
@@ -401,7 +409,7 @@ export {
 } from './tool-pill-label';
 export type { ToolPillCategory, ToolPillLabel } from './tool-pill-label';
 export type { ParsedAgentStreamPayload } from './stream-payload';
-export { parseAgentStreamPayload } from './stream-payload';
+export { parseAgentStreamPayload, parseAgentStreamValue } from './stream-payload';
 export type {
   AppendConversationFileJournalRequest,
   ConversationFileJournalEntry,

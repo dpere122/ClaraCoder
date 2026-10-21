@@ -163,3 +163,47 @@ def test_prune_idle_sessions_is_reentrant_when_cleanup_calls_get_session(
         assert state._pruning is False
     finally:
         state.sessions.clear()
+
+
+@pytest.mark.asyncio(loop_scope='function')
+async def test_dispose_stops_the_turn_and_running_subagents_before_teardown(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``/dispose`` of a parent aborts its sub-agents and waits for them; a child id is never recreated."""
+    import asyncio
+
+    from clara_coder_backend.lang_agent.subagents import fork_subagent_session, is_subagent_session_id
+    from clara_coder_backend.routes.session import dispose_session
+    from clara_coder_backend.session import state
+    from clara_coder_backend.session.schemas import ClearRequest
+
+    teardown = AsyncMock()
+    monkeypatch.setattr('clara_coder_backend.routes.session.teardown_session', teardown)
+    parent = state.get_session('disp-parent')
+    child = fork_subagent_session('disp-parent', parent, 'disp-child', 'x')
+    ended: list[str] = []
+
+    async def child_turn() -> None:
+        await child.abort_event.wait()
+        ended.append('child')
+        parent.subagent_children.pop('disp-child', None)
+        state.sessions.pop('disp-child', None)
+
+    parent.subagent_children['disp-child'] = asyncio.get_running_loop().create_task(child_turn())
+    try:
+        await asyncio.wait_for(dispose_session(ClearRequest(session_id='disp-parent')), timeout=5)
+
+        assert ended == ['child'] and child.subagent_cancel_requested
+        assert 'disp-parent' not in state.sessions
+        teardown.assert_awaited_once_with('disp-parent')
+
+        # A sub-agent id that is gone stays gone: ``/clear`` does not recreate it as a main session.
+        from clara_coder_backend.lang_agent.subagents import schedule_subagent_teardown
+        from clara_coder_backend.routes.session import clear_session
+
+        schedule_subagent_teardown('disp-child')
+        await asyncio.sleep(0)
+        assert is_subagent_session_id('disp-child')
+        await clear_session(ClearRequest(session_id='disp-child'))
+        assert 'disp-child' not in state.sessions
+    finally:
+        state.sessions.pop('disp-child', None)
+        state.sessions.pop('disp-parent', None)

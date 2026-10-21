@@ -1493,3 +1493,102 @@ def test_tool_rows_carry_llm_step_batch_so_ui_splits_sequential_steps() -> None:
         assert len({row['tool_batch'] for row in rows}) == 1
         batches.append(rows[0]['tool_batch'])
     assert batches[0] != batches[1]
+
+
+def _sse_payloads(lines: list[str]) -> list[dict[str, object]]:
+    return [json.loads(line.removeprefix('data: ').strip()) for line in lines]
+
+
+def test_subagent_started_custom_event_targets_the_aliased_spawn_pill() -> None:
+    """The spawn call's start event goes on the sub-agent bus with the pill id; the parent stream only
+    gets the pill's running update (linked to the child)."""
+    from clara_coder_backend.domain import SessionState
+    from clara_coder_backend.lang_agent import subagents
+    from clara_coder_backend.lang_agent.subagent_bus import SUBAGENT_BUS
+
+    state = GraphStreamState()
+    # The pill was opened by a streaming preview; the tool run is an alias of it.
+    state.gemma_run_id_alias['tool-run-1'] = 'native-tool-preview-3'
+    state.pending_tool_runs['tool-run-1'] = ('spawn_subagent', {'task': 'look', 'name': 'scout'})
+    parent, child = SessionState(), SessionState()
+    run = subagents.SubagentRun(
+        parent_session_id='parent-1',
+        parent=parent,
+        child_id='child-abc123',
+        child=child,
+        name='scout-2',
+        task_text='look',
+        background=True,
+        parent_turn_id='turn-5',
+    )
+    subagents.register_subagent_run(run)
+    event = {
+        'event': 'on_custom_event',
+        'name': subagents.SUBAGENT_STARTED_EVENT,
+        'run_id': 'tool-run-1',
+        'data': {
+            'conversation_id': 'child-abc123',
+            'parent_conversation_id': 'parent-1',
+            'parent_turn_id': 'turn-5',
+            'name': 'scout-2',
+            'task': 'look',
+            'background': True,
+        },
+    }
+    kwargs = dict(agent_role=None, status_label='Agent', llm_event_prefix='step', llm_log_context='test', stream_tag='agent')
+    lines = sse_lines_for_graph_event(event, state, **kwargs)
+    # A second sighting (or the child's own fallback) never announces twice.
+    again = sse_lines_for_graph_event(event, state, **kwargs)
+
+    [running] = _sse_payloads(lines)
+    status = running['status']
+    assert status['id'] == 'native-tool-preview-3' and status['state'] == 'running'
+    assert status['subagent'] == {'conversation_id': 'child-abc123', 'name': 'scout-2'}
+    assert status['detail'] == 'scout-2'
+    assert not any(p.get('type', '').startswith('subagent_') for p in _sse_payloads(lines + again))
+    assert run.announced.is_set()
+    assert SUBAGENT_BUS.buffered() == [
+        {
+            'type': 'subagent_started',
+            'conversation_id': 'child-abc123',
+            'parent_conversation_id': 'parent-1',
+            'parent_turn_id': 'turn-5',
+            'name': 'scout-2',
+            'task': 'look',
+            'status_id': 'native-tool-preview-3',
+            'background': True,
+        }
+    ]
+
+
+def test_spawn_result_artifact_links_the_finished_pill() -> None:
+    state = GraphStreamState()
+    state.pending_tool_runs['run-9'] = ('spawn_subagent', {})
+    out = ToolMessage(
+        content='Sub-agent `scout` finished. Its report:\n\nok',
+        tool_call_id='call-9',
+        name='spawn_subagent',
+        artifact={'subagent': {'conversation_id': 'child-abc123', 'name': 'scout'}},
+    )
+    lines = sse_lines_for_graph_event(
+        {'event': 'on_tool_end', 'name': 'spawn_subagent', 'run_id': 'run-9', 'data': {'output': out}},
+        state,
+        agent_role=None,
+        status_label='Agent',
+        llm_event_prefix='step',
+        llm_log_context='test',
+    )
+    [finished] = [p for p in _sse_payloads(lines) if p['type'] == 'status']
+    assert finished['status']['state'] == 'complete'
+    assert finished['status']['subagent'] == {'conversation_id': 'child-abc123', 'name': 'scout'}
+
+    plain = ToolMessage(content='read ok', tool_call_id='call-10', name='read_workspace_file')
+    other = sse_lines_for_graph_event(
+        {'event': 'on_tool_end', 'name': 'read_workspace_file', 'run_id': 'run-10', 'data': {'output': plain}},
+        state,
+        agent_role=None,
+        status_label='Agent',
+        llm_event_prefix='step',
+        llm_log_context='test',
+    )
+    assert all('subagent' not in p.get('status', {}) for p in _sse_payloads(other))

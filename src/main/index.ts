@@ -23,6 +23,7 @@ import { envClara } from './env-clara';
 import { configureAppDataDir } from './paths';
 import { captureIpcForBrowserBridge, startBrowserBridge } from './dev/browser-bridge';
 import { rearmMcpOAuthRefresh } from './mcp-oauth-refresh';
+import { startSubagentEventPump, stopSubagentEventPump } from './ipc/handlers/subagent-events';
 
 /**
  * Chromium GPU process often segfaults on Linux Wayland when Vulkan is enabled.
@@ -128,10 +129,14 @@ app
     }
     // Refreshes MCP OAuth tokens that expired while the app was closed, then keeps them fresh.
     rearmMcpOAuthRefresh();
+    // Sub-agents report on their own channel: they can outlive the chat turn that started them.
+    startSubagentEventPump();
   })
   .catch((err) => {
     console.error(err);
     createMainWindow();
+    // Waits for a sidecar that comes up later (e.g. after a runtime install).
+    startSubagentEventPump();
   });
 
 app.on('activate', () => {
@@ -151,6 +156,7 @@ app.on('will-quit', () => {
     stopAllManagedLlamaServers();
     killAllWorkspacePtySessions();
     clearWorkspaceWatcher();
+    stopSubagentEventPump();
     stopPythonSidecar();
   } catch (err) {
     console.error('[Main] will-quit cleanup failed:', err);

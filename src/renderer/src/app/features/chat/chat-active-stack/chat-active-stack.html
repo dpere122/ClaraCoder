@@ -35,6 +35,7 @@
     [streamingFinalText]="streamingFinalText()"
     [streamingPlanner]="streamingPlanner()"
     [fontSize]="fontSize()"
+    [readOnly]="!!subagentParentId()"
     [bottomInsetElement]="hitlDock"
     (restoreConversation)="restoreConversation.emit($event)"
     (sendResponse)="sendResponse.emit($event)"
@@ -46,6 +47,7 @@
   <section class="chat-active-stack__composer" #composer [style.transform]="composerTransform()">
     <!-- Wrapper is the transcript's `bottomInsetElement`: its height eats the chat's buffer zone. -->
     <div class="chat-active-stack__hitl-dock" #hitlDock>
+      <app-subagent-dock />
       <app-hitl-composer-dock
         [artifacts]="pendingHitlDockArtifacts()"
         [conversationId]="conversationId()"
@@ -56,6 +58,40 @@
         (themeProposalFinished)="themeProposalFinished.emit($event)"
       />
     </div>
+    @if (subagentParentId(); as parentId) {
+      <!-- Sub-agent conversations are read-only: only the main agent prompts them. -->
+      <div class="chat-active-stack__subagent-banner" data-theme-group="chat.subagent-banner" role="note">
+        <lucide-icon class="chat-active-stack__subagent-banner-icon" name="bot" [size]="15" aria-hidden="true" />
+        <div class="chat-active-stack__subagent-banner-text">
+          <span>Sub-agent of <strong>{{ parentTitle() }}</strong> · only the main agent prompts it</span>
+          @if (subagentAwaitingApproval()) {
+            <span class="chat-active-stack__subagent-banner-review">Waiting for your approval in the main chat</span>
+          }
+        </div>
+        <div class="chat-active-stack__subagent-banner-actions">
+          @if (loading()) {
+            <button
+              type="button"
+              class="chat-active-stack__subagent-banner-btn chat-active-stack__subagent-banner-btn--stop"
+              title="Stop this sub-agent"
+              (click)="stopSubagent()"
+            >
+              <lucide-icon name="square" [size]="11" aria-hidden="true" />
+              Stop
+            </button>
+          }
+          <button
+            type="button"
+            class="chat-active-stack__subagent-banner-btn"
+            title="Back to the main agent's conversation"
+            (click)="openParent(parentId)"
+          >
+            <lucide-icon name="arrow-left" [size]="13" aria-hidden="true" />
+            Main agent
+          </button>
+        </div>
+      </div>
+    } @else {
     <div class="chat-active-stack__composer-input">
       <app-talk-mode
         class="composer-talk composer-talk--hidden"
@@ -97,5 +133,6 @@
         (reasoningEffortChange)="reasoningEffortChange.emit($event)"
       />
     </div>
+    }
   </section>
 </div>

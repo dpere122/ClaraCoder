@@ -23,6 +23,30 @@ function pill(part: StreamPart, live = false): string {
 }
 
 describe('toolPillLabel', () => {
+  it('sub-agents: names the sub-agent, not its task', () => {
+    const running = status('spawn_subagent', 'Read the README and summarize it', {
+      toolChainState: 'running',
+      toolSubagentId: 'child-1',
+      toolSubagentName: 'Reader',
+    });
+    expect(pill(running, true)).toBe('Sub-agent · Reader');
+  });
+
+  it('a sub-agent spawn cut off by its turn ending reads as kept running (the sub-agent did not stop)', () => {
+    const cut = status('spawn_subagent', 'task', {
+      toolChainState: 'error',
+      toolStopped: true,
+      toolSubagentId: 'child-1',
+      toolSubagentName: 'long-writer',
+    });
+    expect(pill(cut)).toBe('Sub-agent · long-writer · kept running');
+  });
+
+  it('a call still running when its turn ended reads as stopped', () => {
+    const stopped = status('read_workspace_file', 'README.md', { toolChainState: 'error', toolStopped: true, toolTarget: 'README.md' });
+    expect(pill(stopped)).toBe('Read · README.md · stopped');
+  });
+
   it('reads: path and line count from the read headline', () => {
     expect(
       pill(status('read_workspace_file', 'File: math_utils.py Encoding: utf-8 Lines: 1-6 (of 6 in file) Format: …')),

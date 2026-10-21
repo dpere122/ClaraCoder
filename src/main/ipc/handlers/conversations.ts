@@ -13,11 +13,16 @@ import {
   deleteConversationById,
   getConversationById,
   getConversationMetas,
+  listChildConversationIds,
+  markConversationsDeleted,
   updateAutoConversationTitle,
   updateConversationTheme,
   updateConversationTitleAndLock,
   upsertConversation,
 } from '../../conversations-db';
+import { pythonHistoryFromMessages } from '../../python-history';
+import { abortChatStream, hasActiveChatStream } from './chat-stream-state';
+import { forgetConversationRenderer } from './conversation-renderers';
 
 function assistantMessageCount(messages: ConversationFile['messages']): number {
   return messages.filter((m) => m.role === 'assistant').length;
@@ -76,16 +81,21 @@ export function registerConversationsIpc(): void {
         throw new Error('Untrusted IPC sender');
       }
       const skipPythonResync = Boolean(options?.skipPythonResync);
-      mainState.activeConversationId = id;
-
-      const sw = mainState.settingsWindow;
-      if (sw && !sw.isDestroyed()) {
-        sw.webContents.send('active-conversation-changed', id);
-      }
-
       const conv = getConversationById(id);
       if (!conv) {
         throw new Error('Conversation not found');
+      }
+      if (conv.parentConversationId) {
+        // A sub-agent conversation is only viewed. Its parent stays the active conversation, so
+        // workspace and prompt syncs keep going to the session that can still take a turn, and
+        // Python (which owns the sub-agent's live session) is not resynced.
+        return conv;
+      }
+
+      mainState.activeConversationId = id;
+      const sw = mainState.settingsWindow;
+      if (sw && !sw.isDestroyed()) {
+        sw.webContents.send('active-conversation-changed', id);
       }
 
       if (!skipPythonResync) {
@@ -97,27 +107,12 @@ export function registerConversationsIpc(): void {
       }
 
       if (!skipPythonResync) {
-        type PyHistoryMsg =
-          | { role: 'user'; message: string; structuredContent?: readonly Record<string, unknown>[] }
-          | { role: 'assistant'; content: string };
-        const pyMessages: PyHistoryMsg[] = [];
-        for (const m of conv.messages) {
-          if (m.role === 'user') {
-            pyMessages.push({
-              role: 'user',
-              message: m.text,
-              ...(m.structuredContent?.length ? { structuredContent: m.structuredContent } : {}),
-            });
-          } else if (m.role === 'assistant') {
-            pyMessages.push({ role: 'assistant', content: m.text });
-          }
-        }
         try {
           await ensurePythonReady();
           await pythonControlFetch('/load', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session_id: id, messages: pyMessages }),
+            body: JSON.stringify({ session_id: id, messages: pythonHistoryFromMessages(conv.messages) }),
           });
         } catch (err) {
           console.error('Failed to sync history with Python:', err);
@@ -146,17 +141,29 @@ export function registerConversationsIpc(): void {
     } catch {
       return;
     }
-    try {
-      await ensurePythonReady();
-      await pythonControlFetch('/dispose', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: id }),
-      });
-    } catch (err) {
-      console.error('Failed to dispose Python session:', err);
+    // Its sub-agent conversations go with it. Tombstone first so a save or a sub-agent row the
+    // stream is still finishing cannot bring any of them back.
+    const ids = [id, ...listChildConversationIds(id)];
+    markConversationsDeleted(ids);
+    if (hasActiveChatStream(id)) {
+      await abortChatStream(id);
+    }
+    for (const sessionId of ids) {
+      try {
+        await ensurePythonReady();
+        await pythonControlFetch('/dispose', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: sessionId }),
+        });
+      } catch (err) {
+        console.error('Failed to dispose Python session:', err);
+      }
     }
     deleteConversationById(id);
+    for (const deletedId of ids) {
+      forgetConversationRenderer(deletedId);
+    }
   });
 
   ipcMain.handle('rename-conversation', async (event, id: string, title: string, _workspaceId?: string | null) => {
@@ -181,7 +188,8 @@ export function registerConversationsIpc(): void {
     if (!conv) {
       return { ok: false as const, reason: 'not_found' as const };
     }
-    if (conv.customTitle) {
+    if (conv.customTitle || conv.parentConversationId) {
+      // Sub-agent conversations keep the name the main agent gave them.
       return { ok: false as const, reason: 'locked' as const };
     }
     const n = assistantMessageCount(conv.messages);

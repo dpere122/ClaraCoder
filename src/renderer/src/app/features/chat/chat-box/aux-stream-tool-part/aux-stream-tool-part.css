@@ -11,6 +11,27 @@ app-aux-stream-tool-part .aux-stream-tool-part__diff {
   margin-top: 0.28rem;
 }
 
+/* Sub-agent pill: opens the sub-agent's (read-only) conversation. */
+app-aux-stream-tool-part .aux-stream-tool-part__subagent-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.28rem;
+  padding: 0.15rem 0.6rem;
+  border: 1px solid var(--t-border-subtle);
+  border-radius: 999px !important;
+  background: transparent;
+  color: var(--t-primary);
+  font-family: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+app-aux-stream-tool-part .aux-stream-tool-part__subagent-link:hover {
+  border-color: var(--t-primary);
+  background: var(--t-hover-bg);
+}
+
 app-aux-stream-tool-part .aux-stream-tool-part__detail {
   display: block;
   margin: 0.28rem 0 0;

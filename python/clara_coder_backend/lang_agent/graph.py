@@ -6,6 +6,13 @@ Standard Clara uses read/search and LSP tools, plus write-through edit tools whe
 Edits land on disk immediately. Their per-turn ``file_journal`` rows and the remaining approval cards
 (commands, unrestorable deletes) go out through a multiplexed event pump while the graph waits on
 ``POST /chat/agent-continue``.
+
+A stopped turn keeps its checkpoint (``durability='sync'`` saves each step before the next starts);
+the next turn first answers the tool calls it left open (:mod:`~clara_coder_backend.lang_agent.interrupt_repair`).
+Main sessions also bind the sub-agent tools and
+:class:`~clara_coder_backend.middleware.subagent_results_middleware.SubagentResultsMiddleware`; sub-agent
+events go on their own bus (:mod:`~clara_coder_backend.lang_agent.subagents`), and only the end-of-turn
+waiting pill rides this stream's nested queue.
 """
 
 from __future__ import annotations
@@ -13,14 +20,16 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from contextlib import aclosing
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
 from langchain.agents import create_agent
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 
 from clara_coder_backend.lang_agent.streaming import sse_line, status_event
+from clara_coder_backend.lang_agent.interrupt_repair import repair_interrupted_tool_calls
 from clara_coder_backend.lang_agent.loop import AgentLoopOutcome, LangGraphWorkerOutcome
 from clara_coder_backend.hitl.accept_command import accept_command_sse_payload
 from clara_coder_backend.middleware.accept_command_review_middleware import AcceptCommandReviewAfterToolMiddleware
@@ -35,10 +44,16 @@ from clara_coder_backend.middleware.gemma_native_tool_middleware import GemmaNat
 from clara_coder_backend.middleware.mid_turn_compaction_middleware import MidTurnContextCompactionMiddleware
 from clara_coder_backend.middleware.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
 from clara_coder_backend.middleware.pseudo_tool_xml_middleware import PseudoToolXmlMiddleware
+from clara_coder_backend.middleware.subagent_results_middleware import SubagentResultsMiddleware
 from clara_coder_backend.middleware.tool_batch_middleware import ToolBatchMiddleware
 from clara_coder_backend.middleware.tool_harness_feedback_middleware import prepend_harness_feedback_middleware
 from clara_coder_backend.middleware.user_event_injection_middleware import UserEventInjectionMiddleware
 from clara_coder_backend.session.user_events import drain_user_event_notes
+from clara_coder_backend.lang_agent.subagents import (
+    drain_subagent_reports,
+    format_subagent_reports,
+    has_running_subagents,
+)
 from clara_coder_backend.chat.chat_attachment_vision import prepare_chat_attachment_vision_turn
 from clara_coder_backend.middleware.vision_tool_middleware import VisionImageInjectionMiddleware
 from clara_coder_backend.domain import SessionState
@@ -76,10 +91,12 @@ def _stream_is_genuinely_stalled(session: SessionState, main_state: GraphStreamS
 
     A tool currently running (``pending_tool_runs``) covers long-running tools (npm/pytest) and active HITL pauses
     (the tool node has not emitted ``on_tool_end`` yet). A HITL pause that is awaiting confirmation also keeps
-    ``agent_pause_event`` set or a ``pending_*_request`` populated. In all those cases the idle wait is
-    legitimate and the watchdog must not fire.
+    ``agent_pause_event`` set or a ``pending_*_request`` populated. Running sub-agents cover the end-of-turn wait
+    for their reports. In all those cases the idle wait is legitimate and the watchdog must not fire.
     """
     if main_state.pending_tool_runs:
+        return False
+    if has_running_subagents(session):
         return False
     if session.agent_pause_event is not None:
         return False
@@ -95,14 +112,23 @@ def build_clara_single_outer_graph(
     *,
     extra_middleware: list[Any] | None = None,
     tools_provider: Callable[..., tuple[list[Any], dict[str, Any]]] | None = None,
+    allow_subagents: bool = False,
 ) -> Any:
-    """Same ``create_agent`` shape as the live Clara stream (checkpoint-compatible)."""
+    """Same ``create_agent`` shape as the live Clara stream (checkpoint-compatible).
+
+    ``allow_subagents`` binds the sub-agent tools and report delivery (main agent-mode sessions only;
+    sub-agents never get them).
+    """
     if tools_provider is not None:
         tools, _ = tools_provider(apply_mode, session=session)
     else:
-        tools, _ = worker_tools_and_map(apply_mode, session=session)
+        tools, _ = worker_tools_and_map(apply_mode, session=session, include_subagent_tool=allow_subagents)
     system_prompt = build_system_prompt(session, apply_mode)
-    core_middleware: list[Any] = [
+    core_middleware: list[Any] = []
+    if allow_subagents and not session.subagent_parent_session_id:
+        # First, so its after-model wait runs last (after tool-call promotion; see the class).
+        core_middleware.append(SubagentResultsMiddleware())
+    core_middleware += [
         MidTurnContextCompactionMiddleware(),
         UserEventInjectionMiddleware(),
         ContextPackActivationMiddleware(),
@@ -137,6 +163,21 @@ def _default_outer_graph_builder(
     return build_clara_single_outer_graph(llm, session, apply_mode, extra_middleware=extra_middleware)
 
 
+def _chat_outer_graph_builder(
+    llm: Any,
+    session: SessionState,
+    apply_mode: bool,
+    extra_middleware: list[Any] | None,
+) -> Any:
+    """The chat turn's graph: the default one plus the sub-agent tools.
+
+    Plan discovery shares :func:`_default_outer_graph_builder`, so the flag cannot live there.
+    """
+    return build_clara_single_outer_graph(
+        llm, session, apply_mode, extra_middleware=extra_middleware, allow_subagents=True
+    )
+
+
 def _unpack_nested_queue_item(item: Any) -> tuple[str, dict[str, Any]] | None:
     """``(stream_tag, langgraph_v2_event_dict)`` from nested planning producers."""
     if isinstance(item, tuple) and len(item) == 2:
@@ -163,17 +204,38 @@ async def _cancel_pending_waiters(tasks: list[asyncio.Task[Any]]) -> None:
 
 
 async def _stop_llm_pump(pump_task: asyncio.Task[Any], session_id: str) -> None:
-    """Cancel ``astream_events`` and close this session's in-flight generation stream."""
-    try:
-        await abort_in_flight_llm_requests(session_id)
-    except asyncio.CancelledError:
-        raise
+    """Cancel ``astream_events`` and close this session's in-flight generation stream.
+
+    The pump is cancelled before anything is awaited, so a cancellation that lands on the HTTP
+    close cannot leave it running. Waiting uses ``asyncio.wait`` so the pump's own cancellation is
+    not mistaken for (or swallows) a cancellation of the caller.
+    """
     if not pump_task.done():
         pump_task.cancel()
     try:
-        await pump_task
-    except (asyncio.CancelledError, Exception):
-        pass
+        await abort_in_flight_llm_requests(session_id)
+    finally:
+        await asyncio.wait({pump_task})
+        if not pump_task.cancelled():
+            # Retrieve it so a failed pump is not reported as "exception never retrieved".
+            pump_task.exception()
+
+
+def _requeue_front(queue: asyncio.Queue, item: Any) -> None:
+    """Put ``item`` back at the head of ``queue`` so it is read before anything queued after it.
+
+    ``put_nowait`` alone would append it behind later items and reorder one producer's stream
+    (a sub-agent's events, a command's output chunks). Synchronous, so no producer runs in between.
+    """
+    rest: list[Any] = []
+    while True:
+        try:
+            rest.append(queue.get_nowait())
+        except asyncio.QueueEmpty:
+            break
+    queue.put_nowait(item)
+    for later in rest:
+        queue.put_nowait(later)
 
 
 async def _race_stream_inputs(
@@ -214,8 +276,8 @@ async def _race_stream_inputs(
             if selected is None:
                 selected = (label, item)
             else:
-                # Re-queue items we cannot return this round so they are not lost.
-                queue.put_nowait(item)
+                # Re-queue items we cannot return this round so they are not lost (or reordered).
+                _requeue_front(queue, item)
         if selected is not None:
             return selected
         return 'abort', None
@@ -272,6 +334,10 @@ def _nested_sse_lines(
     if unpacked is None:
         return []
     tag, ev = unpacked
+    if ev.get('event') == 'subagent_sse':
+        # A ready-made payload (the end-of-turn ``wait_for_subagents`` pill); sub-agent events use the bus.
+        data = ev.get('data')
+        return [sse_line(data)] if isinstance(data, dict) else []
     if ev.get('event') == 'tool_progress':
         # Out-of-band phase updates (write jobs) fold into the running tool pill: outer graph first,
         # then nested specialists (they own their own ``pending_tool_runs``).
@@ -287,7 +353,7 @@ def _nested_sse_lines(
     if ev.get('event') == 'planner_progress':
         data = ev.get('data')
         if isinstance(data, dict):
-            from clara_coder_backend.lang_agent.streaming import planner_progress_event, sse_line
+            from clara_coder_backend.lang_agent.streaming import planner_progress_event
 
             planner = data.get('planner') if isinstance(data.get('planner'), dict) else data
             return [sse_line(planner_progress_event(planner))]
@@ -309,6 +375,96 @@ def _nested_sse_lines(
             emit_model_token_sse=False,
         )
     )
+
+
+async def _queued_tail_lines(
+    session: SessionState,
+    hitl_q: asyncio.Queue,
+    nested_q: asyncio.Queue,
+    *,
+    nested_states: dict[str, GraphStreamState],
+    cfg: AgentGraphConfig,
+    main_state: GraphStreamState,
+    main_stream_tag: str,
+) -> list[str]:
+    """SSE lines for the HITL / nested items still queued when the graph pump ends (nothing waits)."""
+    lines: list[str] = []
+    while True:
+        try:
+            item = hitl_q.get_nowait()
+        except asyncio.QueueEmpty:
+            break
+        if isinstance(item, tuple) and len(item) == 2 and item[0] == 'tool_resolved':
+            lines.extend(approval_answer_sse_lines(item[1], states=[main_state, *nested_states.values()]))
+        else:
+            lines.extend(await _hitl_sse_lines(get_session(cfg.session_id), item))
+    while True:
+        try:
+            item = nested_q.get_nowait()
+        except asyncio.QueueEmpty:
+            break
+        lines.extend(
+            _nested_sse_lines(
+                session,
+                item,
+                nested_states=nested_states,
+                cfg=cfg,
+                main_state=main_state,
+                main_stream_tag=main_stream_tag,
+            )
+        )
+    return lines
+
+
+def _stopped_turn_status_lines(nested_q: asyncio.Queue) -> list[str]:
+    """After an abort, the ready-made statuses still queued (the waiting pill's ``complete``).
+
+    The stopped pump settles its pills on the way out; other nested items are dropped: the turn is over.
+    Sub-agents keep running (their events use the bus), so nothing here waits for them.
+    """
+    lines: list[str] = []
+    while True:
+        try:
+            item = nested_q.get_nowait()
+        except asyncio.QueueEmpty:
+            return lines
+        unpacked = _unpack_nested_queue_item(item)
+        if unpacked is None or unpacked[1].get('event') != 'subagent_sse':
+            continue
+        data = unpacked[1].get('data')
+        if isinstance(data, dict):
+            lines.append(sse_line(data))
+
+
+async def _interrupted_call_repairs(config: RunnableConfig, session: SessionState, graph_name: str) -> list[Any]:
+    """Results for the tool calls a stopped turn left unanswered (see :mod:`.interrupt_repair`).
+
+    Read from the raw checkpoint tuple: its ``messages`` channel plus the pending writes of calls that
+    finished after the last saved step. Best effort; a failure here only skips the repair.
+    """
+    try:
+        saved = await get_graph_checkpointer().aget_tuple(config)
+        if saved is None:
+            return []
+        messages = (saved.checkpoint.get('channel_values') or {}).get('messages') or []
+        repairs = repair_interrupted_tool_calls(
+            messages,
+            saved.pending_writes or [],
+            session.subagent_interrupted_reports,
+        )
+    except Exception:
+        logger.warning('Interrupted tool-call repair skipped (%s)', graph_name, exc_info=True)
+        return []
+    # Stashed spawn-call results belong to the stopped turn only.
+    session.subagent_interrupted_reports.clear()
+    if repairs:
+        logger.info(
+            'Repaired interrupted tool calls before the next turn (%s): %d message(s)%s',
+            graph_name,
+            len(repairs),
+            ' (rebuilt history)' if not isinstance(repairs[0], ToolMessage) else '',
+        )
+    return repairs
 
 
 def _graph_sse_lines(
@@ -369,12 +525,15 @@ async def _stream_langgraph_tool_agent(
     nested_planning_queue: asyncio.Queue | None = None,
     resume_checkpoint_id: str | None = None,
     outer_graph_builder: Callable[[Any, SessionState, bool, list[Any] | None], Any] | None = None,
+    deliver_subagent_reports: bool = False,
 ) -> AsyncIterator[str]:
     """Run create_agent graph; yield SSE.
 
     ``worker_apply_mode`` and ``hitl_sse_queue`` are refcounted across concurrent
     streams for the same session so a finished stream cannot clear Editor mode or
     shared queues while another stream is still running (e.g. overlapping fetches).
+    ``deliver_subagent_reports``: sub-agent reports waiting on the session go into this turn's input,
+    ahead of the user's message (main-session chat turns).
     """
     try:
         llm = build_llm()
@@ -421,8 +580,15 @@ async def _stream_langgraph_tool_agent(
     human_content = compose_outer_turn_human_content(session, apply_mode, user_message)
     human_content = prepare_chat_attachment_vision_turn(human_content)
     pending_event_messages = [HumanMessage(content=note) for note in drain_user_event_notes(session)]
+    if deliver_subagent_reports and not session.subagent_parent_session_id:
+        reports = drain_subagent_reports(session)
+        if reports:
+            pending_event_messages.append(HumanMessage(content=format_subagent_reports(reports)))
     if has_checkpoint_messages:
-        input_messages: list[Any] = [*pending_event_messages, HumanMessage(content=human_content)]
+        # A stopped turn's open tool calls get their results first, so the new input follows a
+        # complete step (``[*repairs, *notes, Human]``).
+        repairs = await _interrupted_call_repairs(config, session, cfg.graph_name)
+        input_messages: list[Any] = [*repairs, *pending_event_messages, HumanMessage(content=human_content)]
     else:
         input_messages = [
             *session_to_messages(session),
@@ -436,7 +602,9 @@ async def _stream_langgraph_tool_agent(
 
     async def pump_events() -> None:
         try:
-            async for ev in graph.astream_events(inputs, config, version='v2'):
+            # ``sync``: each step's checkpoint is saved before the next starts, so a cancelled turn
+            # keeps every finished step (the async flush runs in a task the cancellation abandons).
+            async for ev in graph.astream_events(inputs, config, version='v2', durability='sync'):
                 await events_q.put(ev)
         finally:
             await events_q.put(None)
@@ -536,6 +704,18 @@ async def _stream_langgraph_tool_agent(
                     continue
 
                 if item is None:
+                    # The graph is done; relay what producers already queued (the waiting pill's last status,
+                    # a journal row) instead of dropping it.
+                    for line in await _queued_tail_lines(
+                        session,
+                        hitl_q,
+                        nested_stream_q,
+                        nested_states=nested_states,
+                        cfg=cfg,
+                        main_state=main_state,
+                        main_stream_tag=main_stream_tag,
+                    ):
+                        yield line
                     break
 
                 ev = item
@@ -554,6 +734,9 @@ async def _stream_langgraph_tool_agent(
             # Close the in-flight Chat Completions response so llama-server stops decode.
             if outcome.state in (AgentLoopOutcome.ABORTED, AgentLoopOutcome.FAILED_RUNTIME):
                 await _stop_llm_pump(pump_task, cfg.session_id)
+                if outcome.state == AgentLoopOutcome.ABORTED:
+                    for line in _stopped_turn_status_lines(nested_stream_q):
+                        yield line
             else:
                 await pump_task
         except Exception as exc:
@@ -603,6 +786,8 @@ async def _stream_langgraph_tool_agent(
                     )
                 )
     finally:
+        # Text of a model step still in progress is in no checkpoint; the composer's interrupt note carries it.
+        outcome.uncommitted_text = main_state.deferred_agent_text if main_state.gemma_step_started else ''
         if apply_mode:
             session.active_editor_langgraph_streams = max(0, session.active_editor_langgraph_streams - 1)
         session.worker_apply_mode = session.active_editor_langgraph_streams > 0
@@ -644,12 +829,18 @@ async def stream_single_agent_langgraph(
         done_detail='Complete',
     )
 
-    async for line in _stream_langgraph_tool_agent(
-        session,
-        apply_mode,
-        user_message,
-        cfg=cfg,
-        outcome=outcome,
-        resume_checkpoint_id=resume_checkpoint_id,
-    ):
-        yield line
+    # ``aclosing``: when the composer stops early, the runner's cleanup (pump stop) runs now, not at GC.
+    async with aclosing(
+        _stream_langgraph_tool_agent(
+            session,
+            apply_mode,
+            user_message,
+            cfg=cfg,
+            outcome=outcome,
+            resume_checkpoint_id=resume_checkpoint_id,
+            outer_graph_builder=_chat_outer_graph_builder,
+            deliver_subagent_reports=not session.subagent_parent_session_id,
+        )
+    ) as lines:
+        async for line in lines:
+            yield line

@@ -23,7 +23,16 @@ from clara_coder_backend.runtime.python_interpreter_select import (
 )
 from clara_coder_backend.session.chat_input import effective_user_message_content
 from clara_coder_backend.session.checkpointing import delete_outer_threads_for_session
+from clara_coder_backend.lang_agent.subagents import (
+    is_subagent_session_id,
+    live_subagent_runs,
+    maybe_publish_results_ready,
+    stop_subagent,
+    stop_subagents,
+    subagent_session,
+)
 from clara_coder_backend.session.lifecycle import clear_session_hitl_fields, teardown_session
+from clara_coder_backend.session.turns import forget_session_turns, stop_session_turn
 from clara_coder_backend.session.schemas import (
     ClearRequest,
     LoadRequest,
@@ -66,16 +75,33 @@ def _apply_npm_project_hints(sess: SessionState, workspace_root: Path) -> None:
     )
 
 
+async def _stop_session_activity(sid: str) -> None:
+    """Stop the session's turn and its sub-agents before a reset, so none writes into a fresh thread.
+
+    The conversation is going away (``/clear``, ``/dispose``): its sub-agents' reports are dropped.
+    For a sub-agent id this stops just that sub-agent (its partial report goes to the main agent).
+    """
+    child = subagent_session(sid)
+    if child is not None:
+        await stop_subagent(sid)
+        return
+    await stop_session_turn(sid)
+    await stop_subagents(state.sessions.get(sid), discard_reports=True)
+
+
 @router.post('/clear')
 async def clear_session(request: ClearRequest) -> dict[str, bool]:
     """Reset a session to a fresh SessionState and drop outer LangGraph checkpoints.
 
     After clear, Electron SQLite (empty or new chat) is the source of truth for the next
-    model turn — checkpoint delta history must not outlive this resync.
+    model turn — checkpoint delta history must not outlive this resync. A running turn
+    (and its sub-agents) is stopped first.
     """
     sid = request.session_id
+    await _stop_session_activity(sid)
     await teardown_session(sid)
-    state.sessions[sid] = SessionState()
+    if not is_subagent_session_id(sid):
+        state.sessions[sid] = SessionState()
     return {'ok': True}
 
 
@@ -83,8 +109,10 @@ async def clear_session(request: ClearRequest) -> dict[str, bool]:
 async def dispose_session(request: ClearRequest) -> dict[str, bool]:
     """Teardown a session and remove it from the in-memory store (conversation deleted)."""
     sid = request.session_id
+    await _stop_session_activity(sid)
     await teardown_session(sid)
     state.sessions.pop(sid, None)
+    forget_session_turns(sid)
     return {'ok': True}
 
 
@@ -121,8 +149,13 @@ async def load_session(request: LoadRequest) -> dict[str, bool]:
 
     Replaces slim history from Electron SQLite and clears outer LangGraph checkpoints so the
     next model turn rebuilds from loaded history (SQLite is authoritative after resync).
-    Live HITL/pause fields are abandoned; workspace/LSP attachment is preserved.
+    Live HITL/pause fields are abandoned; workspace/LSP attachment is preserved. A running
+    turn is stopped first; the conversation's sub-agents keep running and their waiting reports
+    stay (``subagent_results_ready`` goes out if some wait). Sub-agent conversations are never loaded.
     """
+    if is_subagent_session_id(request.session_id):
+        return {'ok': True}
+    await stop_session_turn(request.session_id)
     sess = state.get_session(request.session_id)
     restored: list[dict[str, Any]] = []
     for item in request.messages:
@@ -133,7 +166,17 @@ async def load_session(request: LoadRequest) -> dict[str, bool]:
         restored.append({'role': role, 'content': content})
     await delete_outer_threads_for_session(request.session_id)
     clear_session_hitl_fields(sess)
+    # Results for spawn calls of a checkpoint that is gone now.
+    sess.subagent_interrupted_reports.clear()
     sess.history = restored
+    if live_subagent_runs(sess) or sess.subagent_pending_reports:
+        logger.info(
+            'load kept %d running sub-agent(s) and %d waiting report(s) session=%s',
+            len(live_subagent_runs(sess)),
+            len(sess.subagent_pending_reports),
+            request.session_id,
+        )
+    maybe_publish_results_ready(request.session_id)
     return {'ok': True}
 
 
@@ -262,9 +305,18 @@ async def select_python_interpreter(request: PythonInterpreterSelectRequest) -> 
 
 @router.post('/session/auto-apply')
 async def session_auto_apply(request: SessionAutoApplyRequest) -> dict[str, bool]:
-    """Update per-session auto-apply while a stream may be running (toolbar toggle)."""
+    """Update per-session auto-apply while a stream may be running (toolbar toggle).
+
+    Running sub-agents follow their parent's toggle.
+    """
+    if is_subagent_session_id(request.session_id):
+        return {'ok': True}
     sess = state.get_session(request.session_id)
     sess.auto_apply_mode = request.auto_apply_mode
+    for child_id in list(sess.subagent_children):
+        child = subagent_session(child_id)
+        if child is not None:
+            child.auto_apply_mode = request.auto_apply_mode
     return {'ok': True}
 
 

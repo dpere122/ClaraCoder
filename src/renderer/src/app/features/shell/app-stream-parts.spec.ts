@@ -70,6 +70,21 @@ describe('upsertToolTrailStatusStreamPart', () => {
     expect(answered[0].toolDurationMs).toBe(31);
   });
 
+  it('keeps the sub-agent a spawn pill runs from its running status through its result', () => {
+    const spawn = (state: LlmStatus['state'], detail: string, withLink: boolean): LlmStatus => ({
+      id: 's1',
+      label: 'spawn_subagent',
+      detail,
+      state,
+      source: 'tool',
+      ...(withLink ? { subagent: { conversationId: 'child-1', name: 'Reader' } } : {}),
+    });
+    const running = upsertToolTrailStatusStreamPart([], spawn('running', 'Reader', true));
+    expect(running[0]).toMatchObject({ toolSubagentId: 'child-1', toolSubagentName: 'Reader' });
+    const done = upsertToolTrailStatusStreamPart(running, spawn('complete', 'Report: all good', false));
+    expect(done[0]).toMatchObject({ toolChainState: 'complete', toolSubagentId: 'child-1', text: 'Report: all good' });
+  });
+
   it('retags pre-tool agent prose to a Clara brief when a new tool row is appended', () => {
     const parts = [
       { streamTag: 'reasoning', label: 'Model reasoning', text: 'first think' },

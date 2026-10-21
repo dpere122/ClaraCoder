@@ -17,11 +17,11 @@ from typing import Any
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
 from clara_coder_backend.domain import SessionState
-from clara_coder_backend.hitl.tool_registry import planner_discovery_tools_and_map, worker_tools_and_map
+from clara_coder_backend.hitl.tool_registry import worker_tools_and_map
 
-#: Per-mode cap on bound tool schema tokens (cl100k_base), MCP tools excluded. Measured baselines:
-#: read_only ~3.0k, editor ~5.3k, plan ~5.4k, editor + web + formatters ~5.6k. The cap leaves room for
-#: richer per-tool detail, but a reintroduced tool family or runaway prose fails CI.
+#: Per-mode cap on bound tool schema tokens (cl100k_base), MCP tools excluded. Measured baselines
+#: (with the sub-agent tools): read_only ~3.8k, editor ~6.1k, plan ~5.7k, editor + web + formatters ~6.5k.
+#: The cap leaves room for richer per-tool detail, but a reintroduced tool family or runaway prose fails CI.
 TOOL_BUDGET_CAP = 9_000
 
 
@@ -53,11 +53,13 @@ def measure_tools(tools: list[Any]) -> dict:
 
 def _mode_tool_set(mode: str, *, session: SessionState | None = None) -> list[Any]:
     sess = session or SessionState()
+    # Measured as the agent-mode chat turn binds them: with the sub-agent tools (plan discovery is a
+    # subset of ``read_only``, plan execution has its own guard).
     if mode == 'read_only':
-        tools, _ = planner_discovery_tools_and_map(session=sess)
+        tools, _ = worker_tools_and_map(False, session=sess, include_subagent_tool=True)
         return tools
     if mode == 'editor':
-        tools, _ = worker_tools_and_map(True, session=sess)
+        tools, _ = worker_tools_and_map(True, session=sess, include_subagent_tool=True)
         return tools
     raise ValueError(f"unknown mode {mode!r}; expected 'read_only' or 'editor'")
 

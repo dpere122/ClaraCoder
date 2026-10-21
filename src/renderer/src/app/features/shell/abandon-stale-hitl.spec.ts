@@ -96,4 +96,15 @@ describe('abandonStaleHitlMessages', () => {
     ];
     expect(abandonStaleHitlMessages(messages)).toBe(messages);
   });
+  it('keeps a card whose asker is still running', () => {
+    const messages: ConversationMessage[] = [
+      {
+        role: 'delete_confirm',
+        payload: { version: 1, requestId: 'r1', relativePath: 'a.txt', subagent: { conversationId: 'child-1', name: 'S' } },
+        reviewStatus: 'pending',
+      },
+    ];
+    expect(abandonStaleHitlMessages(messages, () => true)).toBe(messages);
+    expect(abandonStaleHitlMessages(messages, () => false)[0]).toMatchObject({ reviewStatus: 'cancelled' });
+  });
 });

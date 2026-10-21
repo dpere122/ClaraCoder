@@ -2,11 +2,14 @@ import { TestBed } from '@angular/core/testing';
 import { Subject } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
+  AcceptCommandPayload,
   AppConfig,
   Conversation,
   ConversationMeta,
   LlamaServerLifecycleEvent,
   LlamaServerProcessExitEvent,
+  LlmStatus,
+  SubagentStartedEvent,
   TurnEditedFile,
 } from '@shared/index';
 import { PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID, SecretValue } from '@shared/index';
@@ -46,6 +49,13 @@ function localLlamaConfig(modelId = 'local-model'): AppConfig {
   } as unknown as AppConfig;
 }
 
+type DoneEvent = {
+  conversationId: string;
+  outcome: 'completed' | 'aborted' | 'error';
+  editedFiles?: TurnEditedFile[];
+  userMessageId?: string;
+};
+
 function mockElectron(overrides: Partial<{
   loadConversation: ElectronService['loadConversation'];
   saveConversation: ReturnType<typeof vi.fn>;
@@ -53,7 +63,11 @@ function mockElectron(overrides: Partial<{
   readConversationFromDisk: ElectronService['readConversationFromDisk'];
   getConversations: ElectronService['getConversations'];
 }> = {}) {
-  const doneSubject = new Subject<{ conversationId: string; outcome: 'completed' | 'aborted' | 'error'; editedFiles?: TurnEditedFile[] }>();
+  const doneSubject = new Subject<DoneEvent>();
+  const chunkSubject = new Subject<{ conversationId: string; delta: string; streamTag?: string }>();
+  const llmStatusSubject = new Subject<{ conversationId: string; status: LlmStatus }>();
+  const acceptCommandSubject = new Subject<{ conversationId: string; payload: AcceptCommandPayload }>();
+  const subagentStartedSubject = new Subject<SubagentStartedEvent>();
   const configSubject = new Subject<AppConfig>();
   const llamaServerLifecycleSubject = new Subject<LlamaServerLifecycleEvent>();
   const llamaServerProcessExitSubject = new Subject<LlamaServerProcessExitEvent>();
@@ -68,25 +82,27 @@ function mockElectron(overrides: Partial<{
     customTitle: false,
   };
   const electron = {
-    chunk$: new Subject().asObservable(),
+    chunk$: chunkSubject.asObservable(),
     toolReadChunk$: new Subject().asObservable(),
     toolExecChunk$: new Subject().asObservable(),
     toolExecComplete$: new Subject().asObservable(),
     appendConversationFileJournal: vi.fn(async () => ({ ok: true })),
     restoreConversationTimeline: vi.fn(async () => ({ ok: false, error: 'not mocked' })),
     listConversationFileJournal: vi.fn(async () => []),
-    acceptCommand$: new Subject().asObservable(),
+    acceptCommand$: acceptCommandSubject.asObservable(),
     deleteConfirm$: new Subject().asObservable(),
     plannerProgress$: new Subject().asObservable(),
     planConfirm$: new Subject().asObservable(),
     agentQuestion$: new Subject().asObservable(),
     themeProposal$: new Subject().asObservable(),
-    llmStatus$: new Subject().asObservable(),
+    llmStatus$: llmStatusSubject.asObservable(),
     finalText$: new Subject().asObservable(),
     clearPrimaryStream$: new Subject().asObservable(),
     promotePrimaryToNudge$: new Subject().asObservable(),
     llmTokenUsage$: new Subject().asObservable(),
     done$: doneSubject.asObservable(),
+    subagentStarted$: subagentStartedSubject.asObservable(),
+    flushPendingStreamBatch: vi.fn(),
     config$: configSubject.asObservable(),
     llamaServerLifecycle$: llamaServerLifecycleSubject.asObservable(),
     llamaServerProcessExit$: llamaServerProcessExitSubject.asObservable(),
@@ -140,6 +156,10 @@ function mockElectron(overrides: Partial<{
   return {
     electron,
     doneSubject,
+    chunkSubject,
+    llmStatusSubject,
+    acceptCommandSubject,
+    subagentStartedSubject,
     configSubject,
     llamaServerLifecycleSubject,
     llamaServerProcessExitSubject,
@@ -155,7 +175,11 @@ describe('ConversationSessionService', () => {
 
   function setup(overrides?: Parameters<typeof mockElectron>[0]): {
     service: ConversationSessionService;
-    doneSubject: Subject<{ conversationId: string; outcome: 'completed' | 'aborted' | 'error'; editedFiles?: TurnEditedFile[] }>;
+    doneSubject: Subject<DoneEvent>;
+    chunkSubject: Subject<{ conversationId: string; delta: string; streamTag?: string }>;
+    llmStatusSubject: Subject<{ conversationId: string; status: LlmStatus }>;
+    acceptCommandSubject: Subject<{ conversationId: string; payload: AcceptCommandPayload }>;
+    subagentStartedSubject: Subject<SubagentStartedEvent>;
     configSubject: Subject<AppConfig>;
     llamaServerLifecycleSubject: Subject<LlamaServerLifecycleEvent>;
     llamaServerProcessExitSubject: Subject<LlamaServerProcessExitEvent>;
@@ -165,6 +189,10 @@ describe('ConversationSessionService', () => {
     const {
       electron,
       doneSubject,
+      chunkSubject,
+      llmStatusSubject,
+      acceptCommandSubject,
+      subagentStartedSubject,
       configSubject,
       llamaServerLifecycleSubject,
       llamaServerProcessExitSubject,
@@ -192,6 +220,10 @@ describe('ConversationSessionService', () => {
     return {
       service,
       doneSubject,
+      chunkSubject,
+      llmStatusSubject,
+      acceptCommandSubject,
+      subagentStartedSubject,
       configSubject,
       llamaServerLifecycleSubject,
       llamaServerProcessExitSubject,
@@ -216,19 +248,35 @@ describe('ConversationSessionService', () => {
     );
   });
 
-  it('skips assistant persist when done outcome is aborted', async () => {
+  it('keeps the partial reply of an aborted turn, marked stopped, with running tools settled', async () => {
+    const { service, doneSubject } = setup();
+    service.activeConversationId.set('test-conv');
+    service.addPending('test-conv');
+    service.streamingParts.set([
+      { streamTag: 'agent', label: '', text: 'partial reply' },
+      { streamTag: 'tool-trail:t1', label: 'read_workspace_file', text: 'a.ts', toolChainState: 'running' },
+    ]);
+
+    doneSubject.next({ conversationId: 'test-conv', outcome: 'aborted' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(service.streamingParts()).toEqual([]);
+    const assistant = service.messages().find((m) => m.role === 'assistant');
+    expect(assistant).toMatchObject({ role: 'assistant', text: 'partial reply', endedEarly: 'stopped' });
+    const tool = assistant?.role === 'assistant' ? assistant.auxiliaryStreamTimeline?.find((p) => p.streamTag === 'tool-trail:t1') : undefined;
+    expect(tool).toMatchObject({ toolChainState: 'error', toolStopped: true });
+  });
+
+  it('saves nothing for an aborted turn that produced nothing', async () => {
     const { service, doneSubject, saveConversation } = setup();
     service.activeConversationId.set('test-conv');
     service.addPending('test-conv');
-    service.streamingParts.set([{ streamTag: 'primary', label: '', text: 'partial reply' }]);
 
     saveConversation.mockClear();
     doneSubject.next({ conversationId: 'test-conv', outcome: 'aborted' });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(service.streamingParts()).toEqual([]);
     expect(service.messages().some((m) => m.role === 'assistant')).toBe(false);
-    expect(saveConversation).not.toHaveBeenCalled();
   });
 
   it('attaches the turn edited-file summary from done$ to the new assistant message', async () => {
@@ -432,5 +480,247 @@ describe('ConversationSessionService', () => {
     expect(service.messages()[1]).toMatchObject({ role: 'assistant', text: 'reply' });
     expect(service.pendingIds().has('test-conv')).toBe(false);
     expect(service.streamingParts()).toEqual([]);
+  });
+  it('interrupt keeps the live reply as interrupted, fences its late events and waits for its done', async () => {
+    const { service, doneSubject, chunkSubject, abortMessage } = setup();
+    service.activeConversationId.set('test-conv');
+    service.prepareForSend('test-conv');
+    const oldTurn = service.pushMessage('user', 'first');
+    service.beginLiveTurn('test-conv', oldTurn);
+    service.streamingParts.set([{ streamTag: 'agent', label: '', text: 'working on it' }]);
+
+    service.interruptLiveTurn('test-conv');
+    expect(service.drainingConversationIds().has('test-conv')).toBe(true);
+    expect(service.messages().at(-1)).toMatchObject({ role: 'assistant', text: 'working on it', endedEarly: 'interrupted' });
+
+    service.prepareForSend('test-conv');
+    const newTurn = service.pushMessage('user', 'actually, do this');
+    service.beginLiveTurn('test-conv', newTurn);
+    const drained = service.drainInterruptedTurn('test-conv');
+
+    // The old stream's late chunk must not reach the new turn.
+    chunkSubject.next({ conversationId: 'test-conv', delta: 'stale text', streamTag: 'agent' });
+    expect(service.streamingParts()).toEqual([]);
+    await Promise.resolve();
+    expect(abortMessage).toHaveBeenCalledWith('test-conv');
+
+    const files: TurnEditedFile[] = [{ relativePath: 'a.py', op: 'modify', additions: 1, deletions: 0, status: 'kept' }];
+    doneSubject.next({ conversationId: 'test-conv', outcome: 'aborted', editedFiles: files, userMessageId: oldTurn });
+    await drained;
+
+    expect(service.drainingConversationIds().has('test-conv')).toBe(false);
+    expect(service.pendingIds().has('test-conv')).toBe(true);
+    const interrupted = service.messages().find((m) => m.role === 'assistant');
+    expect(interrupted?.role === 'assistant' && interrupted.editedFiles).toEqual(files);
+
+    chunkSubject.next({ conversationId: 'test-conv', delta: 'new reply', streamTag: 'agent' });
+    expect(service.streamingParts()).toEqual([{ streamTag: 'agent', label: '', text: 'new reply' }]);
+  });
+
+  it('ignores a late done of a turn that was already discarded', async () => {
+    const { service, doneSubject } = setup();
+    service.activeConversationId.set('test-conv');
+    service.prepareForSend('test-conv');
+    const turn = service.pushMessage('user', 'first');
+    service.beginLiveTurn('test-conv', turn);
+    service.streamingParts.set([{ streamTag: 'agent', label: '', text: 'partial' }]);
+
+    service.discardLiveTurn('test-conv');
+    doneSubject.next({ conversationId: 'test-conv', outcome: 'aborted', userMessageId: turn });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(service.messages().some((m) => m.role === 'assistant')).toBe(false);
+  });
+
+  it('keeps tool pills of a turn streaming in the background', () => {
+    const { service, llmStatusSubject } = setup();
+    service.activeConversationId.set('test-conv');
+    service.addPending('bg-conv');
+
+    llmStatusSubject.next({
+      conversationId: 'bg-conv',
+      status: { id: 'run-1', label: 'read_workspace_file', detail: 'src/a.ts', state: 'running', source: 'tool' },
+    });
+
+    expect(service.streamPartsFor('bg-conv')).toEqual([
+      expect.objectContaining({ streamTag: 'tool-trail:run-1', toolChainState: 'running', toolTarget: 'src/a.ts' }),
+    ]);
+  });
+
+  it('tracks a sub-agent run from its start to its done and drops its pending approval cards', async () => {
+    const { service, subagentStartedSubject, acceptCommandSubject, doneSubject } = setup();
+    const parent: ConversationMeta = {
+      id: 'test-conv',
+      title: 'Parent',
+      createdAt: '2026-10-20T00:00:00.000Z',
+      updatedAt: '2026-10-20T00:00:00.000Z',
+      workspaceId: 'ws-1',
+      customTitle: false,
+    };
+    service.conversations.set([parent]);
+    service.activeConversationId.set('test-conv');
+    service.prepareForSend('test-conv');
+    const parentTurn = service.pushMessage('user', 'delegate it');
+    service.beginLiveTurn('test-conv', parentTurn);
+
+    subagentStartedSubject.next({
+      meta: {
+        id: 'child-1',
+        title: 'Reader',
+        createdAt: '2026-10-20T00:00:01.000Z',
+        updatedAt: '2026-10-20T00:00:01.000Z',
+        workspaceId: 'ws-1',
+        customTitle: true,
+        parentConversationId: 'test-conv',
+        parentTurnId: parentTurn,
+      },
+      task: 'Read the README',
+      userMessageId: 'child-turn-1',
+    });
+
+    expect(service.pendingIds().has('child-1')).toBe(true);
+    expect(service.conversations().map((c) => c.id)).toEqual(['child-1', 'test-conv']);
+    expect(service.subagentRunsFor('test-conv')).toEqual([
+      expect.objectContaining({ conversationId: 'child-1', name: 'Reader', task: 'Read the README' }),
+    ]);
+    expect(service.isSubagentConversation('child-1')).toBe(true);
+
+    acceptCommandSubject.next({
+      conversationId: 'test-conv',
+      payload: {
+        version: 1,
+        requestId: 'req-1',
+        kind: 'deferred_tool',
+        title: 'Run npm test',
+        message: '',
+        confirmLabel: 'Run',
+        cancelLabel: 'Cancel',
+        commandText: 'npm test',
+        details: [],
+        subagent: { conversationId: 'child-1', name: 'Reader' },
+      },
+    });
+    expect(service.pendingSubagentApprovals().get('child-1')).toEqual(['req-1']);
+
+    doneSubject.next({ conversationId: 'child-1', outcome: 'completed', userMessageId: 'child-turn-1' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(service.pendingIds().has('child-1')).toBe(false);
+    expect(service.subagentRunsFor('test-conv')).toEqual([
+      expect.objectContaining({ conversationId: 'child-1', outcome: 'completed' }),
+    ]);
+    expect(service.pendingSubagentApprovals().has('child-1')).toBe(false);
+    const card = service.messages().find((m) => m.role === 'accept_command');
+    expect(card).toMatchObject({ reviewStatus: 'cancelled' });
+
+    // The parent turn ends: its finished sub-agents leave the dock.
+    doneSubject.next({ conversationId: 'test-conv', outcome: 'completed', userMessageId: parentTurn });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(service.subagentRunsFor('test-conv')).toEqual([]);
+  });
+  it('keeps a finished sub-agent card until a turn of its parent ends, even if it ended between turns', async () => {
+    const { service, subagentStartedSubject, doneSubject } = setup();
+    service.conversations.set([
+      { id: 'test-conv', title: 'P', createdAt: 'a', updatedAt: 'a', workspaceId: 'ws-1', customTitle: false },
+    ]);
+    service.activeConversationId.set('test-conv');
+    subagentStartedSubject.next({
+      meta: {
+        id: 'child-9',
+        title: 'Worker',
+        createdAt: 'b',
+        updatedAt: 'b',
+        workspaceId: 'ws-1',
+        customTitle: true,
+        parentConversationId: 'test-conv',
+        parentTurnId: 'old-turn',
+      },
+      task: 'Do it',
+      userMessageId: 'child-turn-9',
+      background: true,
+    });
+    expect(service.subagentRunsFor('test-conv')[0]).toMatchObject({ background: true });
+
+    // The parent has no turn running: the card turns Done and stays.
+    doneSubject.next({ conversationId: 'child-9', outcome: 'completed', userMessageId: 'child-turn-9' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(service.subagentRunsFor('test-conv')).toEqual([expect.objectContaining({ outcome: 'completed' })]);
+
+    // The parent's next turn (the one that takes in the report) ends: the card leaves.
+    service.prepareForSend('test-conv');
+    const turn = service.pushMessage('user', 'next');
+    service.beginLiveTurn('test-conv', turn);
+    doneSubject.next({ conversationId: 'test-conv', outcome: 'completed', userMessageId: turn });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(service.subagentRunsFor('test-conv')).toEqual([]);
+  });
+
+  it('saves a stopped marker for a sub-agent stopped before it streamed anything', async () => {
+    const { service, subagentStartedSubject, doneSubject, saveConversation } = setup({
+      readConversationFromDisk: async (id: string) => ({
+        id,
+        title: 'Quick',
+        createdAt: 'b',
+        updatedAt: 'b',
+        workspaceId: 'ws-2',
+        themeId: 'clara-dark',
+        customTitle: true,
+        parentConversationId: 'test-conv',
+        messages: [{ role: 'user', id: 'child-turn-5', text: 'Do it', fromAgent: true }],
+      }),
+    });
+    service.activeConversationId.set('test-conv');
+    // Its parent lives in another workspace, so its meta is not in the list on screen.
+    subagentStartedSubject.next({
+      meta: {
+        id: 'child-5',
+        title: 'Quick',
+        createdAt: 'b',
+        updatedAt: 'b',
+        workspaceId: 'ws-2',
+        customTitle: true,
+        parentConversationId: 'test-conv',
+      },
+      task: 'Do it',
+      userMessageId: 'child-turn-5',
+    });
+    saveConversation.mockClear();
+
+    doneSubject.next({ conversationId: 'child-5', outcome: 'aborted', userMessageId: 'child-turn-5' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const saved = saveConversation.mock.calls.at(-1)?.[0] as Conversation;
+    expect(saved.id).toBe('child-5');
+    expect(saved.messages.at(-1)).toEqual({ role: 'assistant', text: '', endedEarly: 'stopped' });
+  });
+
+  it('starts a sub-agent results turn in the open conversation with a marker message', async () => {
+    const { service } = setup();
+    service.activeConversationId.set('test-conv');
+
+    const turn = await service.beginSubagentResultsTurn('test-conv', ['alpha', 'beta']);
+
+    expect(turn).toMatchObject({ text: 'Results from sub-agents: alpha, beta', workspaceId: 'ws-1' });
+    expect(service.pendingIds().has('test-conv')).toBe(true);
+    expect(service.messages().at(-1)).toMatchObject({
+      role: 'user',
+      id: turn!.userMessageId,
+      subagentResults: ['alpha', 'beta'],
+    });
+    // A conversation already running a turn takes the reports in itself.
+    expect(await service.beginSubagentResultsTurn('test-conv', ['gamma'])).toBeNull();
+  });
+
+  it('writes the marker of a background results turn to disk before the turn starts', async () => {
+    const { service, saveConversation } = setup();
+    service.activeConversationId.set('other-conv');
+    saveConversation.mockClear();
+
+    const turn = await service.beginSubagentResultsTurn('test-conv', ['alpha']);
+
+    expect(service.pendingIds().has('test-conv')).toBe(true);
+    const saved = saveConversation.mock.calls.at(-1)?.[0] as Conversation;
+    expect(saved.id).toBe('test-conv');
+    expect(saved.messages.at(-1)).toMatchObject({ role: 'user', id: turn!.userMessageId, subagentResults: ['alpha'] });
   });
 });

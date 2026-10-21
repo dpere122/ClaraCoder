@@ -1,6 +1,7 @@
 import { Component, ViewEncapsulation, computed, inject, input, signal, type OnInit } from '@angular/core';
 import {
   formatToolDuration,
+  isSubagentSpawnCall,
   TOOL_PILL_SLOW_MS,
   toolPillGroupLabel,
   toolPillSlowestMs,
@@ -38,12 +39,21 @@ export class ToolPillGroupComponent implements OnInit {
 
   readonly group = computed(() => toolPillGroupLabel(this.labels()));
 
+  /**
+   * Calls cut off when their turn was stopped or interrupted: they did not fail, they never
+   * finished. A cut-off sub-agent spawn is not counted: its sub-agent kept running.
+   */
+  readonly stopped = computed(
+    () => this.parts().filter((part) => part.toolStopped && !isSubagentSpawnCall(part)).length,
+  );
+
   readonly failed = computed(() => this.states().filter((s) => s === 'error').length);
 
   readonly meta = computed(() => {
     const failed = this.failed();
-    const meta = this.group().meta;
-    return failed > 0 ? `${meta} · ${failed} failed` : meta;
+    const stopped = this.stopped();
+    const outcomes = [failed > 0 ? `${failed} failed` : '', stopped > 0 ? `${stopped} stopped` : ''].filter(Boolean);
+    return [this.group().meta, ...outcomes].join(' · ');
   });
 
   /** Slowest call's run time: parallel calls overlap, so a sum would overstate the wait. */

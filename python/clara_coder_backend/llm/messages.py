@@ -19,6 +19,7 @@ from clara_coder_backend.llm.gemma_output import (
     split_gemma_channels,
     strip_gemma_channel_markup,
 )
+from clara_coder_backend.lang_agent.subagents import running_subagents_line
 from clara_coder_backend.llm.model_tuning import combined_model_prompt_suffix, gemma_output_parsing_active
 from clara_coder_backend.session.state import get_active_connection
 from clara_coder_backend.llm.prompt_blocks import (
@@ -28,6 +29,7 @@ from clara_coder_backend.llm.prompt_blocks import (
     routing_handoff_contract,
     source_code_formatting_guidance,
     speech_tts_mood_block,
+    subagent_role_block,
 )
 from clara_coder_backend.session.state import get_active_connection, runtime_config
 
@@ -92,12 +94,15 @@ def outer_turn_authority_preamble(session: SessionState, apply_mode: bool) -> st
         if overlap
         else ''
     )
+    subagents_line = running_subagents_line(session)
+    if subagents_line:
+        subagents_line = f'\n{subagents_line}'
     return (
         '**Session truth (authoritative for this message; older assistant replies may be outdated):**\n'
         f'- Editor (toolbar, this turn): **{editor_s}**\n'
         f'- Auto Run (commands run without an approval card; edits never ask): **{auto_s}**\n'
         f'- Admin (composer chip): **{admin_s}**'
-        f'{overlap_line}\n'
+        f'{overlap_line}{subagents_line}\n'
         '- If any line above conflicts with earlier assistant prose in this chat, trust **this block** and the **current** '
         'system instructions—not stale narration.\n'
     )
@@ -588,4 +593,6 @@ def build_system_prompt(
         body = f'{body}\n\n{workspace_system}'
     if session.last_stream_speech_enabled and session.last_stream_tts_provider == 'openai-compatible':
         body = f'{body}\n\n{speech_tts_mood_block()}'
+    if session.subagent_parent_session_id:
+        body = f'{body}\n\n{subagent_role_block(session.subagent_name)}'
     return f'{body}{_model_prompt_suffix(session, apply_mode)}'

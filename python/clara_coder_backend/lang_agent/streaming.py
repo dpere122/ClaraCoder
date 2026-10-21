@@ -35,6 +35,7 @@ def status_event(
     tool_batch: str | None = None,
     diff: str = '',
     duration_ms: int | None = None,
+    subagent: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build one structured status payload for the UI (tool running, errors, etc.).
 
@@ -44,6 +45,7 @@ def status_event(
 
     ``diff`` is the unified diff a finished edit tool wrote, shown when its pill is expanded.
     ``duration_ms`` is how long a finished tool call ran (``on_tool_start`` to ``on_tool_end``).
+    ``subagent`` (``{conversation_id, name}``) links a ``spawn_subagent`` pill to the child conversation.
     """
     row: dict[str, Any] = {
         'id': status_id,
@@ -62,6 +64,8 @@ def status_event(
         row['diff'] = diff
     if duration_ms is not None:
         row['duration_ms'] = max(0, int(duration_ms))
+    if subagent:
+        row['subagent'] = dict(subagent)
     return {'type': 'status', 'status': row}
 
 
@@ -280,6 +284,16 @@ def tool_running_detail(tool_name: str, tool_args: Any) -> str:
     tid = tool_args.get('terminal_id')
     if isinstance(tid, str) and tid.strip():
         return truncate_text(tid.strip(), MAX_TOOL_STATUS_LINE)
+    if tool_name in ('spawn_subagent', 'stop_subagent'):
+        # The sub-agent's label (``name``); its task is shown in the child conversation.
+        label = tool_args.get('name')
+        if isinstance(label, str) and label.strip():
+            return truncate_text(' '.join(label.split()), MAX_TOOL_STATUS_LINE)
+    if tool_name == 'wait_for_subagents':
+        names = tool_args.get('names')
+        if isinstance(names, list) and names:
+            return truncate_text(', '.join(str(n).strip() for n in names if str(n).strip()), MAX_TOOL_STATUS_LINE)
+        return 'all sub-agents'
     return ''
 
 
@@ -294,6 +308,7 @@ def sse_tool_finished(
     stream_tag: str | None = None,
     diff: str = '',
     duration_ms: int | None = None,
+    subagent: dict[str, str] | None = None,
 ) -> str:
     if not ok:
         line = truncate_text((error_detail or 'Error').replace('\n', ' '), MAX_TOOL_STATUS_LINE)
@@ -307,6 +322,7 @@ def sse_tool_finished(
                 agent_role=agent_role,
                 stream_tag=stream_tag,
                 duration_ms=duration_ms,
+                subagent=subagent,
             )
         )
     line = tool_result_one_line(result_text)
@@ -321,6 +337,7 @@ def sse_tool_finished(
             stream_tag=stream_tag,
             diff=diff,
             duration_ms=duration_ms,
+            subagent=subagent,
         )
     )
 

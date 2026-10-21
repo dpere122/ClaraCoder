@@ -1,3 +1,5 @@
+import type { SubagentRef } from './subagent';
+
 /** Legacy tier from Python ``agent_role`` (optional on persisted chain rows). */
 export type LlmAgentRole = 'manager' | 'worker';
 
@@ -51,6 +53,8 @@ export interface LlmStatus {
   toolDiff?: string;
   /** Finished tool rows: how long the call ran, in milliseconds. */
   durationMs?: number;
+  /** `spawn_subagent` rows: the sub-agent conversation this call runs. */
+  subagent?: SubagentRef;
 }
 
 /** Same shape as {@link LlmStatus}; used when parsing SSE JSON from the Python backend. */

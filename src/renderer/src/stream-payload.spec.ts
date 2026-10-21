@@ -248,6 +248,88 @@ describe('parseAgentStreamPayload', () => {
     });
   });
 
+  it('parses sub-agent start, wrapped events and finish', () => {
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({
+          type: 'subagent_started',
+          conversation_id: 'child-1',
+          parent_conversation_id: 'parent',
+          parent_turn_id: 'turn-1',
+          name: 'Reader',
+          task: 'Read it',
+          status_id: 'run-1',
+          background: true,
+        }),
+      ),
+    ).toEqual({
+      type: 'subagent_started',
+      conversationId: 'child-1',
+      parentConversationId: 'parent',
+      parentTurnId: 'turn-1',
+      name: 'Reader',
+      task: 'Read it',
+      statusId: 'run-1',
+      background: true,
+    });
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({ type: 'subagent_results_ready', parent_conversation_id: 'parent', names: ['a', 7, ' b '] }),
+      ),
+    ).toEqual({ type: 'subagent_results_ready', parentConversationId: 'parent', names: ['a', 'b'] });
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({
+          type: 'subagent_event',
+          conversation_id: 'child-1',
+          payload: { type: 'chunk', delta: 'hi', stream_tag: 'agent' },
+        }),
+      ),
+    ).toEqual({
+      type: 'subagent_event',
+      conversationId: 'child-1',
+      payload: { type: 'chunk', delta: 'hi', streamTag: 'agent' },
+    });
+    expect(
+      parseAgentStreamPayload(JSON.stringify({ type: 'subagent_finished', conversation_id: 'child-1', outcome: 'aborted' })),
+    ).toEqual({ type: 'subagent_finished', conversationId: 'child-1', outcome: 'aborted' });
+    expect(
+      parseAgentStreamPayload(JSON.stringify({ type: 'subagent_finished', conversation_id: 'child-1', outcome: 'weird' })),
+    ).toEqual({ type: 'subagent_finished', conversationId: 'child-1', outcome: 'error' });
+  });
+
+  it('drops an invalid or nested wrapped sub-agent event instead of showing it as text', () => {
+    expect(
+      parseAgentStreamPayload(JSON.stringify({ type: 'subagent_event', conversation_id: 'child-1', payload: { type: 'mystery' } })),
+    ).toEqual({ type: 'subagent_event', conversationId: 'child-1', payload: null });
+    expect(
+      parseAgentStreamPayload(
+        JSON.stringify({
+          type: 'subagent_event',
+          conversation_id: 'child-1',
+          payload: { type: 'subagent_started', conversation_id: 'grandchild' },
+        }),
+      ),
+    ).toEqual({ type: 'subagent_event', conversationId: 'child-1', payload: null });
+  });
+
+  it('keeps the sub-agent a spawn pill runs on its status', () => {
+    const parsed = parseAgentStreamPayload(
+      JSON.stringify({
+        type: 'status',
+        status: {
+          id: 'run-1',
+          label: 'spawn_subagent',
+          detail: 'Reader',
+          state: 'running',
+          source: 'tool',
+          subagent: { conversation_id: 'child-1', name: 'Reader' },
+        },
+      }),
+    );
+    expect(parsed).toMatchObject({ type: 'status', status: { subagent: { conversationId: 'child-1', name: 'Reader' } } });
+  });
+
   it('parses token_usage with generation_ms and drops a non-positive one', () => {
     expect(
       parseAgentStreamPayload(

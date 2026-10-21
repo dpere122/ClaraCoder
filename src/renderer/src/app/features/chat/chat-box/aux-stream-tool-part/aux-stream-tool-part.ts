@@ -1,11 +1,13 @@
 import {
   Component,
+  ElementRef,
   ViewEncapsulation,
   computed,
   inject,
   input,
   signal,
 } from '@angular/core';
+import { LucideAngularModule } from 'lucide-angular';
 import type { StreamPart, ToolTrailPillState } from '@shared/index';
 import {
   delegatedStreamPartMeta,
@@ -32,6 +34,12 @@ import { ToolEditDiffComponent } from '../tool-edit-diff/tool-edit-diff';
 import { ToolPillExpansion } from '../tool-pill-expansion';
 
 export type AuxStreamToolPartKind = 'status' | 'shell' | 'delegated' | 'hitl';
+
+/**
+ * Bubbling DOM event (`detail` = conversation id) a sub-agent pill dispatches to open that
+ * sub-agent's conversation; the chat stack hosting the transcript handles it.
+ */
+export const OPEN_CONVERSATION_DOM_EVENT = 'clara-open-conversation';
 
 export function auxStreamToolPartKind(streamTag: string): AuxStreamToolPartKind {
   if (isHitlTrailStreamTag(streamTag)) {
@@ -64,7 +72,13 @@ export function auxStreamToolPartPillState(part: StreamPart, live: boolean): Too
 @Component({
   selector: 'app-aux-stream-tool-part',
   standalone: true,
-  imports: [StreamToolPillComponent, DelegatedShellTerminalComponent, AnsiTerminalPreComponent, ToolEditDiffComponent],
+  imports: [
+    StreamToolPillComponent,
+    DelegatedShellTerminalComponent,
+    AnsiTerminalPreComponent,
+    ToolEditDiffComponent,
+    LucideAngularModule,
+  ],
   templateUrl: './aux-stream-tool-part.html',
   styleUrl: './aux-stream-tool-part.css',
   encapsulation: ViewEncapsulation.None,
@@ -74,6 +88,21 @@ export class AuxStreamToolPartComponent {
   readonly live = input(false);
   /** When true, hide shell previews until the user expands. */
   readonly compactDetails = input(false);
+
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+
+  /** `spawn_subagent` rows: the sub-agent conversation the call ran. */
+  readonly subagentId = computed(() => this.part().toolSubagentId ?? '');
+
+  openSubagent(event: Event): void {
+    event.stopPropagation();
+    const id = this.subagentId();
+    if (id) {
+      this.host.nativeElement.dispatchEvent(
+        new CustomEvent<string>(OPEN_CONVERSATION_DOM_EVENT, { detail: id, bubbles: true }),
+      );
+    }
+  }
 
   /** The feed's open-pill state, so a pill that turns into a group keeps its call open. */
   private readonly expansion = inject(ToolPillExpansion, { optional: true });

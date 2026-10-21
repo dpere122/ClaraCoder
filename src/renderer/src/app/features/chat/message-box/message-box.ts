@@ -128,6 +128,8 @@ export class MessageBox {
   });
   /** Composer send is blocked by a full context window or an inactive LLM source. */
   protected readonly sendDisabled = computed(() => this.contextBlocked() || !this.sourceActive());
+  /** Something to send: while a reply streams, Send (which interrupts it) only shows then. */
+  protected readonly hasDraft = computed(() => this.composerDraft().trim().length > 0 || this.attachmentCount() > 0);
   /** Tooltip for the Send button when it is disabled. */
   protected readonly sendTitle = computed(() => {
     if (this.contextBlocked()) {
@@ -165,6 +167,11 @@ export class MessageBox {
   readonly usedPercentage = input(0);
   private readonly session = inject(ConversationSessionService);
   private readonly generationRate = inject(GenerationRateService);
+  /** An interrupt is still stopping the previous reply; the next send waits for it. */
+  protected readonly draining = computed(() => {
+    const id = this.session.activeConversationId();
+    return id != null && this.session.drainingConversationIds().has(id);
+  });
   /**
    * Tokens/sec beside the context meter: the live rate while a reply streams, otherwise the
    * latest saved turn's rate (dimmed). Null before anything was measured.
@@ -374,11 +381,13 @@ export class MessageBox {
 
   /**
    * Validates draft text (or attachments), emits {@link messageSent}, and clears input.
-   * Resets multiline mode so the next draft starts in single-line entry.
-   * No-op while {@link loading}, {@link contextBlocked}, or the current LLM source is inactive.
+   * Resets multiline mode so the next draft starts in single-line entry. While {@link loading}
+   * the message interrupts the reply in progress (the parent ends that turn first).
+   * No-op while {@link contextBlocked}, an interrupt is still stopping the previous reply, or
+   * the current LLM source is inactive.
    */
   send(): void {
-    if (this.loading() || this.sendDisabled()) return;
+    if (this.sendDisabled() || this.draining()) return;
     const msg = this.composerDraft().trim();
     if (!msg && this.attachmentCount() === 0) return;
     this.messageSent.emit(msg);

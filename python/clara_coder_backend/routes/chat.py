@@ -18,6 +18,7 @@ from clara_coder_backend.domain import SessionState
 from clara_coder_backend.lang_agent.subagents import (
     abort_subagent,
     is_subagent_session_id,
+    maybe_publish_results_ready,
     subagent_session,
 )
 from clara_coder_backend.llm.http_transport import abort_in_flight_generation
@@ -88,9 +89,20 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
         if sess is not None:
             record_superseded_turn(sess, user_content)
 
+    def on_abandoned() -> None:
+        # Its client left before it started (e.g. Stop right after sending) and no turn replaced it: the
+        # turn it interrupted left waiting sub-agent reports to it, so announce them now.
+        maybe_publish_results_ready(sid, ending_turn=True)
+
     return _TurnStreamingResponse(
         # A replaced continue turn records nothing: the reports wait for the turn that replaced it.
-        serve_turn(sid, make_turn, on_superseded=None if continuing else on_superseded, preempt=not continuing),
+        serve_turn(
+            sid,
+            make_turn,
+            on_superseded=None if continuing else on_superseded,
+            on_abandoned=on_abandoned,
+            preempt=not continuing,
+        ),
         media_type='text/event-stream',
     )
 

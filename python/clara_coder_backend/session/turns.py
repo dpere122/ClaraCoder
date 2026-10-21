@@ -120,6 +120,7 @@ async def _drive(
     make_gen: Callable[[], AsyncIterator[str]],
     on_superseded: Callable[[], None] | None,
     preempt: bool,
+    on_abandoned: Callable[[], None] | None = None,
 ) -> None:
     sid = handle.session_id
     out = handle.queue
@@ -130,9 +131,15 @@ async def _drive(
         async with turns.lock:
             if handle.client_gone or handle.seq != turns.seq:
                 logger.info('Turn superseded before it started session=%s seq=%d', sid, handle.seq)
-                if on_superseded is not None:
+                callbacks = [on_superseded]
+                if handle.seq == turns.seq:
+                    # Only its client left: no newer turn (or stop) took its place.
+                    callbacks.append(on_abandoned)
+                for callback in callbacks:
+                    if callback is None:
+                        continue
                     try:
-                        on_superseded()
+                        callback()
                     except Exception:
                         logger.warning('recording a superseded turn failed session=%s', sid, exc_info=True)
                 out.put_nowait('data: [DONE]\n\n')
@@ -227,11 +234,13 @@ def serve_turn(
     *,
     on_superseded: Callable[[], None] | None = None,
     preempt: bool = True,
+    on_abandoned: Callable[[], None] | None = None,
 ) -> TurnRelay:
     """Start one turn for ``session_id`` in a detached task; return the SSE relay for the response.
 
     ``make_gen`` builds the turn's generator once the session's previous turn has ended.
-    ``on_superseded`` runs instead when a newer turn (or a stop) replaced this one before it started.
+    ``on_superseded`` runs instead when a newer turn (or a stop) replaced this one before it started,
+    or its client left first; ``on_abandoned`` runs after it in that last case only (nothing replaced it).
     ``preempt=False`` waits for a running turn instead of interrupting it.
     Must be called from a running event loop (the route handler).
     """
@@ -239,7 +248,9 @@ def serve_turn(
     turns.seq += 1
     handle = TurnHandle(session_id=session_id, seq=turns.seq)
     turns.pending.add(handle)
-    handle.task = asyncio.get_running_loop().create_task(_drive(turns, handle, make_gen, on_superseded, preempt))
+    handle.task = asyncio.get_running_loop().create_task(
+        _drive(turns, handle, make_gen, on_superseded, preempt, on_abandoned)
+    )
     return TurnRelay(turns, handle)
 
 

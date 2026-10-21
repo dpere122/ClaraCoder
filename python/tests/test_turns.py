@@ -104,6 +104,48 @@ async def test_a_turn_replaced_before_it_started_is_recorded_not_run() -> None:
     assert _deltas(last) == ['c']
 
 
+async def test_a_turn_whose_client_left_before_it_started_announces_waiting_reports(_session) -> None:
+    """The turn it interrupted left the sub-agent reports to it; with no turn after it, they go out now."""
+    from clara_coder_backend.lang_agent.subagent_bus import SUBAGENT_BUS
+    from clara_coder_backend.lang_agent.subagents import SubagentReport
+    from clara_coder_backend.routes.chat import chat_stream
+    from clara_coder_backend.session.schemas import ChatRequest
+
+    SUBAGENT_BUS.reset()
+    log: list[str] = []
+    try:
+        first = asyncio.create_task(_collect(serve_turn(SID, _turn('a', log, wait_for_abort=True))))
+        await asyncio.sleep(0.02)
+        _session.subagent_pending_reports['c1'] = SubagentReport('c1', 'scout', 'r', 'completed')
+        response = await chat_stream(ChatRequest(session_id=SID, message='second'))
+        await response.body_iterator.aclose()  # Stop right after sending: the client leaves first
+        await asyncio.wait_for(first, timeout=2)
+        for _ in range(100):
+            if SUBAGENT_BUS.buffered():
+                break
+            await asyncio.sleep(0.01)
+
+        assert 'a:end' in log
+        assert SUBAGENT_BUS.buffered() == [
+            {'type': 'subagent_results_ready', 'parent_conversation_id': SID, 'names': ['scout']}
+        ]
+        assert _session.history[-2]['content'] == 'second'
+
+        # A turn replaced by a stop (``/clear``, ``/load``) announces nothing: the route handles the reports.
+        SUBAGENT_BUS.reset()
+        _session.abort_event.clear()
+        first = asyncio.create_task(_collect(serve_turn(SID, _turn('a', log, wait_for_abort=True))))
+        await asyncio.sleep(0.02)
+        response = await chat_stream(ChatRequest(session_id=SID, message='third'))
+        relay = asyncio.create_task(_collect(response.body_iterator))
+        await asyncio.sleep(0)
+        await asyncio.wait_for(stop_session_turn(SID), timeout=2)
+        await asyncio.wait_for(asyncio.gather(first, relay), timeout=2)
+        assert SUBAGENT_BUS.buffered() == []
+    finally:
+        SUBAGENT_BUS.reset()
+
+
 async def test_closing_the_relay_aborts_the_turn_and_its_cleanup_still_runs(_session) -> None:
     log: list[str] = []
     relay = serve_turn(SID, _turn('a', log, wait_for_abort=True))

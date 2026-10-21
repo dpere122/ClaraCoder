@@ -132,7 +132,7 @@ async def stream_agent_reply(
     session.current_user_message_id = (user_message_id or '').strip()
     session.pending_user_event_notes.extend(n.strip() for n in workspace_notes or [] if n and n.strip())
     is_subagent = bool(session.subagent_parent_session_id)
-    # Reports this turn took as its input; put back if it fails, so they are not lost.
+    # Reports this turn took as its input (the turn also tracks the ones it takes later).
     continue_reports: list[SubagentReport] = []
     if continue_with_subagent_results and not is_subagent:
         continue_reports = drain_subagent_reports(session)
@@ -161,6 +161,8 @@ async def stream_agent_reply(
     if not is_subagent:
         # Sub-agent reports queued from now on go to this turn instead of ``subagent_results_ready``.
         session.subagent_live_turns += 1
+        # Every report this turn takes; put back if its thread is dropped, so none is lost.
+        session.subagent_turn_reports = list(continue_reports)
 
     try:
         # Fail fast with a user-visible SSE error if no LLM connection is configured.
@@ -273,25 +275,31 @@ async def stream_agent_reply(
             graph_outcome.mark_aborted(partial_text=graph_outcome.partial_text)
         current_session_id.reset(token)
         if not is_subagent:
-            _end_parent_turn(session_id, session, graph_outcome, continue_reports)
+            plan_mode = (composer_mode or 'agent').strip().lower() == 'plan'
+            _end_parent_turn(session_id, session, graph_outcome, plan_mode=plan_mode)
 
 
 def _end_parent_turn(
     session_id: str,
     session: SessionState,
     outcome: LangGraphWorkerOutcome,
-    continue_reports: list[SubagentReport],
+    *,
+    plan_mode: bool,
 ) -> None:
     """A main session's turn ended: reports still waiting go out as ``subagent_results_ready``.
 
-    A failed continue turn puts its reports back without notifying (the next turn gets them; a fresh
-    notification would only start another turn that fails the same way).
+    A turn whose thread was dropped (it failed, or a plan turn stopped) puts back the reports it took:
+    neither its checkpoint nor history keeps them. A failed turn does not notify (the next turn gets
+    them; a fresh notification would only start another turn that fails the same way).
     """
     session.subagent_live_turns = max(0, session.subagent_live_turns - 1)
+    taken, session.subagent_turn_reports = session.subagent_turn_reports, []
     failed = outcome.state in (AgentLoopOutcome.FAILED_CONFIGURATION, AgentLoopOutcome.FAILED_RUNTIME)
-    if continue_reports and failed:
-        requeue_subagent_reports(session, continue_reports)
-        return
+    dropped = failed or (outcome.state == AgentLoopOutcome.ABORTED and plan_mode)
+    if taken and dropped:
+        requeue_subagent_reports(session, taken)
+        if failed:
+            return
     try:
         maybe_publish_results_ready(session_id, ending_turn=True)
     except Exception:

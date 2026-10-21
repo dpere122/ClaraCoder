@@ -1003,6 +1003,41 @@ async def test_continue_turn_builds_its_input_from_the_waiting_reports(monkeypat
         state.sessions.pop(sid, None)
 
 
+async def test_reports_a_dropped_turn_took_are_put_back(monkeypatch, bus) -> None:
+    from unittest.mock import AsyncMock, MagicMock
+
+    sid = 'drop-parent'
+    parent = state.get_session(sid)
+
+    async def failing(session: SessionState, *_args: Any, **kwargs: Any):
+        # Reports taken mid-turn (injected before a model call, or a spawn call's result), then it fails.
+        subagents.drain_subagent_reports(session)
+        subagents.claim_subagent_report(session, 'late')
+        kwargs['outcome'].mark_failed_runtime('boom')
+        yield 'data: {"type":"chunk","delta":"x"}\n\n'
+
+    async def stopped_plan(session: SessionState, *_args: Any, **kwargs: Any):
+        kwargs['outcome'].mark_aborted()
+        yield 'data: {"type":"chunk","delta":"x"}\n\n'
+
+    monkeypatch.setattr('clara_coder_backend.composer.build_llm', MagicMock())
+    monkeypatch.setattr('clara_coder_backend.composer.stream_single_agent_langgraph', failing)
+    monkeypatch.setattr('clara_coder_backend.composer.stream_plan_execute_langgraph', stopped_plan)
+    monkeypatch.setattr('clara_coder_backend.composer.delete_outer_thread', AsyncMock())
+    try:
+        parent.subagent_pending_reports['c1'] = SubagentReport('c1', 'a', 'A', 'completed')
+        await _run_turn(sid, 'go')
+        assert list(parent.subagent_pending_reports) == ['c1'] and parent.subagent_turn_reports == []
+        assert not bus.ready()
+
+        # A stopped plan turn drops its thread too: its continue input goes back (and may notify).
+        await _run_turn(sid, 'ignored', composer_mode='plan', continue_with_subagent_results=True)
+        assert list(parent.subagent_pending_reports) == ['c1']
+        assert bus.ready() == [{'type': 'subagent_results_ready', 'parent_conversation_id': sid, 'names': ['a']}]
+    finally:
+        state.sessions.pop(sid, None)
+
+
 async def test_chat_request_accepts_an_empty_continue_turn() -> None:
     from pydantic import ValidationError
 

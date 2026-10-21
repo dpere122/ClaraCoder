@@ -188,6 +188,9 @@ class SessionAgentState:
     #: Finished sub-agents' reports the main agent has not received yet, by child id in finish order
     #: (parent only). Kept across ``/load``; dropped with the conversation (``/clear``, ``/dispose``).
     subagent_pending_reports: dict[str, Any] = field(default_factory=dict)
+    #: Reports the live turn took (its input, spawn / wait results, injected messages); put back if the
+    #: turn's thread is dropped (it failed, or a plan turn stopped), so none is lost (parent only).
+    subagent_turn_reports: list[Any] = field(default_factory=list)
     #: Chat turns of this main session in progress (reports queued meanwhile go to them, not the bus).
     subagent_live_turns: int = 0
     #: Stop requested before or while this sub-agent's turn starts (its composer clears ``abort_event``).

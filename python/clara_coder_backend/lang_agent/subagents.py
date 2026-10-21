@@ -464,15 +464,25 @@ def _queue_report(run: SubagentRun) -> None:
     maybe_publish_results_ready(run.parent_session_id)
 
 
+def _taken_by_turn(parent: SessionState, reports: Iterable[SubagentReport]) -> None:
+    """Remember reports a live parent turn took, so the composer can put them back if it fails."""
+    if parent.subagent_live_turns > 0:
+        parent.subagent_turn_reports.extend(reports)
+
+
 def claim_subagent_report(parent: SessionState, child_id: str) -> SubagentReport | None:
     """Take one waiting report (it counts as delivered)."""
-    return parent.subagent_pending_reports.pop(child_id, None)
+    report = parent.subagent_pending_reports.pop(child_id, None)
+    if report is not None:
+        _taken_by_turn(parent, [report])
+    return report
 
 
 def drain_subagent_reports(parent: SessionState) -> list[SubagentReport]:
     """Take every waiting report, in finish order (they count as delivered)."""
     reports = list(parent.subagent_pending_reports.values())
     parent.subagent_pending_reports.clear()
+    _taken_by_turn(parent, reports)
     return reports
 
 

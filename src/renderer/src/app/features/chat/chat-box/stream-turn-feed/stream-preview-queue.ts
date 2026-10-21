@@ -1,11 +1,12 @@
 import {
+  type ChatThinkingDisplay,
   isHitlTrailStreamTag,
   isToolTrailStatusStreamTag,
   toolPillLabel,
   toolStatusStreamPartMeta,
   type TurnFeedItem,
 } from '@shared/index';
-import { toolSpinnerKind, type ToolSpinnerKind } from '../tool-spinner-kind';
+import { toolSpinnerKind, type PillSpinnerKind } from '../tool-spinner-kind';
 
 /** Min time the live preview pane stays open before a contending event can become a chip. */
 export const PREVIEW_OPEN_DWELL_MS = 450;
@@ -89,8 +90,18 @@ export function previewItemText(item: TurnFeedItem): string {
   return item.kind === 'markdown' ? item.text : item.part.text;
 }
 
-export function previewShowsBody(item: TurnFeedItem | undefined): boolean {
-  return item?.kind === 'thought' || item?.kind === 'nudge';
+/**
+ * True when the open preview streams its text in the preview box. With the compact thinking
+ * display a thought shows as a running `Thinking · 7s` pill instead (nudges keep the box).
+ */
+export function previewShowsBody(
+  item: TurnFeedItem | undefined,
+  thinkingDisplay: ChatThinkingDisplay = 'preview',
+): boolean {
+  if (item?.kind === 'thought') {
+    return thinkingDisplay === 'preview';
+  }
+  return item?.kind === 'nudge';
 }
 
 /** Where the live turn spinner renders while the preview slot is open. */
@@ -106,11 +117,12 @@ export function previewSpinnerHost(
   live: boolean,
   spinnerActive: boolean,
   current: TurnFeedItem | undefined,
+  thinkingDisplay: ChatThinkingDisplay = 'preview',
 ): PreviewSpinnerHost | null {
   if (!live || !spinnerActive || !current) {
     return null;
   }
-  return previewShowsBody(current) ? 'header' : 'pill';
+  return previewShowsBody(current, thinkingDisplay) ? 'header' : 'pill';
 }
 
 /** Live preview header label (no ellipsis — dash form appends inbound events). */
@@ -176,13 +188,17 @@ export function previewQueueMeta(
 }
 
 /**
- * Spinner kind for the live tool preview pill (book / terminal / globe / jot).
- * Follows the latest running tool in the batch; falls back to the current preview item.
+ * Spinner kind for the live preview pill (book / terminal / globe / jot, or the think spinner
+ * for a compact thinking pill). Follows the latest running tool in the batch; falls back to the
+ * current preview item.
  */
 export function previewQueueToolSpinnerKind(
   current: TurnFeedItem | undefined,
   inbound: readonly TurnFeedItem[],
-): ToolSpinnerKind {
+): PillSpinnerKind {
+  if (current?.kind === 'thought') {
+    return 'think';
+  }
   if (!current || current.kind !== 'tool') {
     return 'write';
   }

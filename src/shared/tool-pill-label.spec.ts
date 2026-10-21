@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { StreamPart } from './types/conversation';
 import { toolTrailStatusStreamTag } from './stream-parts';
 import {
+  formatThoughtDuration,
   formatToolDuration,
   humanizeToolName,
   runCommandIdFromReport,
@@ -218,6 +219,15 @@ describe('tool call durations', () => {
     expect(formatToolDuration(12_400)).toBe('12s');
     expect(formatToolDuration(65_000)).toBe('1m 05s');
     expect(formatToolDuration(3_725_000)).toBe('1h 02m');
+  });
+
+  it('formats thinking time in whole seconds', () => {
+    expect(formatThoughtDuration(0)).toBe('<1s');
+    expect(formatThoughtDuration(999)).toBe('<1s');
+    expect(formatThoughtDuration(1000)).toBe('1s');
+    expect(formatThoughtDuration(7_900)).toBe('7s');
+    expect(formatThoughtDuration(59_999)).toBe('59s');
+    expect(formatThoughtDuration(64_000)).toBe('1m 04s');
   });
 
   it('picks the slowest timed call of a group', () => {

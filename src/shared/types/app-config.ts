@@ -488,6 +488,31 @@ export function normalizeChatContainerSize(value: unknown): ChatContainerSize {
   return DEFAULT_CHAT_CONTAINER_SIZE;
 }
 
+/**
+ * How live model reasoning shows in chat: the streaming preview box, or a compact
+ * `Thinking · 7s` pill that becomes an expandable `Thought` pill.
+ */
+export type ChatThinkingDisplay = 'preview' | 'pill';
+
+export const CHAT_THINKING_DISPLAY_OPTIONS: readonly { value: ChatThinkingDisplay; label: string }[] = [
+  { value: 'preview', label: 'Live preview' },
+  { value: 'pill', label: 'Compact pill' },
+];
+
+export const DEFAULT_CHAT_THINKING_DISPLAY: ChatThinkingDisplay = 'preview';
+
+const CHAT_THINKING_DISPLAY_VALUES = new Set<ChatThinkingDisplay>(
+  CHAT_THINKING_DISPLAY_OPTIONS.map((opt) => opt.value),
+);
+
+/** Coerce persisted thinking display to a known value. */
+export function normalizeChatThinkingDisplay(value: unknown): ChatThinkingDisplay {
+  if (typeof value === 'string' && CHAT_THINKING_DISPLAY_VALUES.has(value as ChatThinkingDisplay)) {
+    return value as ChatThinkingDisplay;
+  }
+  return DEFAULT_CHAT_THINKING_DISPLAY;
+}
+
 /** Restore chat sidebar chrome from config. Collapsed wins over the expanded overlay. */
 export function resolveChatWindowState(
   config: Pick<AppConfig, 'chatSidebarCollapsed' | 'chatExpandedToMainPanel'>,
@@ -1522,6 +1547,8 @@ export interface AppConfig {
    * Sidebar chat is always full width regardless of this setting.
    */
   chatContainerSize?: ChatContainerSize;
+  /** Live reasoning as the streaming preview box or a compact timed pill. Client-only; default `preview`. */
+  chatThinkingDisplay?: ChatThinkingDisplay;
   /** Workspace Monaco editor options (client-only). */
   monacoWorkspaceEditor?: MonacoWorkspaceEditorSettings;
   /** Per-workspace Monaco scroll positions for open file tabs (client-only). */

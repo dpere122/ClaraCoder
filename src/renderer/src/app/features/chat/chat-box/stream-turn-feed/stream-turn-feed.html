@@ -8,6 +8,7 @@
         @if (item.kind === 'thought') {
           <app-stream-thought-pill
             [text]="item.part.text"
+            [durationMs]="item.part.thoughtDurationMs"
             [live]="live()"
             [active]="false"
             [class.stream-turn-feed__settle]="settling.has($index)"
@@ -66,6 +67,7 @@
             <app-stream-tool-pill
               [name]="previewHeader()"
               [meta]="previewMeta()"
+              [duration]="previewDuration()"
               state="running"
               [live]="true"
               [shimmer]="spinnerHost() === 'pill'"

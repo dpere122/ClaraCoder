@@ -20,7 +20,7 @@ import type {
   PlannerProgress,
   StreamPart,
 } from '@shared/index';
-import { DEFAULT_COMPOSER_RUN_MODE, normalizeChatContainerSize } from '@shared/index';
+import { DEFAULT_COMPOSER_RUN_MODE, normalizeChatContainerSize, normalizeChatThinkingDisplay } from '@shared/index';
 import type { ThemeProposalFinishedEvent } from '@shared/index';
 import { ChatBox, pendingHitlArtifactsForDock, type ChatMessage } from '../chat-box/chat-box';
 import { handleChatContextDragOver, handleChatContextDrop, type ChatContextDroppedPath } from '../chat-context-bar/chat-context-drop';
@@ -129,6 +129,10 @@ export class ChatActiveStackComponent implements OnDestroy {
 
   protected readonly resolvedContainerSize = computed(() =>
     normalizeChatContainerSize(this.appConfig()?.chatContainerSize),
+  );
+
+  protected readonly resolvedThinkingDisplay = computed(() =>
+    normalizeChatThinkingDisplay(this.appConfig()?.chatThinkingDisplay),
   );
 
   /** Pending HITL reviews for the slide-up composer dock (all roles including plan/question). */

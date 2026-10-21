@@ -11,6 +11,9 @@ import {
  */
 export type ToolSpinnerKind = 'read' | 'write' | 'run' | 'web';
 
+/** Spinner a live pill can host: a tool kind, or `think` for the compact thinking pill. */
+export type PillSpinnerKind = ToolSpinnerKind | 'think';
+
 /** Shell / background-command tools (terminal spinner). */
 const RUN_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   'run_command',
@@ -36,9 +39,11 @@ export function toolSpinnerKind(label: string, streamTag: string): ToolSpinnerKi
   return 'write';
 }
 
-/** Spinner image for a tool kind. */
-export function toolSpinnerSrc(kind: ToolSpinnerKind): string {
+/** Spinner image for a tool kind (`think` is the turn spinner the thinking preview header uses). */
+export function toolSpinnerSrc(kind: PillSpinnerKind): string {
   switch (kind) {
+    case 'think':
+      return 'spinner.svg';
     case 'read':
       return 'spinner-read.svg';
     case 'run':

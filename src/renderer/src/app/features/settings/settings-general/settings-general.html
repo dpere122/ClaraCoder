@@ -41,6 +41,18 @@
               </label>
               <label
                 class='field'
+                title='Live preview streams the model reasoning in a box while it thinks. Compact pill shows a timed "Thinking" pill instead, which becomes a "Thought" pill you can click to read the reasoning.'
+              >
+                <span>Thinking display</span>
+                <app-pill-select
+                  [options]='s.chatThinkingDisplayOptions'
+                  valueKey='value'
+                  [value]='s.chatThinkingDisplay()'
+                  (valueChange)='s.onChatThinkingDisplayChange($any($event))'
+                />
+              </label>
+              <label
+                class='field'
                 title='App font: applies to all app UI text — chat messages, buttons, menus, and dialogs — everywhere except the Monaco editor and rendered code blocks, which use the Code font below. Includes your OS-installed fonts under "System fonts".'
               >
                 <span>App font</span>

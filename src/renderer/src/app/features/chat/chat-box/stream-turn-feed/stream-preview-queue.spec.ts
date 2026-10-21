@@ -203,7 +203,7 @@ describe('previewQueueToolSpinnerKind', () => {
   it('picks read for workspace reads and write for thoughts and other tools', () => {
     expect(previewQueueToolSpinnerKind(tool, [])).toBe('read');
     expect(previewQueueToolSpinnerKind(runningRead, [])).toBe('read');
-    expect(previewQueueToolSpinnerKind(thought, [])).toBe('write');
+    expect(previewQueueToolSpinnerKind(thought, [])).toBe('think');
     expect(previewQueueToolSpinnerKind(runningWrite, [])).toBe('write');
     expect(previewQueueToolSpinnerKind(undefined, [])).toBe('write');
   });
@@ -228,6 +228,12 @@ describe('previewShowsBody', () => {
     expect(previewShowsBody(brief)).toBe(false);
     expect(previewShowsBody(undefined)).toBe(false);
   });
+
+  it('shows a thought as a pill (no body) with the compact thinking display; nudges keep the box', () => {
+    expect(previewShowsBody(thought, 'pill')).toBe(false);
+    expect(previewShowsBody(nudge, 'pill')).toBe(true);
+    expect(previewShowsBody(thought, 'preview')).toBe(true);
+  });
 });
 
 describe('previewSpinnerHost', () => {
@@ -238,6 +244,11 @@ describe('previewSpinnerHost', () => {
 
   it('moves the spinner into the pill for tool previews', () => {
     expect(previewSpinnerHost(true, true, tool)).toBe('pill');
+  });
+
+  it('moves the spinner into the compact thinking pill', () => {
+    expect(previewSpinnerHost(true, true, thought, 'pill')).toBe('pill');
+    expect(previewSpinnerHost(true, true, nudge, 'pill')).toBe('header');
   });
 
   it('leaves the spinner in the processing row when no preview is open', () => {

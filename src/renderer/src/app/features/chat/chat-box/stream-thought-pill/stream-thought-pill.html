@@ -24,6 +24,8 @@
   <div class="stream-thought-pill__chip" [hidden]="showPreview()">
     <app-stream-tool-pill
       [name]="label()"
+      [duration]="duration()"
+      durationTitle="Time spent thinking"
       [state]="pillState()"
       [expandable]="true"
       [expanded]="expanded()"

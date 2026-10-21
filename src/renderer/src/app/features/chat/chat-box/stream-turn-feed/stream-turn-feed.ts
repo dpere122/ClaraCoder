@@ -12,7 +12,8 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import type { StreamPart, TurnFeedItem } from '@shared/index';
+import type { ChatThinkingDisplay, StreamPart, TurnFeedItem } from '@shared/index';
+import { DEFAULT_CHAT_THINKING_DISPLAY, formatThoughtDuration } from '@shared/index';
 import { AuxStreamToolPartComponent } from '../aux-stream-tool-part/aux-stream-tool-part';
 import { MarkdownPipe } from '../markdown.pipe';
 import { StreamNudgePillComponent } from '../stream-nudge-pill/stream-nudge-pill';
@@ -20,7 +21,7 @@ import { StreamThoughtPillComponent } from '../stream-thought-pill/stream-though
 import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
 import { ToolPillExpansion } from '../tool-pill-expansion';
 import { ToolPillGroupComponent } from '../tool-pill-group/tool-pill-group';
-import type { ToolSpinnerKind } from '../tool-spinner-kind';
+import type { PillSpinnerKind } from '../tool-spinner-kind';
 import {
   committedItemIndices,
   decidePreviewCommit,
@@ -45,8 +46,14 @@ import { settlingChipIndices, toolChipGroupParts, toolChipLayout } from './tool-
 /** How long chips that just left the live preview play their settle animation (see the CSS). */
 export const CHIP_SETTLE_MS = 520;
 
-/** Spinner the open preview hosts: thought header, or the tool pill (read / write / run / web). */
-export type HostedSpinnerKind = 'think' | ToolSpinnerKind;
+/** How often the compact `Thinking · 7s` pill's counter ticks. */
+const THINKING_CLOCK_TICK_MS = 1000;
+
+/**
+ * Spinner the open preview hosts: thought header or compact thinking pill (`think`), or the
+ * tool pill (read / write / run / web).
+ */
+export type HostedSpinnerKind = PillSpinnerKind;
 
 @Component({
   selector: 'app-stream-turn-feed',
@@ -76,6 +83,8 @@ export class StreamTurnFeedComponent {
   readonly planPanelVisible = input(false);
   /** Live turn is streaming (not blocked on HITL): host the turn spinner in the open preview slot. */
   readonly spinnerActive = input(false);
+  /** `pill`: a live thought shows as a running `Thinking · 7s` pill instead of the preview box. */
+  readonly thinkingDisplay = input<ChatThinkingDisplay>(DEFAULT_CHAT_THINKING_DISPLAY);
 
   /**
    * Emits whenever {@link hostedSpinnerKind} changes so the chat box can hide its own processing
@@ -102,6 +111,12 @@ export class StreamTurnFeedComponent {
   /** Feed indices of items that just committed from the live preview to chips. */
   private readonly settling = signal<ReadonlySet<number>>(new Set());
   private settleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Wall clock for the compact thinking pill's counter; ticks only while that pill is open. */
+  private readonly now = signal(Date.now());
+  private clock: ReturnType<typeof setInterval> | null = null;
+  /** Counter start for a thought without `thoughtStartedAt` (joined mid-turn on an older build). */
+  private clockStartedAt = 0;
 
   readonly displayCommitted = computed(() => displayCommittedCount(this.items(), this.committedCount()));
 
@@ -144,16 +159,34 @@ export class StreamTurnFeedComponent {
 
   readonly previewShowsBody = computed(() => {
     const split = splitQueuedFeed(this.items(), this.displayCommitted());
-    return previewItemShowsBody(split.current);
+    return previewItemShowsBody(split.current, this.thinkingDisplay());
+  });
+
+  /** The live thought currently shown as a compact `Thinking · 7s` pill, if any. */
+  private readonly thinkingPillPart = computed<StreamPart | null>(() => {
+    if (!this.live() || this.thinkingDisplay() !== 'pill') {
+      return null;
+    }
+    const current = splitQueuedFeed(this.items(), this.displayCommitted()).current;
+    return current?.kind === 'thought' ? current.part : null;
+  });
+
+  /** Seconds the compact thinking pill has been open (empty for tool previews). */
+  readonly previewDuration = computed(() => {
+    const part = this.thinkingPillPart();
+    if (!part) {
+      return '';
+    }
+    return formatThoughtDuration(this.now() - (part.thoughtStartedAt ?? this.clockStartedAt));
   });
 
   /**
-   * Where the turn spinner lives right now: thought header, running tool pill, or `null`
-   * (parent keeps it in the processing row).
+   * Where the turn spinner lives right now: thought header, running tool or thinking pill, or
+   * `null` (parent keeps it in the processing row).
    */
   readonly spinnerHost = computed(() => {
     const split = splitQueuedFeed(this.items(), this.displayCommitted());
-    return previewSpinnerHost(this.live(), this.spinnerActive(), split.current);
+    return previewSpinnerHost(this.live(), this.spinnerActive(), split.current, this.thinkingDisplay());
   });
 
   /** Which spinner the preview hosts (`null` = none; the parent's processing row shows it). */
@@ -175,6 +208,20 @@ export class StreamTurnFeedComponent {
     this.destroyRef.onDestroy(() => {
       this.clearTimer();
       this.clearSettle();
+      this.stopClock();
+    });
+
+    effect(() => {
+      const open = this.thinkingPillPart() !== null;
+      untracked(() => {
+        if (open && this.clock === null) {
+          this.clockStartedAt = Date.now();
+          this.now.set(this.clockStartedAt);
+          this.clock = setInterval(() => this.now.set(Date.now()), THINKING_CLOCK_TICK_MS);
+        } else if (!open) {
+          this.stopClock();
+        }
+      });
     });
 
     effect(() => {
@@ -337,6 +384,13 @@ export class StreamTurnFeedComponent {
     if (this.settleTimer != null) {
       clearTimeout(this.settleTimer);
       this.settleTimer = null;
+    }
+  }
+
+  private stopClock(): void {
+    if (this.clock !== null) {
+      clearInterval(this.clock);
+      this.clock = null;
     }
   }
 

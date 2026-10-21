@@ -477,6 +477,21 @@ export function toolPillGroupLabel(labels: readonly ToolPillLabel[]): { verb: st
 /** Calls at least this long count as slow: their run time reads at full strength on the pill. */
 export const TOOL_PILL_SLOW_MS = 1000;
 
+/**
+ * Whole-second time for the thinking pill (`<1s`, `7s`, `1m 05s`): the live counter ticks once a
+ * second, so the tool format's tenths would only flicker.
+ */
+export function formatThoughtDuration(ms: number): string {
+  const n = Math.max(0, ms);
+  if (n < 1000) {
+    return '<1s';
+  }
+  if (n < 60_000) {
+    return `${Math.floor(n / 1000)}s`;
+  }
+  return formatToolDuration(n);
+}
+
 /** Compact run time for a pill: `<1ms`, `8ms`, `1.2s`, `12s`, `1m 05s`, `1h 02m`. */
 export function formatToolDuration(ms: number): string {
   const n = Math.max(0, Math.round(ms));

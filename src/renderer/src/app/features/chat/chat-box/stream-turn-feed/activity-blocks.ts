@@ -1,7 +1,9 @@
 import {
   formatThoughtDuration,
   isHitlTrailStreamTag,
-  isSubagentSpawnCall,
+  isStoppedToolCall,
+  plural,
+  toolOutcomeNotes,
   type StreamPart,
   type TurnFeedItem,
 } from '@shared/index';
@@ -94,10 +96,6 @@ export function activityLayout(
   return blocks.size > 0 ? { blocks, hidden, working } : EMPTY_LAYOUT;
 }
 
-function plural(n: number, one: string): string {
-  return `${n} ${n === 1 ? one : `${one}s`}`;
-}
-
 /**
  * Activity pill text. Time is thinking plus tool run time; parallel calls from one LLM step
  * overlap, so each step counts its slowest call. `merged` rows (run_command status rows whose
@@ -139,7 +137,7 @@ export function activitySummary(
     if (auxStreamToolPartPillState(part, false) === 'error') {
       failed += 1;
     }
-    if (part.toolStopped && !isSubagentSpawnCall(part)) {
+    if (isStoppedToolCall(part)) {
       stopped += 1;
     }
     const ms = part.toolDurationMs;
@@ -158,7 +156,7 @@ export function activitySummary(
     nudges > 0 ? plural(nudges, 'nudge') : '',
     tools > 0 ? plural(tools, 'tool') : '',
   ].filter(Boolean);
-  const outcomes = [failed > 0 ? `${failed} failed` : '', stopped > 0 ? `${stopped} stopped` : ''].filter(Boolean);
+  const outcomes = toolOutcomeNotes(failed, stopped);
   const toolMs = [...slowestByBatch.values(), ...unbatchedMs].reduce((sum, ms) => sum + ms, 0);
   const totalMs = thinkingMs + toolMs;
   return {

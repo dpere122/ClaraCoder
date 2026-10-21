@@ -43,12 +43,7 @@ import {
   splitQueuedFeed,
 } from './stream-preview-queue';
 import { activityLayout, activitySummary, type ActivitySummary } from './activity-blocks';
-import {
-  mergedRunCommandStatusIndices,
-  settlingChipIndices,
-  toolChipGroupParts,
-  toolChipLayout,
-} from './tool-chip-groups';
+import { settlingChipIndices, toolChipGroupParts, toolChipLayout } from './tool-chip-groups';
 
 /** How long chips that just left the live preview play their settle animation (see the CSS). */
 export const CHIP_SETTLE_MS = 520;
@@ -140,7 +135,7 @@ export class StreamTurnFeedComponent {
     for (const [lead, members] of layout.groups) {
       groupParts.set(lead, toolChipGroupParts(items, members));
     }
-    return { hidden: layout.hidden, groupParts, groups: layout.groups };
+    return { hidden: layout.hidden, groupParts, groups: layout.groups, merged: layout.merged };
   });
 
   /** Each stretch of work (no prose between them) wrapped in one activity block from its first row. */
@@ -158,7 +153,7 @@ export class StreamTurnFeedComponent {
     if (blocks.size === 0) {
       return out;
     }
-    const merged = mergedRunCommandStatusIndices(items);
+    const merged = this.toolChipLayout().merged;
     for (const [lead, members] of blocks) {
       const landed = members.filter((index) => roles[index] === 'chip');
       out.set(lead, activitySummary(items, landed, merged));
@@ -175,25 +170,31 @@ export class StreamTurnFeedComponent {
     settlingChipIndices(this.settling(), this.toolChipLayout().groups),
   );
 
+  /** The live preview queue split (landed chips, the open preview, rows waiting behind it). */
+  private readonly split = computed(() => splitQueuedFeed(this.items(), this.displayCommitted()));
+
+  /** Feed index of the open live preview, or -1. */
+  readonly previewIndex = computed(() => this.displayRoles().indexOf('preview'));
+
   readonly previewHeader = computed(() => {
-    const split = splitQueuedFeed(this.items(), this.displayCommitted());
+    const split = this.split();
     return split.current ? previewQueueHeader(split.current, split.inbound) : '';
   });
 
   /** Path / drafting size / write-job phase beside the live tool pill (empty when not a tool preview). */
   readonly previewMeta = computed(() => {
-    const split = splitQueuedFeed(this.items(), this.displayCommitted());
+    const split = this.split();
     return previewQueueMeta(split.current, split.inbound);
   });
 
   /** Tool spinner kind while the live preview is a tool pill. */
   readonly previewToolSpinnerKind = computed(() => {
-    const split = splitQueuedFeed(this.items(), this.displayCommitted());
+    const split = this.split();
     return previewQueueToolSpinnerKind(split.current, split.inbound);
   });
 
   readonly previewShowsBody = computed(() => {
-    const split = splitQueuedFeed(this.items(), this.displayCommitted());
+    const split = this.split();
     return previewItemShowsBody(split.current, this.thinkingDisplay());
   });
 
@@ -202,7 +203,7 @@ export class StreamTurnFeedComponent {
     if (!this.live() || this.thinkingDisplay() !== 'pill') {
       return null;
     }
-    const current = splitQueuedFeed(this.items(), this.displayCommitted()).current;
+    const current = this.split().current;
     return current?.kind === 'thought' ? current.part : null;
   });
 
@@ -212,7 +213,10 @@ export class StreamTurnFeedComponent {
     if (!part) {
       return '';
     }
-    return formatThoughtDuration(this.now() - (part.thoughtStartedAt ?? this.clockStartedAt));
+    // A thought that already ended (the next segment began) keeps its final time while the preview dwells.
+    return formatThoughtDuration(
+      part.thoughtDurationMs ?? this.now() - (part.thoughtStartedAt ?? this.clockStartedAt),
+    );
   });
 
   /**
@@ -220,7 +224,7 @@ export class StreamTurnFeedComponent {
    * `null` (parent keeps it in the processing row).
    */
   readonly spinnerHost = computed(() => {
-    const split = splitQueuedFeed(this.items(), this.displayCommitted());
+    const split = this.split();
     return previewSpinnerHost(this.live(), this.spinnerActive(), split.current, this.thinkingDisplay());
   });
 
@@ -293,8 +297,9 @@ export class StreamTurnFeedComponent {
 
   /**
    * Whether an activity block shows its timeline. Blocks start closed, working or not; the
-   * closed pill names the live step instead (see {@link activityMeta}). Unless the user toggled
-   * it, a block opens only when it holds a tool pill the user had open.
+   * closed pill names the live step instead (see {@link activityMeta}), and a streaming
+   * reasoning box shows under it. Unless the user toggled it, a block opens only when it holds
+   * a tool pill the user had open.
    */
   isActivityOpen(lead: number, members: readonly number[]): boolean {
     const items = this.items();
@@ -314,22 +319,31 @@ export class StreamTurnFeedComponent {
     this.activityOverride.update((prev) => new Map(prev).set(key, open));
   }
 
-  /** True when the block holds the open live preview (its spinner moves to the block pill while closed). */
+  /**
+   * True when the block holds the open live preview. While the block is closed, a pill preview
+   * (tool or compact thought) folds into the block pill; a reasoning box shows under it.
+   */
   activityHostsPreview(members: readonly number[]): boolean {
-    const roles = this.displayRoles();
-    return members.some((index) => roles[index] === 'preview');
+    const preview = this.previewIndex();
+    return preview >= 0 && members.includes(preview);
   }
 
-  /** Activity pill meta: the counts, plus the live step (`Read — Thinking`) while a closed block hosts the preview. */
+  /**
+   * Activity pill meta: the counts, plus the live step (`Read — Thinking`, and the compact
+   * thinking counter) while a closed block folds in a pill preview. A reasoning box names its
+   * own step in its header.
+   */
   activityMeta(meta: string, open: boolean, members: readonly number[]): string {
-    const step = !open && this.activityHostsPreview(members) ? this.previewHeader() : '';
-    return [meta, step].filter(Boolean).join(' · ');
+    const hosts = !open && !this.previewShowsBody() && this.activityHostsPreview(members);
+    return [meta, hosts ? this.previewHeader() : '', hosts ? this.previewDuration() : ''].filter(Boolean).join(' · ');
   }
 
+  /** True for the last markdown block with text (an emptied trailing continuation renders nothing). */
   isLastMarkdown(index: number): boolean {
     const items = this.items();
     for (let i = items.length - 1; i >= 0; i--) {
-      if (items[i]?.kind === 'markdown') {
+      const item = items[i];
+      if (item?.kind === 'markdown' && item.text) {
         return i === index;
       }
     }

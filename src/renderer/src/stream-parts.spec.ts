@@ -268,6 +268,19 @@ describe('buildTurnFeed', () => {
     ]);
   });
 
+  it('keeps a trailing continuation as an empty block so prose still follows the tools', () => {
+    const parts: StreamPart[] = [
+      { streamTag: 'agent', label: '', text: 'Now adding' },
+      { streamTag: 'tool-trail:a', label: 'read_workspace_file', text: 'done' },
+      { streamTag: 'agent', label: '', text: ' the docstring to' },
+    ];
+    expect(buildTurnFeed(parts)).toEqual([
+      { kind: 'markdown', text: 'Now adding the docstring to' },
+      { kind: 'tool', part: parts[1] },
+      { kind: 'markdown', text: '' },
+    ]);
+  });
+
   it('leaves prose alone when the first piece ended its sentence or the next starts a new one', () => {
     const tool: StreamPart = { streamTag: 'tool-trail:read', label: 'read_workspace_file', text: 'done' };
     const ended: StreamPart[] = [
@@ -282,6 +295,31 @@ describe('buildTurnFeed', () => {
       { streamTag: 'agent', label: '', text: 'Next I will edit.' },
     ];
     expect(buildTurnFeed(fresh).map((item) => item.kind)).toEqual(['markdown', 'tool', 'markdown']);
+  });
+
+  it('keeps words apart when the continuation has no leading space, and never joins onto a heading', () => {
+    const tool: StreamPart = { streamTag: 'tool-trail:read', label: 'read_workspace_file', text: 'done' };
+    const glued: StreamPart[] = [
+      { streamTag: 'agent', label: '', text: 'Let me check' },
+      tool,
+      { streamTag: 'agent', label: '', text: 'the config. Next step.' },
+    ];
+    expect(buildTurnFeed(glued)[0]).toEqual({ kind: 'markdown', text: 'Let me check the config.' });
+    const heading: StreamPart[] = [
+      { streamTag: 'agent', label: '', text: '## Changes' },
+      tool,
+      { streamTag: 'agent', label: '', text: 'now the edits.' },
+    ];
+    expect(buildTurnFeed(heading).map((item) => item.kind)).toEqual(['markdown', 'tool', 'markdown']);
+  });
+
+  it('does not treat a stray backtick in running text as a cut code span', () => {
+    const parts: StreamPart[] = [
+      { streamTag: 'agent', label: '', text: 'Press the ` key to open the console' },
+      { streamTag: 'tool-trail:read', label: 'read_workspace_file', text: 'done' },
+      { streamTag: 'agent', label: '', text: 'Then type help.' },
+    ];
+    expect(buildTurnFeed(parts).map((item) => item.kind)).toEqual(['markdown', 'tool', 'markdown']);
   });
 
   it('returns empty for empty parts', () => {

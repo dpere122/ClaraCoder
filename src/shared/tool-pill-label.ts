@@ -180,7 +180,8 @@ function targetFromResult(name: string, category: ToolPillCategory, text: string
   return '';
 }
 
-function plural(n: number, one: string, many = `${one}s`): string {
+/** Count with its noun: `1 file`, `3 files`. */
+export function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
@@ -411,6 +412,19 @@ export function toolPillLabel(part: StreamPart, live = false): ToolPillLabel {
 /** A `spawn_subagent` call: its sub-agent outlives the turn, so a cut-off call did not stop it. */
 export function isSubagentSpawnCall(part: Pick<StreamPart, 'label'>): boolean {
   return part.label.trim() === 'spawn_subagent';
+}
+
+/**
+ * A call cut off when its turn was stopped or interrupted: it did not fail, it never finished.
+ * A cut-off sub-agent spawn does not count: its sub-agent kept running.
+ */
+export function isStoppedToolCall(part: Pick<StreamPart, 'label' | 'toolStopped'>): boolean {
+  return !!part.toolStopped && !isSubagentSpawnCall(part);
+}
+
+/** Outcome notes for a pill's meta line: `2 failed`, `1 stopped` (none when zero). */
+export function toolOutcomeNotes(failed: number, stopped: number): string[] {
+  return [failed > 0 ? `${failed} failed` : '', stopped > 0 ? `${stopped} stopped` : ''].filter(Boolean);
 }
 
 /** Pill meta line: `target · detail` (either may be empty). */

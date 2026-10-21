@@ -516,18 +516,30 @@ export type TurnFeedItem =
   | { kind: 'tool'; part: StreamPart }
   | { kind: 'markdown'; text: string };
 
-/** True when prose ends inside an inline code span (an odd number of single backticks outside fences). */
+/**
+ * True when prose ends inside an inline code span: an odd number of single backticks outside
+ * fences, with no whitespace after the last one (a cut path or identifier, not a stray backtick
+ * in running text such as "press the ` key").
+ */
 function inlineCodeOpen(text: string): boolean {
   const outsideFences = text.replace(/```[\s\S]*?```/g, '');
-  return (outsideFences.match(/`/g)?.length ?? 0) % 2 === 1;
-}
-
-/** Prose that stops mid-sentence: ends on a word, comma or dash, outside a code fence. */
-function endsMidSentence(text: string): boolean {
-  if (/\n\s*$/.test(text) || (text.match(/```/g)?.length ?? 0) % 2 === 1) {
+  if ((outsideFences.match(/`/g)?.length ?? 0) % 2 === 0) {
     return false;
   }
-  return /[\p{L}\p{N},\-–—]$/u.test(text.trimEnd());
+  return !/\s/.test(outsideFences.slice(outsideFences.lastIndexOf('`') + 1));
+}
+
+/** Prose that stops mid-sentence: ends on a word, comma or dash (not a heading line). */
+function endsMidSentence(text: string): boolean {
+  if (/\n\s*$/.test(text)) {
+    return false;
+  }
+  const trimmed = text.trimEnd();
+  const lastLine = trimmed.slice(trimmed.lastIndexOf('\n') + 1);
+  if (/^\s{0,3}#/.test(lastLine)) {
+    return false;
+  }
+  return /[\p{L}\p{N},\-–—]$/u.test(trimmed);
 }
 
 /** The rest of an interrupted sentence: through the first sentence end or line break (all of it while it streams). */
@@ -560,7 +572,7 @@ function sentenceContinuation(before: string, next: string): string | null {
  * on: `I'll start` · tools · `by reading src/.` becomes `I'll start by reading src/.` · tools.
  * Only a continuation (lowercase or punctuation first, or the rest of a cut code span) is moved;
  * whatever follows its sentence end stays after the tools. A live continuation with no sentence
- * end yet moves whole.
+ * end yet moves whole; an emptied block between tools is dropped, a trailing one is kept empty.
  */
 function joinSplitSentences(items: TurnFeedItem[]): TurnFeedItem[] {
   let prose = -1;
@@ -573,9 +585,13 @@ function joinSplitSentences(items: TurnFeedItem[]): TurnFeedItem[] {
     if (prose >= 0 && prose < i - 1 && before?.kind === 'markdown') {
       const rest = sentenceContinuation(before.text, item.text);
       if (rest) {
-        before.text += rest;
+        // A word-first continuation from a new generation carries no leading space: keep the words apart.
+        const glue = /\S$/.test(before.text) && /^[\p{L}\p{N}]/u.test(rest) && !inlineCodeOpen(before.text);
+        before.text += glue ? ` ${rest}` : rest;
         item.text = item.text.slice(rest.length).trimStart();
-        if (!item.text) {
+        // A trailing continuation stays as an empty block: it still marks that prose follows the
+        // tools (the live preview commits, the activity block settles) while the sentence streams.
+        if (!item.text && i < items.length - 1) {
           items.splice(i, 1);
           i -= 1;
           continue;

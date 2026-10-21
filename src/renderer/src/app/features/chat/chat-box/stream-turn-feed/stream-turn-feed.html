@@ -84,7 +84,7 @@
         }
       }
       @case ('markdown') {
-        @if (item.kind === 'markdown') {
+        @if (item.kind === 'markdown' && item.text) {
           <div class="stream-turn-feed__markdown">
             <div
               class="assistant-md"
@@ -119,10 +119,14 @@
           [expanded]="open"
           [live]="live()"
           [shimmer]="working && live()"
-          [spinner]="!open && spinnerHost() !== null && activityHostsPreview(members)"
+          [spinner]="!open && spinnerHost() === 'pill' && activityHostsPreview(members)"
           [spinnerKind]="hostedSpinnerKind() ?? 'think'"
           (toggle)="toggleActivity($index, members)"
         />
+        @if (!open && previewShowsBody() && activityHostsPreview(members)) {
+          <!-- The streaming reasoning / nudge box stays in view under a closed block. -->
+          <ng-container *ngTemplateOutlet="entry; context: { $implicit: items()[previewIndex()], index: previewIndex() }" />
+        }
         @if (open) {
           <div class="stream-turn-feed__activity-body">
             @for (member of members; track trackItem(items()[member]!, member)) {

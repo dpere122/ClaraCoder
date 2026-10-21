@@ -398,7 +398,9 @@ export {
 export type { ToolTrailPillState } from './tool-trail-pill';
 export {
   humanizeToolName,
+  isStoppedToolCall,
   isSubagentSpawnCall,
+  plural,
   runCommandIdFromReport,
   runCommandLaneId,
   formatThoughtDuration,
@@ -410,6 +412,7 @@ export {
   toolPillMeta,
   toolPillsGroupTogether,
   toolPillFamily,
+  toolOutcomeNotes,
   toolPillVerb,
   toolTargetFromRunningDetail,
 } from './tool-pill-label';

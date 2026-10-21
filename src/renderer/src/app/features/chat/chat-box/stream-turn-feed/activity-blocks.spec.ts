@@ -74,6 +74,8 @@ describe('activityLayout', () => {
     const done = layout([...working, md('Now ')], true);
     expect(done.blocks.get(0)).toEqual([0, 1, 2]);
     expect(done.working.size).toBe(0);
+    // A sentence continuation pulled back above the tools leaves an empty block: still prose.
+    expect(layout([...working, md('')], true).working.size).toBe(0);
   });
 
   it('live: queued rows join the block of the preview ahead of them', () => {

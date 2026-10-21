@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest';
 import type { LlmStatus } from '../../../../../shared/types/llm';
 import type { StreamPart } from '../../../../../shared/types/conversation';
 import { buildTurnFeed, clearPrimaryStreamParts, toolTrailStatusStreamTag } from '../../../../../shared/stream-parts';
-import { mergeToolTrailStatusText, upsertClaraOuterBriefStreamPart, upsertToolTrailStatusStreamPart, appendStreamPart } from './app-stream-parts';
+import type { HitlTrailArtifact } from '../../../../../shared/hitl-trail';
+import {
+  mergeHitlTrailIntoLiveStreamParts,
+  mergeToolTrailStatusText,
+  upsertClaraOuterBriefStreamPart,
+  upsertToolTrailStatusStreamPart,
+  appendStreamPart,
+} from './app-stream-parts';
 
 describe('mergeToolTrailStatusText', () => {
   it('preserves streamed read body when status detail is a one-liner', () => {
@@ -212,6 +219,20 @@ describe('appendStreamPart', () => {
     // Later segments never restamp it.
     parts = appendStreamPart(parts, 'reasoning', 'more', '', 20_000);
     expect(parts[0]?.thoughtDurationMs).toBe(12_500);
+  });
+
+  it('a HITL row appended after a live thought ends it; refreshing that row later does not restamp', () => {
+    const diff: HitlTrailArtifact = {
+      role: 'diff',
+      payload: { version: 1, relativePath: 'a.ts', language: 'typescript', rows: [], fullNewContent: '', truncated: false },
+    };
+    const parts = appendStreamPart([], 'reasoning', 'edit it', '', 1_000);
+    const merged = mergeHitlTrailIntoLiveStreamParts(parts, [diff], 4_000);
+    expect(merged).toHaveLength(2);
+    expect(merged[0]).toMatchObject({ thoughtDurationMs: 3_000 });
+    expect(mergeHitlTrailIntoLiveStreamParts(merged, [diff], 9_000)[0]?.thoughtDurationMs).toBe(3_000);
+    // Nothing appended: the open thought keeps running.
+    expect(mergeHitlTrailIntoLiveStreamParts(parts, [], 4_000)[0]?.thoughtDurationMs).toBeUndefined();
   });
 
   it('does not time reasoning parts from older turns that carry no start time', () => {

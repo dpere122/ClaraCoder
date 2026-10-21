@@ -1,7 +1,8 @@
-import type { LlmStatus, StreamPart } from '@shared/index';
+import type { HitlTrailArtifact, LlmStatus, StreamPart } from '@shared/index';
 import {
   CLARA_OUTER_BRIEF_STREAM_TAG,
   clearPrimaryStreamParts,
+  mergeHitlTrailIntoAuxiliaryTimeline,
   isClaraOuterBriefStreamTag,
   isReasoningAuxiliaryStreamTag,
   isShellStyleToolStreamTag,
@@ -74,6 +75,21 @@ export function closeOpenThought(parts: StreamPart[], now = Date.now()): StreamP
   const next = [...parts];
   next[next.length - 1] = { ...last, thoughtDurationMs: Math.max(0, now - last.thoughtStartedAt) };
   return next;
+}
+
+/**
+ * Merge HITL trail rows into the live timeline. A row appended after a live thought ends that
+ * thought: later segments only ever close the last part, so it would otherwise never be timed.
+ */
+export function mergeHitlTrailIntoLiveStreamParts(
+  parts: StreamPart[],
+  artifacts: readonly HitlTrailArtifact[],
+  now = Date.now(),
+): StreamPart[] {
+  const next = mergeHitlTrailIntoAuxiliaryTimeline(parts, artifacts);
+  return next[next.length - 1] === parts[parts.length - 1]
+    ? next
+    : mergeHitlTrailIntoAuxiliaryTimeline(closeOpenThought(parts, now), artifacts);
 }
 
 /**

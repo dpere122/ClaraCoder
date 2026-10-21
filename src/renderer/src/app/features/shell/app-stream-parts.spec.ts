@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest';
 import type { LlmStatus } from '../../../../../shared/types/llm';
 import type { StreamPart } from '../../../../../shared/types/conversation';
 import { buildTurnFeed, clearPrimaryStreamParts, toolTrailStatusStreamTag } from '../../../../../shared/stream-parts';
-import { mergeToolTrailStatusText, upsertClaraOuterBriefStreamPart, upsertToolTrailStatusStreamPart, appendStreamPart } from './app-stream-parts';
+import type { HitlTrailArtifact } from '../../../../../shared/hitl-trail';
+import {
+  mergeHitlTrailIntoLiveStreamParts,
+  mergeToolTrailStatusText,
+  upsertClaraOuterBriefStreamPart,
+  upsertToolTrailStatusStreamPart,
+  appendStreamPart,
+} from './app-stream-parts';
 
 describe('mergeToolTrailStatusText', () => {
   it('preserves streamed read body when status detail is a one-liner', () => {
@@ -68,6 +75,13 @@ describe('upsertToolTrailStatusStreamPart', () => {
     expect(answered).toHaveLength(1);
     expect(answered[0].text).toBe('URL: https://example.com Status: 200');
     expect(answered[0].toolDurationMs).toBe(31);
+  });
+
+  it('a new tool row ends the thought before it', () => {
+    const parts = appendStreamPart([], 'reasoning', 'look at the file', '', 2_000);
+    const status: LlmStatus = { id: 'r1', label: 'read_workspace_file', detail: 'a.py', state: 'running', source: 'tool' };
+    const out = upsertToolTrailStatusStreamPart(parts, status, 9_000);
+    expect(out[0]).toMatchObject({ thoughtStartedAt: 2_000, thoughtDurationMs: 7_000 });
   });
 
   it('keeps the sub-agent a spawn pill runs from its running status through its result', () => {
@@ -183,10 +197,48 @@ describe('appendStreamPart', () => {
       { streamTag: 'reasoning', label: 'Model reasoning', text: 'first think' },
       { streamTag: trail, label: 'read_workspace_file', text: 'done' },
     ];
-    const out = appendStreamPart(parts, 'reasoning', 'next think');
+    const out = appendStreamPart(parts, 'reasoning', 'next think', '', 5_000);
     expect(out).toHaveLength(3);
-    expect(out[2]).toEqual({ streamTag: 'reasoning', label: 'Model reasoning', text: 'next think' });
+    expect(out[2]).toEqual({
+      streamTag: 'reasoning',
+      label: 'Model reasoning',
+      text: 'next think',
+      thoughtStartedAt: 5_000,
+    });
     expect(out[0]?.text).toBe('first think');
+  });
+
+  it('times a thought from its first chunk until the reply starts', () => {
+    let parts: StreamPart[] = [];
+    parts = appendStreamPart(parts, 'reasoning', 'let me ', '', 1_000);
+    parts = appendStreamPart(parts, 'reasoning', 'think', '', 4_000);
+    expect(parts[0]).toMatchObject({ thoughtStartedAt: 1_000 });
+    expect(parts[0]?.thoughtDurationMs).toBeUndefined();
+    parts = appendStreamPart(parts, undefined, 'Answer', '', 13_500);
+    expect(parts[0]).toMatchObject({ text: 'let me think', thoughtDurationMs: 12_500 });
+    // Later segments never restamp it.
+    parts = appendStreamPart(parts, 'reasoning', 'more', '', 20_000);
+    expect(parts[0]?.thoughtDurationMs).toBe(12_500);
+  });
+
+  it('a HITL row appended after a live thought ends it; refreshing that row later does not restamp', () => {
+    const diff: HitlTrailArtifact = {
+      role: 'diff',
+      payload: { version: 1, relativePath: 'a.ts', language: 'typescript', rows: [], fullNewContent: '', truncated: false },
+    };
+    const parts = appendStreamPart([], 'reasoning', 'edit it', '', 1_000);
+    const merged = mergeHitlTrailIntoLiveStreamParts(parts, [diff], 4_000);
+    expect(merged).toHaveLength(2);
+    expect(merged[0]).toMatchObject({ thoughtDurationMs: 3_000 });
+    expect(mergeHitlTrailIntoLiveStreamParts(merged, [diff], 9_000)[0]?.thoughtDurationMs).toBe(3_000);
+    // Nothing appended: the open thought keeps running.
+    expect(mergeHitlTrailIntoLiveStreamParts(parts, [], 4_000)[0]?.thoughtDurationMs).toBeUndefined();
+  });
+
+  it('does not time reasoning parts from older turns that carry no start time', () => {
+    const parts = [{ streamTag: 'reasoning', label: 'Model reasoning', text: 'old' }];
+    const out = appendStreamPart(parts, undefined, 'Answer', '', 9_000);
+    expect(out[0]?.thoughtDurationMs).toBeUndefined();
   });
 
   it('retags pre-tool agent prose to a Clara brief when a tool-like stream starts', () => {

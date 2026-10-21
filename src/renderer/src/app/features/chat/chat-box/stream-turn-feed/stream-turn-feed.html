@@ -2,40 +2,47 @@
   @let roles = displayRoles();
   @let chipLayout = toolChipLayout();
   @let settling = settlingIndices();
-  @for (item of items(); track trackItem(item, $index)) {
-    @switch (roles[$index]) {
+  @let activity = activityLayout();
+  <!-- One finished chip (thought / nudge / tool / group). -->
+  <ng-template #chip let-item let-index="index">
+    @if (item.kind === 'thought') {
+      <app-stream-thought-pill
+        [text]="item.part.text"
+        [durationMs]="item.part.thoughtDurationMs"
+        [live]="live()"
+        [active]="false"
+        [class.stream-turn-feed__settle]="settling.has(index)"
+      />
+    } @else if (item.kind === 'nudge') {
+      <app-stream-nudge-pill
+        [text]="item.part.text"
+        [live]="live()"
+        [active]="false"
+        [class.stream-turn-feed__settle]="settling.has(index)"
+      />
+    } @else if (item.kind === 'tool' && !chipLayout.hidden.has(index)) {
+      @if (chipLayout.groupParts.get(index); as groupParts) {
+        <app-tool-pill-group
+          [parts]="groupParts"
+          [live]="live()"
+          [compactDetails]="planPanelVisible()"
+          [class.stream-turn-feed__settle]="settling.has(index)"
+        />
+      } @else {
+        <app-aux-stream-tool-part
+          [part]="item.part"
+          [live]="live()"
+          [compactDetails]="planPanelVisible()"
+          [class.stream-turn-feed__settle]="settling.has(index)"
+        />
+      }
+    }
+  </ng-template>
+  <!-- One top-level feed row by display role; activity block members render through this too. -->
+  <ng-template #entry let-item let-index="index">
+    @switch (roles[index]) {
       @case ('chip') {
-        @if (item.kind === 'thought') {
-          <app-stream-thought-pill
-            [text]="item.part.text"
-            [live]="live()"
-            [active]="false"
-            [class.stream-turn-feed__settle]="settling.has($index)"
-          />
-        } @else if (item.kind === 'nudge') {
-          <app-stream-nudge-pill
-            [text]="item.part.text"
-            [live]="live()"
-            [active]="false"
-            [class.stream-turn-feed__settle]="settling.has($index)"
-          />
-        } @else if (item.kind === 'tool' && !chipLayout.hidden.has($index)) {
-          @if (chipLayout.groupParts.get($index); as groupParts) {
-            <app-tool-pill-group
-              [parts]="groupParts"
-              [live]="live()"
-              [compactDetails]="planPanelVisible()"
-              [class.stream-turn-feed__settle]="settling.has($index)"
-            />
-          } @else {
-            <app-aux-stream-tool-part
-              [part]="item.part"
-              [live]="live()"
-              [compactDetails]="planPanelVisible()"
-              [class.stream-turn-feed__settle]="settling.has($index)"
-            />
-          }
-        }
+        <ng-container *ngTemplateOutlet="chip; context: { $implicit: item, index: index }" />
       }
       @case ('preview') {
         @if (previewShowsBody()) {
@@ -66,6 +73,7 @@
             <app-stream-tool-pill
               [name]="previewHeader()"
               [meta]="previewMeta()"
+              [duration]="previewDuration()"
               state="running"
               [live]="true"
               [shimmer]="spinnerHost() === 'pill'"
@@ -76,19 +84,59 @@
         }
       }
       @case ('markdown') {
-        @if (item.kind === 'markdown') {
+        @if (item.kind === 'markdown' && item.text) {
           <div class="stream-turn-feed__markdown">
             <div
               class="assistant-md"
               [class.streaming-live-md]="live()"
               [innerHTML]="item.text | markdown: markdownLayoutPass()"
             ></div>
-            @if (showCursor() && isLastMarkdown($index)) {
+            @if (showCursor() && isLastMarkdown(index)) {
               <span class="streaming-cursor streaming-cursor--live" aria-hidden="true"></span>
             }
           </div>
         }
       }
+    }
+  </ng-template>
+  @for (item of items(); track trackItem(item, $index)) {
+    @if (activity.blocks.get($index); as members) {
+      @let open = isActivityOpen($index, members);
+      @let working = activity.working.has($index);
+      @let summary = activitySummaries().get($index);
+      <div
+        class="stream-turn-feed__activity"
+        [class.stream-turn-feed__activity--open]="open"
+        [class.stream-turn-feed__settle]="live()"
+      >
+        <app-stream-tool-pill
+          [name]="working ? 'Working' : 'Worked'"
+          [meta]="activityMeta(summary?.meta ?? '', open, members)"
+          [duration]="summary?.duration ?? ''"
+          durationTitle="Time spent thinking and running tools"
+          [state]="working ? 'running' : summary?.failed ? 'error' : 'complete'"
+          [expandable]="true"
+          [expanded]="open"
+          [live]="live()"
+          [shimmer]="working && live()"
+          [spinner]="!open && spinnerHost() === 'pill' && activityHostsPreview(members)"
+          [spinnerKind]="hostedSpinnerKind() ?? 'think'"
+          (toggle)="toggleActivity($index, members)"
+        />
+        @if (!open && previewShowsBody() && activityHostsPreview(members)) {
+          <!-- The streaming reasoning / nudge box stays in view under a closed block. -->
+          <ng-container *ngTemplateOutlet="entry; context: { $implicit: items()[previewIndex()], index: previewIndex() }" />
+        }
+        @if (open) {
+          <div class="stream-turn-feed__activity-body">
+            @for (member of members; track trackItem(items()[member]!, member)) {
+              <ng-container *ngTemplateOutlet="entry; context: { $implicit: items()[member], index: member }" />
+            }
+          </div>
+        }
+      </div>
+    } @else if (!activity.hidden.has($index)) {
+      <ng-container *ngTemplateOutlet="entry; context: { $implicit: item, index: $index }" />
     }
   }
 </div>

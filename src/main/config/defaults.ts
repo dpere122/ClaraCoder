@@ -13,6 +13,7 @@ import type {
 } from '../../shared';
 import {
   DEFAULT_CHAT_CONTAINER_SIZE,
+  DEFAULT_CHAT_THINKING_DISPLAY,
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   DEFAULT_KOKORO_TTS_VOICE,
   DEFAULT_OPENAI_TTS_BASE_URL,
@@ -256,6 +257,7 @@ export function createDefaultConfig(): AppConfig {
     chatSidebarCollapsed: false,
     chatExpandedToMainPanel: false,
     chatContainerSize: DEFAULT_CHAT_CONTAINER_SIZE,
+    chatThinkingDisplay: DEFAULT_CHAT_THINKING_DISPLAY,
     uiFontFamily: '',
     codeFontFamily: '',
     monacoWorkspaceEditor: defaultMonacoWorkspaceEditorSettings(),

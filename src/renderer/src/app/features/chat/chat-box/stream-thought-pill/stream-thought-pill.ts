@@ -9,6 +9,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
+import { formatThoughtDuration } from '@shared/index';
 import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
 import {
   isThoughtStreamingPreview,
@@ -27,6 +28,8 @@ import {
 })
 export class StreamThoughtPillComponent {
   readonly text = input.required<string>();
+  /** How long the model thought (`Thought · 12s`); unset on older turns. */
+  readonly durationMs = input<number | undefined>(undefined);
   readonly live = input(false);
   /** True while this thought is the latest live feed event. */
   readonly active = input(false);
@@ -36,6 +39,10 @@ export class StreamThoughtPillComponent {
 
   readonly label = computed(() => thoughtPillLabel(this.live(), this.active()));
   readonly pillState = computed(() => thoughtPillState(this.live(), this.active()));
+  readonly duration = computed(() => {
+    const ms = this.durationMs();
+    return ms === undefined ? '' : formatThoughtDuration(ms);
+  });
   readonly expanded = computed(() =>
     resolveThoughtPillExpanded(this.live(), this.active(), this.userOverride()),
   );

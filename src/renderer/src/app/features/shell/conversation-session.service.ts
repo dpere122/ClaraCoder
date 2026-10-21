@@ -29,7 +29,6 @@ import {
   findManagedLocalLlamaLocation,
   isClaraOuterBriefStreamTag,
   isInFlightToolPart,
-  mergeHitlTrailIntoAuxiliaryTimeline,
   primaryAssistantTextFromParts,
   shouldIgnoreWhitespaceOnlyModelChunkDuringTool,
   appendAndMergeReadToolPreviewChunk,
@@ -58,6 +57,7 @@ import { buildAssistantTurnFromStreamParts, type AssistantTurnPayload } from './
 import {
   appendStreamPart,
   markToolExecStreamComplete,
+  mergeHitlTrailIntoLiveStreamParts,
   upsertClaraOuterBriefStreamPart,
   upsertToolTrailStatusStreamPart,
 } from './app-stream-parts';
@@ -1426,7 +1426,7 @@ export class ConversationSessionService {
       return;
     }
     const artifacts = hitlArtifactsExcludingPlanConfirm(live.artifacts) as HitlTrailArtifact[];
-    this.streamingParts.update((prev) => mergeHitlTrailIntoAuxiliaryTimeline(prev, artifacts));
+    this.streamingParts.update((prev) => mergeHitlTrailIntoLiveStreamParts(prev, artifacts));
   }
 
   private mergeHitlTrailIntoBackgroundStream(
@@ -1439,7 +1439,7 @@ export class ConversationSessionService {
     }
     this.setBackgroundParts(
       conversationId,
-      mergeHitlTrailIntoAuxiliaryTimeline(prev, [artifact]),
+      mergeHitlTrailIntoLiveStreamParts(prev, [artifact]),
     );
   }
 

@@ -16,9 +16,11 @@ export interface ToolChipLayout {
   groups: ReadonlyMap<number, readonly number[]>;
   /** Indices that render nothing at top level (group members after the lead, merged rows). */
   hidden: ReadonlySet<number>;
+  /** `run_command` status rows duplicated by their output lane (see {@link mergedRunCommandStatusIndices}). */
+  merged: ReadonlySet<number>;
 }
 
-const EMPTY_LAYOUT: ToolChipLayout = { groups: new Map(), hidden: new Set() };
+const EMPTY_LAYOUT: ToolChipLayout = { groups: new Map(), hidden: new Set(), merged: new Set() };
 
 /**
  * `run_command` status rows whose `run-command:<id>` output lane is also in the feed. The lane
@@ -70,8 +72,9 @@ export function mergedRunCommandStatusIndices(items: readonly TurnFeedItem[]): S
 }
 
 /**
- * Collapse back-to-back tool chips of one kind (`Read`, `Read`, `Read`) into a single group
- * pill. Any non-chip item between them (thought, prose, HITL row, live preview) ends the run;
+ * Collapse back-to-back tool chips of one kind (`Read`, `Read`, `Read`, or mixed lookups like
+ * `Read`, `Search`, `List` → `Explore`) into a single group pill, in call order. Any non-chip
+ * item between them (thought, prose, HITL row, live preview) ends the run;
  * merged `run_command` status rows are skipped without breaking it.
  */
 export function toolChipLayout(
@@ -120,7 +123,7 @@ export function toolChipLayout(
     runLabel ??= label;
   });
   flush();
-  return { groups, hidden };
+  return { groups, hidden, merged };
 }
 
 /**

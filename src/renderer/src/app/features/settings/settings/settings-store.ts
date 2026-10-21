@@ -7,6 +7,7 @@ import type {
   AudioTranscriptionConfig,
   AudioTranscriptionProvider,
   ChatContainerSize,
+  ChatThinkingDisplay,
   FontFamilyOption,
   HuggingFaceModelFile,
   HuggingFaceModelSearchItem,
@@ -32,8 +33,10 @@ import type {
 } from '@shared/index';
 import {
   CHAT_CONTAINER_SIZE_OPTIONS,
+  CHAT_THINKING_DISPLAY_OPTIONS,
   CODE_FONT_FAMILY_OPTIONS,
   DEFAULT_CHAT_CONTAINER_SIZE,
+  DEFAULT_CHAT_THINKING_DISPLAY,
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   getDefaultContextCompression,
   DEFAULT_KOKORO_TTS_VOICE,
@@ -81,6 +84,7 @@ import {
   managedPickerValueForCmd,
   mergeLlmProviderModel,
   normalizeChatContainerSize,
+  normalizeChatThinkingDisplay,
   normalizeMonacoWorkspaceEditorSettings,
   optimizationPresetDefaultsPatch,
   optimizationPresetsForProvider,
@@ -307,6 +311,8 @@ export class SettingsStore {
   readonly chatFontSizeRem = signal(0.9);
   readonly chatContainerSize = signal<ChatContainerSize>(DEFAULT_CHAT_CONTAINER_SIZE);
   readonly chatContainerSizeOptions = CHAT_CONTAINER_SIZE_OPTIONS;
+  readonly chatThinkingDisplay = signal<ChatThinkingDisplay>(DEFAULT_CHAT_THINKING_DISPLAY);
+  readonly chatThinkingDisplayOptions = CHAT_THINKING_DISPLAY_OPTIONS;
   readonly uiFontSizeRem = signal(UI_FONT_SIZE_REM_DEFAULT);
   /** App-wide UI font override (CSS font-family value); empty = theme default. */
   readonly uiFontFamily = signal('');
@@ -2719,6 +2725,11 @@ export class SettingsStore {
     this.markSettingsDirty();
   }
 
+  onChatThinkingDisplayChange(display: ChatThinkingDisplay): void {
+    this.chatThinkingDisplay.set(normalizeChatThinkingDisplay(display));
+    this.markSettingsDirty();
+  }
+
   onUiFontSizeRemChange(rem: number): void {
     const clamped = clampUiFontSizeRem(rem);
     this.uiFontSizeRem.set(clamped);
@@ -3307,6 +3318,7 @@ export class SettingsStore {
       ...base,
       chatFontSizeRem: this.chatFontSizeRem(),
       chatContainerSize: this.chatContainerSize(),
+      chatThinkingDisplay: this.chatThinkingDisplay(),
       uiFontSizeRem: this.uiFontSizeRem(),
       uiFontFamily: this.uiFontFamily(),
       codeFontFamily: this.codeFontFamily(),
@@ -3441,6 +3453,7 @@ export class SettingsStore {
         typeof cfs === 'number' && !Number.isNaN(cfs) ? Math.min(1.6, Math.max(0.6, +cfs.toFixed(1))) : 0.9,
       );
       this.chatContainerSize.set(normalizeChatContainerSize(config.chatContainerSize));
+      this.chatThinkingDisplay.set(normalizeChatThinkingDisplay(config.chatThinkingDisplay));
       this.uiFontSizeRem.set(clampUiFontSizeRem(config.uiFontSizeRem));
       this.uiFontFamily.set(typeof config.uiFontFamily === 'string' ? config.uiFontFamily : '');
       this.codeFontFamily.set(typeof config.codeFontFamily === 'string' ? config.codeFontFamily : '');
@@ -3495,6 +3508,7 @@ export class SettingsStore {
       typeof cfs === 'number' && !Number.isNaN(cfs) ? Math.min(1.6, Math.max(0.6, +cfs.toFixed(1))) : 0.9,
     );
     this.chatContainerSize.set(normalizeChatContainerSize(config.chatContainerSize));
+    this.chatThinkingDisplay.set(normalizeChatThinkingDisplay(config.chatThinkingDisplay));
     this.uiFontSizeRem.set(clampUiFontSizeRem(config.uiFontSizeRem));
     this.uiFontFamily.set(typeof config.uiFontFamily === 'string' ? config.uiFontFamily : '');
     this.codeFontFamily.set(typeof config.codeFontFamily === 'string' ? config.codeFontFamily : '');

@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import {
   Component,
   DestroyRef,
@@ -12,7 +13,8 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import type { StreamPart, TurnFeedItem } from '@shared/index';
+import type { ChatThinkingDisplay, StreamPart, TurnFeedItem } from '@shared/index';
+import { DEFAULT_CHAT_THINKING_DISPLAY, formatThoughtDuration } from '@shared/index';
 import { AuxStreamToolPartComponent } from '../aux-stream-tool-part/aux-stream-tool-part';
 import { MarkdownPipe } from '../markdown.pipe';
 import { StreamNudgePillComponent } from '../stream-nudge-pill/stream-nudge-pill';
@@ -20,7 +22,7 @@ import { StreamThoughtPillComponent } from '../stream-thought-pill/stream-though
 import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
 import { ToolPillExpansion } from '../tool-pill-expansion';
 import { ToolPillGroupComponent } from '../tool-pill-group/tool-pill-group';
-import type { ToolSpinnerKind } from '../tool-spinner-kind';
+import type { PillSpinnerKind } from '../tool-spinner-kind';
 import {
   committedItemIndices,
   decidePreviewCommit,
@@ -40,13 +42,20 @@ import {
   queueableItems,
   splitQueuedFeed,
 } from './stream-preview-queue';
+import { activityLayout, activitySummary, type ActivitySummary } from './activity-blocks';
 import { settlingChipIndices, toolChipGroupParts, toolChipLayout } from './tool-chip-groups';
 
 /** How long chips that just left the live preview play their settle animation (see the CSS). */
 export const CHIP_SETTLE_MS = 520;
 
-/** Spinner the open preview hosts: thought header, or the tool pill (read / write / run / web). */
-export type HostedSpinnerKind = 'think' | ToolSpinnerKind;
+/** How often the compact `Thinking · 7s` pill's counter ticks. */
+const THINKING_CLOCK_TICK_MS = 1000;
+
+/**
+ * Spinner the open preview hosts: thought header or compact thinking pill (`think`), or the
+ * tool pill (read / write / run / web).
+ */
+export type HostedSpinnerKind = PillSpinnerKind;
 
 @Component({
   selector: 'app-stream-turn-feed',
@@ -54,6 +63,7 @@ export type HostedSpinnerKind = 'think' | ToolSpinnerKind;
   imports: [
     AuxStreamToolPartComponent,
     MarkdownPipe,
+    NgTemplateOutlet,
     StreamNudgePillComponent,
     StreamThoughtPillComponent,
     StreamToolPillComponent,
@@ -76,6 +86,8 @@ export class StreamTurnFeedComponent {
   readonly planPanelVisible = input(false);
   /** Live turn is streaming (not blocked on HITL): host the turn spinner in the open preview slot. */
   readonly spinnerActive = input(false);
+  /** `pill`: a live thought shows as a running `Thinking · 7s` pill instead of the preview box. */
+  readonly thinkingDisplay = input<ChatThinkingDisplay>(DEFAULT_CHAT_THINKING_DISPLAY);
 
   /**
    * Emits whenever {@link hostedSpinnerKind} changes so the chat box can hide its own processing
@@ -103,6 +115,12 @@ export class StreamTurnFeedComponent {
   private readonly settling = signal<ReadonlySet<number>>(new Set());
   private settleTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /** Wall clock for the compact thinking pill's counter; ticks only while that pill is open. */
+  private readonly now = signal(Date.now());
+  private clock: ReturnType<typeof setInterval> | null = null;
+  /** Counter start for a thought without `thoughtStartedAt` (joined mid-turn on an older build). */
+  private clockStartedAt = 0;
+
   readonly displayCommitted = computed(() => displayCommittedCount(this.items(), this.committedCount()));
 
   /** How each item renders right now (chip, preview, hidden, markdown), by item index. */
@@ -117,43 +135,97 @@ export class StreamTurnFeedComponent {
     for (const [lead, members] of layout.groups) {
       groupParts.set(lead, toolChipGroupParts(items, members));
     }
-    return { hidden: layout.hidden, groupParts, groups: layout.groups };
+    return { hidden: layout.hidden, groupParts, groups: layout.groups, merged: layout.merged };
   });
+
+  /** Each stretch of work (no prose between them) wrapped in one activity block from its first row. */
+  readonly activityLayout = computed(() => {
+    const roles = this.displayRoles();
+    return activityLayout(this.items(), (index) => roles[index] ?? 'hidden', this.live(), this.toolChipLayout().hidden);
+  });
+
+  /** Activity pill text by block lead index; counts only rows that landed (not the live preview or queue). */
+  readonly activitySummaries = computed(() => {
+    const items = this.items();
+    const roles = this.displayRoles();
+    const blocks = this.activityLayout().blocks;
+    const out = new Map<number, ActivitySummary>();
+    if (blocks.size === 0) {
+      return out;
+    }
+    const merged = this.toolChipLayout().merged;
+    for (const [lead, members] of blocks) {
+      const landed = members.filter((index) => roles[index] === 'chip');
+      out.set(lead, activitySummary(items, landed, merged));
+    }
+    return out;
+  });
+
+  private readonly toolPillExpansion = inject(ToolPillExpansion);
+  /** Activity blocks the user opened or closed, by lead item key (see {@link trackItem}). */
+  private readonly activityOverride = signal<ReadonlyMap<string, boolean>>(new Map());
 
   /** Chips (and group pills) that just took over from the live preview: they fade and settle in. */
   readonly settlingIndices = computed(() =>
     settlingChipIndices(this.settling(), this.toolChipLayout().groups),
   );
 
+  /** The live preview queue split (landed chips, the open preview, rows waiting behind it). */
+  private readonly split = computed(() => splitQueuedFeed(this.items(), this.displayCommitted()));
+
+  /** Feed index of the open live preview, or -1. */
+  readonly previewIndex = computed(() => this.displayRoles().indexOf('preview'));
+
   readonly previewHeader = computed(() => {
-    const split = splitQueuedFeed(this.items(), this.displayCommitted());
+    const split = this.split();
     return split.current ? previewQueueHeader(split.current, split.inbound) : '';
   });
 
   /** Path / drafting size / write-job phase beside the live tool pill (empty when not a tool preview). */
   readonly previewMeta = computed(() => {
-    const split = splitQueuedFeed(this.items(), this.displayCommitted());
+    const split = this.split();
     return previewQueueMeta(split.current, split.inbound);
   });
 
   /** Tool spinner kind while the live preview is a tool pill. */
   readonly previewToolSpinnerKind = computed(() => {
-    const split = splitQueuedFeed(this.items(), this.displayCommitted());
+    const split = this.split();
     return previewQueueToolSpinnerKind(split.current, split.inbound);
   });
 
   readonly previewShowsBody = computed(() => {
-    const split = splitQueuedFeed(this.items(), this.displayCommitted());
-    return previewItemShowsBody(split.current);
+    const split = this.split();
+    return previewItemShowsBody(split.current, this.thinkingDisplay());
+  });
+
+  /** The live thought currently shown as a compact `Thinking · 7s` pill, if any. */
+  private readonly thinkingPillPart = computed<StreamPart | null>(() => {
+    if (!this.live() || this.thinkingDisplay() !== 'pill') {
+      return null;
+    }
+    const current = this.split().current;
+    return current?.kind === 'thought' ? current.part : null;
+  });
+
+  /** Seconds the compact thinking pill has been open (empty for tool previews). */
+  readonly previewDuration = computed(() => {
+    const part = this.thinkingPillPart();
+    if (!part) {
+      return '';
+    }
+    // A thought that already ended (the next segment began) keeps its final time while the preview dwells.
+    return formatThoughtDuration(
+      part.thoughtDurationMs ?? this.now() - (part.thoughtStartedAt ?? this.clockStartedAt),
+    );
   });
 
   /**
-   * Where the turn spinner lives right now: thought header, running tool pill, or `null`
-   * (parent keeps it in the processing row).
+   * Where the turn spinner lives right now: thought header, running tool or thinking pill, or
+   * `null` (parent keeps it in the processing row).
    */
   readonly spinnerHost = computed(() => {
-    const split = splitQueuedFeed(this.items(), this.displayCommitted());
-    return previewSpinnerHost(this.live(), this.spinnerActive(), split.current);
+    const split = this.split();
+    return previewSpinnerHost(this.live(), this.spinnerActive(), split.current, this.thinkingDisplay());
   });
 
   /** Which spinner the preview hosts (`null` = none; the parent's processing row shows it). */
@@ -175,6 +247,20 @@ export class StreamTurnFeedComponent {
     this.destroyRef.onDestroy(() => {
       this.clearTimer();
       this.clearSettle();
+      this.stopClock();
+    });
+
+    effect(() => {
+      const open = this.thinkingPillPart() !== null;
+      untracked(() => {
+        if (open && this.clock === null) {
+          this.clockStartedAt = Date.now();
+          this.now.set(this.clockStartedAt);
+          this.clock = setInterval(() => this.now.set(Date.now()), THINKING_CLOCK_TICK_MS);
+        } else if (!open) {
+          this.stopClock();
+        }
+      });
     });
 
     effect(() => {
@@ -209,10 +295,55 @@ export class StreamTurnFeedComponent {
     return `${item.kind}:${item.part.streamTag}:${index}`;
   }
 
+  /**
+   * Whether an activity block shows its timeline. Blocks start closed, working or not; the
+   * closed pill names the live step instead (see {@link activityMeta}), and a streaming
+   * reasoning box shows under it. Unless the user toggled it, a block opens only when it holds
+   * a tool pill the user had open.
+   */
+  isActivityOpen(lead: number, members: readonly number[]): boolean {
+    const items = this.items();
+    const override = this.activityOverride().get(this.trackItem(items[lead]!, lead));
+    if (override !== undefined) {
+      return override;
+    }
+    return members.some((index) => {
+      const item = items[index];
+      return item?.kind === 'tool' && this.toolPillExpansion.isOpen(item.part.streamTag);
+    });
+  }
+
+  toggleActivity(lead: number, members: readonly number[]): void {
+    const key = this.trackItem(this.items()[lead]!, lead);
+    const open = !this.isActivityOpen(lead, members);
+    this.activityOverride.update((prev) => new Map(prev).set(key, open));
+  }
+
+  /**
+   * True when the block holds the open live preview. While the block is closed, a pill preview
+   * (tool or compact thought) folds into the block pill; a reasoning box shows under it.
+   */
+  activityHostsPreview(members: readonly number[]): boolean {
+    const preview = this.previewIndex();
+    return preview >= 0 && members.includes(preview);
+  }
+
+  /**
+   * Activity pill meta: the counts, plus the live step (`Read — Thinking`, and the compact
+   * thinking counter) while a closed block folds in a pill preview. A reasoning box names its
+   * own step in its header.
+   */
+  activityMeta(meta: string, open: boolean, members: readonly number[]): string {
+    const hosts = !open && !this.previewShowsBody() && this.activityHostsPreview(members);
+    return [meta, hosts ? this.previewHeader() : '', hosts ? this.previewDuration() : ''].filter(Boolean).join(' · ');
+  }
+
+  /** True for the last markdown block with text (an emptied trailing continuation renders nothing). */
   isLastMarkdown(index: number): boolean {
     const items = this.items();
     for (let i = items.length - 1; i >= 0; i--) {
-      if (items[i]?.kind === 'markdown') {
+      const item = items[i];
+      if (item?.kind === 'markdown' && item.text) {
         return i === index;
       }
     }
@@ -337,6 +468,13 @@ export class StreamTurnFeedComponent {
     if (this.settleTimer != null) {
       clearTimeout(this.settleTimer);
       this.settleTimer = null;
+    }
+  }
+
+  private stopClock(): void {
+    if (this.clock !== null) {
+      clearInterval(this.clock);
+      this.clock = null;
     }
   }
 

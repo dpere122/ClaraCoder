@@ -14,24 +14,28 @@ app-stream-turn-feed app-stream-nudge-pill {
   max-width: 100%;
 }
 
-app-stream-turn-feed app-aux-stream-tool-part {
-  flex: 0 1 auto;
+/*
+ * Finished chips each take their own row so the feed reads top to bottom in execution order.
+ * Only the live preview pill sits inline (it anticipates the next event in its own label).
+ */
+app-stream-turn-feed app-aux-stream-tool-part,
+app-stream-turn-feed app-tool-pill-group,
+app-stream-turn-feed .stream-turn-feed__activity {
+  display: block;
+  flex: 1 1 100%;
+  min-width: 0;
   max-width: 100%;
 }
 
-app-stream-turn-feed app-aux-stream-tool-part:has(.hitl-trail-row) {
-  flex: 1 1 100%;
-}
-
-app-stream-turn-feed app-tool-pill-group {
-  flex: 0 1 auto;
-  max-width: 100%;
-}
-
-/* Short pills share a row; one that opens its output (or a group that opens) takes the full width. */
-app-stream-turn-feed app-aux-stream-tool-part:has(.stream-tool-pill--expanded, .aux-stream-tool-part__terminal),
-app-stream-turn-feed app-tool-pill-group:has(.tool-pill-group--expanded) {
-  flex: 1 1 100%;
+/* Expanded activity block: its thoughts and tools stack in execution order on a guide line. */
+app-stream-turn-feed .stream-turn-feed__activity-body {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+  margin: 0.1rem 0 0.3rem 0.55rem;
+  padding-left: 0.5rem;
+  border-left: 1px solid color-mix(in srgb, var(--t-primary) 30%, var(--t-border-subtle));
 }
 
 app-stream-turn-feed .stream-turn-feed {

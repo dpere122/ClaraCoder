@@ -175,6 +175,7 @@
             [showCursor]="showStreamingPrimaryCursor()"
             [planPanelVisible]="!!livePlanPanel()"
             [spinnerActive]="liveSpinnerActive()"
+            [thinkingDisplay]="thinkingDisplay()"
             (spinnerKindChange)="liveFeedSpinnerKind.set($event)"
           />
         }

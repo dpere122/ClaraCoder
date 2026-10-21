@@ -36,6 +36,7 @@ import {
   isLegacyLlamaCppManagedShape,
   migrateLegacyLlamaCppManagedToCommands,
   normalizeChatContainerSize,
+  normalizeChatThinkingDisplay,
   normalizeMonacoWorkspaceEditorSettings,
   normalizeWorkspaceMonacoScrollByWorkspaceId,
   normalizeWorkspaceOpenTabsByWorkspaceId,
@@ -1480,6 +1481,12 @@ export function migrateConfig(config: AppConfig): AppConfig {
   const normalizedContainerSize = normalizeChatContainerSize((newConfig as AppConfig).chatContainerSize);
   if ((newConfig as AppConfig).chatContainerSize !== normalizedContainerSize) {
     (newConfig as AppConfig).chatContainerSize = normalizedContainerSize;
+    migrated = true;
+  }
+
+  const normalizedThinkingDisplay = normalizeChatThinkingDisplay((newConfig as AppConfig).chatThinkingDisplay);
+  if ((newConfig as AppConfig).chatThinkingDisplay !== normalizedThinkingDisplay) {
+    (newConfig as AppConfig).chatThinkingDisplay = normalizedThinkingDisplay;
     migrated = true;
   }
 

@@ -33,8 +33,8 @@ import {
 } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
-import type { PlannerProgress, StreamPart } from '@shared/index';
-import { canRestoreToUserMessage } from '@shared/index';
+import type { ChatThinkingDisplay, PlannerProgress, StreamPart } from '@shared/index';
+import { canRestoreToUserMessage, DEFAULT_CHAT_THINKING_DISPLAY } from '@shared/index';
 import {
   buildTurnFeed,
   joinPrimaryAssistantStreamText,
@@ -371,6 +371,8 @@ export class ChatBox implements OnDestroy {
   readonly streamingPlanner = input<PlannerProgress | null>(null);
   /** Root `--chat-font-size` multiplier (rem). */
   readonly fontSize = input(0.9);
+  /** Live reasoning as the streaming preview box or a compact timed pill (Settings → Chat appearance). */
+  readonly thinkingDisplay = input<ChatThinkingDisplay>(DEFAULT_CHAT_THINKING_DISPLAY);
   /** Sidebar hub vs main-panel expanded overlay (reserved for layout-specific chrome). */
   readonly layout = input<ChatLayoutMode>('expanded');
   /**

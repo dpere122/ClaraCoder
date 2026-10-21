@@ -1,7 +1,8 @@
-import type { LlmStatus, StreamPart } from '@shared/index';
+import type { HitlTrailArtifact, LlmStatus, StreamPart } from '@shared/index';
 import {
   CLARA_OUTER_BRIEF_STREAM_TAG,
   clearPrimaryStreamParts,
+  mergeHitlTrailIntoAuxiliaryTimeline,
   isClaraOuterBriefStreamTag,
   isReasoningAuxiliaryStreamTag,
   isShellStyleToolStreamTag,
@@ -24,16 +25,17 @@ export function appendStreamPart(
   streamTag: string | undefined,
   delta: string,
   label = '',
+  now = Date.now(),
 ): StreamPart[] {
   const raw = streamTag?.trim();
   if (!raw) {
-    return appendStreamPartWithTag(parts, 'agent', delta, label);
+    return appendStreamPartWithTag(parts, 'agent', delta, label, now);
   }
   const t = normalizeStreamTag(raw);
   if (t === null) {
     return parts;
   }
-  return appendStreamPartWithTag(parts, t, delta, label);
+  return appendStreamPartWithTag(parts, t, delta, label, now);
 }
 
 function appendStreamPartWithTag(
@@ -41,16 +43,53 @@ function appendStreamPartWithTag(
   t: string,
   delta: string,
   label: string,
+  now: number,
 ): StreamPart[] {
-  const resolvedLabel = label || (isReasoningAuxiliaryStreamTag(t) ? DEFAULT_REASONING_STREAM_LABEL : '');
+  const reasoning = isReasoningAuxiliaryStreamTag(t);
+  const resolvedLabel = label || (reasoning ? DEFAULT_REASONING_STREAM_LABEL : '');
   const next = [...parts];
   const last = next[next.length - 1];
   if (last?.streamTag === t) {
     next[next.length - 1] = { ...last, label: last.label || resolvedLabel, text: last.text + delta };
     return next;
   }
-  const base = isToolLikeStreamTag(t) ? clearPrimaryStreamParts(next) : next;
-  return [...base, { streamTag: t, label: resolvedLabel, text: delta }];
+  const closed = closeOpenThought(next, now);
+  const base = isToolLikeStreamTag(t) ? clearPrimaryStreamParts(closed) : closed;
+  return [...base, { streamTag: t, label: resolvedLabel, text: delta, ...(reasoning ? { thoughtStartedAt: now } : {}) }];
+}
+
+/**
+ * Stamp how long the trailing reasoning segment ran once something else follows it (the next
+ * segment begins, or the turn ends). Parts without a start time (older turns) are left alone.
+ */
+export function closeOpenThought(parts: StreamPart[], now = Date.now()): StreamPart[] {
+  const last = parts[parts.length - 1];
+  if (
+    !last ||
+    !isReasoningAuxiliaryStreamTag(last.streamTag) ||
+    last.thoughtStartedAt === undefined ||
+    last.thoughtDurationMs !== undefined
+  ) {
+    return parts;
+  }
+  const next = [...parts];
+  next[next.length - 1] = { ...last, thoughtDurationMs: Math.max(0, now - last.thoughtStartedAt) };
+  return next;
+}
+
+/**
+ * Merge HITL trail rows into the live timeline. A row appended after a live thought ends that
+ * thought: later segments only ever close the last part, so it would otherwise never be timed.
+ */
+export function mergeHitlTrailIntoLiveStreamParts(
+  parts: StreamPart[],
+  artifacts: readonly HitlTrailArtifact[],
+  now = Date.now(),
+): StreamPart[] {
+  const next = mergeHitlTrailIntoAuxiliaryTimeline(parts, artifacts);
+  return next[next.length - 1] === parts[parts.length - 1]
+    ? next
+    : mergeHitlTrailIntoAuxiliaryTimeline(closeOpenThought(parts, now), artifacts);
 }
 
 /**
@@ -78,7 +117,11 @@ export function mergeToolTrailStatusText(
 }
 
 /** Fold a Clara outer-brief status row into the multiplex timeline (source is `agent`, not `tool`). */
-export function upsertClaraOuterBriefStreamPart(parts: StreamPart[], status: LlmStatus): StreamPart[] {
+export function upsertClaraOuterBriefStreamPart(
+  parts: StreamPart[],
+  status: LlmStatus,
+  now = Date.now(),
+): StreamPart[] {
   if (!isClaraOuterBriefStreamTag(status.streamTag)) {
     return parts;
   }
@@ -99,7 +142,7 @@ export function upsertClaraOuterBriefStreamPart(parts: StreamPart[], status: Llm
     return next;
   }
   return [
-    ...parts,
+    ...closeOpenThought(parts, now),
     {
       streamTag: CLARA_OUTER_BRIEF_STREAM_TAG,
       label: status.label || 'Clara',
@@ -109,10 +152,14 @@ export function upsertClaraOuterBriefStreamPart(parts: StreamPart[], status: Llm
 }
 
 /** Insert or update a tool-status row in the multiplex timeline (wall-clock order vs. reasoning chunks). */
-export function upsertToolTrailStatusStreamPart(parts: StreamPart[], status: LlmStatus): StreamPart[] {
+export function upsertToolTrailStatusStreamPart(
+  parts: StreamPart[],
+  status: LlmStatus,
+  now = Date.now(),
+): StreamPart[] {
   const src = (status.source ?? 'agent').toLowerCase();
   if (src !== 'tool') {
-    return upsertClaraOuterBriefStreamPart(parts, status);
+    return upsertClaraOuterBriefStreamPart(parts, status, now);
   }
   const streamTag = toolTrailStatusStreamTag(status.id);
   const next = [...parts];
@@ -142,7 +189,7 @@ export function upsertToolTrailStatusStreamPart(parts: StreamPart[], status: Llm
     return mergeReadPreviewIntoToolTrailParts(next);
   }
   return mergeReadPreviewIntoToolTrailParts([
-    ...clearPrimaryStreamParts(next),
+    ...clearPrimaryStreamParts(closeOpenThought(next, now)),
     row,
   ]);
 }

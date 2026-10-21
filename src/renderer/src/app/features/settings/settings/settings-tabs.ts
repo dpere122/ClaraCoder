@@ -80,7 +80,7 @@ export const SETTINGS_SUB_TAB_CATALOG: Partial<Record<SettingsTab, SettingsSubTa
       id: 'chat',
       label: 'Chat appearance',
       description:
-        'App UI scale, chat font size, expanded chat width, app-wide UI font, and code font for message text.',
+        'App UI scale, chat font size, expanded chat width, thinking display, app-wide UI font, and code font for message text.',
     },
   ],
   themes: buildThemesSubTabs(),

@@ -9,6 +9,7 @@ import {
   normalizeStreamPart,
   primaryAssistantTextFromParts,
 } from '@shared/index';
+import { closeOpenThought } from './app-stream-parts';
 
 export interface AssistantTurnPayload {
   text: string;
@@ -27,7 +28,8 @@ export function buildAssistantTurnFromStreamParts(
   pendingFinalText: string | undefined,
   opts?: { endedEarly?: TurnEndedEarly },
 ): AssistantTurnPayload | null {
-  const normalizedParts = parts
+  // A turn that ends while still reasoning (or whose reply came only as `final_text`) closes the thought here.
+  const normalizedParts = closeOpenThought(parts)
     .map(normalizeStreamPart)
     .filter((p): p is StreamPart => p !== null);
   const toolStreamCandidates = delegatedStreamPartsForDisplay(normalizedParts, null).filter(

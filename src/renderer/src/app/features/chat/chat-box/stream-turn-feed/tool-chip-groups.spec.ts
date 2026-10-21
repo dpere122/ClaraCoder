@@ -39,6 +39,14 @@ describe('toolChipLayout', () => {
     ]);
   });
 
+  it('groups back-to-back lookups of different kinds (read, search, list) into one pill', () => {
+    const search = tool('search_workspace', 'Found 3 matches for "foo"');
+    const list = tool('list_workspace_directory', 'Directory: src');
+    const items = [read('a.py'), search, list, edit('a.py'), read('b.py')];
+    const layout = toolChipLayout(items, allChips);
+    expect([...layout.groups.entries()]).toEqual([[0, [0, 1, 2]]]);
+  });
+
   it('a thought, prose or HITL row between calls ends the run', () => {
     const items = [read('a.py'), thought, read('b.py'), md, read('c.py'), hitl, read('d.py')];
     const layout = toolChipLayout(items, (i) => (items[i]!.kind === 'markdown' ? 'markdown' : 'chip'));

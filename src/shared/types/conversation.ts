@@ -45,6 +45,10 @@ export interface StreamPart {
   toolSubagentName?: string;
   /** Tool-trail rows still running when their turn was stopped or interrupted. */
   toolStopped?: true;
+  /** Reasoning segments: epoch ms when the first chunk arrived (drives the live `Thinking · 7s` pill). */
+  thoughtStartedAt?: number;
+  /** Reasoning segments: how long the model thought, set when the next segment begins. */
+  thoughtDurationMs?: number;
 }
 
 /** Why an assistant turn ended before the agent finished it. */

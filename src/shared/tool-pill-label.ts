@@ -180,7 +180,8 @@ function targetFromResult(name: string, category: ToolPillCategory, text: string
   return '';
 }
 
-function plural(n: number, one: string, many = `${one}s`): string {
+/** Count with its noun: `1 file`, `3 files`. */
+export function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
@@ -413,6 +414,19 @@ export function isSubagentSpawnCall(part: Pick<StreamPart, 'label'>): boolean {
   return part.label.trim() === 'spawn_subagent';
 }
 
+/**
+ * A call cut off when its turn was stopped or interrupted: it did not fail, it never finished.
+ * A cut-off sub-agent spawn does not count: its sub-agent kept running.
+ */
+export function isStoppedToolCall(part: Pick<StreamPart, 'label' | 'toolStopped'>): boolean {
+  return !!part.toolStopped && !isSubagentSpawnCall(part);
+}
+
+/** Outcome notes for a pill's meta line: `2 failed`, `1 stopped` (none when zero). */
+export function toolOutcomeNotes(failed: number, stopped: number): string[] {
+  return [failed > 0 ? `${failed} failed` : '', stopped > 0 ? `${stopped} stopped` : ''].filter(Boolean);
+}
+
 /** Pill meta line: `target · detail` (either may be empty). */
 export function toolPillMeta(label: Pick<ToolPillLabel, 'target' | 'detail'>): string {
   return [label.target, label.detail].filter((s) => s.length > 0).join(' · ');
@@ -454,28 +468,74 @@ function shortTarget(target: string): string {
   return seg ?? target;
 }
 
+/**
+ * Broader kinds that back-to-back calls collapse into: lookups (read / search / list / LSP)
+ * share one `Explore` pill; edits, commands and web calls each keep their own.
+ */
+export type ToolPillFamily = 'explore' | 'edit' | 'run' | 'web' | 'other';
+
+const CATEGORY_FAMILY: Readonly<Record<ToolPillCategory, ToolPillFamily>> = {
+  read: 'explore',
+  search: 'explore',
+  list: 'explore',
+  lsp: 'explore',
+  edit: 'edit',
+  run: 'run',
+  web: 'web',
+  other: 'other',
+};
+
+export function toolPillFamily(category: ToolPillCategory): ToolPillFamily {
+  return CATEGORY_FAMILY[category];
+}
+
 /** True when two tool rows collapse into one group pill when adjacent. */
 export function toolPillsGroupTogether(a: ToolPillLabel, b: ToolPillLabel): boolean {
-  if (a.category !== b.category) {
+  if (toolPillFamily(a.category) !== toolPillFamily(b.category)) {
     return false;
   }
   return a.category !== 'other' || a.verb === b.verb;
 }
 
-/** Group pill text for consecutive same-kind tool rows: `Read · 3 files · a.ts, b.ts`. */
+/**
+ * Group pill text for consecutive same-kind tool rows: `Read · 3 files · a.ts, b.ts`. Mixed
+ * lookups read `Explore · 2 files, 1 search · a.ts, b.ts` (counts in call order).
+ */
 export function toolPillGroupLabel(labels: readonly ToolPillLabel[]): { verb: string; meta: string } {
   const first = labels[0];
   if (!first) {
     return { verb: 'Tools', meta: '' };
   }
-  const verb = first.category === 'other' ? first.verb : GROUP_VERBS[first.category];
-  const [one, many] = GROUP_NOUNS[first.category];
+  const counts = new Map<ToolPillCategory, number>();
+  for (const label of labels) {
+    counts.set(label.category, (counts.get(label.category) ?? 0) + 1);
+  }
+  const mixed = counts.size > 1;
+  const verb = mixed ? 'Explore' : first.category === 'other' ? first.verb : GROUP_VERBS[first.category];
+  const tally = [...counts]
+    .map(([category, n]) => plural(n, ...GROUP_NOUNS[category]))
+    .join(', ');
   const targets = [...new Set(labels.map((l) => shortTarget(l.target)).filter((t) => t.length > 0))];
-  return { verb, meta: [plural(labels.length, one, many), targets.join(', ')].filter(Boolean).join(' · ') };
+  return { verb, meta: [tally, targets.join(', ')].filter(Boolean).join(' · ') };
 }
 
 /** Calls at least this long count as slow: their run time reads at full strength on the pill. */
 export const TOOL_PILL_SLOW_MS = 1000;
+
+/**
+ * Whole-second time for the thinking pill (`<1s`, `7s`, `1m 05s`): the live counter ticks once a
+ * second, so the tool format's tenths would only flicker.
+ */
+export function formatThoughtDuration(ms: number): string {
+  const n = Math.max(0, ms);
+  if (n < 1000) {
+    return '<1s';
+  }
+  if (n < 60_000) {
+    return `${Math.floor(n / 1000)}s`;
+  }
+  return formatToolDuration(n);
+}
 
 /** Compact run time for a pill: `<1ms`, `8ms`, `1.2s`, `12s`, `1m 05s`, `1h 02m`. */
 export function formatToolDuration(ms: number): string {

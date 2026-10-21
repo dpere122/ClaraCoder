@@ -75,15 +75,17 @@ def _apply_npm_project_hints(sess: SessionState, workspace_root: Path) -> None:
     )
 
 
-async def _stop_session_activity(sid: str) -> None:
+async def _stop_session_activity(sid: str, *, discard_child_report: bool = False) -> None:
     """Stop the session's turn and its sub-agents before a reset, so none writes into a fresh thread.
 
     The conversation is going away (``/clear``, ``/dispose``): its sub-agents' reports are dropped.
-    For a sub-agent id this stops just that sub-agent (its partial report goes to the main agent).
+    For a sub-agent id this stops just that sub-agent; its partial report goes to the main agent
+    unless ``discard_child_report`` (``/dispose``: the sub-agent's conversation is deleted, e.g. a
+    restore removed the turn that spawned it, so its work must not come back as a report).
     """
     child = subagent_session(sid)
     if child is not None:
-        await stop_subagent(sid)
+        await stop_subagent(sid, discard_report=discard_child_report)
         return
     await stop_session_turn(sid)
     await stop_subagents(state.sessions.get(sid), discard_reports=True)
@@ -109,7 +111,7 @@ async def clear_session(request: ClearRequest) -> dict[str, bool]:
 async def dispose_session(request: ClearRequest) -> dict[str, bool]:
     """Teardown a session and remove it from the in-memory store (conversation deleted)."""
     sid = request.session_id
-    await _stop_session_activity(sid)
+    await _stop_session_activity(sid, discard_child_report=True)
     await teardown_session(sid)
     state.sessions.pop(sid, None)
     forget_session_turns(sid)

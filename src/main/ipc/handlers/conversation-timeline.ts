@@ -50,13 +50,13 @@ async function resyncPythonHistory(conversationId: string, messages: Conversatio
   }
 }
 
-/** Delete the sub-agent conversations a restore truncated away (their parent turns no longer exist). */
-async function deleteChildrenOfTurns(conversationId: string, turnIds: readonly string[]): Promise<string[]> {
+/**
+ * Stop the sub-agents of the turns a restore removes, before their files are reverted: one still
+ * running would keep writing. `/dispose` drops their reports, so the rolled-back work never comes
+ * back to the main agent.
+ */
+async function stopChildrenOfTurns(conversationId: string, turnIds: readonly string[]): Promise<string[]> {
   const childIds = listChildConversationIdsForTurns(conversationId, turnIds);
-  if (childIds.length === 0) {
-    return [];
-  }
-  markConversationsDeleted(childIds);
   for (const childId of childIds) {
     try {
       await pythonControlFetch('/dispose', {
@@ -67,9 +67,19 @@ async function deleteChildrenOfTurns(conversationId: string, turnIds: readonly s
     } catch (err) {
       console.error('[ConversationTimeline] Failed to dispose sub-agent session:', err);
     }
-    deleteConversationById(childId);
   }
   return childIds;
+}
+
+/** Delete the sub-agent conversations a restore truncated away (their parent turns no longer exist). */
+function deleteChildConversations(childIds: readonly string[]): void {
+  if (childIds.length === 0) {
+    return;
+  }
+  markConversationsDeleted(childIds);
+  for (const childId of childIds) {
+    deleteConversationById(childId);
+  }
 }
 
 /** Absolute root of a configured workspace id, or null. */
@@ -234,6 +244,7 @@ export function registerConversationTimelineIpc(): void {
       if (actions.length > 0 && !workspaceRoot) {
         return { ok: false, error: 'No workspace root for this conversation; cannot revert files.' };
       }
+      const childIds = await stopChildrenOfTurns(conversationId, [...invertIds]);
       if (workspaceRoot && actions.length > 0) {
         const applied = await applyTimelineInvertActions(workspaceRoot, actions);
         revertedPaths = applied.revertedPaths;
@@ -253,7 +264,7 @@ export function registerConversationTimelineIpc(): void {
       conv.updatedAt = new Date().toISOString();
       upsertConversation(conv);
       deleteConversationFileJournalForUserIds(conversationId, [...invertIds]);
-      const deletedSubagentIds = await deleteChildrenOfTurns(conversationId, [...invertIds]);
+      deleteChildConversations(childIds);
       await resyncPythonHistory(conversationId, nextMessages);
 
       return {
@@ -261,7 +272,7 @@ export function registerConversationTimelineIpc(): void {
         messages: nextMessages,
         revertedPaths,
         skippedPaths,
-        ...(deletedSubagentIds.length ? { deletedSubagentIds } : {}),
+        ...(childIds.length ? { deletedSubagentIds: childIds } : {}),
       };
     },
   );

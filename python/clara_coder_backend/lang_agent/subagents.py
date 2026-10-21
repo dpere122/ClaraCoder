@@ -710,16 +710,17 @@ async def stop_subagent(
     child_id: str,
     *,
     by: str = 'the user',
+    discard_report: bool = False,
     timeout: float = SUBAGENT_STOP_GRACE_SEC + 1.0,
 ) -> None:
-    """Abort one sub-agent and wait (bounded) until its turn ended."""
+    """Abort one sub-agent and wait (bounded) until its turn ended (``discard_report``: queue no report)."""
     child = subagent_session(child_id)
     run = _runs.get(child_id)
     parent = state.sessions.get(child.subagent_parent_session_id) if child is not None else None
     task = run.task if run is not None else None
     if task is None and parent is not None:
         task = parent.subagent_children.get(child_id)
-    await abort_subagent(child_id, by=by)
+    await abort_subagent(child_id, by=by, discard_report=discard_report)
     if task is not None:
         await _wait_or_cancel({task}, timeout)
 

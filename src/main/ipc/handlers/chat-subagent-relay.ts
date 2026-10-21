@@ -176,6 +176,14 @@ export function createSubagentRelay(rendererFor: (parentConversationId: string) 
           return true;
         case 'subagent_event': {
           const child = children.get(parsed.conversationId);
+          if (
+            child &&
+            (isConversationDeleted(parsed.conversationId) || isConversationDeleted(child.parentConversationId))
+          ) {
+            // Deleted (or removed by a restore) while it wound down: write nothing more for it.
+            children.delete(parsed.conversationId);
+            return true;
+          }
           if (child && !child.finished && parsed.payload) {
             relayEvent(parsed.conversationId, child, parsed.payload);
           }

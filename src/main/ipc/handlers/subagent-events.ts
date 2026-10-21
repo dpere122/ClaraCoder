@@ -13,6 +13,10 @@ let relay: SubagentRelay | null = null;
 
 function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
     const timer = setTimeout(resolve, ms);
     signal.addEventListener(
       'abort',
@@ -32,8 +36,15 @@ export function handleSubagentEventBlock(block: string, target: SubagentRelay): 
       continue;
     }
     const payload = line.slice(6).trim();
-    if (payload) {
+    if (!payload) {
+      continue;
+    }
+    try {
       target.handle(parseAgentStreamPayload(payload));
+    } catch (err) {
+      // One bad event (e.g. a SQLite error creating its row) must not end the read: Python never
+      // resends the events after it.
+      console.error('[Subagents] handling an event failed:', err);
     }
   }
 }
@@ -45,6 +56,8 @@ async function readChannel(signal: AbortSignal, target: SubagentRelay): Promise<
     signal,
   });
   if (!res.ok || !res.body) {
+    // Release the connection now (a persistent 401/404 retries every few seconds).
+    await res.body?.cancel().catch(() => undefined);
     return;
   }
   const reader = res.body.getReader();

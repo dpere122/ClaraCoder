@@ -152,6 +152,20 @@ describe('createSubagentRelay', () => {
     ]);
   });
 
+  it('writes nothing more for a sub-agent whose conversation (or parent) was deleted', () => {
+    const relay = createSubagentRelay(() => send);
+    relay.handle(started());
+    send.mockClear();
+    mocks.deleted.add(CHILD); // e.g. a restore removed the turn that spawned it
+    relay.handle(
+      wrapped({ type: 'file_journal', userMessageId: 'other', relativePath: 'a.txt', op: 'modify', beforeContent: 'old' }),
+    );
+    relay.handle(wrapped({ type: 'chunk', delta: 'late' }));
+    expect(mocks.journal).toEqual([]);
+    expect(send).not.toHaveBeenCalled();
+    expect(relay.runningIds()).toEqual([]);
+  });
+
   it('cancels a plan-mode question nobody could answer instead of forwarding it', () => {
     const relay = createSubagentRelay(() => send);
     relay.handle(started());

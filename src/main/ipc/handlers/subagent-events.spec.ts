@@ -26,4 +26,27 @@ describe('handleSubagentEventBlock', () => {
       outcome: 'completed',
     });
   });
+
+  it('keeps handling the rest of a block when one event throws', () => {
+    const handle = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error('SQLITE_BUSY');
+      })
+      .mockReturnValue(true);
+    const relay = { handle, finishAll: vi.fn(), runningIds: () => [] } as SubagentRelay;
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    handleSubagentEventBlock(
+      [
+        'data: {"type":"subagent_finished","conversation_id":"child-abc12345","outcome":"completed"}',
+        'data: {"type":"subagent_finished","conversation_id":"child-def67890","outcome":"aborted"}',
+      ].join('\n'),
+      relay,
+    );
+
+    expect(handle).toHaveBeenCalledTimes(2);
+    expect(error).toHaveBeenCalledTimes(1);
+    error.mockRestore();
+  });
 });

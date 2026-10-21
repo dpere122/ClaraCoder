@@ -859,6 +859,35 @@ async def test_stop_subagent_tool_stops_it_and_returns_its_partial_report(
     assert not any(REPORTS_ARRIVED_HEADER in t for t in _texts(model.views()[-1]))
 
 
+async def test_disposing_a_subagent_conversation_drops_its_report(checkpoints, parent_session, bus, use_model) -> None:
+    """A restore deletes the sub-agents of the turns it removed: their rolled-back work must not come back."""
+    from clara_coder_backend.routes.session import dispose_session
+    from clara_coder_backend.session.schemas import ClearRequest
+
+    sid, parent = parent_session
+    model = use_model(
+        ScriptedChatModel(
+            scripts={
+                'parent': [
+                    AIMessage(content='', tool_calls=[_spawn('s1', 'scout', 'look', background=True)]),
+                    AIMessage(content='Parent done.'),
+                ],
+                'scout': [(AIMessage(content='Scout partial words'), _HANG)],
+            }
+        )
+    )
+    lines: list[str] = []
+    turn = _start_turn(sid, 'go', lines, apply_mode=False)
+    await _wait_for(lambda: bus.started('scout') and 'Scout' in bus.child_text('scout'))
+
+    await asyncio.wait_for(dispose_session(ClearRequest(session_id=bus.child('scout'))), timeout=10)
+    await asyncio.wait_for(turn, timeout=10)
+
+    assert bus.finished('scout') == 'aborted'
+    assert parent.subagent_pending_reports == {} and not bus.ready()
+    assert not any(REPORTS_ARRIVED_HEADER in t for t in _texts(model.views()[-1]))
+
+
 async def test_stopping_one_subagent_from_its_card_gives_the_waiting_call_its_partial_report(
     checkpoints, parent_session, bus, use_model
 ) -> None:

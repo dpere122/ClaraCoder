@@ -133,8 +133,22 @@ function fakeProc(pid: number): FakeProc {
   return proc;
 }
 
-function makeConfig(opts?: { embed?: boolean }): AppConfig {
+function makeConfig(opts?: { embed?: boolean; secondModel?: boolean }): AppConfig {
   const binName = process.platform === 'win32' ? 'llama-server.exe' : 'llama-server';
+  const model = (id: string, gguf: string) => ({
+    id,
+    name: 'model',
+    model: 'm',
+    contextWindowTokens: 8192,
+    thinkingMode: 'off',
+    samplingPreset: 'default',
+    llamaCppManaged: {
+      chatRunCommand: `${binName} --host 127.0.0.1 --port {{PORT}} -m ${gguf}`,
+      embeddingRunCommand: opts?.embed
+        ? `${binName} --host 127.0.0.1 --port {{PORT}} -m /e.gguf --embedding`
+        : '',
+    },
+  });
   return {
     activeLlmModelId: 'm1',
     llmProviders: [
@@ -144,22 +158,7 @@ function makeConfig(opts?: { embed?: boolean }): AppConfig {
         provider: 'llamacpp',
         baseUrl: 'http://127.0.0.1:8080/v1',
         apiKey: '',
-        models: [
-          {
-            id: 'm1',
-            name: 'model',
-            model: 'm',
-            contextWindowTokens: 8192,
-            thinkingMode: 'off',
-            samplingPreset: 'default',
-            llamaCppManaged: {
-              chatRunCommand: `${binName} --host 127.0.0.1 --port {{PORT}} -m /m.gguf`,
-              embeddingRunCommand: opts?.embed
-                ? `${binName} --host 127.0.0.1 --port {{PORT}} -m /e.gguf --embedding`
-                : '',
-            },
-          },
-        ],
+        models: [model('m1', '/m.gguf'), ...(opts?.secondModel ? [model('m2', '/m2.gguf')] : [])],
       },
     ],
     modelManager: { huggingFaceToken: '', customModelsDir: '' },
@@ -284,6 +283,26 @@ describe('managed llama-server lifecycle', () => {
     const pids = JSON.parse(readFileSync(pidPath, 'utf8')) as number[];
     expect(pids).toContain(procs[1].pid);
     expect(pids).not.toContain(oldPid);
+  });
+
+  it('defers starting another preset until a draining pair has released its VRAM', async () => {
+    setLlamaServerStopGraceMs(150);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true })),
+    );
+    const cfg = makeConfig({ secondModel: true });
+    expect((await startManagedLlamaServers('m1', cfg)).ok).toBe(true);
+
+    const stopP = stopManagedLlamaServers('m1');
+    const otherP = startManagedLlamaServers('m2', cfg);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(procs).toHaveLength(1);
+
+    await stopP;
+    expect((await otherP).ok).toBe(true);
+    expect(procs).toHaveLength(2);
+    await stopManagedLlamaServers('m2');
   });
 
   it('fails fast when spawn emits error', async () => {

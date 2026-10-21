@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import {
   Component,
   DestroyRef,
@@ -41,7 +42,13 @@ import {
   queueableItems,
   splitQueuedFeed,
 } from './stream-preview-queue';
-import { settlingChipIndices, toolChipGroupParts, toolChipLayout } from './tool-chip-groups';
+import { activityLayout, activitySummary, type ActivitySummary } from './activity-blocks';
+import {
+  mergedRunCommandStatusIndices,
+  settlingChipIndices,
+  toolChipGroupParts,
+  toolChipLayout,
+} from './tool-chip-groups';
 
 /** How long chips that just left the live preview play their settle animation (see the CSS). */
 export const CHIP_SETTLE_MS = 520;
@@ -61,6 +68,7 @@ export type HostedSpinnerKind = PillSpinnerKind;
   imports: [
     AuxStreamToolPartComponent,
     MarkdownPipe,
+    NgTemplateOutlet,
     StreamNudgePillComponent,
     StreamThoughtPillComponent,
     StreamToolPillComponent,
@@ -134,6 +142,33 @@ export class StreamTurnFeedComponent {
     }
     return { hidden: layout.hidden, groupParts, groups: layout.groups };
   });
+
+  /** Each stretch of work (no prose between them) wrapped in one activity block from its first row. */
+  readonly activityLayout = computed(() => {
+    const roles = this.displayRoles();
+    return activityLayout(this.items(), (index) => roles[index] ?? 'hidden', this.live(), this.toolChipLayout().hidden);
+  });
+
+  /** Activity pill text by block lead index; counts only rows that landed (not the live preview or queue). */
+  readonly activitySummaries = computed(() => {
+    const items = this.items();
+    const roles = this.displayRoles();
+    const blocks = this.activityLayout().blocks;
+    const out = new Map<number, ActivitySummary>();
+    if (blocks.size === 0) {
+      return out;
+    }
+    const merged = mergedRunCommandStatusIndices(items);
+    for (const [lead, members] of blocks) {
+      const landed = members.filter((index) => roles[index] === 'chip');
+      out.set(lead, activitySummary(items, landed, merged));
+    }
+    return out;
+  });
+
+  private readonly toolPillExpansion = inject(ToolPillExpansion);
+  /** Activity blocks the user opened or closed, by lead item key (see {@link trackItem}). */
+  private readonly activityOverride = signal<ReadonlyMap<string, boolean>>(new Map());
 
   /** Chips (and group pills) that just took over from the live preview: they fade and settle in. */
   readonly settlingIndices = computed(() =>
@@ -254,6 +289,41 @@ export class StreamTurnFeedComponent {
       return `md:${index}`;
     }
     return `${item.kind}:${item.part.streamTag}:${index}`;
+  }
+
+  /**
+   * Whether an activity block shows its timeline. Blocks start closed, working or not; the
+   * closed pill names the live step instead (see {@link activityMeta}). Unless the user toggled
+   * it, a block opens only when it holds a tool pill the user had open.
+   */
+  isActivityOpen(lead: number, members: readonly number[]): boolean {
+    const items = this.items();
+    const override = this.activityOverride().get(this.trackItem(items[lead]!, lead));
+    if (override !== undefined) {
+      return override;
+    }
+    return members.some((index) => {
+      const item = items[index];
+      return item?.kind === 'tool' && this.toolPillExpansion.isOpen(item.part.streamTag);
+    });
+  }
+
+  toggleActivity(lead: number, members: readonly number[]): void {
+    const key = this.trackItem(this.items()[lead]!, lead);
+    const open = !this.isActivityOpen(lead, members);
+    this.activityOverride.update((prev) => new Map(prev).set(key, open));
+  }
+
+  /** True when the block holds the open live preview (its spinner moves to the block pill while closed). */
+  activityHostsPreview(members: readonly number[]): boolean {
+    const roles = this.displayRoles();
+    return members.some((index) => roles[index] === 'preview');
+  }
+
+  /** Activity pill meta: the counts, plus the live step (`Read — Thinking`) while a closed block hosts the preview. */
+  activityMeta(meta: string, open: boolean, members: readonly number[]): string {
+    const step = !open && this.activityHostsPreview(members) ? this.previewHeader() : '';
+    return [meta, step].filter(Boolean).join(' · ');
   }
 
   isLastMarkdown(index: number): boolean {

@@ -409,10 +409,11 @@ export {
   toolPillLabel,
   toolPillMeta,
   toolPillsGroupTogether,
+  toolPillFamily,
   toolPillVerb,
   toolTargetFromRunningDetail,
 } from './tool-pill-label';
-export type { ToolPillCategory, ToolPillLabel } from './tool-pill-label';
+export type { ToolPillCategory, ToolPillFamily, ToolPillLabel } from './tool-pill-label';
 export type { ParsedAgentStreamPayload } from './stream-payload';
 export { parseAgentStreamPayload, parseAgentStreamValue } from './stream-payload';
 export type {

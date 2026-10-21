@@ -516,6 +516,77 @@ export type TurnFeedItem =
   | { kind: 'tool'; part: StreamPart }
   | { kind: 'markdown'; text: string };
 
+/** True when prose ends inside an inline code span (an odd number of single backticks outside fences). */
+function inlineCodeOpen(text: string): boolean {
+  const outsideFences = text.replace(/```[\s\S]*?```/g, '');
+  return (outsideFences.match(/`/g)?.length ?? 0) % 2 === 1;
+}
+
+/** Prose that stops mid-sentence: ends on a word, comma or dash, outside a code fence. */
+function endsMidSentence(text: string): boolean {
+  if (/\n\s*$/.test(text) || (text.match(/```/g)?.length ?? 0) % 2 === 1) {
+    return false;
+  }
+  return /[\p{L}\p{N},\-–—]$/u.test(text.trimEnd());
+}
+
+/** The rest of an interrupted sentence: through the first sentence end or line break (all of it while it streams). */
+const SENTENCE_CONTINUATION = /^\s*[\p{Ll},;:)\]][\s\S]*?(?:[.!?:](?=\s|$)|(?=\n)|$)/u;
+/** Same, with no constraint on how it starts (after the close of an interrupted code span). */
+const SENTENCE_REST = /^[\s\S]*?(?:[.!?:](?=\s|$)|(?=\n)|$)/u;
+
+/**
+ * The start of `next` that finishes the sentence `before` was cut off in, or `null` when
+ * `before` ended its sentence. A cut inside an inline code span takes the span's close too.
+ */
+function sentenceContinuation(before: string, next: string): string | null {
+  if ((before.match(/```/g)?.length ?? 0) % 2 === 1) {
+    return null;
+  }
+  if (inlineCodeOpen(before)) {
+    const close = next.indexOf('`');
+    if (close < 0) {
+      // Still streaming inside the span.
+      return next.includes('\n') ? null : next;
+    }
+    const tail = next.slice(close + 1);
+    return next.slice(0, close + 1) + (tail.match(SENTENCE_REST)?.[0] ?? '');
+  }
+  return endsMidSentence(before) ? (next.match(SENTENCE_CONTINUATION)?.[0] ?? null) : null;
+}
+
+/**
+ * Pull the rest of a sentence the model's tool calls cut in two back onto the line it started
+ * on: `I'll start` · tools · `by reading src/.` becomes `I'll start by reading src/.` · tools.
+ * Only a continuation (lowercase or punctuation first, or the rest of a cut code span) is moved;
+ * whatever follows its sentence end stays after the tools. A live continuation with no sentence
+ * end yet moves whole.
+ */
+function joinSplitSentences(items: TurnFeedItem[]): TurnFeedItem[] {
+  let prose = -1;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]!;
+    if (item.kind !== 'markdown') {
+      continue;
+    }
+    const before = items[prose];
+    if (prose >= 0 && prose < i - 1 && before?.kind === 'markdown') {
+      const rest = sentenceContinuation(before.text, item.text);
+      if (rest) {
+        before.text += rest;
+        item.text = item.text.slice(rest.length).trimStart();
+        if (!item.text) {
+          items.splice(i, 1);
+          i -= 1;
+          continue;
+        }
+      }
+    }
+    prose = i;
+  }
+  return items;
+}
+
 /**
  * Build the unified turn feed: thought pills, nudge pills, tool pills, and rendered markdown
  * in arrival order.
@@ -567,7 +638,7 @@ export function buildTurnFeed(
   if (final) {
     items.push({ kind: 'markdown', text: final });
   }
-  return items;
+  return joinSplitSentences(items);
 }
 
 /**

@@ -70,8 +70,9 @@ export function mergedRunCommandStatusIndices(items: readonly TurnFeedItem[]): S
 }
 
 /**
- * Collapse back-to-back tool chips of one kind (`Read`, `Read`, `Read`) into a single group
- * pill. Any non-chip item between them (thought, prose, HITL row, live preview) ends the run;
+ * Collapse back-to-back tool chips of one kind (`Read`, `Read`, `Read`, or mixed lookups like
+ * `Read`, `Search`, `List` → `Explore`) into a single group pill, in call order. Any non-chip
+ * item between them (thought, prose, HITL row, live preview) ends the run;
  * merged `run_command` status rows are skipped without breaking it.
  */
 export function toolChipLayout(

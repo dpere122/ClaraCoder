@@ -205,6 +205,17 @@ describe('grouping', () => {
     });
     expect(toolPillGroupLabel([edit, edit])).toEqual({ verb: 'Edit', meta: '2 edits · a.py' });
   });
+
+  it('groups back-to-back lookups of different kinds into one Explore pill', () => {
+    const search = toolPillLabel(status('search_workspace', 'Found 3 matches for "foo"'));
+    const list = toolPillLabel(status('list_workspace_directory', 'Directory: src'));
+    expect(toolPillsGroupTogether(read('a.py'), search)).toBe(true);
+    expect(toolPillsGroupTogether(search, list)).toBe(true);
+    expect(toolPillsGroupTogether(search, edit)).toBe(false);
+    const label = toolPillGroupLabel([read('src/a.py'), search, read('b.py')]);
+    expect(label.verb).toBe('Explore');
+    expect(label.meta.startsWith('2 files, 1 search')).toBe(true);
+  });
 });
 
 describe('tool call durations', () => {

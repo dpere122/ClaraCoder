@@ -910,12 +910,15 @@
       "selector": "[data-theme-group=\"shell.empty-state\"]",
       "component": "app/features/shell/main-panel-empty-state",
       "tokens": [
+        "--t-active-bg",
         "--t-bg",
         "--t-bg-surface",
         "--t-border",
+        "--t-border-subtle",
+        "--t-danger",
         "--t-edge-light",
+        "--t-elev-shadow",
         "--t-fg",
-        "--t-glow-soft",
         "--t-hover-bg",
         "--t-primary",
         "--t-text-muted"

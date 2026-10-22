@@ -75,10 +75,14 @@ app-message-box app-pill-select .pill-select__menu {
   border-radius: var(--chat-radius) !important;
 }
 
-.main-panel-empty__cta,
-.main-panel-empty__recents-scroll::-webkit-scrollbar-thumb,
-.main-panel-empty__recents-scroll::-webkit-scrollbar-track {
-  border-radius: 999px !important;
+/* Home screen (IDE flat): small corners on action and workspace rows. */
+.home__action,
+.home__row {
+  border-radius: var(--chat-radius) !important;
+}
+
+.home__row-action {
+  border-radius: var(--chat-radius-sm) !important;
 }
 
 /* HITL review cards, action pills, and chips beat the global square reset. */
@@ -119,11 +123,6 @@ app-chat-box .msg-restore-btn {
 /* Flat turns: messages are rows on the transcript, not cards. */
 app-chat-box .msg-bubble {
   border-radius: 0 !important;
-}
-
-.main-panel-empty__recents-frame,
-app-conversation-manager .conv-context-menu {
-  border-radius: 0.85rem !important;
 }
 
 /* Chat transcript panel matches the composer card. */

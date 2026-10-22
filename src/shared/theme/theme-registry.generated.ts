@@ -345,7 +345,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Home panel shown when no file is open.",
     selector: "[data-theme-group=\"shell.empty-state\"]",
     component: "app/features/shell/main-panel-empty-state",
-    tokens: ["--t-bg", "--t-bg-surface", "--t-border", "--t-edge-light", "--t-fg", "--t-glow-soft", "--t-hover-bg", "--t-primary", "--t-text-muted"],
+    tokens: ["--t-active-bg", "--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-danger", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-hover-bg", "--t-primary", "--t-text-muted"],
     supportsBackground: false,
   },
   {

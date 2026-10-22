@@ -1,138 +1,138 @@
-<div class="main-panel-empty" data-theme-group="shell.empty-state">
-  <div class="main-panel-empty__glow" aria-hidden="true"></div>
-
+<div class="main-panel-empty" [class.main-panel-empty--home]="!hasWorkspace()" data-theme-group="shell.empty-state">
   @if (!hasWorkspace()) {
-    <div class="main-panel-empty__welcome">
-      <div
-        class="main-panel-empty__etch"
-        aria-hidden="true"
-        style="--empty-etch-icon: url('app-icon-etch.png')"
-      >
-        <span class="main-panel-empty__etch-layer main-panel-empty__etch-layer--shadow"></span>
-        <span class="main-panel-empty__etch-layer main-panel-empty__etch-layer--fill"></span>
-        <span class="main-panel-empty__etch-layer main-panel-empty__etch-layer--highlight"></span>
-      </div>
+    <div class="home">
+      <header class="home__header">
+        <span class="home__mark" aria-hidden="true" style="--empty-etch-icon: url('app-icon-etch.png')"></span>
+        <div class="home__title-block">
+          <h1 class="home__title">Clara Coder</h1>
+          <p class="home__subtitle">Open a workspace to start a conversation.</p>
+        </div>
+      </header>
 
-      <h2 class="main-panel-empty__title">Clara Coder</h2>
+      <div class="home__columns">
+        <div class="home__col home__col--main">
+          <section class="home__section" aria-labelledby="home-start">
+            <h2 class="home__heading" id="home-start">Start</h2>
+            <ul class="home__list">
+              <li>
+                <button type="button" class="home__action" (click)="addWorkspace.emit()">
+                  <lucide-icon name="folder-plus" [size]="15" />
+                  <span>Add workspace…</span>
+                </button>
+              </li>
+              <li>
+                <button type="button" class="home__action" (click)="openModelManager.emit()">
+                  <lucide-icon name="cpu" [size]="15" />
+                  <span>Models</span>
+                </button>
+              </li>
+              <li>
+                <button type="button" class="home__action" (click)="openDependencies.emit()">
+                  <lucide-icon name="package" [size]="15" />
+                  <span>Dependencies</span>
+                </button>
+              </li>
+            </ul>
+          </section>
 
-      <div class="main-panel-empty__band">
-        <div class="main-panel-empty__intro">
-          <button type="button" class="main-panel-empty__cta" (click)="addWorkspace.emit()">
-            <lucide-icon name="folder-plus" [size]="18" />
-            <span>Add Workspace</span>
-          </button>
+          @if (favoriteWorkspaces().length > 0) {
+            <section class="home__section" aria-labelledby="home-favorites">
+              <h2 class="home__heading" id="home-favorites">Favorites</h2>
+              <ul
+                class="home__list home__list--rows"
+                cdkDropList
+                [cdkDropListData]="favoriteWorkspaces()"
+                (cdkDropListDropped)="onFavoriteDrop($event)"
+              >
+                @for (ws of favoriteWorkspaces(); track ws.id) {
+                  <li class="home__row" cdkDrag>
+                    <button
+                      type="button"
+                      class="home__row-lead home__row-grip"
+                      cdkDragHandle
+                      title="Drag to reorder"
+                      aria-label="Drag to reorder"
+                    >
+                      <lucide-icon name="grip-vertical" [size]="13" />
+                    </button>
+                    <button type="button" class="home__row-main" [title]="ws.path" (click)="openWorkspace.emit(ws.id)">
+                      <lucide-icon name="star" [size]="14" class="home__row-icon home__row-icon--favorite" />
+                      <span class="home__row-name">{{ ws.name }}</span>
+                      <span class="home__row-path">{{ ws.path }}</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="home__row-action"
+                      title="Remove favorite"
+                      [attr.aria-label]="'Remove ' + ws.name + ' from favorites'"
+                      (click)="toggleFavorite.emit(ws.id); $event.stopPropagation()"
+                    >
+                      <lucide-icon name="minus" [size]="14" />
+                    </button>
+                  </li>
+                }
+              </ul>
+            </section>
+          }
+
+          @if (recentOnlyWorkspaces().length > 0) {
+            <section class="home__section" aria-labelledby="home-recent">
+              <h2 class="home__heading" id="home-recent">Recent</h2>
+              <ul class="home__list home__list--rows">
+                @for (ws of recentOnlyWorkspaces(); track ws.id) {
+                  <li class="home__row">
+                    <span class="home__row-lead" aria-hidden="true"></span>
+                    <button type="button" class="home__row-main" [title]="ws.path" (click)="openWorkspace.emit(ws.id)">
+                      <lucide-icon name="folder" [size]="14" class="home__row-icon" />
+                      <span class="home__row-name">{{ ws.name }}</span>
+                      <span class="home__row-path">{{ ws.path }}</span>
+                      <span class="home__row-age">{{ lastOpenedById().get(ws.id) }}</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="home__row-action"
+                      title="Add favorite"
+                      [attr.aria-label]="'Add ' + ws.name + ' to favorites'"
+                      aria-pressed="false"
+                      (click)="toggleFavorite.emit(ws.id)"
+                    >
+                      <lucide-icon name="star" [size]="14" />
+                    </button>
+                  </li>
+                }
+              </ul>
+            </section>
+          }
+
+          @if (recentWorkspaces().length === 0) {
+            <p class="home__empty">No workspaces yet. Add a folder to get started.</p>
+          }
         </div>
 
-        @if (recentWorkspaces().length > 0) {
-          <nav class="main-panel-empty__recents" aria-label="Workspaces">
-            <div class="main-panel-empty__recents-frame">
-              <div class="main-panel-empty__recents-scroll">
-                @if (favoriteWorkspaces().length > 0) {
-                  <section class="main-panel-empty__recents-section">
-                    <h3 class="main-panel-empty__recents-heading">Favorites</h3>
-                    <ul
-                      class="main-panel-empty__recents-list"
-                      cdkDropList
-                      [cdkDropListData]="favoriteWorkspaces()"
-                      (cdkDropListDropped)="onFavoriteDrop($event)"
-                    >
-                      @for (ws of favoriteWorkspaces(); track ws.id) {
-                        <li class="main-panel-empty__row" cdkDrag>
-                          <div class="main-panel-empty__recent main-panel-empty__recent--favorite">
-                            <button
-                              type="button"
-                              class="main-panel-empty__lead main-panel-empty__drag"
-                              cdkDragHandle
-                              title="Drag to reorder"
-                              aria-label="Drag to reorder"
-                            >
-                              <lucide-icon name="grip-vertical" [size]="14" />
-                            </button>
-                            <button
-                              type="button"
-                              class="main-panel-empty__recent-main"
-                              [title]="ws.path"
-                              (click)="openWorkspace.emit(ws.id)"
-                            >
-                              <lucide-icon name="folder" [size]="15" class="main-panel-empty__recent-icon" />
-                              <span class="main-panel-empty__recent-name">{{ ws.name }}</span>
-                            </button>
-                            <button
-                              type="button"
-                              class="main-panel-empty__remove"
-                              title="Remove favorite"
-                              aria-label="Remove favorite"
-                              (click)="toggleFavorite.emit(ws.id); $event.stopPropagation()"
-                            >
-                              <lucide-icon name="minus" [size]="14" />
-                            </button>
-                          </div>
-                        </li>
-                      }
-                    </ul>
-                  </section>
-                }
-                @if (recentOnlyWorkspaces().length > 0) {
-                  <section class="main-panel-empty__recents-section">
-                    <h3 class="main-panel-empty__recents-heading">Recent</h3>
-                    <ul class="main-panel-empty__recents-list">
-                      @for (ws of recentOnlyWorkspaces(); track ws.id) {
-                        <li class="main-panel-empty__row">
-                          <div class="main-panel-empty__recent">
-                            <button
-                              type="button"
-                              class="main-panel-empty__lead"
-                              title="Add favorite"
-                              aria-label="Add favorite"
-                              aria-pressed="false"
-                              (click)="toggleFavorite.emit(ws.id)"
-                            >
-                              <lucide-icon name="folder" [size]="15" class="main-panel-empty__lead-idle main-panel-empty__recent-icon" />
-                              <lucide-icon name="star" [size]="14" class="main-panel-empty__lead-hover" />
-                            </button>
-                            <button
-                              type="button"
-                              class="main-panel-empty__recent-main"
-                              [title]="ws.path"
-                              (click)="openWorkspace.emit(ws.id)"
-                            >
-                              <span class="main-panel-empty__recent-name">{{ ws.name }}</span>
-                              <span class="main-panel-empty__recent-opened">{{ lastOpenedById().get(ws.id) }}</span>
-                            </button>
-                          </div>
-                        </li>
-                      }
-                    </ul>
-                  </section>
+        <div class="home__col home__col--side">
+          <section class="home__section" aria-labelledby="home-runtime">
+            <h2 class="home__heading" id="home-runtime">Runtime</h2>
+            <div class="home__runtime">
+              <div class="home__runtime-source">
+                <span class="home__runtime-label">Source</span>
+                <app-managed-llama-controls class="home__runtime-controls" [appConfig]="appConfig()" />
+                @if (!hasSources()) {
+                  <button type="button" class="home__link" (click)="openModelManager.emit()">Add a model source…</button>
                 }
               </div>
+              <app-llama-status-indicator layout="rows" [appConfig]="appConfig()" />
             </div>
-          </nav>
-        }
-      </div>
+          </section>
 
-      <div class="main-panel-empty__model">
-        <button type="button" class="main-panel-empty__link" (click)="openModelManager.emit()">
-          Models
-        </button>
-        <button type="button" class="main-panel-empty__link" (click)="openDependencies.emit()">
-          Dependencies
-        </button>
-        <label
-          class="main-panel-empty__home-default"
-          title="Open this home page on start instead of the last workspace"
-        >
-          <input
-            type="checkbox"
-            class="main-panel-empty__home-default-checkbox"
-            [checked]="defaultHomePage()"
-            (change)="onDefaultHomePageChange($event)"
-          />
-          <span class="main-panel-empty__home-default-label">default Home page</span>
-        </label>
+          <label class="home__default" title="Open this home page on start instead of the last workspace">
+            <input type="checkbox" [checked]="defaultHomePage()" (change)="onDefaultHomePageChange($event)" />
+            <span>Use as default Home page</span>
+          </label>
+        </div>
       </div>
     </div>
   } @else {
+    <div class="main-panel-empty__glow" aria-hidden="true"></div>
     <div class="main-panel-empty__welcome main-panel-empty__welcome--workspace">
       <div
         class="main-panel-empty__etch"

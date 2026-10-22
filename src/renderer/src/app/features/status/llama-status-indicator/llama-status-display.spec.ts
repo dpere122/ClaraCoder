@@ -1,8 +1,10 @@
 import {
   computeStatusPollIntervalMs,
   embeddingsStatusDotState,
+  embeddingsStatusSummary,
   healthDotState,
   modelStatusDotState,
+  modelStatusSummary,
   openRouterModelDotState,
 } from './llama-status-display';
 
@@ -153,5 +155,79 @@ describe('openRouterModelDotState', () => {
   it('is gray until both the model and API key are set', () => {
     expect(openRouterModelDotState('', 'sk-or-test')).toBe('gray');
     expect(openRouterModelDotState('anthropic/claude-sonnet-4.5', '  ')).toBe('gray');
+  });
+});
+
+describe('modelStatusSummary', () => {
+  const running = {
+    ok: true as const,
+    running: true,
+    modelId: 'm',
+    chat: { port: 8080, health: 'ok' as const },
+  };
+
+  it('says when nothing is selected', () => {
+    expect(modelStatusSummary({ provider: null, dot: 'gray', warming: null, status: null, model: '' })).toBe(
+      'No model selected',
+    );
+  });
+
+  it('reports OpenRouter as connected with its model, or what it still needs', () => {
+    expect(
+      modelStatusSummary({ provider: 'openrouter', dot: 'green', warming: null, status: null, model: 'deepseek/v4' }),
+    ).toBe('Connected · deepseek/v4');
+    expect(modelStatusSummary({ provider: 'openrouter', dot: 'gray', warming: null, status: null, model: '' })).toBe(
+      'Needs a model and API key',
+    );
+  });
+
+  it('follows the managed llama-server through download, start, run and stop', () => {
+    const base = { provider: 'llamacpp', model: 'qwen' };
+    expect(modelStatusSummary({ ...base, dot: 'yellow', warming: 'downloading', status: null })).toBe(
+      'Downloading weights…',
+    );
+    expect(modelStatusSummary({ ...base, dot: 'yellow', warming: 'starting', status: null })).toBe('Starting…');
+    expect(modelStatusSummary({ ...base, dot: 'green', warming: null, status: running })).toBe('Running');
+    expect(
+      modelStatusSummary({
+        ...base,
+        dot: 'yellow',
+        warming: null,
+        status: { ...running, chat: { port: 8080, health: 'loading' } },
+      }),
+    ).toBe('Loading model…');
+    expect(modelStatusSummary({ ...base, dot: 'gray', warming: null, status: { ...running, running: false } })).toBe(
+      'Stopped',
+    );
+    expect(modelStatusSummary({ ...base, dot: 'gray', warming: null, status: { ok: false, error: 'x' } })).toBe(
+      'Stopped',
+    );
+  });
+
+  it('reports a remote llama URL as connected rather than running', () => {
+    const remote = { ...running, running: false, remote: true };
+    expect(modelStatusSummary({ provider: 'llamacpp', dot: 'green', warming: null, status: remote, model: '' })).toBe(
+      'Connected',
+    );
+    expect(modelStatusSummary({ provider: 'llamacpp', dot: 'red', warming: null, status: remote, model: '' })).toBe(
+      'Not responding',
+    );
+  });
+
+  it('does not claim a status for sources it never probes', () => {
+    expect(modelStatusSummary({ provider: 'lmstudio', dot: 'gray', warming: null, status: null, model: 'x' })).toBe(
+      'Not checked for this source',
+    );
+  });
+});
+
+describe('embeddingsStatusSummary', () => {
+  it('maps each load status to a short label', () => {
+    expect(embeddingsStatusSummary('ready')).toBe('Ready');
+    expect(embeddingsStatusSummary('loading')).toBe('Loading…');
+    expect(embeddingsStatusSummary('idle')).toBe('Loads on first search');
+    expect(embeddingsStatusSummary('disabled')).toBe('Off');
+    expect(embeddingsStatusSummary('error')).toBe('Error');
+    expect(embeddingsStatusSummary(null)).toBe('Unknown');
   });
 });

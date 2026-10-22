@@ -1,6 +1,6 @@
 import { Component, computed, input, output } from '@angular/core';
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
-import type { Workspace } from '@shared/index';
+import type { AppConfig, Workspace } from '@shared/index';
 import {
   formatWorkspaceLastOpenedLabel,
   isFavoriteWorkspace,
@@ -8,10 +8,19 @@ import {
   sortNonFavoriteWorkspaces,
 } from '@shared/index';
 import { LucideAngularModule } from 'lucide-angular';
+import { LlamaStatusIndicator } from '../../status/llama-status-indicator/llama-status-indicator';
+import { ManagedLlamaControlsComponent } from '../../status/managed-llama-controls/managed-llama-controls';
 
 @Component({
   selector: 'app-main-panel-empty-state',
-  imports: [LucideAngularModule, CdkDropList, CdkDrag, CdkDragHandle],
+  imports: [
+    LucideAngularModule,
+    CdkDropList,
+    CdkDrag,
+    CdkDragHandle,
+    ManagedLlamaControlsComponent,
+    LlamaStatusIndicator,
+  ],
   templateUrl: './main-panel-empty-state.html',
   styleUrl: './main-panel-empty-state.css',
 })
@@ -19,6 +28,8 @@ export class MainPanelEmptyStateComponent {
   readonly hasWorkspace = input(false);
   readonly recentWorkspaces = input<readonly Workspace[]>([]);
   readonly defaultHomePage = input(false);
+  /** Drives the Runtime panel (source picker, Start/Stop, model and embeddings status). */
+  readonly appConfig = input<AppConfig | null>(null);
   readonly addWorkspace = output<void>();
   readonly openWorkspace = output<string>();
   readonly toggleFavorite = output<string>();
@@ -35,6 +46,9 @@ export class MainPanelEmptyStateComponent {
       this.recentOnlyWorkspaces().map((ws) => [ws.id, formatWorkspaceLastOpenedLabel(ws, now)] as const),
     );
   });
+
+  /** No model sources yet: the source picker hides itself, so offer a way to add one. */
+  protected readonly hasSources = computed(() => (this.appConfig()?.llmProviders?.length ?? 0) > 0);
 
   protected isFavorite(ws: Workspace): boolean {
     return isFavoriteWorkspace(ws);

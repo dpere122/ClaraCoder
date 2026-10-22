@@ -255,6 +255,7 @@
               [hasWorkspace]='!!currentWorkspaceId()'
               [recentWorkspaces]='workspaces()'
               [defaultHomePage]='defaultHomePageOnStart()'
+              [appConfig]='appConfig()'
               (addWorkspace)='onAddWorkspace()'
               (openWorkspace)='onWorkspaceChanged($event)'
               (toggleFavorite)='onToggleWorkspaceFavorite($event)'
@@ -499,7 +500,8 @@
     }
   </div>
 
-  @if (electron.isElectron) {
+  <!-- No status bar on the home screen: its Runtime panel already shows the model and embeddings status. -->
+  @if (electron.isElectron && currentWorkspaceId()) {
     <footer class="app-status-footer" data-theme-group="shell.status-bar">
       <div class="app-status-footer__start">
         <app-llama-status-indicator [appConfig]="appConfig()" />

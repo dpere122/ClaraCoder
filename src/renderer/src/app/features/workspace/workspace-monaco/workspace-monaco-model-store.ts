@@ -885,6 +885,7 @@ export class WorkspaceMonacoModelStore {
       return null;
     }
     const skipSync = !monacoModelNeedsLspDocumentSync(model);
+    let sentVersion: number | null = skipSync ? null : model.getAlternativeVersionId();
     let res = await this.electron.lspEditorHover(
       sessionId,
       relKey,
@@ -893,11 +894,11 @@ export class WorkspaceMonacoModelStore {
       skipSync ? '' : model.getValue(),
       skipSync,
     );
-    // Python lost our doc version (e.g. after a TS project-root restart cleared _doc_versions)
-    // and fell back to disk. Re-send the live buffer so hover reflects the editor, not disk.
-    let didResync = false;
+    // The server does not hold our buffer (restart cleared it, or an agent edit / disk change
+    // replaced it). Re-send the live buffer so hover reflects the editor, not disk.
     if (res.ok && res.syncedFromDisk && skipSync) {
       invalidateMonacoModelLspDocumentSync(model);
+      sentVersion = model.getAlternativeVersionId();
       res = await this.electron.lspEditorHover(
         sessionId,
         relKey,
@@ -906,13 +907,12 @@ export class WorkspaceMonacoModelStore {
         model.getValue(),
         false,
       );
-      didResync = true;
+    }
+    if (res.ok && sentVersion !== null) {
+      markMonacoModelLspDocumentSynced(model, sentVersion);
     }
     if (!res.ok || !res.markdown?.trim()) {
       return null;
-    }
-    if (!skipSync || didResync) {
-      markMonacoModelLspDocumentSynced(model);
     }
     const hoverRange = res.range
       ? new monacoApi.Range(

@@ -28,6 +28,7 @@ from clara_coder_backend.lsp.editor_monaco import (
 )
 from clara_coder_backend.lsp.file_policy import lsp_server_for_path, normalize_relative_posix_path
 from clara_coder_backend.lsp.manager import (
+    DOC_ORIGIN_EDITOR,
     close_session_document,
     count_active_lsp_sessions,
     get_lsp_dashboard_status,
@@ -94,7 +95,9 @@ def _lsp_diagnostics_sync(
         if not server:
             raise ValueError(f'No LSP integration for `{rel}`.')
         manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
-        if refresh_disk and not manager.document_is_tracked(rel):
+        # An editor-owned buffer may be unsaved on purpose; anything else is re-checked against
+        # disk (digest-skipped when unchanged) so an open document is not reported stale.
+        if refresh_disk and not manager.document_synced_by_editor(rel):
             manager.sync_workspace_document(rel, encoding=enc)
         diagnostics = manager.get_diagnostics(rel)
         return {'sessionId': session_id, 'relativePath': rel, 'diagnostics': diagnostics, 'server': server}
@@ -132,7 +135,7 @@ def _lsp_editor_hover_sync(
         raise ValueError(f'No LSP integration for `{rel}`.')
     manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
     if not skip_document_sync and document_text is not None:
-        manager.sync_document(rel, document_text, wait_for_diagnostics=False)
+        manager.sync_document(rel, document_text, wait_for_diagnostics=False, origin=DOC_ORIGIN_EDITOR)
     result, synced_from_disk = manager.hover_for_editor(rel, line, character)
     raw_contents = result.get('contents') if isinstance(result, dict) else None
     if raw_contents is None:
@@ -155,13 +158,19 @@ def _maybe_sync_buffer(
     if skip_document_sync:
         return
     if document_text is not None:
-        manager.sync_document(rel, document_text, wait_for_diagnostics=wait_for_diagnostics)
+        manager.sync_document(
+            rel, document_text, wait_for_diagnostics=wait_for_diagnostics, origin=DOC_ORIGIN_EDITOR
+        )
 
 
 def _synced_from_disk_flag(manager: Any, rel: str, *, skip_document_sync: bool) -> bool:
-    """True when the editor skipped a buffer send but the language server has no open doc."""
+    """True when the editor skipped a buffer send but the server does not hold the editor's text.
 
-    return bool(skip_document_sync) and not manager.document_is_tracked(rel)
+    Either the document is not open (server restart) or an agent tool / disk change replaced the
+    editor's buffer since; the editor re-sends its buffer when it sees this.
+    """
+
+    return bool(skip_document_sync) and not manager.document_synced_by_editor(rel)
 
 
 def _lsp_editor_definition_sync(
@@ -308,7 +317,7 @@ def _lsp_editor_diagnostics_sync(
     manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
     synced_from_disk = _synced_from_disk_flag(manager, rel, skip_document_sync=skip_document_sync)
     if not skip_document_sync and document_text is not None:
-        manager.sync_document(rel, document_text, wait_for_diagnostics=True)
+        manager.sync_document(rel, document_text, wait_for_diagnostics=True, origin=DOC_ORIGIN_EDITOR)
     diagnostics = manager.get_diagnostics(rel)
     generation = manager.get_diag_generation(rel)
     return {

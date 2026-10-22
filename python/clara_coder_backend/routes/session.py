@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,11 @@ from clara_coder_backend.domain import SessionState
 from clara_coder_backend.workspace_index.incremental import enqueue_semantic_index_changes, schedule_semantic_index_background
 from clara_coder_backend.workspace_index.embeddings_factory import embeddings_available
 from clara_coder_backend.workspace_index.lifecycle import invalidate_workspace_index_disk
-from clara_coder_backend.lsp.manager import shutdown_session_lsp, shutdown_session_python_lsp
+from clara_coder_backend.lsp.manager import (
+    notify_session_lsp_disk_changes,
+    shutdown_session_lsp,
+    shutdown_session_python_lsp,
+)
 from clara_coder_backend.runtime.python_env import clear_session_python_workspace_env, ensure_session_python_workspace_env
 from clara_coder_backend.runtime.python_interpreter_select import (
     apply_default_workspace_python_interpreter,
@@ -52,6 +57,24 @@ router = APIRouter()
 logger = logging.getLogger('clara.http.routes')
 
 _NPM_HINT_MAX_DEPTH = 4
+
+
+def _forward_disk_changes_to_lsp(session_id: str, paths: list[str], kinds: list[str]) -> None:
+    """Hand a watcher batch to the session's language servers without holding up the context sync.
+
+    Runs on its own thread: a re-sync may wait on a per-document lock held by an agent edit that
+    is waiting for diagnostics.
+    """
+
+    encoding = (state.runtime_config.tools.default_workspace_encoding or 'utf-8').strip() or 'utf-8'
+
+    def _run() -> None:
+        try:
+            notify_session_lsp_disk_changes(session_id, paths, kinds, encoding=encoding)
+        except Exception:
+            logger.debug('LSP disk-change forward failed session=%s', session_id, exc_info=True)
+
+    threading.Thread(target=_run, name='lsp-disk-changes', daemon=True).start()
 
 
 def _apply_npm_project_hints(sess: SessionState, workspace_root: Path) -> None:
@@ -220,6 +243,8 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
     ch = request.workspace_file_changes
     if ch and ch.paths:
         enqueue_semantic_index_changes(sess, ch.paths, ch.kinds)
+        if not workspace_path_changed:
+            _forward_disk_changes_to_lsp(request.session_id, list(ch.paths), list(ch.kinds))
 
     if new_path:
         ensure_corpus = workspace_first_attach or workspace_path_changed

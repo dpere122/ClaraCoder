@@ -9,8 +9,16 @@ export function monacoModelNeedsLspDocumentSync(model: Monaco.editor.ITextModel)
   return v === undefined || v !== model.getAlternativeVersionId();
 }
 
-export function markMonacoModelLspDocumentSynced(model: Monaco.editor.ITextModel): void {
-  lspDocumentSyncedAltVersion.set(model, model.getAlternativeVersionId());
+/**
+ * Record a successful buffer sync. Pass ``sentAltVersion`` — the version captured when the text
+ * was read for the request — so edits typed while the request was in flight still count as
+ * unsynced; marking with the version current at response time would skip sending them.
+ */
+export function markMonacoModelLspDocumentSynced(
+  model: Monaco.editor.ITextModel,
+  sentAltVersion: number = model.getAlternativeVersionId(),
+): void {
+  lspDocumentSyncedAltVersion.set(model, sentAltVersion);
 }
 
 /** Force the next LSP call to send the live buffer (server restart, agent overwrite, disk reload). */

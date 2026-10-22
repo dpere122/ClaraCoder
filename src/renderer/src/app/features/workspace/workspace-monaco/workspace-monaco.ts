@@ -976,6 +976,7 @@ export class WorkspaceMonacoComponent {
     }
     this.electron.lspDiagnosticsWatchStart(sid, rel);
     const skipSync = !forceSync && !monacoModelNeedsLspDocumentSync(model);
+    let sentVersion: number | null = skipSync ? null : model.getAlternativeVersionId();
     let res = await this.electron.lspEditorDiagnostics(
       sid,
       rel,
@@ -984,10 +985,15 @@ export class WorkspaceMonacoComponent {
     );
     if (res.ok && res.syncedFromDisk && skipSync) {
       invalidateMonacoModelLspDocumentSync(model);
+      sentVersion = model.getAlternativeVersionId();
       res = await this.electron.lspEditorDiagnostics(sid, rel, model.getValue(), false);
     }
     if (!res.ok) {
       return;
+    }
+    // The server holds the text we sent even if this editor moved on to another file meanwhile.
+    if (sentVersion !== null && !model.isDisposed()) {
+      markMonacoModelLspDocumentSynced(model, sentVersion);
     }
     const activeRel = this.relativePath()?.trim();
     const activeKey = this.activeModelKey()?.trim();
@@ -1003,9 +1009,6 @@ export class WorkspaceMonacoComponent {
     const liveModel = ed.getModel();
     if (!liveModel || liveModel !== model) {
       return;
-    }
-    if (!skipSync || res.syncedFromDisk) {
-      markMonacoModelLspDocumentSynced(model);
     }
     this.store.diagnosticsByModelKey.set(modelKey, [...res.diagnostics]);
     this.lastLspDiagnosticsGeneration = res.generation;
@@ -1098,7 +1101,11 @@ export class WorkspaceMonacoComponent {
     }
     const normalizedRel = normalizePathSlashes(rel);
     const skip = !monacoModelNeedsLspDocumentSync(model);
+    const sentVersion = model.getAlternativeVersionId();
     const res = await this.electron.lspEditorDocumentSymbols(sid, rel, skip ? '' : model.getValue(), skip);
+    if (res.ok && !skip && !model.isDisposed()) {
+      markMonacoModelLspDocumentSynced(model, sentVersion);
+    }
     if (!res.ok) {
       this.zone.run(() => this.setOutlineSymbols(normalizedRel, []));
       return;

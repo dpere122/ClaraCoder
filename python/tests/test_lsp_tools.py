@@ -245,8 +245,15 @@ def test_lsp_get_diagnostics_returns_tool_error_when_lsp_bootstrap_fails(monkeyp
             del relative_path
             return []
 
-        def sync_workspace_document(self, relative_path: str, *, encoding: str = 'utf-8') -> list[dict[str, object]]:
-            del relative_path, encoding
+        def mark_diagnostics_stale(self, relative_path: str) -> None:
+            del relative_path
+
+        def document_version(self, relative_path: str) -> int:
+            del relative_path
+            return 0
+
+        def sync_for_agent(self, relative_path: str, **kwargs) -> list[dict[str, object]]:
+            del relative_path, kwargs
             raise RuntimeError("LSP request failed for 'initialize': LSP client closed")
 
     monkeypatch.setattr('clara_coder_backend.tools.lsp_tools.get_session_lsp_manager', lambda *a, **k: _BrokenManager())
@@ -457,6 +464,7 @@ def test_digest_equal_refresh_after_timed_out_wait_still_did_change(lsp_env, mon
     import clara_coder_backend.lsp.manager as mgr_mod
 
     monkeypatch.setattr(mgr_mod, '_DIAG_WAIT_TIMEOUT_S', 0.08)
+    monkeypatch.setattr(mgr_mod, '_DIAG_FIRST_OPEN_TIMEOUT_S', 0.08)
     monkeypatch.setattr(mgr_mod, '_DIAG_QUIET_S', 0.01)
     shutdown_session_lsp(lsp_env.session_id)
     change_count = {'n': 0}
@@ -558,3 +566,305 @@ def test_hover_keeps_tracked_buffer_until_explicit_disk_sync(lsp_env) -> None:
     manager.hover('pkg/mod.py', 1, 1)
     texts = [text for uri, text in client.docs.items() if str(uri).replace('\\', '/').endswith('/pkg/mod.py')]
     assert texts == [formatted]
+
+
+# --- Staleness regressions: disk changes, editor ownership, publish freshness ---------------------
+
+
+class _RecordingClient(_FakeLspClient):
+    """Fake client that records notifications; ``publish`` False holds diagnostics back."""
+
+    publish = True
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.notifications: list[tuple[str, dict]] = []
+
+    def notify(self, method, params):
+        self.notifications.append((method, params))
+        if not self.publish and method in ('textDocument/didOpen', 'textDocument/didChange'):
+            uri = params['textDocument']['uri']
+            if method == 'textDocument/didOpen':
+                self.docs[uri] = params['textDocument']['text']
+            else:
+                self.docs[uri] = params['contentChanges'][0]['text']
+            return
+        super().notify(method, params)
+
+
+def _recording_manager(lsp_env, *, publish: bool = True):
+    shutdown_session_lsp(lsp_env.session_id)
+    clients: list[_RecordingClient] = []
+
+    def factory(*, command, workspace_root, notification_handler, env=None):
+        client = _RecordingClient(command=command, workspace_root=workspace_root, notification_handler=notification_handler)
+        client.publish = publish
+        clients.append(client)
+        return client
+
+    manager = get_session_lsp_manager(lsp_env.session_id, client_factory=factory, scope='workspace')
+    return manager, clients
+
+
+def _doc_text(manager, rel: str) -> str | None:
+    client = manager._client
+    assert client is not None
+    for uri, text in client.docs.items():
+        if str(uri).replace('\\', '/').endswith('/' + rel):
+            return text
+    return None
+
+
+def test_agent_hover_resyncs_open_document_rewritten_on_disk(lsp_env) -> None:
+    """A document the server already has open must not keep text a shell command replaced."""
+
+    lsp_env.manager.sync_workspace_document('pkg/mod.py')
+    lsp_env.sample.write_text('value = 2\nprint(value)\n', encoding='utf-8')
+
+    lsp_hover.invoke({'relative_path': 'pkg/mod.py', 'line': 1, 'character': 1})
+
+    assert _doc_text(lsp_env.manager, 'pkg/mod.py') == 'value = 2\nprint(value)\n'
+
+
+def test_agent_query_refreshes_other_open_documents_changed_on_disk(lsp_env) -> None:
+    (lsp_env.workspace / 'lib.py').write_text('def f() -> int: ...\n', encoding='utf-8')
+    lsp_env.manager.sync_workspace_document('lib.py')
+    lsp_env.manager.sync_workspace_document('pkg/mod.py')
+    (lsp_env.workspace / 'lib.py').write_text('def f() -> str: ...\n', encoding='utf-8')
+
+    lsp_get_diagnostics.invoke({'relative_path': 'pkg/mod.py'})
+
+    assert _doc_text(lsp_env.manager, 'lib.py') == 'def f() -> str: ...\n'
+
+
+def test_agent_diagnostics_without_refresh_reflect_disk_not_cache(lsp_env) -> None:
+    lsp_env.manager.sync_workspace_document('pkg/mod.py')
+    assert 'Found TODO marker' in lsp_get_diagnostics.invoke({'relative_path': 'pkg/mod.py'})
+
+    lsp_env.sample.write_text('value = 1\n', encoding='utf-8')
+    out = lsp_get_diagnostics.invoke({'relative_path': 'pkg/mod.py'})
+
+    assert 'No LSP diagnostics for `pkg/mod.py`' in out
+    assert 'analyzed=workspace_file' in out
+
+
+def test_reconcile_leaves_editor_owned_buffers_and_reports_overwrite_to_editor(lsp_env) -> None:
+    manager = lsp_env.manager
+    (lsp_env.workspace / 'other.py').write_text('x = 1\n', encoding='utf-8')
+    manager.sync_document('other.py', 'x = "unsaved"\n', origin='editor')
+    manager.sync_document('pkg/mod.py', 'value = "unsaved"\n', origin='editor')
+    assert manager.document_synced_by_editor('pkg/mod.py')
+
+    # The agent queries mod.py: it gets disk text; other.py keeps the editor's unsaved buffer.
+    manager.sync_for_agent('pkg/mod.py')
+
+    disk_text = lsp_env.sample.read_text(encoding='utf-8')
+    assert _doc_text(manager, 'pkg/mod.py') == disk_text
+    assert _doc_text(manager, 'other.py') == 'x = "unsaved"\n'
+    # The editor must learn its buffer was replaced (it re-sends on ``synced_from_disk``).
+    assert not manager.document_synced_by_editor('pkg/mod.py')
+    _, synced_from_disk = manager.hover_for_editor('pkg/mod.py', 1, 1)
+    assert synced_from_disk is True
+    # Re-sending the text the server already holds hands ownership back without a didChange.
+    version = manager.document_version('pkg/mod.py')
+    manager.sync_document('pkg/mod.py', disk_text, origin='editor')
+    assert manager.document_version('pkg/mod.py') == version
+    assert manager.document_synced_by_editor('pkg/mod.py')
+
+
+def test_stale_versioned_publish_is_dropped(lsp_env) -> None:
+    manager, _ = _recording_manager(lsp_env, publish=False)
+    manager.sync_document('pkg/mod.py', 'value = 1\n', wait_for_diagnostics=False)
+    manager.sync_document('pkg/mod.py', 'value = 2\n', wait_for_diagnostics=False)
+    uri = (lsp_env.workspace / 'pkg' / 'mod.py').resolve().as_uri()
+    stale = {'range': {'start': {'line': 0, 'character': 0}, 'end': {'line': 0, 'character': 1}}, 'message': 'old'}
+
+    manager._handle_notification('textDocument/publishDiagnostics', {'uri': uri, 'version': 1, 'diagnostics': [stale]})
+    assert manager.get_diagnostics('pkg/mod.py') == []
+    assert not manager.diagnostics_fresh('pkg/mod.py')
+
+    manager._handle_notification('textDocument/publishDiagnostics', {'uri': uri, 'version': 2, 'diagnostics': []})
+    assert manager.diagnostics_fresh('pkg/mod.py')
+
+
+def test_no_wait_sync_is_not_fresh_until_a_publish_arrives(lsp_env) -> None:
+    """An editor hover sync used to mark the digest ready, so agent diagnostics returned old results."""
+
+    manager, _ = _recording_manager(lsp_env, publish=False)
+    manager.sync_document('pkg/mod.py', 'value = 1\n', wait_for_diagnostics=False, origin='editor')
+    assert not manager.diagnostics_fresh('pkg/mod.py')
+
+    uri = (lsp_env.workspace / 'pkg' / 'mod.py').resolve().as_uri()
+    manager._handle_notification('textDocument/publishDiagnostics', {'uri': uri, 'diagnostics': []})
+    assert manager.diagnostics_fresh('pkg/mod.py')
+
+
+def test_waiting_sync_after_no_wait_sync_waits_instead_of_resending(lsp_env) -> None:
+    manager, clients = _recording_manager(lsp_env, publish=False)
+    manager.sync_document('pkg/mod.py', 'value = 1\n', wait_for_diagnostics=False, origin='editor')
+    uri = (lsp_env.workspace / 'pkg' / 'mod.py').resolve().as_uri()
+    timer = threading.Timer(
+        0.1,
+        lambda: manager._handle_notification('textDocument/publishDiagnostics', {'uri': uri, 'diagnostics': []}),
+    )
+    timer.start()
+    try:
+        manager.sync_document('pkg/mod.py', 'value = 1\n')
+    finally:
+        timer.cancel()
+
+    sends = [m for m, _ in clients[0].notifications if m in ('textDocument/didOpen', 'textDocument/didChange')]
+    assert sends == ['textDocument/didOpen']
+    assert manager.diagnostics_fresh('pkg/mod.py')
+
+
+def test_unversioned_publish_right_after_change_is_not_fresh(lsp_env, monkeypatch: pytest.MonkeyPatch) -> None:
+    manager, _ = _recording_manager(lsp_env, publish=False)
+    monkeypatch.setattr(manager._plugin, 'unversioned_publish_min_delay_s', 60.0)
+    manager.sync_document('pkg/mod.py', 'value = 1\n', wait_for_diagnostics=False)
+    uri = (lsp_env.workspace / 'pkg' / 'mod.py').resolve().as_uri()
+
+    manager._handle_notification('textDocument/publishDiagnostics', {'uri': uri, 'diagnostics': []})
+
+    assert not manager.diagnostics_fresh('pkg/mod.py')
+    assert manager.get_diag_generation('pkg/mod.py') == 1  # still shown in the editor
+
+
+def test_agent_diagnostics_flag_pending_publish(lsp_env, monkeypatch: pytest.MonkeyPatch) -> None:
+    import clara_coder_backend.lsp.manager as mgr_mod
+
+    monkeypatch.setattr(mgr_mod, '_DIAG_FIRST_OPEN_TIMEOUT_S', 0.05)
+    manager, _ = _recording_manager(lsp_env, publish=False)
+    monkeypatch.setattr('clara_coder_backend.tools.lsp_tools.get_session_lsp_manager', lambda *a, **k: manager)
+
+    out = lsp_get_diagnostics.invoke({'relative_path': 'pkg/mod.py'})
+
+    assert 'has not published diagnostics for this exact text yet' in out
+
+
+def test_apply_disk_changes_notifies_watched_files_and_closes_deleted(lsp_env) -> None:
+    manager, clients = _recording_manager(lsp_env)
+    (lsp_env.workspace / 'gone.py').write_text('g = 1\n', encoding='utf-8')
+    manager.sync_workspace_document('gone.py')
+    manager.sync_workspace_document('pkg/mod.py')
+    (lsp_env.workspace / 'gone.py').unlink()
+    lsp_env.sample.write_text('value = 3\n', encoding='utf-8')
+    (lsp_env.workspace / 'new.py').write_text('n = 1\n', encoding='utf-8')
+    clients[0].notifications.clear()
+
+    manager.apply_disk_changes(
+        [('gone.py', 'deleted'), ('pkg/mod.py', 'updated'), ('new.py', 'created'), ('README.md', 'updated')]
+    )
+
+    methods = [m for m, _ in clients[0].notifications]
+    assert 'textDocument/didClose' in methods
+    assert not manager.document_is_tracked('gone.py')
+    assert _doc_text(manager, 'pkg/mod.py') == 'value = 3\n'
+    watched = [p['changes'] for m, p in clients[0].notifications if m == 'workspace/didChangeWatchedFiles']
+    flat = {(c['uri'].rsplit('/', 1)[-1], c['type']) for batch in watched for c in batch}
+    assert flat == {('gone.py', 3), ('new.py', 1)}
+
+
+def test_apply_disk_changes_never_starts_a_server(lsp_env) -> None:
+    manager, clients = _recording_manager(lsp_env)
+    manager.apply_disk_changes([('pkg/mod.py', 'updated')])
+    assert clients == []
+
+
+def test_workspace_context_forwards_watcher_batch_to_lsp(lsp_env, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple] = []
+    done = threading.Event()
+
+    def _record(sid, paths, kinds, **kw):
+        del kw
+        calls.append((sid, paths, kinds))
+        done.set()
+
+    monkeypatch.setattr('clara_coder_backend.routes.session.notify_session_lsp_disk_changes', _record)
+
+    asyncio.run(
+        set_workspace_context(
+            WorkspaceContextRequest(
+                session_id=lsp_env.session_id,
+                workspace_path=lsp_env.session.workspace_path,
+                workspace_context='',
+                workspace_file_changes={'paths': ['pkg/mod.py'], 'kinds': ['updated']},
+                skip_env_bootstrap=True,
+            )
+        )
+    )
+
+    assert done.wait(5)
+    assert calls == [(lsp_env.session_id, ['pkg/mod.py'], ['updated'])]
+
+
+def test_close_document_keeps_generation_monotonic(lsp_env) -> None:
+    lsp_env.manager.sync_workspace_document('pkg/mod.py')
+    before = lsp_env.manager.get_diag_generation('pkg/mod.py')
+    lsp_env.manager.close_document('pkg/mod.py')
+    assert lsp_env.manager.get_diag_generation('pkg/mod.py') >= before
+
+
+def test_edit_sync_reconciles_open_peers(lsp_env) -> None:
+    import clara_coder_backend.lsp.manager as mgr_mod
+
+    (lsp_env.workspace / 'lib.py').write_text('a = 1\n', encoding='utf-8')
+    lsp_env.manager.sync_workspace_document('lib.py')
+    (lsp_env.workspace / 'lib.py').write_text('a = 2\n', encoding='utf-8')
+
+    sync_session_document('pkg/mod.py', 'value = 5\n', session_id=lsp_env.session_id, reconcile_disk=True)
+
+    assert _doc_text(lsp_env.manager, 'lib.py') == 'a = 2\n'
+    assert mgr_mod.session_diagnostics_fresh('pkg/mod.py', session_id=lsp_env.session_id)
+
+
+def test_change_to_one_document_outdates_open_dependents(lsp_env) -> None:
+    """Edit lib, then check main: main's cache predates the edit until the server republishes it."""
+
+    manager, _ = _recording_manager(lsp_env)
+    (lsp_env.workspace / 'lib.py').write_text('a = 1\n', encoding='utf-8')
+    manager.sync_workspace_document('lib.py')
+    manager.sync_workspace_document('pkg/mod.py')
+    assert manager.diagnostics_fresh('pkg/mod.py')
+
+    manager.sync_document('lib.py', 'a = "changed"\n')
+
+    assert manager.diagnostics_fresh('lib.py')
+    assert not manager.diagnostics_fresh('pkg/mod.py')
+    uri = lsp_env.sample.resolve().as_uri()
+    manager._handle_notification('textDocument/publishDiagnostics', {'uri': uri, 'version': 1, 'diagnostics': []})
+    assert manager.diagnostics_fresh('pkg/mod.py')
+
+
+def test_silent_server_settles_on_silence_once_it_has_published(lsp_env, monkeypatch: pytest.MonkeyPatch) -> None:
+    """vtsls publishes nothing for clean files: silence after a change must not read as pending."""
+
+    import clara_coder_backend.lsp.manager as mgr_mod
+
+    monkeypatch.setattr(mgr_mod, '_DIAG_WAIT_TIMEOUT_S', 0.05)
+    manager, _ = _recording_manager(lsp_env, publish=False)
+    monkeypatch.setattr(manager._plugin, 'silent_when_diagnostics_unchanged', True)
+
+    # Cold server, nothing published yet: silence may mean "still loading".
+    manager.sync_document('pkg/mod.py', 'value = 1\n')
+    assert not manager.diagnostics_fresh('pkg/mod.py')
+
+    other = (lsp_env.workspace / 'other.py').resolve().as_uri()
+    manager._handle_notification('textDocument/publishDiagnostics', {'uri': other, 'diagnostics': []})
+    manager.sync_document('pkg/mod.py', 'value = 2\n')
+    assert manager.diagnostics_fresh('pkg/mod.py')
+
+
+def test_publishing_server_silence_stays_pending(lsp_env, monkeypatch: pytest.MonkeyPatch) -> None:
+    import clara_coder_backend.lsp.manager as mgr_mod
+
+    monkeypatch.setattr(mgr_mod, '_DIAG_WAIT_TIMEOUT_S', 0.05)
+    monkeypatch.setattr(mgr_mod, '_DIAG_FIRST_OPEN_TIMEOUT_S', 0.05)
+    manager, _ = _recording_manager(lsp_env, publish=False)
+    other = (lsp_env.workspace / 'other.py').resolve().as_uri()
+    manager.sync_document('pkg/mod.py', 'value = 1\n', wait_for_diagnostics=False)
+    manager._handle_notification('textDocument/publishDiagnostics', {'uri': other, 'diagnostics': []})
+
+    manager.sync_document('pkg/mod.py', 'value = 2\n')
+
+    assert not manager.diagnostics_fresh('pkg/mod.py')

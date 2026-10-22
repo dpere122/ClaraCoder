@@ -37,6 +37,10 @@ class TypescriptPluginState:
 
 class TypescriptLspPlugin(LspServerPlugin):
     server_id = 'typescript'
+    slow_diagnostics = True
+    # vtsls debounces ~500ms before publishing for a change, so a publish sooner than this is older text.
+    unversioned_publish_min_delay_s = 0.12
+    silent_when_diagnostics_unchanged = True
 
     def create_state(self) -> Any:
         return TypescriptPluginState()

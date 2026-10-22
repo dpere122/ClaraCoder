@@ -69,6 +69,7 @@ class JavaPluginState:
 
 class JavaLspPlugin(LspServerPlugin):
     server_id = 'java'
+    slow_diagnostics = True
 
     def create_state(self) -> Any:
         return JavaPluginState()

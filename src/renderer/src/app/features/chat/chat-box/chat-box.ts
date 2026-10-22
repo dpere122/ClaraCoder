@@ -43,6 +43,7 @@ import {
   turnFeedScrollKey,
   type TurnFeedItem,
 } from '@shared/index';
+import { ClaraBadgeComponent } from './clara-badge/clara-badge';
 import { PlannerChecklistComponent } from './planner-checklist/planner-checklist';
 import { RunButtonDirective } from './run-button.directive';
 import { StreamTurnFeedComponent } from './stream-turn-feed/stream-turn-feed';
@@ -175,6 +176,7 @@ const THINKING_PROCESSING_LABEL = 'thinking';
 @Component({
   selector: 'app-chat-box',
   imports: [
+    ClaraBadgeComponent,
     LucideAngularModule,
     RunButtonDirective,
     NgxSpinnerComponent,

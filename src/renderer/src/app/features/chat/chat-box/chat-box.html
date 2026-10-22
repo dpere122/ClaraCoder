@@ -39,7 +39,7 @@
           </div>
         } @else {
           <div class="msg-role msg-role--assistant">
-            <lucide-icon name="sparkles" [size]="13" aria-hidden="true"></lucide-icon>
+            <app-clara-badge />
             <span class="msg-role__name">Clara</span>
           </div>
         }
@@ -163,7 +163,7 @@
         [class.streaming-bubble]="!liveTurnPresentationSettled()"
       >
         <div class="msg-role msg-role--assistant">
-          <lucide-icon name="sparkles" [size]="13" aria-hidden="true"></lucide-icon>
+          <app-clara-badge [live]="loading()" />
           <span class="msg-role__name">Clara</span>
         </div>
         <div class="msg-bubble__body">

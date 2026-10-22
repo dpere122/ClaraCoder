@@ -1,0 +1,44 @@
+app-clara-badge {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+app-clara-badge .clara-badge {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+app-clara-badge .clara-badge__arc {
+  stroke: currentColor;
+  stroke-width: 1.7;
+}
+
+app-clara-badge .clara-badge__dot {
+  fill: var(--t-secondary, currentColor);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+app-clara-badge .clara-badge--live .clara-badge__dot {
+  animation: clara-badge-breathe 1.2s ease-in-out infinite;
+}
+
+@keyframes clara-badge-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+
+  50% {
+    transform: scale(0.55);
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  app-clara-badge .clara-badge--live .clara-badge__dot {
+    animation: none;
+  }
+}

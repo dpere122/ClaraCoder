@@ -2050,6 +2050,15 @@ export class SettingsStore {
     return Math.max(0, Math.min(1, d.receivedBytes / d.totalBytes));
   }
 
+  /** Whole-number percent for the row's progress bar; null while the total size is unknown. */
+  hfQuantDownloadPercent(repoId: string, file: HuggingFaceModelFile): number | null {
+    const d = this.modelManagerHfDownloads()[this.hfQuantDownloadId(repoId, file)];
+    if (!d || !d.totalBytes || d.totalBytes <= 0) {
+      return null;
+    }
+    return Math.round(this.hfQuantDownloadFraction(repoId, file) * 1000) / 10;
+  }
+
   /** Human-readable progress label for a downloading quant. */
   hfQuantDownloadLabel(repoId: string, file: HuggingFaceModelFile): string {
     const id = this.hfQuantDownloadId(repoId, file);

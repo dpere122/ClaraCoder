@@ -135,7 +135,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Dependencies manager window.",
     selector: "[data-theme-group=\"dependencies.window\"]",
     component: "app/features/dependencies/dependencies",
-    tokens: ["--t-bg", "--t-bg-surface", "--t-border", "--t-code-text", "--t-danger", "--t-error", "--t-fg", "--t-font", "--t-hover-bg", "--t-log-level-info", "--t-mono", "--t-primary", "--t-secondary", "--t-success", "--t-text-muted", "--t-warn"],
+    tokens: ["--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-code-text", "--t-danger", "--t-error", "--t-fg", "--t-font", "--t-hover-bg", "--t-log-level-info", "--t-mono", "--t-primary", "--t-progress-fill", "--t-progress-track", "--t-secondary", "--t-success", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -301,7 +301,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Section header and form panes.",
     selector: "[data-theme-group=\"settings.content\"]",
     component: "app/features/settings/settings",
-    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-code-inline-bg", "--t-danger", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-log-level-warning", "--t-muted", "--t-on-primary", "--t-primary", "--t-success", "--t-text-muted", "--t-warn"],
+    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-border", "--t-border-subtle", "--t-code-inline-bg", "--t-danger", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-log-level-warning", "--t-muted", "--t-on-primary", "--t-primary", "--t-progress-fill", "--t-progress-track", "--t-success", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -312,7 +312,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Category and section list on the left.",
     selector: "[data-theme-group=\"settings.nav\"]",
     component: "app/features/settings/settings",
-    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-code-inline-bg", "--t-danger", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-log-level-warning", "--t-muted", "--t-on-primary", "--t-primary", "--t-success", "--t-text-muted", "--t-warn"],
+    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-border", "--t-border-subtle", "--t-code-inline-bg", "--t-danger", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-log-level-warning", "--t-muted", "--t-on-primary", "--t-primary", "--t-progress-fill", "--t-progress-track", "--t-success", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -323,7 +323,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Settings window frame and title bar.",
     selector: "[data-theme-group=\"settings.window\"]",
     component: "app/features/settings/settings",
-    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-code-inline-bg", "--t-danger", "--t-edge-darkest", "--t-elev-shadow", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-muted", "--t-on-primary", "--t-primary", "--t-success", "--t-text-muted", "--t-warn"],
+    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-code-inline-bg", "--t-danger", "--t-edge-darkest", "--t-elev-shadow", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-muted", "--t-on-primary", "--t-primary", "--t-progress-fill", "--t-progress-track", "--t-success", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {

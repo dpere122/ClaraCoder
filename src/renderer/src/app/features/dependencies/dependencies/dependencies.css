@@ -564,12 +564,54 @@
   align-self: center;
 }
 
+/* Native <progress> drawn flat from the --t-progress-* theme tokens. */
 .deps-progress__bar {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
   width: 100%;
-  height: 6px;
-  border-radius: 999px;
+  height: 3px;
+  border: none;
   overflow: hidden;
-  accent-color: var(--t-primary);
+  background: var(--t-progress-track, var(--t-border-subtle));
+  accent-color: var(--t-progress-fill, var(--t-primary));
+}
+
+.deps-progress__bar::-webkit-progress-bar {
+  background: var(--t-progress-track, var(--t-border-subtle));
+}
+
+.deps-progress__bar::-webkit-progress-value {
+  background: var(--t-progress-fill, var(--t-primary));
+  transition: width 180ms ease-out;
+}
+
+/* No value (e.g. while cancelling): a short fill slides along the track. */
+.deps-progress__bar:indeterminate {
+  background:
+    linear-gradient(var(--t-progress-fill, var(--t-primary)), var(--t-progress-fill, var(--t-primary))) no-repeat,
+    var(--t-progress-track, var(--t-border-subtle));
+  background-size: 30% 100%, auto;
+  animation: deps-progress-slide 1.2s ease-in-out infinite;
+}
+
+.deps-progress__bar:indeterminate::-webkit-progress-bar {
+  background: transparent;
+}
+
+@keyframes deps-progress-slide {
+  0% {
+    background-position: -30% 0, 0 0;
+  }
+  100% {
+    background-position: 130% 0, 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deps-progress__bar:indeterminate {
+    animation: none;
+  }
 }
 
 /* ---- Per-row result messages --------------------------------------------- */

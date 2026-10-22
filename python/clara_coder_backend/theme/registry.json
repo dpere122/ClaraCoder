@@ -398,6 +398,7 @@
         "--t-bg",
         "--t-bg-surface",
         "--t-border",
+        "--t-border-subtle",
         "--t-code-text",
         "--t-danger",
         "--t-error",
@@ -407,6 +408,8 @@
         "--t-log-level-info",
         "--t-mono",
         "--t-primary",
+        "--t-progress-fill",
+        "--t-progress-track",
         "--t-secondary",
         "--t-success",
         "--t-text-muted",
@@ -783,7 +786,6 @@
         "--t-active-bg",
         "--t-bg",
         "--t-bg-deep",
-        "--t-bg-surface",
         "--t-border",
         "--t-border-subtle",
         "--t-code-inline-bg",
@@ -795,6 +797,8 @@
         "--t-muted",
         "--t-on-primary",
         "--t-primary",
+        "--t-progress-fill",
+        "--t-progress-track",
         "--t-success",
         "--t-text-muted",
         "--t-warn"
@@ -813,7 +817,6 @@
         "--t-active-bg",
         "--t-bg",
         "--t-bg-deep",
-        "--t-bg-surface",
         "--t-border",
         "--t-border-subtle",
         "--t-code-inline-bg",
@@ -825,6 +828,8 @@
         "--t-muted",
         "--t-on-primary",
         "--t-primary",
+        "--t-progress-fill",
+        "--t-progress-track",
         "--t-success",
         "--t-text-muted",
         "--t-warn"
@@ -858,6 +863,8 @@
         "--t-muted",
         "--t-on-primary",
         "--t-primary",
+        "--t-progress-fill",
+        "--t-progress-track",
         "--t-success",
         "--t-text-muted",
         "--t-warn"
@@ -1603,6 +1610,18 @@
     {
       "name": "--t-run-command-tab",
       "label": "Run-command tab",
+      "category": "status",
+      "kind": "color"
+    },
+    {
+      "name": "--t-progress-track",
+      "label": "Progress track",
+      "category": "status",
+      "kind": "color"
+    },
+    {
+      "name": "--t-progress-fill",
+      "label": "Progress fill",
       "category": "status",
       "kind": "color"
     },

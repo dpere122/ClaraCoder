@@ -106,7 +106,6 @@
   background: transparent;
   user-select: none;
   -webkit-user-select: none;
-  transition: filter 0.15s ease;
 }
 
 /**
@@ -138,13 +137,10 @@
  * lands — and eases back up if the transcript becomes empty again.
  */
 :host.chat-active-stack--ready .chat-active-stack__composer {
-  transition:
-    transform 0.55s cubic-bezier(0.22, 1, 0.36, 1),
-    filter 0.15s ease;
+  transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 :host-context(body.sidebar-resizing) .chat-active-stack__composer {
-  filter: blur(5px);
   pointer-events: none;
 }
 

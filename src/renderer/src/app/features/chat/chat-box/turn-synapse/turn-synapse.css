@@ -1,0 +1,160 @@
+app-turn-synapse {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+app-turn-synapse .turn-synapse {
+  display: block;
+  overflow: visible;
+  shape-rendering: geometricPrecision;
+}
+
+/* Strokes keep their pixel width at any scale, so thin links never smear when the view resizes. */
+app-turn-synapse .turn-synapse path,
+app-turn-synapse .turn-synapse circle {
+  vector-effect: non-scaling-stroke;
+}
+
+app-turn-synapse .turn-synapse__link {
+  stroke: var(--t-primary);
+  stroke-width: 1.1px;
+  opacity: 0.6;
+}
+
+app-turn-synapse .turn-synapse__link--arc {
+  stroke-dasharray: 2 2.5;
+}
+
+app-turn-synapse .turn-synapse__stalk {
+  stroke: var(--t-primary);
+  stroke-width: 0.9px;
+  opacity: 0.5;
+}
+
+app-turn-synapse .turn-synapse__dendrite {
+  stroke: var(--t-hljs-number, var(--t-primary));
+  stroke-width: 0.9px;
+}
+
+app-turn-synapse .turn-synapse__ring {
+  stroke: var(--t-secondary);
+  stroke-width: 0.9px;
+  opacity: 0.45;
+}
+
+app-turn-synapse .turn-synapse__pending {
+  stroke: var(--t-text-muted);
+  stroke-width: 1px;
+}
+
+app-turn-synapse .turn-synapse__lookup {
+  fill: var(--t-hljs-number, var(--t-primary));
+}
+
+app-turn-synapse .turn-synapse__node {
+  fill: var(--t-primary);
+}
+
+app-turn-synapse .turn-synapse__change {
+  fill: var(--t-secondary);
+}
+
+app-turn-synapse .turn-synapse__halo {
+  stroke: var(--t-secondary);
+  stroke-width: 1px;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+app-turn-synapse .turn-synapse__halo--a {
+  animation: turn-synapse-halo-a 1.4s ease-in-out infinite;
+}
+
+app-turn-synapse .turn-synapse__halo--b {
+  animation: turn-synapse-halo-b 1.4s ease-in-out infinite;
+}
+
+app-turn-synapse .turn-synapse__pulse {
+  fill: var(--t-secondary);
+}
+
+app-turn-synapse .turn-synapse__pulse--a {
+  animation: turn-synapse-pulse-a 0.9s ease-in-out infinite;
+}
+
+app-turn-synapse .turn-synapse__pulse--b {
+  animation: turn-synapse-pulse-b 0.9s ease-in-out infinite;
+}
+
+/* Paired keyframes: swapping the name is what restarts the motion when a column lands. */
+@keyframes turn-synapse-halo-a {
+  0%,
+  100% {
+    opacity: 0.9;
+    transform: scale(0.7);
+  }
+
+  50% {
+    opacity: 0.15;
+    transform: scale(1.25);
+  }
+}
+
+@keyframes turn-synapse-halo-b {
+  0%,
+  100% {
+    opacity: 0.9;
+    transform: scale(0.7);
+  }
+
+  50% {
+    opacity: 0.15;
+    transform: scale(1.25);
+  }
+}
+
+@keyframes turn-synapse-pulse-a {
+  0% {
+    transform: translate(0, 0);
+    opacity: 0;
+  }
+
+  15%,
+  85% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: translate(var(--dx), var(--dy));
+    opacity: 0;
+  }
+}
+
+@keyframes turn-synapse-pulse-b {
+  0% {
+    transform: translate(0, 0);
+    opacity: 0;
+  }
+
+  15%,
+  85% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: translate(var(--dx), var(--dy));
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  app-turn-synapse .turn-synapse__halo,
+  app-turn-synapse .turn-synapse__pulse {
+    animation: none !important;
+  }
+
+  app-turn-synapse .turn-synapse__pulse {
+    opacity: 0;
+  }
+}

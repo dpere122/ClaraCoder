@@ -200,15 +200,7 @@
             role="status"
             aria-live="polite"
           >
-            <div
-              class="processing-svg-host"
-              [class.processing-svg-host--jot]="liveTurnActivity() === 'write'"
-              [class.processing-svg-host--read]="liveTurnActivity() === 'read'"
-              [class.processing-svg-host--run]="liveTurnActivity() === 'run'"
-              [class.processing-svg-host--web]="liveTurnActivity() === 'web'"
-              [class.processing-svg-host--prefill]="liveTurnActivity() === 'prefill'"
-              aria-hidden="true"
-            >
+            <div class="processing-svg-host" aria-hidden="true">
               <app-tool-spinner class="processing-svg-spinner" [kind]="processingSpinnerKind()" />
             </div>
             <span

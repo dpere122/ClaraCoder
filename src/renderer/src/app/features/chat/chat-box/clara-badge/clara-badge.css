@@ -5,8 +5,8 @@ app-clara-badge {
 
 app-clara-badge .clara-badge {
   display: block;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 
 app-clara-badge .clara-badge__arc {

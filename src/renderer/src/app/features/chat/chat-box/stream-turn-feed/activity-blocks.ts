@@ -11,7 +11,7 @@ import {
   type TurnFeedItem,
 } from '@shared/index';
 import { auxStreamToolPartPillState } from '../aux-stream-tool-part/aux-stream-tool-part';
-import { fractalKindForCategory, type FractalKind } from '../turn-fractal/turn-fractal-geometry';
+import { synapseKindForCategory, type SynapseStep } from '../turn-synapse/turn-synapse-geometry';
 import type { FeedDisplayRole } from './stream-preview-queue';
 
 /** How a stretch of work renders: one activity block per stretch, in execution order. */
@@ -183,23 +183,24 @@ export function activitySummary(
 }
 
 /**
- * The block's steps for its turn fractal, in order: a thought, or each tool call by its
- * category. Nudges add nothing; `merged` rows (duplicates of a run_command output lane) are
- * skipped like in {@link activitySummary}.
+ * The block's steps for its synapse graph, in order: a thought, or each tool call by its
+ * category and LLM step (calls of one step ran in parallel). Nudges add nothing; `merged` rows
+ * (duplicates of a run_command output lane) are skipped like in {@link activitySummary}.
  */
-export function activityFractalKinds(
+export function activitySynapseSteps(
   items: readonly TurnFeedItem[],
   members: readonly number[],
   merged: ReadonlySet<number>,
-): FractalKind[] {
-  const kinds: FractalKind[] = [];
+): SynapseStep[] {
+  const steps: SynapseStep[] = [];
   for (const index of members) {
     const item = items[index];
     if (item?.kind === 'thought') {
-      kinds.push('think');
+      steps.push({ kind: 'think' });
     } else if (item?.kind === 'tool' && !merged.has(index)) {
-      kinds.push(fractalKindForCategory(toolPillLabel(item.part).category));
+      const kind = synapseKindForCategory(toolPillLabel(item.part).category);
+      steps.push(item.part.toolBatch ? { kind, batch: item.part.toolBatch } : { kind });
     }
   }
-  return kinds;
+  return steps;
 }

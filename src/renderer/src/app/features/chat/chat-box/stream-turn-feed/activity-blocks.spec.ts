@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { hitlTrailStreamTag, toolTrailStatusStreamTag, type StreamPart, type TurnFeedItem } from '@shared/index';
-import { activityFractalKinds, activityLayout, activitySummary } from './activity-blocks';
+import { activityLayout, activitySummary, activitySynapseSteps } from './activity-blocks';
 import type { FeedDisplayRole } from './stream-preview-queue';
 import { toolChipLayout } from './tool-chip-groups';
 
@@ -137,10 +137,23 @@ describe('activitySummary', () => {
   });
 });
 
-describe('activityFractalKinds', () => {
-  it('lists the steps in order for the turn fractal, skipping merged duplicate rows', () => {
-    const items = [thought(), read('a.py'), edit('a.py'), tool('run_command', 'Command: `npm test`'), read('b.py'), md()];
-    expect(activityFractalKinds(items, [0, 1, 2, 3, 4], new Set())).toEqual(['think', 'read', 'edit', 'run', 'read']);
-    expect(activityFractalKinds(items, [0, 1, 2, 3, 4], new Set([3]))).toEqual(['think', 'read', 'edit', 'read']);
+describe('activitySynapseSteps', () => {
+  it('lists the steps in order with their LLM step, skipping merged duplicate rows', () => {
+    const items = [
+      thought(),
+      read('a.py', { toolBatch: 's1' }),
+      read('b.py', { toolBatch: 's1' }),
+      edit('a.py'),
+      tool('run_command', 'Command: `npm test`'),
+      md(),
+    ];
+    expect(activitySynapseSteps(items, [0, 1, 2, 3, 4], new Set())).toEqual([
+      { kind: 'think' },
+      { kind: 'read', batch: 's1' },
+      { kind: 'read', batch: 's1' },
+      { kind: 'edit' },
+      { kind: 'run' },
+    ]);
+    expect(activitySynapseSteps(items, [0, 3, 4], new Set([4]))).toEqual([{ kind: 'think' }, { kind: 'edit' }]);
   });
 });

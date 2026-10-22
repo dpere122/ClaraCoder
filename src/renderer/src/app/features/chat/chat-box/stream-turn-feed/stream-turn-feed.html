@@ -119,11 +119,10 @@
           [expandable]="true"
           [expanded]="open"
           [live]="live()"
-          [shimmer]="working && live()"
           (toggle)="toggleActivity($index, members)"
         >
-          <!-- The block's turn fractal stands in for the spinner: it grows as each step lands. -->
-          <app-turn-fractal pillIcon [kinds]="activityFractals().get($index) ?? []" [live]="working && live()" />
+          <!-- The block's synapse graph: it grows as each step lands and stands in for "Working". -->
+          <app-turn-synapse pillIcon [steps]="activitySynapses().get($index) ?? []" [live]="working && live()" />
         </app-stream-tool-pill>
         @if (!open && previewShowsBody() && activityHostsPreview(members)) {
           <!-- The streaming reasoning / nudge box stays in view under a closed block. -->

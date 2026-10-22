@@ -24,8 +24,8 @@ import { ToolPillExpansion } from '../tool-pill-expansion';
 import { ToolPillGroupComponent } from '../tool-pill-group/tool-pill-group';
 import type { PillSpinnerKind } from '../tool-spinner-kind';
 import { ToolSpinnerComponent } from '../tool-spinner/tool-spinner';
-import { TurnFractalComponent } from '../turn-fractal/turn-fractal';
-import type { FractalKind } from '../turn-fractal/turn-fractal-geometry';
+import { TurnSynapseComponent } from '../turn-synapse/turn-synapse';
+import type { SynapseStep } from '../turn-synapse/turn-synapse-geometry';
 import {
   committedItemIndices,
   decidePreviewCommit,
@@ -45,7 +45,7 @@ import {
   queueableItems,
   splitQueuedFeed,
 } from './stream-preview-queue';
-import { activityFractalKinds, activityLayout, activitySummary, type ActivitySummary } from './activity-blocks';
+import { activityLayout, activitySummary, activitySynapseSteps, type ActivitySummary } from './activity-blocks';
 import { settlingChipIndices, toolChipGroupParts, toolChipLayout } from './tool-chip-groups';
 
 /** How long chips that just left the live preview play their settle animation (see the CSS). */
@@ -72,7 +72,7 @@ export type HostedSpinnerKind = PillSpinnerKind;
     StreamToolPillComponent,
     ToolPillGroupComponent,
     ToolSpinnerComponent,
-    TurnFractalComponent,
+    TurnSynapseComponent,
   ],
   // Open pills are tracked per feed, so a pill keeps its state when it joins a group.
   providers: [ToolPillExpansion],
@@ -166,15 +166,15 @@ export class StreamTurnFeedComponent {
     return out;
   });
 
-  /** Turn fractal steps by block lead index: landed rows plus the live preview, so it grows as a call starts. */
-  readonly activityFractals = computed(() => {
+  /** Synapse graph steps by block lead index: landed rows plus the live preview, so it grows as a call starts. */
+  readonly activitySynapses = computed(() => {
     const items = this.items();
     const roles = this.displayRoles();
     const merged = this.toolChipLayout().merged;
-    const out = new Map<number, FractalKind[]>();
+    const out = new Map<number, SynapseStep[]>();
     for (const [lead, members] of this.activityLayout().blocks) {
       const shown = members.filter((index) => roles[index] === 'chip' || roles[index] === 'preview');
-      out.set(lead, activityFractalKinds(items, shown, merged));
+      out.set(lead, activitySynapseSteps(items, shown, merged));
     }
     return out;
   });
@@ -346,9 +346,12 @@ export class StreamTurnFeedComponent {
     return preview >= 0 && members.includes(preview);
   }
 
-  /** Activity pill name: `Working` while its stretch runs, then what it did (`Read 3 files, edited a.py`). */
+  /**
+   * Activity pill name: none while its stretch runs (the synapse graph stands in for it), then
+   * what it did (`Read 3 files, edited a.py`).
+   */
   activityName(working: boolean, summary: ActivitySummary | undefined): string {
-    return working ? 'Working' : summary?.headline || 'Worked';
+    return working ? '' : summary?.headline || 'Worked';
   }
 
   /** Activity pill meta before the live step: failures, plus what has landed so far while working. */

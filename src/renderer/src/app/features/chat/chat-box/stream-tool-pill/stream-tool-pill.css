@@ -11,18 +11,18 @@ app-stream-tool-pill {
 app-stream-tool-pill .stream-tool-pill {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.5rem;
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
   margin: 0;
-  padding: 0.2rem 0.4rem;
+  padding: 0.28rem 0.45rem;
   border: none;
   border-radius: var(--chat-radius) !important;
   background: transparent;
   box-shadow: none;
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 0.86rem;
   line-height: 1.4;
   color: var(--t-text-muted);
   cursor: default;
@@ -46,14 +46,14 @@ app-stream-tool-pill .stream-tool-pill:focus-visible {
 app-stream-tool-pill .stream-tool-pill__spinner {
   order: -2;
   flex-shrink: 0;
-  width: 1.2rem;
-  height: 1.2rem;
-  margin: -0.2rem -0.1rem -0.2rem -0.2rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin: -0.25rem -0.1rem -0.25rem -0.2rem;
 }
 
 app-stream-tool-pill .stream-tool-pill__spinner--read {
-  width: 1.3rem;
-  height: 1.3rem;
+  width: 1.55rem;
+  height: 1.55rem;
 }
 
 app-stream-tool-pill .stream-tool-pill__spinner-img {
@@ -66,8 +66,8 @@ app-stream-tool-pill .stream-tool-pill__spinner-img {
 app-stream-tool-pill .stream-tool-pill__chevron {
   order: -1;
   flex-shrink: 0;
-  width: 0.7rem;
-  font-size: 0.5rem;
+  width: 0.8rem;
+  font-size: 0.58rem;
   text-align: center;
   color: var(--t-text-muted);
 }
@@ -103,7 +103,7 @@ app-stream-tool-pill .stream-tool-pill__meta {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--t-font-code-override, 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace);
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   color: color-mix(in srgb, var(--t-fg) 72%, var(--t-text-muted));
 }
 
@@ -113,7 +113,7 @@ app-stream-tool-pill .stream-tool-pill__duration {
   margin-left: auto;
   padding-left: 0.5rem;
   font-family: var(--t-font-code-override, 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace);
-  font-size: 0.7rem;
+  font-size: 0.76rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   color: var(--t-text-muted);

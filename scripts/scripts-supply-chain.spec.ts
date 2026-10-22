@@ -10,6 +10,7 @@ import * as path from 'node:path';
 
 import { EXACT_SEMVER } from './assemble-vtsls-bundle.mjs';
 import { EXPECTED_SHA256, sha256File, verifyArchiveSha256 } from './bundle-portable-python.mjs';
+import { EXPECTED_RG_SHA256, RG_VERSION, rgAssetStem, verifyRgArchiveSha256 } from './bundle-ripgrep.mjs';
 
 describe('EXACT_SEMVER (vtsls version pin)', () => {
   it.each(['0.3.0', '1.2.3', '0.3.0-beta.1', '10.20.30-rc.4'])(
@@ -42,6 +43,32 @@ describe('EXPECTED_SHA256 (portable Python assets)', () => {
 
   it.each(Object.keys(EXPECTED_SHA256))('is a 64-char hex digest: %s', (asset) => {
     expect(EXPECTED_SHA256[asset]).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe('EXPECTED_RG_SHA256 (bundled ripgrep assets)', () => {
+  it.each(['win32/x64', 'linux/x64', 'linux/arm64', 'darwin/x64', 'darwin/arm64'])(
+    'pins a digest for every supported host: %s',
+    (host) => {
+      const [platform, arch] = host.split('/');
+      const ext = platform === 'win32' ? '.zip' : '.tar.gz';
+      const asset = `${rgAssetStem(platform, arch)}${ext}`;
+      expect(asset).toContain(RG_VERSION);
+      expect(EXPECTED_RG_SHA256[asset]).toMatch(/^[0-9a-f]{64}$/);
+    },
+  );
+
+  it('verifyRgArchiveSha256 throws on a mismatch', async () => {
+    const tmp = mkdtempSync(path.join(os.tmpdir(), 'clara-rg-sha-'));
+    try {
+      const file = path.join(tmp, 'rg.zip');
+      writeFileSync(file, 'not ripgrep');
+      await expect(
+        verifyRgArchiveSha256(file, `${rgAssetStem('win32', 'x64')}.zip`),
+      ).rejects.toThrow(/SHA256 mismatch/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 

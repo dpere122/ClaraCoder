@@ -13,6 +13,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from clara_coder_backend.config import env_clara
+
 logger = logging.getLogger('clara.search')
 
 _GREP_SAFE_ENCODINGS = frozenset(
@@ -56,11 +58,13 @@ def run_grep_workspace_recursive(
     encoding: str = '',
     exclude_dir_names: frozenset[str] | None = None,
     include_node_modules: bool = False,
+    respect_gitignore: bool = True,
 ) -> list[SearchLineMatch] | None:
     """Recursive workspace search via ``rg`` (preferred) or ``grep``.
 
     ``node_modules`` is excluded by default. Pass ``include_node_modules=True`` when
-    Settings → Tools exposes all workspace files.
+    Settings → Tools exposes all workspace files. ``respect_gitignore`` only affects ``rg``
+    (grep never reads ``.gitignore``; callers post-filter its hits).
     """
 
     if max_matches <= 0:
@@ -75,9 +79,9 @@ def run_grep_workspace_recursive(
         exclude_names.add(_NODE_MODULES_DIR)
 
     root_resolved = root.resolve()
-    rg_executable = shutil.which('rg')
+    rg_executable = _rg_executable()
     if rg_executable is not None:
-        args = _rg_recursive_args(rg_executable, query, exclude_names)
+        args = _rg_recursive_args(rg_executable, query, exclude_names, respect_gitignore=respect_gitignore)
         matches = _run_search_streaming(
             args,
             cwd=root_resolved,
@@ -120,7 +124,7 @@ def run_grep_line_search(
 
     display_by_command_path = {candidate.command_path: candidate.display_path for candidate in candidates}
     matches: list[SearchLineMatch] = []
-    rg_executable = shutil.which('rg')
+    rg_executable = _rg_executable()
     grep_executable = shutil.which('grep')
     if rg_executable is None and grep_executable is None:
         return None
@@ -204,7 +208,24 @@ def run_grep_line_search(
 _RG_COLUMN_ARGS = ('--max-columns', '500', '--max-columns-preview')
 
 
-def _rg_recursive_args(rg_executable: str, query: str, exclude_names: set[str]) -> list[str]:
+def _rg_executable() -> str | None:
+    """The app's bundled ``rg`` (``CLARA_RG_PATH``), else ``rg`` on PATH."""
+    bundled = env_clara('CLARA_RG_PATH', '')
+    if bundled and Path(bundled).is_file():
+        return bundled
+    return shutil.which('rg')
+
+
+def _rg_recursive_args(
+    rg_executable: str,
+    query: str,
+    exclude_names: set[str],
+    *,
+    respect_gitignore: bool = True,
+) -> list[str]:
+    # Workspaces are often not git repos (``--no-require-git``); rules above the workspace root
+    # (e.g. a dotfiles ``~/.gitignore`` of ``*``) must not hide it (``--no-ignore-parent``).
+    ignore_args = ('--no-require-git', '--no-ignore-parent') if respect_gitignore else ('--no-ignore',)
     args = [
         rg_executable,
         '-n',
@@ -213,6 +234,7 @@ def _rg_recursive_args(rg_executable: str, query: str, exclude_names: set[str]) 
         '-0',
         '--hidden',
         '--no-config',
+        *ignore_args,
         *_RG_COLUMN_ARGS,
         '-e',
         query,

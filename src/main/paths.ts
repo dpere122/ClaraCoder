@@ -245,6 +245,21 @@ export function getBundledVtslsEntry(): string | null {
   return existsSync(entry) ? entry : null;
 }
 
+/**
+ * Bundled ripgrep binary for the sidecar's workspace search.
+ *
+ * Packaged: ``extraResources/ripgrep`` (fetched by ``npm run bundle:rg``).
+ * Dev: ``runtime-bundle/ripgrep/`` at the repo root.
+ * Returns ``null`` when the bundle is absent, so the sidecar falls back to rg/grep on PATH.
+ */
+export function getBundledRipgrep(): string | null {
+  const base = app.isPackaged
+    ? path.join(process.resourcesPath, 'ripgrep')
+    : path.join(__dirname, '..', '..', 'runtime-bundle', 'ripgrep');
+  const binary = path.join(base, process.platform === 'win32' ? 'rg.exe' : 'rg');
+  return existsSync(binary) ? binary : null;
+}
+
 /** ``home = …`` from ``<root>/pyvenv.cfg`` (base interpreter directory), or null when absent. */
 export function readPyvenvHome(root: string): string | null {
   let text: string;

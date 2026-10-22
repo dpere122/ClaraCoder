@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -55,6 +56,15 @@ class _FakeProc:
     def kill(self) -> None:
         self.killed = True
         self.returncode = -9
+
+
+#: A real rg for the opt-in integration test below; every other test sees only the tools it mocks.
+_REAL_RG_PATH = os.environ.get('CLARA_RG_PATH', '')
+
+
+@pytest.fixture(autouse=True)
+def _no_bundled_rg(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv('CLARA_RG_PATH', raising=False)
 
 
 def _nul_record(path: str, line: int, text: str = 'hit') -> bytes:
@@ -224,3 +234,42 @@ def test_run_grep_workspace_recursive_real_excludes_node_modules(tmp_path: Path)
     paths = {m.display_path for m in out}
     assert 'src/a.py' in paths
     assert not any(p.startswith('node_modules/') for p in paths)
+
+
+def test_rg_executable_prefers_bundled_clara_rg_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    bundled = tmp_path / 'rg.exe'
+    bundled.write_bytes(b'')
+    monkeypatch.setattr(search_backend.shutil, 'which', lambda name: '/usr/bin/rg' if name == 'rg' else None)
+
+    monkeypatch.setenv('CLARA_RG_PATH', str(bundled))
+    assert search_backend._rg_executable() == str(bundled)
+
+    monkeypatch.setenv('CLARA_RG_PATH', str(tmp_path / 'missing.exe'))
+    assert search_backend._rg_executable() == '/usr/bin/rg'
+
+
+@pytest.mark.parametrize(
+    ('respect_gitignore', 'present', 'absent'),
+    [
+        (True, ['--no-require-git', '--no-ignore-parent'], ['--no-ignore']),
+        (False, ['--no-ignore'], ['--no-require-git']),
+    ],
+)
+def test_rg_recursive_args_gitignore_flags(respect_gitignore: bool, present: list[str], absent: list[str]) -> None:
+    args = search_backend._rg_recursive_args('rg', 'needle', set(), respect_gitignore=respect_gitignore)
+    assert all(flag in args for flag in present)
+    assert not any(flag in args for flag in absent)
+
+
+@pytest.mark.skipif(not _REAL_RG_PATH, reason='set CLARA_RG_PATH to run against a real rg')
+def test_real_rg_honors_gitignore_outside_a_git_repo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv('CLARA_RG_PATH', _REAL_RG_PATH)
+    (tmp_path / '.gitignore').write_text('generated/\n', encoding='utf-8')
+    (tmp_path / 'generated').mkdir()
+    (tmp_path / 'generated' / 'g.txt').write_text('needle\n', encoding='utf-8')
+    (tmp_path / 'a.txt').write_text('needle\n', encoding='utf-8')
+
+    kept = run_grep_workspace_recursive(tmp_path, 'needle', max_matches=10)
+    assert kept is not None and [m.display_path for m in kept] == ['a.txt']
+    everything = run_grep_workspace_recursive(tmp_path, 'needle', max_matches=10, respect_gitignore=False)
+    assert everything is not None and sorted(m.display_path for m in everything) == ['a.txt', 'generated/g.txt']

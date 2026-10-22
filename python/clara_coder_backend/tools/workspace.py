@@ -17,7 +17,12 @@ logger = logging.getLogger('clara.tools.workspace')
 
 from langchain_core.tools import tool
 
-from clara_coder_backend.workspace.search_backend import SearchCandidate, run_grep_line_search, run_grep_workspace_recursive
+from clara_coder_backend.workspace.search_backend import (
+    SearchCandidate,
+    SearchLineMatch,
+    run_grep_line_search,
+    run_grep_workspace_recursive,
+)
 from clara_coder_backend.tools.semantic import retrieve_workspace_semantic
 from clara_coder_backend.tools.tool_conventions import (
     GUTTER,
@@ -44,6 +49,7 @@ from clara_coder_backend.workspace.paths import (
     truncate_text_head_tail,
 )
 from clara_coder_backend.workspace.workspace_ignore import (
+    NODE_MODULES_DIR_NAME,
     WORKSPACE_CONTEXT_IGNORED_NAMES,
     get_workspace_ignore_rules_cached,
     is_node_modules_bulk_listing_path,
@@ -357,14 +363,15 @@ def _search_match_ignored(display_path: str, ignore_rules: list[str]) -> bool:
     return should_ignore_workspace_entry(entry_name, normalized, ignore_rules)
 
 
-def _search_workspace_grep(
+def _grep_project_matches(
     root_resolved: Path,
     ignore_rules: list[str],
     *,
     query: str,
     limit: int,
     encoding: str,
-) -> tuple[list[str], int] | None:
+) -> list[SearchLineMatch] | None:
+    """Hits outside ``node_modules``, with gitignore / built-in ignores applied."""
     # Over-fetch so post-filtering gitignore / built-in ignores can still fill ``limit``.
     fetch_limit = max(limit, min(limit * 4, 200))
     grep_matches = run_grep_workspace_recursive(
@@ -373,26 +380,69 @@ def _search_workspace_grep(
         max_matches=fetch_limit,
         encoding=encoding,
         exclude_dir_names=WORKSPACE_CONTEXT_IGNORED_NAMES,
-        include_node_modules=workspace_expose_all_files(),
+        respect_gitignore=not workspace_expose_all_files(),
     )
-    if grep_matches is None:
-        candidates: list[SearchCandidate] = []
-        for path in iter_workspace_search_files(root_resolved, ignore_rules):
-            rel_path = path.relative_to(root_resolved)
-            candidates.append(SearchCandidate(command_path=str(rel_path), display_path=rel_path.as_posix()))
-        grep_matches = run_grep_line_search(
-            query,
-            candidates,
-            max_matches=limit,
-            encoding=encoding,
-            cwd=root_resolved,
+    if grep_matches is not None:
+        kept = [m for m in grep_matches if not _search_match_ignored(m.display_path, ignore_rules)]
+        if len(kept) >= limit or len(grep_matches) < fetch_limit:
+            return kept[:limit]
+        # grep does not read .gitignore: ignored hits filled the window and may hide real ones, so search
+        # the pre-filtered file list instead.
+
+    candidates: list[SearchCandidate] = []
+    for path in iter_workspace_search_files(root_resolved, ignore_rules):
+        rel_path = path.relative_to(root_resolved)
+        candidates.append(SearchCandidate(command_path=str(rel_path), display_path=rel_path.as_posix()))
+    return run_grep_line_search(
+        query,
+        candidates,
+        max_matches=limit,
+        encoding=encoding,
+        cwd=root_resolved,
+    )
+
+
+def _grep_node_modules_matches(root_resolved: Path, *, query: str, limit: int, encoding: str) -> list[SearchLineMatch]:
+    """Hits inside the root ``node_modules`` (Settings → Tools exposes all workspace files)."""
+    node_modules = root_resolved / NODE_MODULES_DIR_NAME
+    if limit <= 0 or not node_modules.is_dir():
+        return []
+    grep_matches = run_grep_workspace_recursive(
+        node_modules,
+        query,
+        max_matches=limit,
+        encoding=encoding,
+        exclude_dir_names=WORKSPACE_CONTEXT_IGNORED_NAMES,
+        include_node_modules=True,
+        # Packages ship their own .gitignore files; dependency search should still see their sources.
+        respect_gitignore=False,
+    )
+    return [
+        SearchLineMatch(
+            display_path=f'{NODE_MODULES_DIR_NAME}/{m.display_path}',
+            line_number=m.line_number,
+            text=m.text,
         )
-        if grep_matches is None:
-            return None
-    else:
-        grep_matches = [m for m in grep_matches if not _search_match_ignored(m.display_path, ignore_rules)][
-            :limit
-        ]
+        for m in grep_matches or []
+    ]
+
+
+def _search_workspace_grep(
+    root_resolved: Path,
+    ignore_rules: list[str],
+    *,
+    query: str,
+    limit: int,
+    encoding: str,
+) -> tuple[list[str], int] | None:
+    # Project files first: dependency hits sort ahead of ``src/`` and would otherwise fill ``limit``.
+    grep_matches = _grep_project_matches(root_resolved, ignore_rules, query=query, limit=limit, encoding=encoding)
+    if grep_matches is None:
+        return None
+    if workspace_expose_all_files():
+        grep_matches += _grep_node_modules_matches(
+            root_resolved, query=query, limit=limit - len(grep_matches), encoding=encoding
+        )
 
     rendered = [
         f'[{match.display_path} line {match.line_number}]{_READ_FILE_GUTTER_SEP}{clip_line(match.text)}'

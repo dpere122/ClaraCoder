@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import tempfile
 import uuid
 from pathlib import Path
@@ -228,3 +229,44 @@ def test_search_workspace_falls_back_when_grep_returns_none(workspace_session: P
 
     out = search_workspace.invoke({'query': 'needle', 'max_matches': 20})
     assert 'keep.py' in out
+
+
+_needs_grep = pytest.mark.skipif(shutil.which('grep') is None and shutil.which('rg') is None, reason='no grep/rg')
+
+
+@_needs_grep
+def test_search_finds_hits_when_gitignored_hits_fill_the_fetch_window(workspace_session: Path) -> None:
+    root = workspace_session
+    (root / '.gitignore').write_text('generated/\n', encoding='utf-8')
+    gen = root / 'generated'
+    gen.mkdir()
+    for i in range(50):
+        (gen / f'f{i}.txt').write_text(f'needle {i}\n', encoding='utf-8')
+    (root / 'src').mkdir()
+    (root / 'src' / 'a.py').write_text('needle here\n', encoding='utf-8')
+
+    out = search_workspace.invoke({'query': 'needle', 'max_matches': 5})
+    assert '[src/a.py line 1]' in out
+    assert 'generated/' not in out
+
+
+@_needs_grep
+def test_search_expose_all_lists_project_hits_before_node_modules(workspace_session: Path) -> None:
+    root = workspace_session
+    pkg = root / 'node_modules' / 'pkg'
+    pkg.mkdir(parents=True)
+    for i in range(50):
+        (pkg / f'm{i}.js').write_text(f'needle {i}\n', encoding='utf-8')
+    (root / 'src').mkdir()
+    (root / 'src' / 'a.ts').write_text('needle here\n', encoding='utf-8')
+
+    saved = runtime_config.tools
+    try:
+        runtime_config.tools = RuntimeToolsConfig(expose_all_workspace_files=True)
+        out = search_workspace.invoke({'query': 'needle', 'max_matches': 5})
+    finally:
+        runtime_config.tools = saved
+    lines = out.splitlines()
+    assert lines[0].startswith('[src/a.ts line 1]')
+    assert len(lines) == 5
+    assert all(line.startswith('[node_modules/pkg/') for line in lines[1:])

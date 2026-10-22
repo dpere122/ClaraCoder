@@ -115,6 +115,11 @@ function checkResourcesDir(resourcesDir, failures) {
     failures.push(`missing vtsls entry: ${vtsls}`);
   }
 
+  const rg = path.join(resourcesDir, 'ripgrep', process.platform === 'win32' ? 'rg.exe' : 'rg');
+  if (!existsSync(rg)) {
+    failures.push(`missing ripgrep binary: ${rg}`);
+  }
+
   if (
     manifest &&
     manifest.arch === process.arch &&

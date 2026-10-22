@@ -134,11 +134,11 @@
 .workspace-terminal-dock__tab {
   display: flex;
   align-items: center;
-  gap: 0.2rem;
+  gap: 0.35rem;
   max-width: 11rem;
-  padding: 0.18rem 0.35rem;
+  padding: 0.32rem 0.5rem 0.28rem;
   border: none;
-  border-bottom: 2px solid transparent;
+  border-bottom: 1px solid transparent;
   border-radius: 0;
   color: var(--t-text-muted);
   font-size: 0.72rem;
@@ -146,29 +146,39 @@
   background: transparent;
 }
 
+.workspace-terminal-dock__tab:hover:not(.workspace-terminal-dock__tab--active) {
+  color: var(--t-fg);
+}
+
+/* Active tab: full-strength text over a 1px accent underline (flat IDE panel tabs). */
 .workspace-terminal-dock__tab--active {
-  color: var(--t-primary);
+  color: var(--t-fg);
   background: transparent;
   border-bottom-color: var(--t-primary);
 }
 
 .workspace-terminal-dock__tab--problems {
   color: var(--t-text-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.68rem;
 }
 
 .workspace-terminal-dock__tab--problems.workspace-terminal-dock__tab--active {
-  color: var(--t-primary);
+  color: var(--t-fg);
   border-bottom-color: var(--t-primary);
 }
 
 .workspace-terminal-dock__tab-badge {
   min-width: 1rem;
   padding: 0 0.3rem;
-  border-radius: 0.25rem;
-  background: var(--t-surface-3, color-mix(in srgb, var(--t-primary) 18%, transparent));
-  font-size: 0.62rem;
-  line-height: 1.3;
+  background: var(--t-border);
+  color: var(--t-fg);
+  font-size: 0.64rem;
+  letter-spacing: 0;
+  line-height: 1.5;
   text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .workspace-terminal-dock__pane--problems {
@@ -187,7 +197,7 @@
 .workspace-terminal-dock__tab--llama {
   margin-left: auto;
   border: none;
-  border-bottom: 2px solid transparent;
+  border-bottom: 1px solid transparent;
   background: transparent;
   color: color-mix(in srgb, var(--t-primary) 92%, var(--t-text-muted));
 }

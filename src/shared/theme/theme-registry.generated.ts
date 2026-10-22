@@ -202,7 +202,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Diagnostics list from the language server.",
     selector: "[data-theme-group=\"editor.problems\"]",
     component: "app/features/workspace/editor-problems",
-    tokens: ["--t-bg-deep", "--t-border-subtle", "--t-fg", "--t-hljs-number", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-text-muted"],
+    tokens: ["--t-bg-deep", "--t-border", "--t-fg", "--t-hover-bg", "--t-log-level-error", "--t-log-level-info", "--t-log-level-warning", "--t-primary", "--t-text-muted"],
     supportsBackground: false,
   },
   {
@@ -213,7 +213,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Integrated terminal tabs below the editor.",
     selector: "[data-theme-group=\"editor.terminal\"]",
     component: "app/features/workspace-terminal",
-    tokens: ["--t-bg-deep", "--t-border", "--t-border-subtle", "--t-code-bg", "--t-error", "--t-hover-bg", "--t-primary", "--t-run-command-tab", "--t-secondary", "--t-surface-3", "--t-text-muted"],
+    tokens: ["--t-bg-deep", "--t-border", "--t-border-subtle", "--t-code-bg", "--t-error", "--t-fg", "--t-hover-bg", "--t-primary", "--t-run-command-tab", "--t-secondary", "--t-text-muted"],
     supportsBackground: false,
   },
   {
@@ -334,7 +334,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Split-pane container for open editor tabs.",
     selector: "[data-theme-group=\"shell.editor-grid\"]",
     component: "app/features/shell/editor-grid",
-    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-primary", "--t-text-muted", "--t-warn"],
+    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-code-bg", "--t-elev-shadow", "--t-fg", "--t-font-mono", "--t-hljs-attr", "--t-hljs-function", "--t-hljs-keyword", "--t-hljs-name", "--t-hljs-string", "--t-hover-bg", "--t-primary", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -386,10 +386,10 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     label: "File tabs",
     category: "shell",
     categoryLabel: "Shell & layout",
-    description: "Pill tabs above each editor slot.",
+    description: "File tabs above each editor slot.",
     selector: "[data-theme-group=\"shell.tab-strip\"]",
     component: "app/features/shell/editor-grid",
-    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-primary", "--t-text-muted", "--t-warn"],
+    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-code-bg", "--t-elev-shadow", "--t-fg", "--t-font-mono", "--t-hljs-attr", "--t-hljs-function", "--t-hljs-keyword", "--t-hljs-name", "--t-hljs-string", "--t-hover-bg", "--t-primary", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {

@@ -42,18 +42,23 @@
               aria-label='This file is outside of the workspace.'
               title='This file is outside of the workspace.'
             ></lucide-icon>
+          } @else {
+            <lucide-icon name='file' [size]='14' class='chat-main-tab-icon' [attr.data-ext]='extension(tab)' aria-hidden='true'></lucide-icon>
           }
           <span class='chat-main-tab-label'>{{ basename(tab) }}</span>
-          @if (isUnsaved(tab)) {
-            <span class='chat-main-tab-unsaved' aria-label='Unsaved changes' title='Unsaved changes'>●</span>
-          }
         </span>
         <span
           class='chat-main-tab-close'
+          [class.chat-main-tab-close--unsaved]='isUnsaved(tab)'
           role='presentation'
           (click)='onClose($event, tab)'
           title='Close tab'
-        >&times;</span>
+        >
+          @if (isUnsaved(tab)) {
+            <span class='chat-main-tab-unsaved' aria-label='Unsaved changes' title='Unsaved changes'></span>
+          }
+          <span class='chat-main-tab-close-x'>&times;</span>
+        </span>
       </button>
     }
   </div>

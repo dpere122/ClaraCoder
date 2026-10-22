@@ -235,11 +235,20 @@ app-workspace-monaco .workspace-monaco-md-toggle__btn {
   border-radius: 999px !important;
 }
 
-/* Monaco editor file tabs sit as pills above the editor. */
-.chat-main-tab,
-.chat-main-tab.cdk-drag-preview,
-.chat-main-tab-close {
-  border-radius: 999px !important;
+/* Editor file tabs are flat; only the close button and the drag clone keep small corners. */
+.chat-main-tab-close,
+.chat-main-tab.cdk-drag-preview {
+  border-radius: var(--chat-radius-sm) !important;
+}
+
+.chat-main-tab-unsaved {
+  border-radius: 50% !important;
+}
+
+/* Count badges on the Problems tab and file row. */
+.workspace-terminal-dock__tab-badge,
+app-editor-problems .editor-problems__count {
+  border-radius: var(--chat-radius-sm) !important;
 }
 
 /* Status-bar Model / Embeddings traffic-light orbs stay circular. */

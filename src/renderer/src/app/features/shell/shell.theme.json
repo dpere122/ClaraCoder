@@ -34,7 +34,7 @@
     },
     "shell.tab-strip": {
       "label": "File tabs",
-      "description": "Pill tabs above each editor slot."
+      "description": "File tabs above each editor slot."
     },
     "shell.empty-state": {
       "label": "Welcome screen",

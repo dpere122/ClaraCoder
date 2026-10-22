@@ -49,7 +49,7 @@ app-hitl-composer-dock .hitl-composer-dock__subagent {
   margin: 0 0 0.3rem 0.35rem;
   padding: 0.05rem 0.55rem;
   border: 1px solid var(--t-border-subtle);
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
   font-size: 0.68rem;
   color: var(--t-secondary);
 }

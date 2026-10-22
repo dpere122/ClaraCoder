@@ -9,7 +9,7 @@ app-chat-box {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-radius: 1.5rem;
+  border-radius: var(--chat-radius-lg);
   background-color: var(--t-chat-bg, color-mix(in srgb, var(--t-bg-surface) 62%, var(--t-bg)));
   --chat-font-size: 0.9rem;
   /** User bubble width; assistant responses use full transcript width. */
@@ -42,7 +42,7 @@ app-chat-box .chat-box {
   flex: 1;
   overflow-y: auto;
   border: none;
-  border-radius: 1.5rem;
+  border-radius: var(--chat-radius-lg);
   background-color: var(--t-chat-bg, color-mix(in srgb, var(--t-bg-surface) 58%, var(--t-bg)));
   padding: 0.55rem 0.7rem;
 }
@@ -50,6 +50,26 @@ app-chat-box .chat-box {
 app-chat-box .chat-row--assistant,
 app-chat-box .chat-row--user {
   width: 100%;
+}
+
+/* Turn header: who is speaking, plus the user row's restore control. */
+app-chat-box .msg-role {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.45rem;
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+app-chat-box .msg-role--user {
+  margin-bottom: 0.2rem;
+  color: var(--t-secondary);
+}
+
+app-chat-box .msg-role--assistant {
+  color: var(--t-primary);
 }
 
 app-chat-box .chat-row--assistant .msg-bubble,
@@ -66,15 +86,15 @@ app-chat-box .chat-row-mount {
 app-chat-box .msg-bubble {
   font-size: var(--chat-font-size);
   line-height: 1.5;
-  border: 1px solid var(--t-border) !important;
-  border-radius: 0.9rem !important;
+  border: none !important;
+  border-radius: 0 !important;
   width: var(--chat-bubble-width);
   max-width: var(--chat-bubble-width);
   min-width: 0;
   box-sizing: border-box;
   word-break: break-word;
   overflow-wrap: anywhere;
-  padding: 0.7rem 0.85rem 0.75rem;
+  padding: 0.75rem 0.35rem 0.8rem;
 }
 
 app-chat-box .msg-bubble__body {
@@ -84,7 +104,7 @@ app-chat-box .msg-bubble__body {
 app-chat-box .assistant-turn-bubble {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.4rem;
 }
 
 app-chat-box .turn-gen-stats {
@@ -141,20 +161,17 @@ app-chat-box .user-bubble {
 /* Icon-only restore control, revealed when the message is hovered (or focused via keyboard). */
 app-chat-box .msg-restore-btn {
   appearance: none;
-  position: absolute;
-  top: 0.3rem;
-  right: 0.3rem;
-  z-index: 1;
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 1.45rem;
   height: 1.45rem;
   padding: 0;
-  border: 1px solid color-mix(in srgb, var(--t-user-border, var(--t-border)) 55%, transparent);
-  border-radius: 0.45rem !important;
-  background: var(--t-user-bg);
-  color: var(--t-user-fg, var(--t-primary));
+  border: 1px solid transparent;
+  border-radius: var(--chat-radius) !important;
+  background: transparent;
+  color: var(--t-text-muted);
   line-height: 1;
   cursor: pointer;
   opacity: 0;
@@ -169,8 +186,9 @@ app-chat-box .msg-restore-btn:focus-visible {
 }
 
 app-chat-box .msg-restore-btn:hover {
-  background: color-mix(in srgb, var(--t-fg) 11%, var(--t-user-bg));
-  border-color: color-mix(in srgb, var(--t-user-border, var(--t-border)) 80%, transparent);
+  background: var(--t-hover-bg);
+  border-color: var(--t-border-subtle);
+  color: var(--t-fg);
 }
 
 app-chat-box .msg-restore-btn:focus-visible {
@@ -179,9 +197,8 @@ app-chat-box .msg-restore-btn:focus-visible {
 }
 
 app-chat-box .user-bubble {
-  background-color: var(--t-user-bg);
+  background-color: transparent;
   color: var(--t-user-fg, var(--t-primary));
-  border-color: color-mix(in srgb, var(--t-secondary) 42%, var(--t-border)) !important;
 }
 
 app-chat-box .user-attachments {
@@ -194,7 +211,7 @@ app-chat-box .user-attachments {
 app-chat-box .user-attachment-image {
   max-width: 12rem;
   max-height: 12rem;
-  border-radius: 0.55rem !important;
+  border-radius: var(--chat-radius) !important;
   object-fit: contain;
   border: 1px solid var(--t-border);
 }
@@ -205,7 +222,7 @@ app-chat-box .user-attachment-file {
   max-width: 16rem;
   padding: 0.15rem 0.4rem;
   border: 1px solid var(--t-border);
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
   font-size: 0.8rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -236,7 +253,7 @@ app-chat-box .turn-ended-early {
   margin: 0.35rem 0 0.1rem;
   padding: 0.05rem 0.5rem;
   border: 1px solid var(--t-border-subtle);
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
   font-size: 0.68rem;
   color: var(--t-text-muted);
   cursor: default;
@@ -250,10 +267,8 @@ app-chat-box .turn-ended-early--error {
 app-chat-box .assistant-bubble {
   width: var(--chat-response-bubble-width);
   max-width: var(--chat-response-bubble-width);
-  background-color: var(--t-assistant-bg);
+  background-color: transparent;
   color: var(--t-assistant-fg, var(--t-secondary));
-  border-color: color-mix(in srgb, var(--t-assistant-border, var(--t-border-subtle)) 70%, var(--t-border)) !important;
-  padding: 0.8rem 1rem 0.9rem;
 }
 
 /* Block wrapper for rendered markdown (must not use <span>: headings/pre are flow content). */
@@ -303,13 +318,13 @@ app-chat-box .assistant-md {
   padding: 0.15em 0.4em;
   font-size: 0.82em;
   border: 1px solid var(--t-border-subtle);
-  border-radius: 0.35rem !important;
+  border-radius: var(--chat-radius-sm) !important;
 }
 
 .assistant-bubble pre {
   background-color: var(--t-code-bg);
   border: 1px solid var(--t-border-subtle);
-  border-radius: 0.6rem !important;
+  border-radius: var(--chat-radius) !important;
   margin: 0.6em 0;
   padding: 0;
   overflow: hidden;
@@ -515,6 +530,10 @@ app-chat-box .streaming-bubble {
   gap: 0;
 }
 
+app-chat-box .streaming-bubble > .msg-role {
+  margin-bottom: 0.4rem;
+}
+
 app-chat-box .streaming-primary-plain {
   margin-bottom: 0.5rem;
   line-height: 1.5;
@@ -535,7 +554,7 @@ app-chat-box .streaming-delegated {
 
 app-chat-box .streaming-delegated-block {
   border: 1px solid var(--t-border-subtle);
-  border-radius: 0.7rem !important;
+  border-radius: var(--chat-radius) !important;
   background: color-mix(in srgb, var(--t-surface-2) 80%, transparent);
   overflow: hidden;
 }
@@ -751,7 +770,7 @@ app-chat-box .processing-text--tools .processing-text__letter {
 app-chat-box .llm-reasoning-panel {
   margin-top: 0.15rem;
   border: 1px solid var(--t-border-subtle);
-  border-radius: 0.7rem !important;
+  border-radius: var(--chat-radius) !important;
   background: color-mix(in srgb, var(--t-assistant-bg) 88%, var(--t-primary) 12%);
   padding: 0.35rem 0.5rem 0.5rem;
   max-width: 100%;
@@ -786,7 +805,7 @@ app-chat-box .llm-reasoning-body {
   word-break: break-word;
   max-height: 16rem;
   overflow: auto;
-  border-radius: 0.5rem !important;
+  border-radius: var(--chat-radius) !important;
   background: color-mix(in srgb, var(--t-bg) 75%, transparent);
   border: 1px solid var(--t-border-subtle);
 }

@@ -79,16 +79,17 @@ app-stream-turn-feed .stream-turn-feed__preview {
 }
 
 app-stream-turn-feed .stream-turn-feed__tool-queue {
-  flex: 0 1 auto;
+  flex: 1 1 100%;
+  min-width: 0;
   max-width: 100%;
 }
 
 app-stream-turn-feed .stream-turn-feed__preview-inner {
   min-height: min-content;
   overflow: hidden;
-  border: 1px solid var(--t-border);
-  border-radius: 0.85rem !important;
-  background: color-mix(in srgb, var(--t-bg-surface) 88%, var(--t-panel) 12%);
+  border: none;
+  border-radius: var(--chat-radius) !important;
+  background: var(--t-code-bg);
 }
 
 app-stream-turn-feed .stream-turn-feed__preview-header {
@@ -183,9 +184,7 @@ app-stream-turn-feed app-tool-pill-group.stream-turn-feed__settle > .tool-pill-g
 
 @keyframes stream-turn-feed-settle-glow {
   from {
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--t-glow-soft) 65%, transparent),
-      0 0 12px color-mix(in srgb, var(--t-glow) 38%, transparent);
+    background: var(--t-active-bg, var(--t-hover-bg));
   }
 }
 

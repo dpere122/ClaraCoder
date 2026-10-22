@@ -1,5 +1,5 @@
 .delete-card {
-  border-radius: 1rem !important;
+  border-radius: var(--chat-radius) !important;
   overflow: hidden;
 }
 

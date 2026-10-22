@@ -4,9 +4,9 @@
 }
 
 .delegated-shell-terminal-wrap .terminal-shell {
-  border: 1px solid color-mix(in srgb, var(--t-border-subtle) 55%, transparent);
-  border-radius: 0.35rem;
-  background: linear-gradient(180deg, var(--t-bg-deep), var(--t-code-bg));
+  border: none;
+  border-radius: var(--chat-radius);
+  background: var(--t-code-bg);
 }
 
 .delegated-shell-terminal-wrap--preview .terminal-shell-body {

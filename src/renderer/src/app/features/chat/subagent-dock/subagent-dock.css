@@ -47,7 +47,7 @@ app-subagent-dock .subagent-dock__stop-all {
   margin-bottom: 0.2rem;
   padding: 0.08rem 0.55rem;
   border: 1px solid color-mix(in srgb, #e05050 55%, var(--t-border));
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
   background: transparent;
   color: #e05050;
   font-family: inherit;
@@ -117,7 +117,7 @@ app-subagent-dock .subagent-dock__list {
 app-subagent-dock .subagent-card {
   padding: 0.45rem 0.65rem 0.5rem;
   border: 1px solid var(--t-border-subtle, var(--t-border));
-  border-radius: 0.85rem !important;
+  border-radius: var(--chat-radius) !important;
   background: var(--t-bg-surface, var(--t-bg));
   cursor: pointer;
   transition: border-color 0.12s ease, background-color 0.12s ease;
@@ -165,7 +165,7 @@ app-subagent-dock .subagent-card__state {
   flex-shrink: 0;
   padding: 0.02rem 0.45rem;
   border: 1px solid var(--t-border-subtle, var(--t-border));
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
   font-size: 0.66rem;
   color: var(--t-secondary);
 }
@@ -192,7 +192,7 @@ app-subagent-dock .subagent-card__btn {
   height: 1.45rem;
   padding: 0;
   border: 1px solid var(--t-border-subtle, var(--t-border));
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
   background: transparent;
   color: var(--t-secondary);
   cursor: pointer;

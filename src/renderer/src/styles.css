@@ -46,11 +46,18 @@ lucide-icon svg {
   --bs-link-hover-color: var(--t-primary);
 }
 
+/* Corner scale for the chat area (transcript, tool rows, review cards, composer): flat IDE-style turns. */
+:root {
+  --chat-radius-sm: 3px;
+  --chat-radius: 4px;
+  --chat-radius-lg: 6px;
+}
+
 * {
   border-radius: 0 !important;
 }
 
-/* Chat chips and the live thought preview keep rounded chrome. */
+/* Chat chips and controls: small square-ish corners, not pills. */
 app-stream-tool-pill .stream-tool-pill,
 .chat-context-chip,
 .chat-context-chip-pin,
@@ -58,11 +65,17 @@ app-stream-tool-pill .stream-tool-pill,
 .chat-context-chip-thumb,
 .user-attachment-file,
 .composer-prompt,
-.tcd-btn,
 app-message-box .composer-prompt,
 app-message-box .composer-toggle-chips,
 app-message-box .composer-chip,
 app-message-box .btn-abort,
+app-message-box app-pill-select .pill-select__trigger,
+app-message-box app-pill-select .pill-select__option,
+app-message-box app-pill-select .pill-select__menu {
+  border-radius: var(--chat-radius) !important;
+}
+
+.tcd-btn,
 .main-panel-empty__cta,
 .main-panel-empty__recents-scroll::-webkit-scrollbar-thumb,
 .main-panel-empty__recents-scroll::-webkit-scrollbar-track {
@@ -78,7 +91,7 @@ app-message-box .btn-abort,
 .diff-card.border,
 .diff-card--in-expand,
 .staged-batch-card {
-  border-radius: 1rem !important;
+  border-radius: var(--chat-radius) !important;
   overflow: hidden;
 }
 
@@ -92,16 +105,24 @@ app-message-box .btn-abort,
 .copy-card .badge,
 .plan-confirm-card .badge,
 .diff-card .badge {
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius-sm) !important;
 }
 
 app-stream-thought-pill .stream-thought-preview__inner,
 app-stream-nudge-pill .stream-nudge-preview__inner,
-.main-panel-empty__recents-frame,
-app-chat-box .msg-bubble,
 app-chat-box .llm-reasoning-panel,
 app-chat-box .streaming-delegated-block,
 app-planner-checklist .plan-panel,
+app-chat-box .msg-restore-btn {
+  border-radius: var(--chat-radius) !important;
+}
+
+/* Flat turns: messages are rows on the transcript, not cards. */
+app-chat-box .msg-bubble {
+  border-radius: 0 !important;
+}
+
+.main-panel-empty__recents-frame,
 app-conversation-manager .conv-context-menu {
   border-radius: 0.85rem !important;
 }
@@ -109,11 +130,7 @@ app-conversation-manager .conv-context-menu {
 /* Chat transcript panel matches the composer card. */
 html app-chat-box,
 html app-chat-box .chat-box {
-  border-radius: 1.5rem !important;
-}
-
-app-chat-box .msg-restore-btn {
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius-lg) !important;
 }
 
 .main-panel-empty__recent {
@@ -673,17 +690,6 @@ html .chat-box {
   border: none;
   background-color: var(--t-chat-bg, color-mix(in srgb, var(--t-bg-surface) 62%, var(--t-bg)));
 }
-html .msg-bubble,
-html .user-bubble,
-html .assistant-bubble {
-  border: 1px solid var(--t-border) !important;
-}
-html .user-bubble {
-  border-color: color-mix(in srgb, var(--t-secondary) 42%, var(--t-border)) !important;
-}
-html .assistant-bubble {
-  border-color: color-mix(in srgb, var(--t-assistant-border) 70%, var(--t-border)) !important;
-}
 html .assistant-bubble h1,
 html .assistant-bubble h2,
 html .assistant-bubble h3,
@@ -721,8 +727,7 @@ html .streaming-cursor {
 }
 html app-stream-thought-pill .stream-thought-preview__inner,
 html app-stream-nudge-pill .stream-nudge-preview__inner {
-  background: color-mix(in srgb, var(--t-bg-surface) 78%, var(--t-panel) 22%);
-  border-color: var(--t-border);
+  background: var(--t-code-bg);
 }
 html app-stream-thought-pill .stream-thought-preview__header,
 html app-stream-nudge-pill .stream-nudge-preview__header {
@@ -755,7 +760,7 @@ html .end-script-btn:hover {
   background: var(--t-active-bg);
 }
 
-/* ── Rounded chat transcript ── */
+/* ── Flat chat transcript (IDE-style turns) ── */
 html app-chat-box,
 html app-chat-box.chat-layout-sidebar {
   --chat-bubble-width: 100%;
@@ -773,11 +778,11 @@ html app-chat-box .chat-box {
   padding: 0.55rem 0.7rem;
   width: 100%;
   max-width: 100%;
-  border-radius: 1.5rem !important;
+  border-radius: var(--chat-radius-lg) !important;
 }
 
 html app-chat-box .chat-row {
-  margin-bottom: 0.55rem !important;
+  margin-bottom: 0 !important;
   width: 100%;
 }
 
@@ -797,26 +802,21 @@ html app-chat-box .assistant-turn-bubble {
 }
 
 html app-chat-box .msg-bubble {
-  border: 1px solid var(--t-border) !important;
-  border-radius: 0.9rem !important;
+  border-radius: 0 !important;
   margin: 0;
-  padding: 0.7rem 0.85rem 0.75rem;
+  padding: 0.75rem 0.35rem 0.8rem;
   width: 100%;
   max-width: 100%;
   box-shadow: none;
+  background-color: transparent;
 }
 
 html app-chat-box .user-bubble {
-  background-color: var(--t-user-bg);
   color: var(--t-user-fg);
-  border-color: color-mix(in srgb, var(--t-secondary) 42%, var(--t-border)) !important;
 }
 
 html app-chat-box .assistant-bubble {
-  background-color: var(--t-assistant-bg);
   color: var(--t-assistant-fg);
-  border-color: color-mix(in srgb, var(--t-assistant-border) 70%, var(--t-border)) !important;
-  padding: 0.8rem 1rem 0.9rem;
 }
 
 html app-chat-box .user-bubble::before,
@@ -827,12 +827,12 @@ html app-chat-box .msg-bubble::after {
 }
 
 html app-chat-box .user-attachment-image {
-  border-radius: 0.55rem !important;
+  border-radius: var(--chat-radius) !important;
   border: 1px solid var(--t-border-subtle);
 }
 
 html app-chat-box .user-attachment-file {
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
   border: 1px solid var(--t-border-subtle);
 }
 
@@ -861,13 +861,13 @@ html app-chat-box .assistant-bubble p {
 
 html app-chat-box .assistant-bubble code {
   border: none;
-  border-radius: 0.35rem !important;
+  border-radius: var(--chat-radius-sm) !important;
   padding: 0.05em 0.2em;
 }
 
 html app-chat-box .assistant-bubble pre {
   border: 1px solid var(--t-border-subtle);
-  border-radius: 0.6rem !important;
+  border-radius: var(--chat-radius) !important;
   margin: 0.35em 0;
   padding: 0.15rem 0.25rem;
 }
@@ -875,7 +875,7 @@ html app-chat-box .assistant-bubble pre {
 html app-chat-box .assistant-bubble blockquote {
   border: none;
   border-left: 3px solid var(--t-assistant-border, var(--t-border));
-  border-radius: 0.4rem !important;
+  border-radius: 0 !important;
   background: color-mix(in srgb, var(--t-hover-bg) 70%, transparent);
   margin: 0.25em 0;
   padding: 0.2rem 0.55rem;
@@ -919,7 +919,7 @@ html .chat-active-stack__composer-input {
 
 html app-chat-box .llm-reasoning-panel {
   border: 1px solid var(--t-border-subtle);
-  border-radius: 0.7rem !important;
+  border-radius: var(--chat-radius) !important;
   margin-top: 0.2rem;
   padding: 0.35rem 0.5rem;
   background-color: color-mix(in srgb, var(--t-tui-clara-frame) 6%, transparent);
@@ -946,7 +946,7 @@ html app-message-box .composer-prompt {
   padding: 0.2rem 0.45rem;
   min-width: 1.5rem;
   min-height: 1.5rem;
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
   color: var(--t-tui-user-frame);
   font-family: var(--t-font);
   font-size: 0.95rem;
@@ -976,7 +976,7 @@ html app-message-box .composer-prompt--active:hover {
 html app-message-box .composer-entry-row {
   background-color: transparent;
   border: 1px solid color-mix(in srgb, var(--t-secondary) 30%, transparent);
-  border-radius: 1rem;
+  border-radius: var(--chat-radius);
   padding: 0.12rem 0.2rem;
   min-height: 2rem;
 }
@@ -1034,14 +1034,14 @@ html app-message-box .composer-entry-row .composer-prompt {
   padding: 0.2rem 0.45rem;
   min-width: 1.5rem;
   min-height: 1.5rem;
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
 }
 
 html app-message-box .composer-entry-row .btn-abort {
   padding: 0.2rem 0.6rem;
   min-width: 2.15rem;
   min-height: 1.6rem;
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
 }
 
 html app-message-box .composer-entry-row .btn-voice:hover:not(:disabled),
@@ -1129,37 +1129,43 @@ html .chat-active-stack__status * {
 }
 
 html .chat-active-stack__composer app-message-box {
-  border: 2px solid color-mix(in srgb, var(--t-secondary) 65%, var(--t-border)) !important;
-  border-radius: 1.5rem !important;
-  box-shadow:
-    0 2px 14px color-mix(in srgb, var(--t-glow) 26%, transparent),
-    0 1px 4px rgba(0, 0, 0, 0.4) !important;
+  border: 1px solid var(--t-border) !important;
+  border-radius: var(--chat-radius-lg) !important;
+  box-shadow: none !important;
 }
 
 html app-message-box .composer-entry-row {
   border: 1px solid color-mix(in srgb, var(--t-secondary) 30%, transparent) !important;
-  border-radius: 1rem !important;
+  border-radius: var(--chat-radius) !important;
 }
 
 html app-message-box .composer-entry-row .btn-send {
   border: none !important;
-  border-radius: 1rem !important;
+  border-radius: var(--chat-radius-sm) !important;
 }
 
 html app-message-box .composer-entry-row .btn-abort {
   border: none !important;
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius-sm) !important;
 }
 
 html app-message-box .composer-entry-row .composer-prompt,
 html app-message-box .composer-entry-row .composer-prompt:hover,
 html app-message-box .composer-entry-row .composer-prompt--active {
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
 }
 
-html app-chat-box app-stream-thought-pill .stream-thought-preview__inner,
-html app-chat-box app-stream-nudge-pill .stream-nudge-preview__inner {
-  border: 1px solid var(--t-border) !important;
+/* The only rules in the transcript allowed past the border strip above: turn dividers and the edits rule. */
+html app-chat-box .chat-row {
+  border-top: 1px solid var(--t-border-subtle) !important;
+}
+
+html app-chat-box .chat-row-mount[data-chat-row='0'] .chat-row {
+  border-top: none !important;
+}
+
+html app-chat-box app-turn-edits-footer .turn-edits {
+  border-top: 1px dashed var(--t-border-subtle) !important;
 }
 
 @media (max-width: 1100px) {

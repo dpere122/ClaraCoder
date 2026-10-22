@@ -1,4 +1,4 @@
-/* Shared HITL action buttons — bevel style from plan-panel Run plan control. */
+/* Shared HITL action buttons: flat, small-cornered, matching the IDE-style chat rows. */
 
 .hitl-btn {
   --hitl-btn: var(--t-secondary);
@@ -13,15 +13,13 @@
   line-height: 1.2;
   padding: 0.2rem 0.7rem;
   border: 1px solid transparent;
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
   cursor: pointer;
   text-decoration: none;
   transition:
     background 0.12s ease,
     border-color 0.12s ease,
     color 0.12s ease,
-    box-shadow 0.12s ease,
-    transform 0.12s ease,
     opacity 0.15s ease;
 }
 
@@ -30,39 +28,23 @@
   cursor: not-allowed;
 }
 
-/* Outline (not box-shadow) so the bevel halo survives keyboard focus. */
+/* Outline (not box-shadow) so focus shows on every variant. */
 .hitl-btn:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--hitl-btn, var(--t-secondary)) 75%, white 25%);
   outline-offset: 2px;
 }
 
-/* Filled family: bright face, hard bevel, coloured halo so decisions read at a glance. */
+/* Filled family: flat solid face in the decision colour, so decisions read at a glance. */
 .hitl-btn--primary,
 .hitl-btn--success,
 .hitl-btn--danger,
 .hitl-btn--accent {
   color: var(--t-bg);
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--hitl-btn) 70%, white 30%) 0%,
-    color-mix(in srgb, var(--hitl-btn) 96%, white 4%) 48%,
-    color-mix(in srgb, var(--hitl-btn) 74%, black 26%) 100%
-  );
-  border-style: solid;
-  border-width: 1px;
-  border-top-color: color-mix(in srgb, var(--hitl-btn) 35%, var(--t-edge-light, #fff));
-  border-left-color: color-mix(in srgb, var(--hitl-btn) 32%, var(--t-edge-light, #fff));
-  border-right-color: color-mix(in srgb, var(--hitl-btn) 45%, var(--t-edge-darkest, #000));
-  border-bottom-color: color-mix(in srgb, var(--hitl-btn) 55%, var(--t-edge-darkest, #000));
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 40%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, black 26%, transparent),
-    0 2px 0 color-mix(in srgb, var(--t-edge-darkest, #000) 58%, transparent),
-    0 0 0 1px color-mix(in srgb, var(--hitl-btn) 30%, transparent),
-    0 3px 9px color-mix(in srgb, var(--hitl-btn) 24%, transparent);
-  text-shadow: 0 1px 0 color-mix(in srgb, black 30%, transparent);
+  font-weight: 600;
+  background: var(--hitl-btn);
+  border-color: var(--hitl-btn);
+  box-shadow: none;
+  text-shadow: none;
 }
 
 /* Proceed actions share the confirm green; `--hitl-btn-accent` lets a card override (plan panel). */
@@ -88,50 +70,16 @@
 .hitl-btn--success:hover:not(:disabled),
 .hitl-btn--danger:hover:not(:disabled),
 .hitl-btn--accent:hover:not(:disabled) {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--hitl-btn) 62%, white 38%) 0%,
-    color-mix(in srgb, var(--hitl-btn) 88%, white 12%) 45%,
-    color-mix(in srgb, var(--hitl-btn) 70%, black 20%) 100%
-  );
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 48%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, black 18%, transparent),
-    0 3px 0 color-mix(in srgb, var(--t-edge-darkest, #000) 58%, transparent),
-    0 0 0 1px color-mix(in srgb, var(--hitl-btn) 42%, transparent),
-    0 4px 13px color-mix(in srgb, var(--hitl-btn) 34%, transparent);
-  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--hitl-btn) 86%, white 14%);
+  border-color: color-mix(in srgb, var(--hitl-btn) 86%, white 14%);
 }
 
 .hitl-btn--primary:active:not(:disabled),
 .hitl-btn--success:active:not(:disabled),
 .hitl-btn--danger:active:not(:disabled),
 .hitl-btn--accent:active:not(:disabled) {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--hitl-btn) 65%, black 22%) 0%,
-    color-mix(in srgb, var(--hitl-btn) 78%, black 12%) 100%
-  );
-  border-top-color: color-mix(in srgb, var(--hitl-btn) 45%, var(--t-edge-darkest, #000));
-  border-left-color: color-mix(in srgb, var(--hitl-btn) 45%, var(--t-edge-darkest, #000));
-  border-right-color: color-mix(in srgb, var(--hitl-btn) 35%, var(--t-edge-light, #fff));
-  border-bottom-color: color-mix(in srgb, var(--hitl-btn) 30%, var(--t-edge-light, #fff));
-  box-shadow:
-    inset 0 2px 5px color-mix(in srgb, black 38%, transparent),
-    inset 0 1px 0 color-mix(in srgb, black 22%, transparent),
-    0 0 0 transparent;
-  transform: translateY(2px);
-  text-shadow: none;
-}
-
-.hitl-btn--primary:disabled,
-.hitl-btn--success:disabled,
-.hitl-btn--danger:disabled,
-.hitl-btn--accent:disabled {
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 12%, transparent),
-    0 1px 0 color-mix(in srgb, var(--t-edge-darkest, #000) 30%, transparent);
-  transform: none;
+  background: color-mix(in srgb, var(--hitl-btn) 82%, black 18%);
+  border-color: color-mix(in srgb, var(--hitl-btn) 82%, black 18%);
 }
 
 /* Quiet options (skip, keep reviewing, copy): readable but never competing with the filled pair. */

@@ -16,10 +16,10 @@
 }
 
 .ws-list__label {
-  margin: 4px 2px 0;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  margin: 8px 6px 2px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--t-muted);
 }
@@ -36,9 +36,8 @@
   min-height: 0;
   padding: 0;
   border: none;
-  border-left: 1px solid color-mix(in srgb, var(--t-border) 70%, transparent);
-  background: color-mix(in srgb, var(--t-bg) 60%, transparent);
-  color: var(--t-muted);
+  background: transparent;
+  color: var(--t-text-muted, var(--t-muted));
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -96,12 +95,9 @@
 }
 
 .ws-detail__fields dt {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--t-muted);
-  padding-top: 2px;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--t-text-muted, var(--t-muted));
 }
 
 .ws-detail__fields dd {

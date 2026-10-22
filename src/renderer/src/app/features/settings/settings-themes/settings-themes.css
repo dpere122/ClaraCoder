@@ -1,4 +1,8 @@
-/* Settings → Themes pane and its sub-components (ViewEncapsulation.None, shared prefixes). */
+/*
+ * Settings → Themes pane and its sub-components (ViewEncapsulation.None, shared prefixes).
+ * IDE flat: lists are hairline rows with hover/selection fills; text fields sit on the deep
+ * background; headings are plain text and the accent marks state (set tokens, links).
+ */
 
 .settings-pane--themes {
   display: flex;
@@ -31,7 +35,8 @@
 }
 
 .themes-context__name {
-  color: var(--t-primary);
+  font-weight: 500;
+  color: var(--t-fg);
 }
 
 .themes-context__id,
@@ -54,11 +59,9 @@
 
 .themes-section__header h5 {
   margin: 0 0 2px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--t-primary);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--t-fg);
 }
 
 .themes-section__header .settings-copy {
@@ -102,8 +105,8 @@
   font-family: var(--t-font-mono);
   font-size: 12px;
   line-height: 1.45;
-  border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
-  background: color-mix(in srgb, var(--t-bg) 70%, var(--t-bg-surface));
+  border: 1px solid var(--t-border);
+  background: var(--t-bg-deep);
   color: var(--t-fg);
   resize: vertical;
 }
@@ -111,7 +114,7 @@
 .themes-json:focus,
 .tgp__css:focus {
   outline: none;
-  border-color: color-mix(in srgb, var(--t-primary) 75%, transparent);
+  border-color: var(--t-primary);
 }
 
 /* ── Token editor ── */
@@ -127,7 +130,7 @@
   gap: 6px 14px;
   align-items: center;
   padding: 7px 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--t-border-subtle) 70%, transparent);
+  border-bottom: 1px solid var(--t-border-subtle);
 }
 
 .tte--dense .tte__row {
@@ -146,8 +149,8 @@
 }
 
 .tte__label {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 12.5px;
+  font-weight: 500;
   color: var(--t-fg);
 }
 
@@ -205,14 +208,14 @@
   font: inherit;
   font-family: var(--t-font-mono);
   font-size: 12px;
-  border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
-  background: color-mix(in srgb, var(--t-bg) 70%, var(--t-bg-surface));
+  border: 1px solid var(--t-border);
+  background: var(--t-bg-deep);
   color: var(--t-fg);
 }
 
 .tte__text:focus {
   outline: none;
-  border-color: color-mix(in srgb, var(--t-primary) 75%, transparent);
+  border-color: var(--t-primary);
 }
 
 .tte__text:disabled {
@@ -226,35 +229,31 @@
   border: none;
   background: none;
   font: inherit;
-  font-size: 11px;
-  color: var(--t-secondary);
+  font-size: 12px;
+  color: var(--t-primary);
   cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration: none;
 }
 
 .tte__reset:hover,
 .tgp__link:hover {
-  color: var(--t-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .tte__inherited {
   flex-shrink: 0;
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 11px;
   color: var(--t-text-muted);
 }
 
 /* ── Group panel ── */
 
+/* Element group: a collapsible row on a hairline; its pill says when it is customized. */
 .tgp {
-  border: 1px solid var(--t-border-subtle);
-  background: color-mix(in srgb, var(--t-bg-surface) 55%, var(--t-bg));
-}
-
-.tgp--customized {
-  border-color: color-mix(in srgb, var(--t-primary) 45%, var(--t-border));
+  border: none;
+  border-bottom: 1px solid var(--t-border-subtle);
+  background: transparent;
 }
 
 .tgp__header {
@@ -263,7 +262,7 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 9px 12px;
+  padding: 7px 8px;
   border: none;
   background: transparent;
   color: var(--t-fg);
@@ -282,8 +281,8 @@
 }
 
 .tgp__title {
-  font-weight: 700;
-  color: var(--t-primary);
+  font-weight: 500;
+  color: var(--t-fg);
 }
 
 .tgp__pill {
@@ -301,8 +300,8 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 4px 12px 14px;
-  border-top: 1px solid var(--t-border-subtle);
+  padding: 4px 8px 14px 28px;
+  border-top: none;
 }
 
 .tgp__section {
@@ -315,10 +314,10 @@
 .tmp__section-title {
   margin: 8px 0 0;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--t-secondary);
+  color: var(--t-text-muted);
 }
 
 .tgp__section .settings-copy {
@@ -367,7 +366,7 @@
 }
 
 .tgp__bg-controls .field span {
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .tgp__asset-row {
@@ -410,31 +409,30 @@
 .tll__status {
   margin: 0;
   font-size: 12px;
-  color: var(--t-secondary);
+  color: var(--t-text-muted);
 }
 
 .tll__scroll {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 1px;
   max-height: min(60vh, 560px);
   overflow-y: auto;
   padding-right: 4px;
 }
 
 .tll__section-label {
-  margin: 8px 0 2px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  margin: 10px 0 3px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--t-text-muted);
 }
 
 .tll__empty {
   margin: 0;
-  padding: 10px 12px;
-  border: 1px dashed var(--t-border-subtle);
+  padding: 6px 8px;
 }
 
 .tll__item {
@@ -443,9 +441,9 @@
   gap: 12px;
   align-items: center;
   width: 100%;
-  padding: 9px 12px;
-  border: 1px solid var(--t-border-subtle);
-  background: color-mix(in srgb, var(--t-bg-surface) 55%, var(--t-bg));
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
   color: var(--t-fg);
   font: inherit;
   text-align: left;
@@ -453,12 +451,10 @@
 }
 
 .tll__item:hover {
-  border-color: color-mix(in srgb, var(--t-primary) 45%, var(--t-border));
   background: var(--t-hover-bg);
 }
 
 .tll__item--selected {
-  border-color: var(--t-primary);
   background: var(--t-active-bg);
 }
 
@@ -468,8 +464,8 @@
 }
 
 .tll__swatch {
-  width: 14px;
-  height: 26px;
+  width: 12px;
+  height: 22px;
   border: 1px solid color-mix(in srgb, var(--t-edge-darkest) 40%, transparent);
 }
 
@@ -481,8 +477,8 @@
 }
 
 .tll__name {
-  font-weight: 700;
-  color: var(--t-primary);
+  font-weight: 500;
+  color: var(--t-fg);
 }
 
 .tll__meta {
@@ -534,7 +530,7 @@
   gap: 6px 14px;
   align-items: center;
   padding: 5px 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--t-border-subtle) 70%, transparent);
+  border-bottom: 1px solid var(--t-border-subtle);
 }
 
 .tmp__row:last-of-type {
@@ -548,8 +544,8 @@
 }
 
 .tmp__label {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 12.5px;
+  font-weight: 500;
 }
 
 .tmp__control {
@@ -563,8 +559,8 @@
   padding: 4px 6px;
   font: inherit;
   font-size: 12px;
-  border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
-  background: color-mix(in srgb, var(--t-bg) 70%, var(--t-bg-surface));
+  border: 1px solid var(--t-border);
+  background: var(--t-bg-deep);
   color: var(--t-fg);
 }
 

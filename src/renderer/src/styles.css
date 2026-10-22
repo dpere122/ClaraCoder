@@ -247,6 +247,45 @@ app-pill-select .pill-select__option,
   border-radius: var(--chat-radius-sm) !important;
 }
 
+/* Settings window (IDE flat): small corners on controls and rows, smaller still on badges. */
+.settings-window .field input:not([type='checkbox']):not([type='radio']):not([type='range']),
+.settings-window .field select,
+.settings-window .field textarea,
+.settings-window .action-button,
+.settings-window .tab-button,
+.settings-window .source-row-wrap,
+.settings-window .connection-card,
+.settings-window .models-sources,
+.settings-window .models-sources__add,
+.settings-window .hf-filters-panel,
+.settings-window .hf-filter-chip,
+.settings-window .model-hf-pager__page,
+.settings-window .model-manager-actions--search input,
+.settings-window .model-manager-accordion > summary,
+.settings-window .model-card__header-btn,
+.settings-window .model-quant-row,
+.settings-window .lm-loaded-card,
+.settings-window .cache-location-loading,
+.settings-window .settings-voice-device-select,
+.settings-window .settings-voice-threshold button,
+.settings-window .tll__item,
+.settings-window .tgp__header,
+.settings-window .tte__text,
+.settings-window .themes-json,
+.settings-window .tgp__css,
+.settings-window .tmp__style,
+.settings-window .ws-row__star {
+  border-radius: var(--chat-radius) !important;
+}
+
+.settings-window .pill,
+.settings-window .section-count,
+.settings-window .models-sources__count,
+.settings-window .settings-field-hint code,
+.settings-window .source-row__remove {
+  border-radius: var(--chat-radius-sm) !important;
+}
+
 /* Floating markdown Edit | Preview pill over the Monaco editor. */
 app-workspace-monaco .workspace-monaco-md-toggle,
 app-workspace-monaco .workspace-monaco-md-toggle__btn {
@@ -674,14 +713,10 @@ html .terminal-shell .output-pre.terminal-output {
 }
 
 /* ── Flat divider layout (baseline for every theme) ─ */
-html .settings-nav,
 html .connection-card,
 html .workspace-card {
   border: none;
   box-shadow: none;
-}
-html .settings-nav {
-  border-bottom: 1px solid var(--t-border);
 }
 html .connection-card,
 html .workspace-card__body {
@@ -692,23 +727,6 @@ html .workspace-card__body {
 html .connection-card:last-child,
 html .workspace-card:last-child .workspace-card__body {
   border-bottom: none;
-}
-html .tab-button {
-  border: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-html .tab-button:hover,
-html .tab-button.is-active {
-  border: none;
-  border-bottom: 1px solid var(--t-primary);
-  background: color-mix(in srgb, var(--t-primary) 10%, var(--t-bg));
-  transform: none;
-}
-html .settings-overview {
-  border-bottom: 1px solid var(--t-border);
-}
-html .settings-footer {
-  border-top: 1px solid var(--t-border);
 }
 html .form-section + .settings-divider {
   border-color: var(--t-border-subtle);
@@ -1182,9 +1200,4 @@ html app-chat-box app-tool-pill-group .tool-pill-group__members {
   border-left: 1px solid color-mix(in srgb, var(--t-primary) 30%, var(--t-border-subtle)) !important;
 }
 
-@media (max-width: 1100px) {
-  html .settings-nav {
-    border-bottom: 1px solid var(--t-border);
-    border-right: none;
-  }
-}
+

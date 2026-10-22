@@ -29,7 +29,15 @@ import { ThemedPromptDialogService } from './themed-prompt-dialog.service';
           [attr.aria-labelledby]="'tpd-title'"
           (click)="$event.stopPropagation()"
         >
-          <h2 class="tpd-title" id="tpd-title">{{ req.title }}</h2>
+          <div class="tpd-header">
+            <h2 class="tpd-title" id="tpd-title">{{ req.title }}</h2>
+            <button type="button" class="tpd-close" aria-label="Close" title="Close" (click)="onCancel()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                <path d="M18 6 6 18" />
+                <path d="m6 6 12 12" />
+              </svg>
+            </button>
+          </div>
           @if (req.message?.trim()) {
             <p class="tpd-message">{{ req.message }}</p>
           }
@@ -64,6 +72,7 @@ import { ThemedPromptDialogService } from './themed-prompt-dialog.service';
       </div>
     }
   `,
+  /* Same flat IDE dialog as the confirm dialog, with one text field above the buttons. */
   styles: `
     :host {
       display: contents;
@@ -78,17 +87,14 @@ import { ThemedPromptDialogService } from './themed-prompt-dialog.service';
       justify-content: center;
       padding: 1.5rem;
       box-sizing: border-box;
-      background: color-mix(in srgb, var(--t-bg-deep, #020402) 78%, transparent);
-      backdrop-filter: blur(3px);
-      -webkit-backdrop-filter: blur(3px);
+      background: color-mix(in srgb, var(--t-bg-deep, #020402) 72%, transparent);
     }
 
     .tpd-panel {
-      width: min(28rem, 100%);
+      width: min(26rem, 100%);
       max-height: min(80vh, 100%);
       overflow: auto;
-      padding: 1.25rem 1.35rem 1.15rem;
-      border-radius: 8px;
+      box-sizing: border-box;
       border: 1px solid var(--t-border, #00ff4133);
       background: var(--t-bg-surface, #0d1a0d);
       color: var(--t-fg, #00ff41);
@@ -96,51 +102,78 @@ import { ThemedPromptDialogService } from './themed-prompt-dialog.service';
       font-family: var(--t-font-mono, monospace);
     }
 
+    .tpd-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.6rem 0.5rem 0.35rem 0.9rem;
+    }
+
     .tpd-title {
-      margin: 0 0 0.65rem;
-      font-size: 1rem;
+      flex: 1;
+      min-width: 0;
+      margin: 0;
+      font-size: 0.85rem;
       font-weight: 600;
-      letter-spacing: 0.02em;
+      color: var(--t-fg, #00ff41);
+    }
+
+    .tpd-close {
+      display: inline-grid;
+      flex-shrink: 0;
+      place-items: center;
+      width: 1.55rem;
+      height: 1.55rem;
+      padding: 0;
+      border: none;
+      background: transparent;
+      color: var(--t-text-muted, #00ff4155);
+      cursor: pointer;
+    }
+
+    .tpd-close:hover {
+      background: var(--t-hover-bg, #00ff4115);
       color: var(--t-fg, #00ff41);
     }
 
     .tpd-message {
-      margin: 0 0 0.75rem;
-      font-size: 0.82rem;
-      line-height: 1.45;
-      color: color-mix(in srgb, var(--t-fg, #00ff41) 92%, transparent);
+      margin: 0;
+      padding: 0 0.9rem 0.6rem;
+      font-size: 0.78rem;
+      line-height: 1.5;
+      color: var(--t-text-muted, #00ff4199);
     }
 
     .tpd-input {
-      width: 100%;
+      display: block;
+      width: calc(100% - 1.8rem);
       box-sizing: border-box;
-      margin: 0 0 1rem;
-      padding: 0.5rem 0.6rem;
-      border-radius: 4px;
-      border: 1px solid var(--t-border-subtle, #00ff4122);
+      margin: 0 0.9rem;
+      height: 1.75rem;
+      padding: 0 0.6rem;
+      border: 1px solid var(--t-border, #00ff4133);
       background: var(--t-bg-deep, #060a06);
       color: var(--t-fg, #00ff41);
       font-family: inherit;
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       outline: none;
     }
 
     .tpd-input:focus {
-      border-color: color-mix(in srgb, var(--t-primary, #00ff41) 65%, transparent);
-      box-shadow: 0 0 0 2px color-mix(in srgb, var(--t-primary, #00ff41) 22%, transparent);
+      border-color: var(--t-primary, #00ff41);
     }
 
     .tpd-actions {
       display: flex;
       flex-wrap: wrap;
       justify-content: flex-end;
-      gap: 0.5rem;
+      gap: 0.4rem;
+      padding: 0.75rem 0.9rem 0.8rem;
     }
 
     .tpd-btn {
-      min-width: 6.5rem;
-      padding: 0.4rem 0.85rem;
-      border-radius: 4px;
+      min-height: 1.65rem;
+      padding: 0 0.8rem;
       font-size: 0.78rem;
       font-family: inherit;
       cursor: pointer;
@@ -151,36 +184,40 @@ import { ThemedPromptDialogService } from './themed-prompt-dialog.service';
         color 0.12s ease;
     }
 
-    .tpd-btn--secondary {
-      background: transparent;
-      border-color: var(--t-border-subtle, #00ff4122);
-      color: color-mix(in srgb, var(--t-fg, #00ff41) 85%, transparent);
+    .tpd-btn:focus-visible {
+      outline: 1px solid var(--t-primary, #00ff41);
+      outline-offset: 1px;
     }
 
-    .tpd-btn--secondary:hover {
-      background: var(--t-hover-bg, #00ff4115);
+    .tpd-btn--secondary {
+      background: transparent;
       border-color: var(--t-border, #00ff4133);
       color: var(--t-fg, #00ff41);
     }
 
+    .tpd-btn--secondary:hover {
+      background: var(--t-hover-bg, #00ff4115);
+    }
+
     .tpd-btn--primary {
-      background: color-mix(in srgb, var(--t-primary, #00ff41) 18%, var(--t-bg-deep, #060a06));
-      border-color: color-mix(in srgb, var(--t-primary, #00ff41) 55%, transparent);
-      color: var(--t-primary, #00ff41);
+      background: var(--t-primary, #00ff41);
+      border-color: var(--t-primary, #00ff41);
+      color: var(--t-on-primary, #060a06);
+      font-weight: 600;
     }
 
     .tpd-btn--primary:hover {
-      background: color-mix(in srgb, var(--t-primary, #00ff41) 28%, var(--t-bg-deep, #060a06));
+      background: color-mix(in srgb, var(--t-primary, #00ff41) 85%, var(--t-fg, #fff));
     }
 
     .tpd-btn--primary.tpd-btn--warning {
-      border-color: color-mix(in srgb, var(--t-warn, #e8b931) 65%, transparent);
-      color: var(--t-warn, #e8b931);
-      background: color-mix(in srgb, var(--t-warn, #e8b931) 14%, var(--t-bg-deep, #060a06));
+      background: var(--t-danger, #ff6b6b);
+      border-color: var(--t-danger, #ff6b6b);
+      color: var(--t-on-primary, #060a06);
     }
 
     .tpd-btn--primary.tpd-btn--warning:hover {
-      background: color-mix(in srgb, var(--t-warn, #e8b931) 22%, var(--t-bg-deep, #060a06));
+      background: color-mix(in srgb, var(--t-danger, #ff6b6b) 85%, var(--t-fg, #fff));
     }
   `,
 })

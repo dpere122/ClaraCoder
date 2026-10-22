@@ -34,7 +34,8 @@
           [attr.title]="optionTitle(option)"
           (click)="pick(optionId(option))"
         >
-          {{ optionLabel(option) }}
+          <span class="pill-select__check" aria-hidden="true"></span>
+          <span class="pill-select__option-label">{{ optionLabel(option) }}</span>
         </button>
       }
     </div>

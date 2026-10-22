@@ -75,7 +75,6 @@ app-message-box app-pill-select .pill-select__menu {
   border-radius: var(--chat-radius) !important;
 }
 
-.tcd-btn,
 .main-panel-empty__cta,
 .main-panel-empty__recents-scroll::-webkit-scrollbar-thumb,
 .main-panel-empty__recents-scroll::-webkit-scrollbar-track {
@@ -223,17 +222,29 @@ app-conversation-manager .conv-context-menu {
   border-radius: var(--chat-radius) !important;
 }
 
-/* Managed llama-server row in the workspace footer: Start/Stop, source select, settings. */
+/* Managed llama-server row in the workspace footer: Start/Stop, settings. */
 app-managed-llama-controls .managed-llama-controls__btn,
-app-pill-select .pill-select__trigger,
-app-pill-select .pill-select__option,
 app-workspace .workspace-footer-model-row .workspace-icon-btn,
 app-workspace .workspace-tree-cog {
   border-radius: 999px !important;
 }
 
-app-pill-select .pill-select__menu {
-  border-radius: 0.9rem !important;
+/* Selects and dialogs (IDE flat): small corners on triggers, menus, options and dialog buttons. */
+app-pill-select .pill-select__trigger,
+app-pill-select .pill-select__menu,
+.tcd-panel,
+.tpd-panel,
+.tcd-btn,
+.tpd-btn,
+.tpd-input {
+  border-radius: var(--chat-radius) !important;
+}
+
+app-pill-select .pill-select__option,
+.tcd-close,
+.tpd-close,
+.tcd-detail {
+  border-radius: var(--chat-radius-sm) !important;
 }
 
 /* Floating markdown Edit | Preview pill over the Monaco editor. */

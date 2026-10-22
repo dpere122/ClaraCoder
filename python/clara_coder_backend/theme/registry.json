@@ -426,14 +426,15 @@
         "--t-bg-deep",
         "--t-bg-surface",
         "--t-border",
-        "--t-border-subtle",
+        "--t-code-bg",
+        "--t-danger",
         "--t-elev-shadow",
         "--t-fg",
         "--t-font-mono",
         "--t-hover-bg",
+        "--t-on-primary",
         "--t-primary",
-        "--t-text-muted",
-        "--t-warn"
+        "--t-text-muted"
       ],
       "supportsBackground": false,
       "description": "Themed confirmation dialog panel."
@@ -449,13 +450,14 @@
         "--t-bg-deep",
         "--t-bg-surface",
         "--t-border",
-        "--t-border-subtle",
+        "--t-danger",
         "--t-elev-shadow",
         "--t-fg",
         "--t-font-mono",
         "--t-hover-bg",
+        "--t-on-primary",
         "--t-primary",
-        "--t-warn"
+        "--t-text-muted"
       ],
       "supportsBackground": false,
       "description": "Themed text-input dialog panel."

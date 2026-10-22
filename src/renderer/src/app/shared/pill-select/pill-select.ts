@@ -21,7 +21,7 @@ export interface PillSelectOption {
   title?: string;
 }
 
-/** Pill trigger with a rounded menu. Native selects cannot theme the open list. */
+/** Select trigger with a themed menu (flat IDE style). Native selects cannot theme the open list. */
 @Component({
   selector: 'app-pill-select',
   imports: [NgStyle],

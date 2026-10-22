@@ -146,7 +146,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Themed confirmation dialog panel.",
     selector: "[data-theme-group=\"dialogs.confirm\"]",
     component: "app/shared/themed-confirm-dialog",
-    tokens: ["--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-elev-shadow", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-primary", "--t-text-muted", "--t-warn"],
+    tokens: ["--t-bg-deep", "--t-bg-surface", "--t-border", "--t-code-bg", "--t-danger", "--t-elev-shadow", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-on-primary", "--t-primary", "--t-text-muted"],
     supportsBackground: false,
   },
   {
@@ -157,7 +157,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Themed text-input dialog panel.",
     selector: "[data-theme-group=\"dialogs.prompt\"]",
     component: "app/shared/themed-prompt-dialog",
-    tokens: ["--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-elev-shadow", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-primary", "--t-warn"],
+    tokens: ["--t-bg-deep", "--t-bg-surface", "--t-border", "--t-danger", "--t-elev-shadow", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-on-primary", "--t-primary", "--t-text-muted"],
     supportsBackground: false,
   },
   {

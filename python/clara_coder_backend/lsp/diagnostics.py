@@ -13,6 +13,7 @@ __all__ = [
     'normalize_lsp_diagnostics',
     'format_diagnostics_summary',
     'diagnostics_session_aggregate_preamble',
+    'diagnostics_pending_note',
     'post_edit_checks_footer',
     'indentation_followup_guidance',
 ]
@@ -112,6 +113,17 @@ def indentation_followup_guidance(
     return '\n'.join(lines)
 
 
+def diagnostics_pending_note(server_kind: str | None) -> str:
+    """Appended when the server has not yet published diagnostics for the text it now holds."""
+
+    label = f'The {server_kind} language server' if server_kind else 'The language server'
+    return (
+        f'Note: {label} has not published diagnostics for this exact text yet (still analyzing); '
+        'the list above may be from before this change. Call `lsp_get_diagnostics` for this path '
+        'again shortly to confirm.'
+    )
+
+
 def post_edit_checks_footer(
     relative_path: str,
     diagnostics: list[dict[str, Any]],
@@ -119,6 +131,7 @@ def post_edit_checks_footer(
     lsp_scope: str,
     server_kind: str | None,
     formatter_lines: list[str],
+    diagnostics_fresh: bool = True,
 ) -> str:
     """Human-readable block appended to edit tool results (formatter first, then LSP diagnostics)."""
 
@@ -142,6 +155,8 @@ def post_edit_checks_footer(
                 server_kind=server_kind,
             )
         )
+        if not diagnostics_fresh:
+            head.append(diagnostics_pending_note(server_kind))
     else:
         head.append('No integrated LSP for this path; formatter notes above are the only automated check.')
     body = '\n'.join(head)
@@ -156,7 +171,7 @@ def diagnostics_session_aggregate_preamble(lsp_scope: str) -> str:
     scope = (lsp_scope or 'workspace').strip() or 'workspace'
     return (
         f'LSP context: scope={scope}; aggregated session cache — paths may reflect different refresh times; '
-        f'call `lsp_get_diagnostics` per path with `refresh_active_document=true` to re-sync.'
+        f'call `lsp_get_diagnostics` per path for a result checked against disk.'
     )
 
 

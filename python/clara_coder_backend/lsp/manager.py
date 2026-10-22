@@ -6,6 +6,7 @@ import hashlib
 import logging
 import os
 import re
+import stat as stat_module
 import threading
 import time
 from pathlib import Path
@@ -45,7 +46,11 @@ __all__ = [
     'shutdown_all_lsp_managers',
     'list_session_diagnostics',
     'sync_session_document',
+    'session_diagnostics_fresh',
+    'notify_session_lsp_disk_changes',
     'close_session_document',
+    'DOC_ORIGIN_DISK',
+    'DOC_ORIGIN_EDITOR',
     'LspServerKind',
     'java_workspace_is_ready',
 ]
@@ -59,7 +64,17 @@ _JAVA_STARTING_GRACE_S = 5.0
 _JAVA_NO_STATUS_GRACE_S = 3.0
 _DIAG_WAIT_TIMEOUT_S = 1.5
 _DIAG_WAIT_TIMEOUT_SLOW_S = 2.5
+# First publish after ``didOpen`` includes the server's cold analysis of the project.
+_DIAG_FIRST_OPEN_TIMEOUT_S = 5.0
+_DIAG_FIRST_OPEN_TIMEOUT_SLOW_S = 8.0
 _DIAG_QUIET_S = 0.05
+
+# Who last supplied a document's text: the Monaco editor (may be unsaved) or the file on disk.
+DOC_ORIGIN_EDITOR = 'editor'
+DOC_ORIGIN_DISK = 'disk'
+
+# ``FileChangeType`` for ``workspace/didChangeWatchedFiles`` per Electron watcher change kind.
+_WATCHED_FILE_CHANGE_TYPES = {'created': 1, 'renamed': 1, 'updated': 2, 'unknown': 2, 'deleted': 3}
 
 
 def java_workspace_is_ready(status: str, message: str = '') -> bool:
@@ -130,6 +145,18 @@ def _uri_to_path(uri: str) -> Path:
     if os.name == 'nt' and raw_path.startswith('/'):
         raw_path = raw_path[1:]
     return Path(raw_path).resolve()
+
+
+def _disk_stat_of(path: Path) -> tuple[int, int] | None:
+    """``(mtime_ns, size)`` of a regular file, or None when it does not exist."""
+
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    if not stat_module.S_ISREG(st.st_mode):
+        return None
+    return (st.st_mtime_ns, st.st_size)
 
 
 def _workspace_capabilities() -> dict[str, Any]:
@@ -319,6 +346,16 @@ class SessionWorkspaceLspManager:
         # next didChange replace the exact previous range (see ``_full_replace_content_changes``).
         self._last_synced_end: dict[str, dict[str, int]] = {}
         self._diag_ready_digest: dict[str, bytes] = {}
+        # Publishes known to describe the currently synced text (stale in-flight ones excluded).
+        self._fresh_diag_generation: dict[str, int] = {}
+        self._synced_at: dict[str, float] = {}
+        self._doc_origin: dict[str, str] = {}
+        # ``(mtime_ns, size)`` of the file when its disk text was last synced; lets disk
+        # reconciliation skip unchanged files without reading them.
+        self._disk_stat: dict[str, tuple[int, int]] = {}
+        # Any publish from the current subprocess yet; a cold server that has published nothing
+        # may still be loading the project, so its silence says nothing.
+        self._seen_publish = False
         self._path_locks: dict[str, threading.Lock] = {}
         self._sync_epoch: int = 0
         self._bump_sync_epoch_locked()
@@ -361,11 +398,7 @@ class SessionWorkspaceLspManager:
         self._lifecycle_phase = 'crashed'
         if not (self._lifecycle_error or '').strip():
             self._lifecycle_error = 'Language server process exited.'
-        self._doc_versions.clear()
-        self._diag_generation.clear()
-        self._last_synced_digest.clear()
-        self._last_synced_end.clear()
-        self._diag_ready_digest.clear()
+        self._clear_document_state_locked()
         self._bump_sync_epoch_locked()
         cache = self._diag_cache()
         for rel in list(cache.keys()):
@@ -385,6 +418,27 @@ class SessionWorkspaceLspManager:
             self.session_id,
             self.scope,
         )
+
+    _PER_DOCUMENT_STATE = (
+        '_doc_versions',
+        '_diag_generation',
+        '_last_synced_digest',
+        '_last_synced_end',
+        '_diag_ready_digest',
+        '_fresh_diag_generation',
+        '_synced_at',
+        '_doc_origin',
+        '_disk_stat',
+    )
+
+    def _clear_document_state_locked(self) -> None:
+        for name in self._PER_DOCUMENT_STATE:
+            getattr(self, name).clear()
+        self._seen_publish = False
+
+    def _forget_document_locked(self, rel: str) -> None:
+        for name in self._PER_DOCUMENT_STATE:
+            getattr(self, name).pop(rel, None)
 
     @staticmethod
     def _close_client_best_effort(client: Any, *, session_id: str, server_kind: str, scope: str) -> None:
@@ -551,11 +605,7 @@ class SessionWorkspaceLspManager:
             self._server_capabilities = {}
             self._language_status = ''
             self._language_status_message = ''
-            self._doc_versions.clear()
-            self._diag_generation.clear()
-            self._last_synced_digest.clear()
-            self._last_synced_end.clear()
-            self._diag_ready_digest.clear()
+            self._clear_document_state_locked()
             self._bump_sync_epoch_locked()
             cache = self._diag_cache()
             for rel in list(cache.keys()):
@@ -597,7 +647,15 @@ class SessionWorkspaceLspManager:
         text: str,
         *,
         wait_for_diagnostics: bool = True,
+        origin: str = DOC_ORIGIN_DISK,
+        disk_stat: tuple[int, int] | None = None,
     ) -> list[dict[str, Any]]:
+        """Open or update one document with ``text``.
+
+        ``origin`` records who supplied the text: editor routes pass ``DOC_ORIGIN_EDITOR`` (the
+        buffer may be unsaved); everything else is disk content. ``disk_stat`` is the file's
+        ``(mtime_ns, size)`` when ``text`` was just read from it.
+        """
         rel = normalize_relative_posix_path(relative_path)
         policy = self._policy(rel)
         if policy is None:
@@ -623,6 +681,8 @@ class SessionWorkspaceLspManager:
                 digest=digest,
                 policy=policy,
                 wait_for_diagnostics=wait_for_diagnostics,
+                origin=origin,
+                disk_stat=disk_stat,
             )
 
     def _restart_in_place(self) -> None:
@@ -692,6 +752,8 @@ class SessionWorkspaceLspManager:
         digest: bytes,
         policy: Any,
         wait_for_diagnostics: bool,
+        origin: str = DOC_ORIGIN_DISK,
+        disk_stat: tuple[int, int] | None = None,
     ) -> list[dict[str, Any]]:
         path = normalize_relative_path(self.workspace_root, rel)
         uri = _path_to_uri(path)
@@ -699,12 +761,50 @@ class SessionWorkspaceLspManager:
             cache = self._diag_cache()
             same_digest = rel in self._doc_versions and self._last_synced_digest.get(rel) == digest
             ready = self._diag_ready_digest.get(rel) == digest
-            if same_digest and (ready or not wait_for_diagnostics):
-                return list(cache.get(rel, []))
-            prev_generation = self._diag_generation.get(rel, 0)
-            version = self._doc_versions.get(rel, 0) + 1
-            self._doc_versions[rel] = version
+            if same_digest:
+                # Identical text: the editor confirming its buffer takes ownership back; a disk
+                # read leaves an editor-owned (clean) buffer with the editor.
+                if origin == DOC_ORIGIN_EDITOR:
+                    self._doc_origin[rel] = DOC_ORIGIN_EDITOR
+                if disk_stat is not None:
+                    self._disk_stat[rel] = disk_stat
+                # The editor follows later publishes through its diagnostics watch, so unchanged
+                # editor text never waits or re-sends (the waits below are for agent callers).
+                if ready or not wait_for_diagnostics or origin == DOC_ORIGIN_EDITOR:
+                    return list(cache.get(rel, []))
+                # Synced recently without a wait (editor hover/completion): the publish for this
+                # text is still on its way, so wait for it instead of re-sending the same text.
+                # Once that window has passed, fall through and re-send to prompt a new publish.
+                pending_s = self._diag_wait_timeout_s(first_open=self._doc_versions.get(rel) == 1) - (
+                    time.monotonic() - self._synced_at.get(rel, 0.0)
+                )
+                if pending_s > 0:
+                    published = self._wait_for_diagnostics(
+                        rel, self._fresh_diag_generation.get(rel, 0), timeout_s=pending_s
+                    )
+                    if self._wait_settled(published):
+                        self._diag_ready_digest[rel] = digest
+                    return list(cache.get(rel, []))
+            # Resolve the client before bumping the version: if it is gone, a bumped version would
+            # make the next sync send ``didChange`` for a document the new server never opened.
             client = self._require_client()
+            prev_fresh_generation = self._fresh_diag_generation.get(rel, 0)
+            version = self._doc_versions.get(rel, 0) + 1
+            previous_end = self._last_synced_end.get(rel)
+            # Record what the server is about to hold before notifying: a fast publish handled on
+            # the reader thread checks freshness against this state.
+            self._doc_versions[rel] = version
+            self._last_synced_digest[rel] = digest
+            self._last_synced_end[rel] = _lsp_document_end_position(text)
+            self._synced_at[rel] = time.monotonic()
+            self._doc_origin[rel] = origin
+            if disk_stat is not None:
+                self._disk_stat[rel] = disk_stat
+            else:
+                # Text not read from disk here (editor buffer, or an edit tool's write): the next
+                # disk reconciliation must read the file once to compare.
+                self._disk_stat.pop(rel, None)
+            self._diag_ready_digest.pop(rel, None)
             if version == 1:
                 client.notify(
                     'textDocument/didOpen',
@@ -732,7 +832,7 @@ class SessionWorkspaceLspManager:
                         'textDocument': {'uri': uri, 'version': version},
                         'contentChanges': _full_replace_content_changes(
                             text,
-                            previous_end=self._last_synced_end.get(rel),
+                            previous_end=previous_end,
                             incremental=_server_uses_incremental_sync(self._server_capabilities),
                         ),
                     },
@@ -745,14 +845,15 @@ class SessionWorkspaceLspManager:
                     rel,
                     version,
                 )
-            self._last_synced_digest[rel] = digest
-            self._last_synced_end[rel] = _lsp_document_end_position(text)
-            self._diag_ready_digest.pop(rel, None)
-            wait_ok = True
+                # Open documents importing this one get re-checked; their cached diagnostics are
+                # outdated until the server republishes them. (A re-send of identical text, to
+                # prompt a missing publish, changes nothing for them.)
+                if not same_digest:
+                    self._expect_republish_except([rel])
             if wait_for_diagnostics:
-                wait_ok = self._wait_for_diagnostics(rel, prev_generation)
-            if wait_ok:
-                self._diag_ready_digest[rel] = digest
+                published = self._wait_for_diagnostics(rel, prev_fresh_generation, first_open=version == 1)
+                if self._wait_settled(published):
+                    self._diag_ready_digest[rel] = digest
             rows = list(cache.get(rel, []))
         if self.scope == 'staging':
             try:
@@ -781,8 +882,175 @@ class SessionWorkspaceLspManager:
         rel = normalize_relative_posix_path(relative_path)
         enc = validate_workspace_encoding(encoding)
         target = normalize_relative_path(self.workspace_root, rel)
+        stat = _disk_stat_of(target)
         text = read_file_for_tools(target, enc)
-        return self.sync_document(rel, text, wait_for_diagnostics=wait_for_diagnostics)
+        return self.sync_document(rel, text, wait_for_diagnostics=wait_for_diagnostics, disk_stat=stat)
+
+    def sync_for_agent(
+        self,
+        relative_path: str,
+        *,
+        encoding: str = 'utf-8',
+        wait_for_diagnostics: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Bring the server in line with disk before an agent query on ``relative_path``.
+
+        The agent reads files from disk and passes disk line numbers, so the queried document
+        is synced from disk even when the editor holds an unsaved buffer for it (the editor
+        re-sends its buffer on its next request; see ``document_synced_by_editor``). Other open
+        documents the editor does not own are refreshed when their file changed, so cross-file
+        results do not come from text that ``run_command`` / git / the copy tool replaced.
+        """
+
+        rel = normalize_relative_posix_path(relative_path)
+        self.reconcile_disk_documents(encoding=encoding, skip=frozenset({rel}))
+        return self.sync_workspace_document(rel, encoding=encoding, wait_for_diagnostics=wait_for_diagnostics)
+
+    def _expect_republish_except(self, changed: list[str]) -> None:
+        """Files changed under the server: open documents' cached diagnostics may be outdated.
+
+        The server re-checks open dependents and republishes them for their unchanged version,
+        so the next waiting sync of any other open document waits for that publish instead of
+        returning the old cache (and re-sends its text if none arrives in the wait window).
+        """
+
+        if not changed:
+            return
+        now = time.monotonic()
+        with self._lock:
+            for rel in self._doc_versions:
+                if rel not in changed:
+                    self._diag_ready_digest.pop(rel, None)
+                    self._synced_at[rel] = now
+
+    def reconcile_disk_documents(self, *, encoding: str = 'utf-8', skip: frozenset[str] = frozenset()) -> list[str]:
+        """Re-sync open disk-owned documents whose file changed; close those whose file is gone.
+
+        Cheap when nothing changed: one ``stat`` per open document. Editor-owned documents are
+        left alone (the editor reloads clean buffers itself and keeps dirty ones on purpose).
+        Never starts a server. Returns the paths whose server-side text changed or was closed.
+        """
+
+        if not self.is_client_running():
+            return []
+        changed: list[str] = []
+        with self._lock:
+            candidates = [
+                (rel, self._disk_stat.get(rel))
+                for rel in self._doc_versions
+                if rel not in skip and self._doc_origin.get(rel) != DOC_ORIGIN_EDITOR
+            ]
+        deleted: list[str] = []
+        for rel, known_stat in candidates:
+            try:
+                target = normalize_relative_path(self.workspace_root, rel)
+            except Exception:
+                continue
+            stat = _disk_stat_of(target)
+            if stat is None:
+                self.close_document(rel)
+                deleted.append(rel)
+                continue
+            if stat == known_stat:
+                continue
+            version = self.document_version(rel)
+            try:
+                self.sync_workspace_document(rel, encoding=encoding, wait_for_diagnostics=False)
+            except Exception as exc:
+                logger.debug(
+                    '%s disk reconcile skipped session=%s path=%s err=%s',
+                    self.server_kind,
+                    self.session_id,
+                    rel,
+                    exc,
+                )
+                continue
+            if self.document_version(rel) != version:
+                changed.append(rel)
+        if deleted:
+            self.notify_watched_file_changes(deleted, change_type=3)
+            self._expect_republish_except(deleted)
+        return changed + deleted
+
+    def apply_disk_changes(self, changes: list[tuple[str, str]], *, encoding: str = 'utf-8') -> None:
+        """React to a workspace watcher batch of ``(relative_path, kind)`` pairs.
+
+        Open disk-owned documents are re-synced (or closed when deleted); files the server
+        does not have open are reported with ``workspace/didChangeWatchedFiles`` so it re-reads
+        them (basedpyright does not watch the file system itself). Never starts a server.
+        """
+
+        if not self.is_client_running():
+            return
+        if any(path in ('', '.') for path, _kind in changes):
+            self.reconcile_disk_documents(encoding=encoding)
+            return
+        watched: dict[int, list[str]] = {}
+        for raw_path, kind in changes:
+            if raw_path.startswith('[staging] '):
+                continue
+            rel = normalize_relative_posix_path(raw_path)
+            if not rel or lsp_server_for_path(rel) != self.server_kind:
+                continue
+            with self._lock:
+                tracked = rel in self._doc_versions
+                origin = self._doc_origin.get(rel)
+            if tracked and origin == DOC_ORIGIN_EDITOR:
+                continue
+            if tracked:
+                try:
+                    target = normalize_relative_path(self.workspace_root, rel)
+                except Exception:
+                    continue
+                if kind == 'deleted' or _disk_stat_of(target) is None:
+                    self.close_document(rel)
+                    watched.setdefault(3, []).append(rel)
+                    continue
+                try:
+                    self.sync_workspace_document(rel, encoding=encoding, wait_for_diagnostics=False)
+                except Exception as exc:
+                    logger.debug(
+                        '%s watcher resync skipped session=%s path=%s err=%s',
+                        self.server_kind,
+                        self.session_id,
+                        rel,
+                        exc,
+                    )
+                continue
+            watched.setdefault(_WATCHED_FILE_CHANGE_TYPES.get(kind, 2), []).append(rel)
+        for change_type, rels in watched.items():
+            self.notify_watched_file_changes(rels, change_type=change_type)
+        # Re-synced documents flagged their dependents already (``didChange``); files the server
+        # only hears about through the watched-files event need the same.
+        self._expect_republish_except([rel for rels in watched.values() for rel in rels])
+
+    def document_synced_by_editor(self, relative_path: str) -> bool:
+        """True when the server holds text the Monaco editor sent (so the editor may skip re-sending)."""
+
+        rel = normalize_relative_posix_path(relative_path)
+        with self._lock:
+            return rel in self._doc_versions and self._doc_origin.get(rel) == DOC_ORIGIN_EDITOR
+
+    def diagnostics_fresh(self, relative_path: str) -> bool:
+        """True when the cached diagnostics were published for the text the server now holds."""
+
+        rel = normalize_relative_posix_path(relative_path)
+        with self._lock:
+            digest = self._last_synced_digest.get(rel)
+            return digest is not None and self._diag_ready_digest.get(rel) == digest
+
+    def mark_diagnostics_stale(self, relative_path: str) -> None:
+        """Make the next waiting sync re-send the document and wait for a new publish."""
+
+        rel = normalize_relative_posix_path(relative_path)
+        with self._lock:
+            self._diag_ready_digest.pop(rel, None)
+            self._synced_at.pop(rel, None)
+
+    def document_version(self, relative_path: str) -> int:
+        rel = normalize_relative_posix_path(relative_path)
+        with self._lock:
+            return int(self._doc_versions.get(rel, 0))
 
     def close_document(self, relative_path: str) -> None:
         rel = normalize_relative_posix_path(relative_path)
@@ -796,12 +1064,13 @@ class SessionWorkspaceLspManager:
                 return
             target = normalize_relative_path(self.workspace_root, rel)
             client.notify('textDocument/didClose', {'textDocument': {'uri': _path_to_uri(target)}})
-            self._doc_versions.pop(rel, None)
-            self._last_synced_digest.pop(rel, None)
-            self._last_synced_end.pop(rel, None)
-            self._diag_ready_digest.pop(rel, None)
+            # Keep the generation counter: the editor's diagnostics watch treats a counter that
+            # goes backwards as a server reset.
+            generation = self._diag_generation.get(rel)
+            self._forget_document_locked(rel)
+            if generation is not None:
+                self._diag_generation[rel] = generation
             cache.pop(rel, None)
-            self._diag_generation.pop(rel, None)
             logger.info(
                 '%s LSP didClose session=%s scope=%s path=%s',
                 self.server_kind,
@@ -910,11 +1179,11 @@ class SessionWorkspaceLspManager:
     ) -> tuple[dict[str, Any], bool]:
         """Like ``hover`` but reports whether the buffer had to be synced from disk.
 
-        Returns ``(result, synced_from_disk)``. ``synced_from_disk`` is True when the document
-        was not tracked by the running client (e.g. after a TS project-root restart cleared
-        ``_doc_versions``) and ``_ensure_workspace_synced`` fell back to ``sync_workspace_document``,
-        which reads from disk — potentially diverging from the live Monaco buffer. The editor
-        uses this signal to re-send the buffer and re-request so hover reflects the editor.
+        Returns ``(result, synced_from_disk)``. ``synced_from_disk`` is True when the server does
+        not hold the editor's text: the document was not tracked (e.g. after a TS project-root
+        restart cleared ``_doc_versions``) and was read from disk here, or an agent tool / disk
+        change replaced the editor's buffer since. The editor uses this signal to re-send the
+        buffer and re-request so hover reflects the editor.
         """
 
         rel = normalize_relative_posix_path(relative_path)
@@ -922,7 +1191,7 @@ class SessionWorkspaceLspManager:
             raise ValueError(f'LSP tools do not support `{rel}` on the {self.server_kind} server.')
         with self._lock:
             tracked = rel in self._doc_versions
-        synced_from_disk = not tracked
+        synced_from_disk = not self.document_synced_by_editor(rel)
         if tracked:
             self.ensure_started()
         else:
@@ -1286,9 +1555,32 @@ class SessionWorkspaceLspManager:
             )
             return
         normalized = normalize_lsp_diagnostics(rel, params.get('diagnostics') if isinstance(params, dict) else [])
+        version = params.get('version')
         with self._lock:
+            current = self._doc_versions.get(rel)
+            if isinstance(version, int) and current is not None and version < current:
+                # Computed for text we have since replaced (it was in flight when we sent the
+                # change). Its ranges point into the old text; the publish for ``current`` follows.
+                logger.debug(
+                    '%s dropped stale diagnostics session=%s path=%s version=%s current=%s',
+                    self.server_kind,
+                    self.session_id,
+                    rel,
+                    version,
+                    current,
+                )
+                return
+            self._seen_publish = True
             self._diag_cache()[rel] = normalized
             self._diag_generation[rel] = self._diag_generation.get(rel, 0) + 1
+            if current is not None and (
+                isinstance(version, int)
+                or time.monotonic() - self._synced_at.get(rel, 0.0) >= self._plugin.unversioned_publish_min_delay_s
+            ):
+                self._fresh_diag_generation[rel] = self._fresh_diag_generation.get(rel, 0) + 1
+                digest = self._last_synced_digest.get(rel)
+                if digest is not None:
+                    self._diag_ready_digest[rel] = digest
             self._diag_cond.notify_all()
         # High churn for TS/JS (publishDiagnostics on many internal passes); keep health / INFO logs usable.
         logger.debug(
@@ -1300,17 +1592,43 @@ class SessionWorkspaceLspManager:
             len(normalized),
         )
 
-    def _wait_for_diagnostics(self, relative_path: str, previous_generation: int) -> bool:
-        """Wait until diagnostics generation advances, then a short quiet window.
+    def _diag_wait_timeout_s(self, *, first_open: bool) -> float:
+        slow = self._plugin.slow_diagnostics
+        # A server that stays silent for clean files would make every clean first open wait the
+        # whole cold-start window; it gets the regular window (see ``_wait_settled``).
+        if first_open and not self._plugin.silent_when_diagnostics_unchanged:
+            return _DIAG_FIRST_OPEN_TIMEOUT_SLOW_S if slow else _DIAG_FIRST_OPEN_TIMEOUT_S
+        return _DIAG_WAIT_TIMEOUT_SLOW_S if slow else _DIAG_WAIT_TIMEOUT_S
 
-        Returns True when at least one publish arrived (and the quiet window elapsed or
-        the deadline was reached after an advance). False means the wait timed out with
-        no generation bump — callers must not treat the digest as fresh.
+    def _wait_settled(self, published: bool) -> bool:
+        """Whether a finished diagnostics wait leaves the cache describing the synced text.
+
+        True after a fresh publish. A server that only publishes on change (vtsls) stays silent
+        when the file's diagnostics did not change, so silence through the window also settles
+        it, once that server has published anything at all (before that it may still be loading).
         """
 
-        timeout_s = (
-            _DIAG_WAIT_TIMEOUT_SLOW_S if self.server_kind in {'java', 'typescript'} else _DIAG_WAIT_TIMEOUT_S
-        )
+        if published:
+            return True
+        return self._plugin.silent_when_diagnostics_unchanged and self._seen_publish
+
+    def _wait_for_diagnostics(
+        self,
+        relative_path: str,
+        previous_generation: int,
+        *,
+        first_open: bool = False,
+        timeout_s: float | None = None,
+    ) -> bool:
+        """Wait until a fresh publish arrives (see ``_handle_notification``), then a short quiet window.
+
+        Returns True when at least one fresh publish arrived (and the quiet window elapsed or
+        the deadline was reached after an advance). False means the wait timed out with
+        no fresh publish — callers must not treat the digest as fresh.
+        """
+
+        if timeout_s is None:
+            timeout_s = self._diag_wait_timeout_s(first_open=first_open)
         deadline = time.monotonic() + timeout_s
         last_seen = previous_generation
         quiet_until: float | None = None
@@ -1319,7 +1637,7 @@ class SessionWorkspaceLspManager:
             if now >= deadline:
                 return last_seen > previous_generation
             with self._lock:
-                gen = int(self._diag_generation.get(relative_path, 0))
+                gen = int(self._fresh_diag_generation.get(relative_path, 0))
                 if gen > last_seen:
                     last_seen = gen
                     quiet_until = time.monotonic() + _DIAG_QUIET_S
@@ -1673,23 +1991,81 @@ def sync_session_document(
     session_id: str | None = None,
     scope: str | None = None,
     wait_for_diagnostics: bool = True,
+    reconcile_disk: bool = False,
+    encoding: str = 'utf-8',
 ) -> list[dict[str, Any]]:
+    """Sync ``text`` (already written to disk by the caller) and return its diagnostics.
+
+    ``reconcile_disk`` first refreshes other open documents whose files changed on disk, so the
+    diagnostics are computed against current imports rather than text replaced by a shell command.
+    """
+
     sid = (session_id or current_session_id.get() or '').strip() or None
     if sid is not None:
         sid = lsp_owner_session_id(sid)
     server = lsp_server_for_path(relative_path)
     if not server:
         raise ValueError(f'No LSP server is configured for `{relative_path}`.')
-    try:
-        manager = get_session_lsp_manager(sid, scope=scope, server=server)
+
+    def _sync(manager: SessionWorkspaceLspManager) -> list[dict[str, Any]]:
+        if reconcile_disk:
+            manager.reconcile_disk_documents(
+                encoding=encoding, skip=frozenset({normalize_relative_posix_path(relative_path)})
+            )
         return manager.sync_document(relative_path, text, wait_for_diagnostics=wait_for_diagnostics)
+
+    try:
+        return _sync(get_session_lsp_manager(sid, scope=scope, server=server))
     except Exception as exc:
         if sid is None or not _should_retry_lsp_bootstrap(exc):
             raise
         logger.warning('retrying LSP sync after bootstrap failure session=%s server=%s err=%s', sid, server, exc)
         shutdown_session_lsp_server(sid, server)
-        manager = get_session_lsp_manager(sid, scope=scope, server=server)
-        return manager.sync_document(relative_path, text, wait_for_diagnostics=wait_for_diagnostics)
+        return _sync(get_session_lsp_manager(sid, scope=scope, server=server))
+
+
+def session_diagnostics_fresh(relative_path: str, *, session_id: str | None = None, scope: str = 'workspace') -> bool:
+    """True when the session's cached diagnostics for ``relative_path`` match the synced text.
+
+    Looks up an existing manager only (never starts a server); missing manager → False.
+    """
+
+    sid = (session_id or current_session_id.get() or '').strip()
+    server = lsp_server_for_path(relative_path)
+    if not sid or not server:
+        return False
+    key = (lsp_owner_session_id(sid), server, _normalize_lsp_scope(scope))
+    with _MANAGERS_LOCK:
+        manager = _SESSION_MANAGERS.get(key)
+    return manager is not None and manager.diagnostics_fresh(relative_path)
+
+
+def notify_session_lsp_disk_changes(
+    session_id: str,
+    paths: list[str],
+    kinds: list[str],
+    *,
+    encoding: str = 'utf-8',
+) -> None:
+    """Forward a workspace watcher batch to the session's running workspace-scope servers."""
+
+    sid = (session_id or '').strip()
+    if not sid or not paths:
+        return
+    sid = lsp_owner_session_id(sid)
+    changes = [(str(p), str(kinds[i]) if i < len(kinds) else 'unknown') for i, p in enumerate(paths)]
+    with _MANAGERS_LOCK:
+        managers = [mgr for k, mgr in _SESSION_MANAGERS.items() if k[0] == sid and k[2] == 'workspace']
+    for manager in managers:
+        try:
+            manager.apply_disk_changes(changes, encoding=encoding)
+        except Exception as exc:
+            logger.warning(
+                '%s LSP disk-change notify failed session=%s err=%s',
+                manager.server_kind,
+                sid,
+                exc,
+            )
 
 
 def close_session_document(

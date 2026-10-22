@@ -43,6 +43,17 @@ class LspServerPlugin(ABC):
     #: Stable id matching ``LspFilePolicy.lsp_server`` (e.g. ``python``).
     server_id: str
 
+    #: Server needs the longer diagnostics wait (project load / build before publishing).
+    slow_diagnostics: bool = False
+
+    #: For servers whose ``publishDiagnostics`` carries no ``version``: a publish that arrives
+    #: sooner than this after a change was computed for the previous text (already in flight).
+    unversioned_publish_min_delay_s: float = 0.0
+
+    #: Server publishes only when a file's diagnostics change (nothing for a clean file on open or
+    #: for clean → clean edits). Silence through the wait window then means the cache still applies.
+    silent_when_diagnostics_unchanged: bool = False
+
     @abstractmethod
     def create_state(self) -> Any:
         """Mutable per-manager state (e.g. TypeScript project root + last seed)."""

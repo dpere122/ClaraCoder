@@ -6,12 +6,17 @@ from typing import Annotated, Any
 
 from langchain_core.tools import tool
 
-from clara_coder_backend.lsp.diagnostics import diagnostics_session_aggregate_preamble, format_diagnostics_summary
+from clara_coder_backend.lsp.diagnostics import (
+    diagnostics_pending_note,
+    diagnostics_session_aggregate_preamble,
+    format_diagnostics_summary,
+)
 from clara_coder_backend.lsp.file_policy import lsp_server_for_path, normalize_relative_posix_path
 from clara_coder_backend.lsp.manager import (
     LspServerKind,
     diagnostics_cache_for_scope,
     get_session_lsp_manager,
+    notify_session_lsp_disk_changes,
 )
 from clara_coder_backend.lsp.registry import display_label_for_server
 from clara_coder_backend.tools.tool_conventions import RELATIVE_PATH, describe
@@ -146,6 +151,16 @@ def _format_lsp_tool_error(
     return message
 
 
+def _agent_manager(server: LspServerKind) -> Any:
+    """Workspace-scope manager for agent queries (never changes the session's default scope)."""
+
+    return get_session_lsp_manager(server=server, scope='workspace', set_active=False)
+
+
+def _default_encoding() -> str:
+    return validate_workspace_encoding(runtime_config.tools.default_workspace_encoding or 'utf-8')
+
+
 def _file_diagnostics(
     *,
     relative_path: str,
@@ -153,36 +168,43 @@ def _file_diagnostics(
     encoding: str,
     refresh_active_document: bool,
 ) -> str:
-    manager = get_session_lsp_manager(server=server, scope='workspace', set_active=False)
-    cached_items = manager.get_diagnostics(relative_path)
-    analyzed_source = 'cached'
-    if refresh_active_document or not cached_items:
-        try:
-            manager.sync_workspace_document(relative_path, encoding=encoding)
-            analyzed_source = 'workspace_file'
-        except Exception as exc:
-            if cached_items:
-                return (
-                    format_diagnostics_summary(
-                        relative_path,
-                        cached_items,
-                        lsp_scope='workspace',
-                        analyzed_source='cached',
-                        server_kind=server,
-                    )
-                    + f'\n\nNote: {_lsp_server_label(server)} LSP refresh failed ({exc}).'
+    manager = _agent_manager(server)
+    if refresh_active_document:
+        manager.mark_diagnostics_stale(relative_path)
+    version_before = manager.document_version(relative_path)
+    try:
+        # Always checked against disk (digest-skipped when unchanged): a file the server already
+        # has open may have been rewritten by run_command, git, or the copy tool since.
+        manager.sync_for_agent(relative_path, encoding=encoding, wait_for_diagnostics=True)
+    except Exception as exc:
+        cached_items = manager.get_diagnostics(relative_path)
+        if cached_items:
+            return (
+                format_diagnostics_summary(
+                    relative_path,
+                    cached_items,
+                    lsp_scope='workspace',
+                    analyzed_source='cached',
+                    server_kind=server,
                 )
-            raise
-    return format_diagnostics_summary(
+                + f'\n\nNote: {_lsp_server_label(server)} LSP refresh failed ({exc}); these may be stale.'
+            )
+        raise
+    analyzed_source = 'workspace_file' if manager.document_version(relative_path) != version_before else 'cached'
+    text = format_diagnostics_summary(
         relative_path,
         manager.get_diagnostics(relative_path),
         lsp_scope='workspace',
         analyzed_source=analyzed_source,
         server_kind=server,
     )
+    if not manager.diagnostics_fresh(relative_path):
+        text += '\n\n' + diagnostics_pending_note(server)
+    return text
 
 
-def _aggregate_cached_diagnostics(session_id: str) -> str:
+def _aggregate_cached_diagnostics(session_id: str, encoding: str = 'utf-8') -> str:
+    notify_session_lsp_disk_changes(session_id, ['.'], ['unknown'], encoding=encoding)
     cache = diagnostics_cache_for_scope(get_session(session_id), 'workspace')
     all_rows: list[dict[str, Any]] = []
     for path in sorted(cache):
@@ -209,11 +231,11 @@ _POSITION = f'1-based `line`/`character`; {_LSP_EXTENSIONS}'
 @tool(LSP_GET_DIAGNOSTICS_NAME, description=describe(
     'Return LSP diagnostics for one file, or every cached diagnostic when `relative_path` is empty',
     when='checking errors after edits or auditing workspace health',
-    shape=f'{_LSP_EXTENSIONS}; `refresh_active_document=true` re-syncs the on-disk file first',
+    shape=f'{_LSP_EXTENSIONS}; always checked against the file on disk; `refresh_active_document=true` forces a new analysis pass',
 ))
 def lsp_get_diagnostics(
     relative_path: Annotated[str, f'{RELATIVE_PATH}; empty = all cached'] = '',
-    refresh_active_document: Annotated[bool, 're-read the file from disk before reporting'] = False,
+    refresh_active_document: Annotated[bool, 'force the server to re-analyze even if the file is unchanged'] = False,
     encoding: Annotated[str, 'empty = Settings default'] = '',
 ) -> str:
     rel = normalize_relative_posix_path(relative_path)
@@ -232,7 +254,7 @@ def lsp_get_diagnostics(
         sid_tool = (current_session_id.get() or '').strip()
         if not sid_tool:
             return 'No cached LSP diagnostics are available.'
-        return _aggregate_cached_diagnostics(sid_tool)
+        return _aggregate_cached_diagnostics(sid_tool, enc)
     except Exception as exc:
         srv = lsp_server_for_path(rel) if rel else None
         return _format_lsp_tool_error('diagnostics lookup', exc, relative_path=rel, server=srv)
@@ -250,7 +272,8 @@ def lsp_hover(
 
     try:
         rel, server = _require_lsp_read_path(relative_path)
-        manager = get_session_lsp_manager(server=server)
+        manager = _agent_manager(server)
+        manager.sync_for_agent(rel, encoding=_default_encoding())
         result = manager.hover(rel, int(line), int(character))
         contents = _format_hover_contents(result.get('contents'))
         if not contents:
@@ -273,7 +296,8 @@ def lsp_find_definition(
 
     try:
         rel, server = _require_lsp_read_path(relative_path)
-        manager = get_session_lsp_manager(server=server)
+        manager = _agent_manager(server)
+        manager.sync_for_agent(rel, encoding=_default_encoding())
         result = manager.definition(rel, int(line), int(character))
         return f'Definition locations for `{rel}` at {line}:{character}:\n{_format_locations(manager, result)}'
     except Exception as exc:
@@ -294,7 +318,8 @@ def lsp_find_references(
 
     try:
         rel, server = _require_lsp_read_path(relative_path)
-        manager = get_session_lsp_manager(server=server)
+        manager = _agent_manager(server)
+        manager.sync_for_agent(rel, encoding=_default_encoding())
         result = manager.references(rel, int(line), int(character), include_declaration=bool(include_declaration))
         return f'References for `{rel}` at {line}:{character}:\n{_format_locations(manager, result)}'
     except Exception as exc:
@@ -312,7 +337,8 @@ def lsp_get_document_symbols(relative_path: Annotated[str, RELATIVE_PATH]) -> st
 
     try:
         rel, server = _require_lsp_read_path(relative_path)
-        manager = get_session_lsp_manager(server=server)
+        manager = _agent_manager(server)
+        manager.sync_for_agent(rel, encoding=_default_encoding())
         symbols = manager.document_symbols(rel)
         lines = _format_symbols(symbols)
         if not lines:

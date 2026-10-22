@@ -27,7 +27,7 @@ from langchain_core.tools import tool
 
 from clara_coder_backend.lsp.diagnostics import post_edit_checks_footer
 from clara_coder_backend.lsp.file_policy import is_lsp_managed_path, is_prettier_managed_path, lsp_server_for_path
-from clara_coder_backend.lsp.manager import sync_session_document
+from clara_coder_backend.lsp.manager import session_diagnostics_fresh, sync_session_document
 from clara_coder_backend.session.file_journal import emit_edit_journal
 from clara_coder_backend.session.state import (
     agent_formatters_enabled,
@@ -177,7 +177,14 @@ def _lsp_footer(t: _EditTarget, text: str, formatter_note: str) -> str:
     if not (srv and is_lsp_managed_path(t.rel)):
         return ('\n---\nPost-edit checks:\n' + formatter_note) if formatter_note else ''
     try:
-        diagnostics = sync_session_document(t.rel, text, session_id=t.session_id or None, scope='workspace')
+        diagnostics = sync_session_document(
+            t.rel,
+            text,
+            session_id=t.session_id or None,
+            scope='workspace',
+            reconcile_disk=True,
+            encoding=t.encoding,
+        )
     except Exception as exc:
         logger.warning('%s LSP sync failed path=%s err=%s', srv, t.rel, exc)
         return '\n---\nPost-edit checks:\n' + '\n'.join([*formatter_lines, f'LSP sync failed: {exc}.'])
@@ -187,6 +194,7 @@ def _lsp_footer(t: _EditTarget, text: str, formatter_note: str) -> str:
         lsp_scope='workspace',
         server_kind=srv,
         formatter_lines=formatter_lines,
+        diagnostics_fresh=session_diagnostics_fresh(t.rel, session_id=t.session_id or None),
     )
     return tool_output_cap(footer, _DIAGNOSTICS_FOOTER_MAX_CHARS)
 

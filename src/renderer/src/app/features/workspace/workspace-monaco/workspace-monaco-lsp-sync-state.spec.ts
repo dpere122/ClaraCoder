@@ -20,6 +20,15 @@ describe('workspace-monaco-lsp-sync-state', () => {
     expect(monacoModelNeedsLspDocumentSync(model)).toBe(true);
   });
 
+  it('keeps edits typed during an in-flight request unsynced', () => {
+    let v = 4;
+    const model = { getAlternativeVersionId: () => v } as import('monaco-editor').editor.ITextModel;
+    const sent = model.getAlternativeVersionId();
+    v = 5; // user typed while the request carrying version 4 was in flight
+    markMonacoModelLspDocumentSynced(model, sent);
+    expect(monacoModelNeedsLspDocumentSync(model)).toBe(true);
+  });
+
   it('invalidate forces the next call to send the live buffer', () => {
     let v = 3;
     const model = { getAlternativeVersionId: () => v } as import('monaco-editor').editor.ITextModel;

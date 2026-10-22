@@ -238,15 +238,16 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
             return null;
           }
           const neededSync = monacoModelNeedsLspDocumentSync(model);
-          const skip = !neededSync;
+          let sentVersion: number | null = neededSync ? model.getAlternativeVersionId() : null;
           let res = await withSessionAndDocument(model, (sid, rel, text, skipSync) =>
             electron.lspEditorDefinition(sid, rel, position.lineNumber, position.column, text, skipSync),
           );
-          if (res && res.ok && res.syncedFromDisk && skip) {
+          if (res && res.ok && res.syncedFromDisk && !neededSync) {
             invalidateMonacoModelLspDocumentSync(model);
             const sid = getLspSessionId()?.trim();
             const rel = getWorkspaceRelativePathForModel(model);
             if (sid && rel) {
+              sentVersion = model.getAlternativeVersionId();
               res = await electron.lspEditorDefinition(
                 sid,
                 rel,
@@ -257,14 +258,14 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
               );
             }
           }
+          if (res?.ok && sentVersion !== null) {
+            markMonacoModelLspDocumentSynced(model, sentVersion);
+          }
           if (lspCancelled(token)) {
             return null;
           }
           if (!res || !res.ok || !res.locations?.length) {
             return null;
-          }
-          if (neededSync || (res.ok && res.syncedFromDisk)) {
-            markMonacoModelLspDocumentSynced(model);
           }
           return res.locations.map((loc) => ({
             uri: api.Uri.parse(`clara-workspace:///${encodeURI(normalizePathSlashes(loc.relativePath))}`),
@@ -281,17 +282,18 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
             return null;
           }
           const neededSync = monacoModelNeedsLspDocumentSync(model);
+          const sentVersion = model.getAlternativeVersionId();
           const res = await withSessionAndDocument(model, (sid, rel, text, skip) =>
             electron.lspEditorReferences(sid, rel, position.lineNumber, position.column, text, context.includeDeclaration, skip),
           );
+          if (neededSync && res?.ok) {
+            markMonacoModelLspDocumentSynced(model, sentVersion);
+          }
           if (lspCancelled(token)) {
             return null;
           }
           if (!res || !res.ok || !res.locations?.length) {
             return null;
-          }
-          if (neededSync) {
-            markMonacoModelLspDocumentSynced(model);
           }
           return res.locations.map((loc) => ({
             uri: api.Uri.parse(`clara-workspace:///${encodeURI(normalizePathSlashes(loc.relativePath))}`),
@@ -315,6 +317,7 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
             return { suggestions: [] };
           }
           const neededSync = monacoModelNeedsLspDocumentSync(model);
+          let sentVersion: number | null = neededSync ? model.getAlternativeVersionId() : null;
           const skip = !neededSync;
           const tk = context.triggerKind + 1;
           const tc =
@@ -334,6 +337,7 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
           let completionRes = res;
           if (completionRes.ok && completionRes.syncedFromDisk && skip) {
             invalidateMonacoModelLspDocumentSync(model);
+            sentVersion = model.getAlternativeVersionId();
             completionRes = await electron.lspEditorCompletion(
               sessionId,
               rel,
@@ -345,14 +349,14 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
               false,
             );
           }
+          if (completionRes.ok && sentVersion !== null) {
+            markMonacoModelLspDocumentSynced(model, sentVersion);
+          }
           if (lspCancelled(token)) {
             return { suggestions: [] };
           }
           if (!completionRes.ok) {
             return { suggestions: [] };
-          }
-          if (neededSync || completionRes.syncedFromDisk) {
-            markMonacoModelLspDocumentSynced(model);
           }
           const suggestions: Monaco.languages.CompletionItem[] = [];
           const SnippetRule = api.languages.CompletionItemInsertTextRule.InsertAsSnippet;
@@ -447,17 +451,18 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
             return null;
           }
           const neededSync = monacoModelNeedsLspDocumentSync(model);
+          const sentVersion = model.getAlternativeVersionId();
           const res = await withSessionAndDocument(model, (sid, rel, text, skip) =>
             electron.lspEditorDocumentSymbols(sid, rel, text, skip),
           );
+          if (neededSync && res?.ok) {
+            markMonacoModelLspDocumentSynced(model, sentVersion);
+          }
           if (lspCancelled(token)) {
             return null;
           }
           if (!res || !res.ok) {
             return null;
-          }
-          if (neededSync) {
-            markMonacoModelLspDocumentSynced(model);
           }
           if (res.hierarchical?.length) {
             const mapSym = (s: (typeof res.hierarchical)[0]): Monaco.languages.DocumentSymbol => ({
@@ -490,17 +495,18 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
             return null;
           }
           const neededSync = monacoModelNeedsLspDocumentSync(model);
+          const sentVersion = model.getAlternativeVersionId();
           const res = await withSessionAndDocument(model, (sid, rel, text, skip) =>
             electron.lspEditorRename(sid, rel, position.lineNumber, position.column, text, newName, skip),
           );
+          if (neededSync && res?.ok) {
+            markMonacoModelLspDocumentSynced(model, sentVersion);
+          }
           if (lspCancelled(token)) {
             return null;
           }
           if (!res || !res.ok || !res.workspaceEdit) {
             return null;
-          }
-          if (neededSync) {
-            markMonacoModelLspDocumentSynced(model);
           }
           return mapWorkspaceEdit(api, res.workspaceEdit);
         },
@@ -520,16 +526,17 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
             return null;
           }
           const neededSync = monacoModelNeedsLspDocumentSync(model);
+          const sentVersion = model.getAlternativeVersionId();
           const skip = !neededSync;
           const res = await electron.lspEditorSemanticTokensFull(sessionId, rel, skip ? '' : model.getValue(), skip);
+          if (neededSync && res?.ok) {
+            markMonacoModelLspDocumentSynced(model, sentVersion);
+          }
           if (lspCancelled(token)) {
             return null;
           }
           if (!res.ok) {
             return null;
-          }
-          if (neededSync) {
-            markMonacoModelLspDocumentSynced(model);
           }
           const p = res.payload;
           const sk = lspServerKindForWorkspaceRelativePath(rel);
@@ -558,6 +565,7 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
             return null;
           }
           const neededSync = monacoModelNeedsLspDocumentSync(model);
+          const sentVersion = model.getAlternativeVersionId();
           const res = await withSessionAndDocument(model, (sid, rel, text, skip) =>
             electron.lspEditorSignatureHelp(
               sid,
@@ -570,11 +578,11 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
               skip,
             ),
           );
+          if (neededSync && res?.ok) {
+            markMonacoModelLspDocumentSynced(model, sentVersion);
+          }
           if (lspCancelled(token) || !res?.ok || !res.signatureHelp) {
             return null;
-          }
-          if (neededSync) {
-            markMonacoModelLspDocumentSynced(model);
           }
           const sh = res.signatureHelp as {
             signatures: Array<{
@@ -627,14 +635,15 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
             return null;
           }
           const neededSync = monacoModelNeedsLspDocumentSync(model);
+          const sentVersion = model.getAlternativeVersionId();
           const res = await withSessionAndDocument(model, (sid, rel, text, skip) =>
             electron.lspEditorDocumentHighlight(sid, rel, position.lineNumber, position.column, text, skip),
           );
+          if (neededSync && res?.ok) {
+            markMonacoModelLspDocumentSynced(model, sentVersion);
+          }
           if (lspCancelled(token) || !res?.ok) {
             return null;
-          }
-          if (neededSync) {
-            markMonacoModelLspDocumentSynced(model);
           }
           return (res.highlights ?? []).map((h) => ({
             range: wireRange(api, h.range),
@@ -651,6 +660,7 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
             return { actions: [], dispose: () => {} };
           }
           const neededSync = monacoModelNeedsLspDocumentSync(model);
+          const sentVersion = model.getAlternativeVersionId();
           const diags = [...getDiagnosticsForModel(model)];
           const res = await withSessionAndDocument(model, (sid, rel, text, skip) =>
             electron.lspEditorCodeAction(
@@ -665,11 +675,11 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
               skip,
             ),
           );
+          if (neededSync && res?.ok) {
+            markMonacoModelLspDocumentSynced(model, sentVersion);
+          }
           if (lspCancelled(token) || !res?.ok) {
             return { actions: [], dispose: () => {} };
-          }
-          if (neededSync) {
-            markMonacoModelLspDocumentSynced(model);
           }
           const actions: Monaco.languages.CodeAction[] = (res.actions ?? []).map((a) => {
             const action: Monaco.languages.CodeAction = {
@@ -695,6 +705,7 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
           }
           const tab = getEditorTabSettings();
           const neededSync = monacoModelNeedsLspDocumentSync(model);
+          const sentVersion = model.getAlternativeVersionId();
           const res = await withSessionAndDocument(model, (sid, rel, text, skip) =>
             electron.lspEditorFormatting(
               sid,
@@ -705,11 +716,11 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
               skip,
             ),
           );
+          if (neededSync && res?.ok) {
+            markMonacoModelLspDocumentSynced(model, sentVersion);
+          }
           if (lspCancelled(token) || !res?.ok) {
             return null;
-          }
-          if (neededSync) {
-            markMonacoModelLspDocumentSynced(model);
           }
           return (res.edits ?? []).map((e) => ({
             range: wireRange(api, e.range),
@@ -727,6 +738,7 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
           }
           const tab = getEditorTabSettings();
           const neededSync = monacoModelNeedsLspDocumentSync(model);
+          const sentVersion = model.getAlternativeVersionId();
           const res = await withSessionAndDocument(model, (sid, rel, text, skip) =>
             electron.lspEditorRangeFormatting(
               sid,
@@ -741,11 +753,11 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
               skip,
             ),
           );
+          if (neededSync && res?.ok) {
+            markMonacoModelLspDocumentSynced(model, sentVersion);
+          }
           if (lspCancelled(token) || !res?.ok) {
             return null;
-          }
-          if (neededSync) {
-            markMonacoModelLspDocumentSynced(model);
           }
           return (res.edits ?? []).map((e) => ({
             range: wireRange(api, e.range),
@@ -764,6 +776,7 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
           }
           const tab = getEditorTabSettings();
           const neededSync = monacoModelNeedsLspDocumentSync(model);
+          const sentVersion = model.getAlternativeVersionId();
           const res = await withSessionAndDocument(model, (sid, rel, text, skip) =>
             electron.lspEditorOnTypeFormatting(
               sid,
@@ -777,11 +790,11 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
               skip,
             ),
           );
+          if (neededSync && res?.ok) {
+            markMonacoModelLspDocumentSynced(model, sentVersion);
+          }
           if (lspCancelled(token) || !res?.ok) {
             return null;
-          }
-          if (neededSync) {
-            markMonacoModelLspDocumentSynced(model);
           }
           return (res.edits ?? []).map((e) => ({
             range: wireRange(api, e.range),
@@ -798,6 +811,7 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
             return null;
           }
           const neededSync = monacoModelNeedsLspDocumentSync(model);
+          const sentVersion = model.getAlternativeVersionId();
           const res = await withSessionAndDocument(model, (sid, rel, text, skip) =>
             electron.lspEditorInlayHints(
               sid,
@@ -810,11 +824,11 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
               skip,
             ),
           );
+          if (neededSync && res?.ok) {
+            markMonacoModelLspDocumentSynced(model, sentVersion);
+          }
           if (lspCancelled(token) || !res?.ok) {
             return null;
-          }
-          if (neededSync) {
-            markMonacoModelLspDocumentSynced(model);
           }
           const hints: Monaco.languages.InlayHint[] = (res.hints ?? []).map((h) => {
             const hint: Monaco.languages.InlayHint = {
@@ -844,14 +858,15 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
             return null;
           }
           const neededSync = monacoModelNeedsLspDocumentSync(model);
+          const sentVersion = model.getAlternativeVersionId();
           const res = await withSessionAndDocument(model, (sid, rel, text, skip) =>
             electron.lspEditorCodeLens(sid, rel, text, skip),
           );
+          if (neededSync && res?.ok) {
+            markMonacoModelLspDocumentSynced(model, sentVersion);
+          }
           if (lspCancelled(token) || !res?.ok) {
             return null;
-          }
-          if (neededSync) {
-            markMonacoModelLspDocumentSynced(model);
           }
           // Preserve LSP ``data`` on the Monaco lens so resolve can round-trip it.
           // JDT LS requires ``data`` on codeLens/resolve and NPEs when it is null.

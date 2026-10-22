@@ -1,7 +1,9 @@
 import { Component, DestroyRef, computed, effect, inject, signal, ViewEncapsulation } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
 import { ConversationSessionService } from '../../shell/conversation-session.service';
-import { turnActivitySpinnerSrc } from '../chat-box/chat-box';
+import { turnActivitySpinnerKind } from '../chat-box/chat-box';
+import { ToolSpinnerComponent } from '../chat-box/tool-spinner/tool-spinner';
+import type { SpinnerKind } from '../chat-box/tool-spinner-kind';
 import { buildSubagentCardViews, type SubagentCardView } from './subagent-dock-view';
 
 /** Elapsed-time refresh while a sub-agent runs. */
@@ -15,7 +17,7 @@ const CLOCK_TICK_MS = 1000;
 @Component({
   selector: 'app-subagent-dock',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, ToolSpinnerComponent],
   templateUrl: './subagent-dock.html',
   styleUrl: './subagent-dock.css',
   encapsulation: ViewEncapsulation.None,
@@ -76,12 +78,12 @@ export class SubagentDockComponent {
   }
 
   /** Same spinner the conversation list shows for that sub-agent's current activity. */
-  protected spinnerSrc(card: SubagentCardView): string | null {
+  protected spinnerKind(card: SubagentCardView): SpinnerKind | null {
     if (!card.live) {
       return null;
     }
     const activity = this.session.conversationActivity().get(card.conversationId);
-    return activity ? turnActivitySpinnerSrc(activity) : null;
+    return activity ? turnActivitySpinnerKind(activity) : null;
   }
 
   protected toggleCollapsed(): void {

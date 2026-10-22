@@ -65,6 +65,7 @@ def workspace_env():
     session.edits.journaled_paths = set()
     session.edits.journal_earlier_turns = {}
     session.hitl_sse_queue = None
+    session.hitl_sse_loop = None
     session.abort_event.clear()
     session.planning_nested_events_q = None
     session.lsp_active_scope = 'workspace'

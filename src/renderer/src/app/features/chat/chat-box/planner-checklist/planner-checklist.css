@@ -7,7 +7,7 @@ app-planner-checklist .plan-panel {
   padding: 0;
   background: color-mix(in srgb, var(--plan-accent) 6%, var(--t-bg-surface));
   border: 1px solid color-mix(in srgb, var(--plan-frame) 42%, transparent);
-  border-radius: 0.85rem !important;
+  border-radius: var(--chat-radius) !important;
   overflow: hidden;
   font-family: var(--t-font-mono, var(--t-font), monospace);
 }
@@ -142,7 +142,7 @@ app-planner-checklist .plan-panel__phase {
   color: var(--t-text-muted);
   padding: 0.1rem 0.35rem;
   background: color-mix(in srgb, var(--t-text-muted) 10%, transparent);
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
 }
 
 app-planner-checklist .plan-panel__phase--discovering,
@@ -169,7 +169,7 @@ app-planner-checklist .plan-panel__message {
   line-height: 1.4;
   color: var(--t-text-muted);
   background: color-mix(in srgb, var(--t-text-muted) 6%, transparent);
-  border-radius: 0.5rem !important;
+  border-radius: var(--chat-radius) !important;
 }
 
 /* ── Steps + vertical loading rail ── */
@@ -269,7 +269,7 @@ app-planner-checklist .plan-panel__node {
   flex-shrink: 0;
   background: var(--t-bg-surface);
   border: 1px solid color-mix(in srgb, var(--plan-accent) 40%, transparent);
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
   font-size: 0.62rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -367,7 +367,7 @@ app-planner-checklist .plan-panel__step-badge {
   color: var(--plan-accent);
   padding: 0.05rem 0.3rem;
   background: color-mix(in srgb, var(--plan-accent) 14%, transparent);
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
   animation: plan-panel-new-badge 0.45s ease;
 }
 
@@ -417,7 +417,7 @@ app-planner-checklist .plan-panel__resolved {
   padding: 0.3rem 0.4rem;
   font-size: 0.7rem;
   background: color-mix(in srgb, var(--t-text-muted) 6%, transparent);
-  border-radius: 0.5rem !important;
+  border-radius: var(--chat-radius) !important;
 }
 
 app-planner-checklist .plan-panel__resolved-mark {
@@ -510,7 +510,7 @@ app-planner-checklist .plan-panel__file-op {
   text-transform: uppercase;
   padding: 0.05rem 0.28rem;
   border: 1px solid color-mix(in srgb, var(--plan-accent) 35%, transparent);
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
   color: color-mix(in srgb, var(--plan-accent) 85%, var(--t-text-muted));
   background: color-mix(in srgb, var(--plan-accent) 10%, transparent);
 }

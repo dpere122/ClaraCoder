@@ -3,7 +3,9 @@ import { NgTemplateOutlet } from '@angular/common';
 import type { ConversationMeta } from '@shared/index';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
-import { turnActivitySpinnerSrc, type TurnActivity } from '../chat-box/chat-box';
+import { turnActivitySpinnerKind, type TurnActivity } from '../chat-box/chat-box';
+import { ToolSpinnerComponent } from '../chat-box/tool-spinner/tool-spinner';
+import type { SpinnerKind } from '../chat-box/tool-spinner-kind';
 import { buildConversationTree, type ConversationTreeNode } from './conversation-tree';
 
 /** Screen-reader label for each live turn activity shown on a conversation row. */
@@ -20,7 +22,7 @@ const ACTIVITY_LABELS: Record<TurnActivity, string> = {
 
 @Component({
   selector: 'app-conversation-manager',
-  imports: [FormsModule, LucideAngularModule, NgTemplateOutlet],
+  imports: [FormsModule, LucideAngularModule, NgTemplateOutlet, ToolSpinnerComponent],
   templateUrl: './conversation-manager.html',
   styleUrl: './conversation-manager.css',
   encapsulation: ViewEncapsulation.None,
@@ -47,8 +49,8 @@ export class ConversationManager {
   protected contextMenuY = signal(0);
   protected contextMenuConvId = signal<string | null>(null);
 
-  protected activitySpinnerSrc(activity: TurnActivity): string | null {
-    return turnActivitySpinnerSrc(activity);
+  protected activitySpinnerKind(activity: TurnActivity): SpinnerKind | null {
+    return turnActivitySpinnerKind(activity);
   }
 
   protected activityLabel(activity: TurnActivity): string {

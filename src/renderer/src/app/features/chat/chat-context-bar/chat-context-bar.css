@@ -44,7 +44,7 @@
   max-width: 18rem;
   padding: 0.12rem 0.25rem 0.12rem 0.3rem;
   border: 1px solid var(--t-border-subtle);
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
   background-color: var(--t-bg);
   color: var(--t-input-fg, var(--t-primary));
   font-size: 0.75rem;
@@ -63,7 +63,7 @@
   height: 1.1rem;
   padding: 0;
   border: none;
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
   background-color: transparent;
   color: var(--t-text-muted);
   cursor: pointer;
@@ -86,7 +86,7 @@
 .chat-context-chip-thumb {
   width: 1.4rem;
   height: 1.4rem;
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
   object-fit: cover;
   flex-shrink: 0;
 }
@@ -111,7 +111,7 @@
   height: 1.1rem;
   padding: 0;
   border: none;
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
   background-color: transparent;
   color: var(--t-text-muted);
   cursor: pointer;

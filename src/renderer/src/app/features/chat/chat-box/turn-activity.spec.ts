@@ -1,6 +1,6 @@
 import type { StreamPart, TurnFeedItem } from '@shared/index';
 import { toolTrailStatusStreamTag } from '@shared/index';
-import { inFlightToolSpinnerKind, resolveTurnActivity, turnActivitySpinnerSrc } from './chat-box-display';
+import { inFlightToolSpinnerKind, resolveTurnActivity, turnActivitySpinnerKind } from './chat-box-display';
 import { toolSpinnerKind } from './tool-spinner-kind';
 
 describe('resolveTurnActivity', () => {
@@ -74,15 +74,12 @@ describe('toolSpinnerKind', () => {
   });
 });
 
-describe('turnActivitySpinnerSrc', () => {
-  it('maps each spinning activity to the live-stream spinner image', () => {
-    expect(turnActivitySpinnerSrc('prefill')).toBe('spinner-prefill.svg');
-    expect(turnActivitySpinnerSrc('think')).toBe('spinner.svg');
-    expect(turnActivitySpinnerSrc('read')).toBe('spinner-read.svg');
-    expect(turnActivitySpinnerSrc('write')).toBe('spinner-jot.svg');
-    expect(turnActivitySpinnerSrc('run')).toBe('spinner-run.svg');
-    expect(turnActivitySpinnerSrc('web')).toBe('spinner-web.svg');
-    expect(turnActivitySpinnerSrc('reply')).toBeNull();
-    expect(turnActivitySpinnerSrc('review')).toBeNull();
+describe('turnActivitySpinnerKind', () => {
+  it('maps each spinning activity to its spinner, and shows none while replying or awaiting review', () => {
+    for (const kind of ['prefill', 'think', 'read', 'write', 'run', 'web'] as const) {
+      expect(turnActivitySpinnerKind(kind)).toBe(kind);
+    }
+    expect(turnActivitySpinnerKind('reply')).toBeNull();
+    expect(turnActivitySpinnerKind('review')).toBeNull();
   });
 });

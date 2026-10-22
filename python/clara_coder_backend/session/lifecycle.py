@@ -33,6 +33,7 @@ def clear_session_hitl_fields(sess: SessionState) -> None:
     hitl.agent_pause_run_ms = None
     hitl.pending_user_event_notes.clear()
     hitl.hitl_sse_queue = None
+    hitl.hitl_sse_loop = None
 
 
 async def teardown_session(sid: str) -> None:

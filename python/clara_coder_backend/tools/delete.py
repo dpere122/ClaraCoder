@@ -26,6 +26,7 @@ from clara_coder_backend.session.pause import stage_hitl_request, timed_approved
 from clara_coder_backend.session.state import current_session_id, get_session, mutation_tools_blocked_reason
 from clara_coder_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
+from clara_coder_backend.workspace.path_locks import locked_path, note_batch_replaced
 
 logger = logging.getLogger('clara.tools.delete')
 
@@ -62,7 +63,11 @@ def _perform_delete(root: Path, rel: str, recursive: bool) -> tuple[bool, str]:
         return False, f'Path does not exist: `{rel}`.'
     try:
         if target.is_file() or target.is_symlink():
-            target.unlink()
+            # Same lock as the edit tools, so a parallel edit cannot write back a file it read before the delete.
+            # Directory deletes lock nothing: an edit inside the tree racing them is not guarded.
+            with locked_path(target) as key:
+                target.unlink(missing_ok=True)
+                note_batch_replaced(key)
             return True, f'Deleted file `{rel}`.'
         if any(target.iterdir()):
             if not recursive:

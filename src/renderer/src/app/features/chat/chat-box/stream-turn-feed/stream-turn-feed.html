@@ -54,7 +54,7 @@
               >
                 @if (spinnerHost() === 'header') {
                   <span class="stream-turn-feed__preview-spinner" aria-hidden="true">
-                    <img class="stream-turn-feed__preview-spinner-img" src="spinner.svg" alt="" />
+                    <app-tool-spinner class="stream-turn-feed__preview-spinner-img" kind="think" />
                   </span>
                   <span class="stream-turn-feed__preview-label" [attr.aria-label]="previewHeader()">
                     @for (ch of previewHeaderChars(); track $index) {
@@ -110,8 +110,9 @@
         [class.stream-turn-feed__settle]="live()"
       >
         <app-stream-tool-pill
-          [name]="working ? 'Working' : 'Worked'"
-          [meta]="activityMeta(summary?.meta ?? '', open, members)"
+          [name]="activityName(working, summary)"
+          [nameTitle]="summary?.title ?? ''"
+          [meta]="activityMeta(activityBaseMeta(working, summary), open, members)"
           [duration]="summary?.duration ?? ''"
           durationTitle="Time spent thinking and running tools"
           [state]="working ? 'running' : summary?.failed ? 'error' : 'complete'"

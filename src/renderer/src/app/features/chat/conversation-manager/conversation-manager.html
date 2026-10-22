@@ -57,8 +57,8 @@
             [attr.aria-label]="activityLabel(act)"
             [attr.title]="activityLabel(act)"
           >
-            @if (activitySpinnerSrc(act); as src) {
-              <img class="conv-activity__spinner" [src]="src" alt="" />
+            @if (activitySpinnerKind(act); as kind) {
+              <app-tool-spinner class="conv-activity__spinner" [kind]="kind" />
             } @else if (act === 'review') {
               <lucide-icon name="circle-alert" [size]="14" />
             } @else {

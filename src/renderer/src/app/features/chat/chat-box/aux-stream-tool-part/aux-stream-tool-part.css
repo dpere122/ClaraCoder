@@ -1,14 +1,17 @@
-app-aux-stream-tool-part .aux-stream-tool-part {
-  margin: 0.2rem 0 0.35rem;
-}
-
-app-aux-stream-tool-part .aux-stream-tool-part__terminal {
+app-aux-stream-tool-part {
   display: block;
-  margin-top: 0.28rem;
+  min-width: 0;
 }
 
+app-aux-stream-tool-part .aux-stream-tool-part {
+  margin: 0;
+}
+
+/* Expanded output sits under its row, indented past the chevron. */
+app-aux-stream-tool-part .aux-stream-tool-part__terminal,
 app-aux-stream-tool-part .aux-stream-tool-part__diff {
-  margin-top: 0.28rem;
+  display: block;
+  margin: 0.15rem 0 0.35rem 1.25rem;
 }
 
 /* Sub-agent pill: opens the sub-agent's (read-only) conversation. */
@@ -16,10 +19,10 @@ app-aux-stream-tool-part .aux-stream-tool-part__subagent-link {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  margin-top: 0.28rem;
+  margin: 0.15rem 0 0.3rem 1.25rem;
   padding: 0.15rem 0.6rem;
   border: 1px solid var(--t-border-subtle);
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
   background: transparent;
   color: var(--t-primary);
   font-family: inherit;
@@ -34,13 +37,13 @@ app-aux-stream-tool-part .aux-stream-tool-part__subagent-link:hover {
 
 app-aux-stream-tool-part .aux-stream-tool-part__detail {
   display: block;
-  margin: 0.28rem 0 0;
-  padding: 0.35rem 0.45rem;
+  margin: 0.15rem 0 0.35rem 1.25rem;
+  padding: 0.4rem 0.6rem;
   max-height: min(40vh, 22rem);
   overflow: auto;
-  border: 1px solid color-mix(in srgb, var(--t-border-subtle) 55%, transparent);
-  border-radius: 0.35rem;
-  background: color-mix(in srgb, var(--t-code-bg) 65%, transparent);
+  border: none;
+  border-radius: var(--chat-radius);
+  background: var(--t-code-bg);
 }
 
 app-aux-stream-tool-part .aux-stream-tool-part__detail pre {

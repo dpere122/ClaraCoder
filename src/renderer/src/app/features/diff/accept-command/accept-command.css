@@ -5,15 +5,13 @@
 
 .accept-command-card {
   border: 1px solid var(--bs-border-color);
-  border-radius: 1rem !important;
+  border-radius: var(--chat-radius) !important;
   overflow: hidden;
   background: var(--bs-body-bg);
 }
 
 .accept-command-card--pending {
-  border-width: 2px;
-  border-color: rgba(var(--bs-primary-rgb), 0.45);
-  box-shadow: 0 0 0 1px rgba(var(--bs-primary-rgb), 0.08);
+  border-color: color-mix(in srgb, var(--t-primary) 45%, var(--t-border));
 }
 
 .accept-command-header {
@@ -37,10 +35,10 @@
 
 .accept-command-command {
   margin: 0.75rem;
-  padding: 0.7rem 0.8rem;
-  border: 1px solid var(--bs-border-color);
-  border-radius: 0.6rem !important;
-  background: rgba(var(--bs-secondary-rgb), 0.08);
+  padding: 0.6rem 0.75rem;
+  border: none;
+  border-radius: var(--chat-radius) !important;
+  background: var(--t-code-bg);
 }
 
 .accept-command-command__text {
@@ -67,7 +65,7 @@
   max-width: 100%;
   padding: 0.2rem 0.55rem;
   border: 1px solid var(--bs-border-color);
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
   background: rgba(var(--bs-secondary-rgb), 0.06);
   font-size: 0.75rem;
   line-height: 1.3;

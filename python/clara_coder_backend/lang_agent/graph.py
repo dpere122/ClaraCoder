@@ -622,6 +622,7 @@ async def _stream_langgraph_tool_agent(
     session.worker_apply_mode = session.active_editor_langgraph_streams > 0
     # Assign before ``pump_events`` so review middleware and file journals can queue on the first tool turn.
     session.hitl_sse_queue = hitl_q
+    session.hitl_sse_loop = asyncio.get_running_loop()
     session.planning_nested_events_q = nested_stream_q
     session.planning_nested_events_loop = asyncio.get_running_loop()
 
@@ -794,6 +795,7 @@ async def _stream_langgraph_tool_agent(
         session.active_langgraph_agent_streams = max(0, session.active_langgraph_agent_streams - 1)
         if session.active_langgraph_agent_streams == 0:
             session.hitl_sse_queue = None
+            session.hitl_sse_loop = None
             session.planning_nested_events_q = None
             session.planning_nested_events_loop = None
         if not pump_task.done():

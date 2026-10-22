@@ -23,6 +23,7 @@ import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
 import { ToolPillExpansion } from '../tool-pill-expansion';
 import { ToolPillGroupComponent } from '../tool-pill-group/tool-pill-group';
 import type { PillSpinnerKind } from '../tool-spinner-kind';
+import { ToolSpinnerComponent } from '../tool-spinner/tool-spinner';
 import {
   committedItemIndices,
   decidePreviewCommit,
@@ -68,6 +69,7 @@ export type HostedSpinnerKind = PillSpinnerKind;
     StreamThoughtPillComponent,
     StreamToolPillComponent,
     ToolPillGroupComponent,
+    ToolSpinnerComponent,
   ],
   // Open pills are tracked per feed, so a pill keeps its state when it joins a group.
   providers: [ToolPillExpansion],
@@ -328,10 +330,24 @@ export class StreamTurnFeedComponent {
     return preview >= 0 && members.includes(preview);
   }
 
+  /** Activity pill name: `Working` while its stretch runs, then what it did (`Read 3 files, edited a.py`). */
+  activityName(working: boolean, summary: ActivitySummary | undefined): string {
+    return working ? 'Working' : summary?.headline || 'Worked';
+  }
+
+  /** Activity pill meta before the live step: failures, plus what has landed so far while working. */
+  activityBaseMeta(working: boolean, summary: ActivitySummary | undefined): string {
+    if (!summary) {
+      return '';
+    }
+    const soFar = working && summary.headline !== 'Thought' ? summary.headline : '';
+    return [soFar, summary.outcomes].filter(Boolean).join(' · ');
+  }
+
   /**
-   * Activity pill meta: the counts, plus the live step (`Read — Thinking`, and the compact
-   * thinking counter) while a closed block folds in a pill preview. A reasoning box names its
-   * own step in its header.
+   * Activity pill meta: what landed and any failures, plus the live step (`Read — Thinking`, and
+   * the compact thinking counter) while a closed block folds in a pill preview. A reasoning box
+   * names its own step in its header.
    */
   activityMeta(meta: string, open: boolean, members: readonly number[]): string {
     const hosts = !open && !this.previewShowsBody() && this.activityHostsPreview(members);

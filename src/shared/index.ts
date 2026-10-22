@@ -407,6 +407,7 @@ export {
   formatToolDuration,
   TOOL_PILL_SLOW_MS,
   toolPillGroupLabel,
+  activityHeadline,
   toolPillSlowestMs,
   toolPillLabel,
   toolPillMeta,
@@ -416,7 +417,7 @@ export {
   toolPillVerb,
   toolTargetFromRunningDetail,
 } from './tool-pill-label';
-export type { ToolPillCategory, ToolPillFamily, ToolPillLabel } from './tool-pill-label';
+export type { ActivityHeadline, ToolPillCategory, ToolPillFamily, ToolPillLabel } from './tool-pill-label';
 export type { ParsedAgentStreamPayload } from './stream-payload';
 export { parseAgentStreamPayload, parseAgentStreamValue } from './stream-payload';
 export type {

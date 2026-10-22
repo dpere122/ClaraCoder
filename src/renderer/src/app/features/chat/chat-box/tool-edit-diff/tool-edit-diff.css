@@ -6,9 +6,9 @@ app-tool-edit-diff {
 
 app-tool-edit-diff .tool-edit-diff {
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--t-border-subtle) 55%, transparent);
-  border-radius: 0.35rem;
-  background: color-mix(in srgb, var(--t-code-bg) 65%, transparent);
+  border: none;
+  border-radius: var(--chat-radius);
+  background: var(--t-code-bg);
 }
 
 /* One grid for every row, so the old / new line-number gutters line up across hunks. */

@@ -2,12 +2,15 @@ app-turn-edits-footer {
   display: block;
   min-width: 0;
   max-width: 100%;
-  margin-top: 0.45rem;
+  margin-top: 0.3rem;
 }
 
+/* Flat footer: a dashed rule closes the turn's work, then the edited-files row. */
 app-turn-edits-footer .turn-edits {
-  border: 1px solid color-mix(in srgb, var(--t-border-subtle) 80%, transparent);
-  border-radius: 0.45rem;
+  padding-top: 0.25rem;
+  border: none;
+  border-top: 1px dashed var(--t-border-subtle);
+  border-radius: 0;
   font-size: 0.78rem;
   overflow: hidden;
 }
@@ -31,7 +34,7 @@ app-turn-edits-footer .turn-edits__open {
   font: inherit;
   text-align: left;
   cursor: pointer;
-  border-radius: 0.3rem;
+  border-radius: var(--chat-radius-sm);
 }
 
 app-turn-edits-footer .turn-edits__toggle {
@@ -133,7 +136,7 @@ app-turn-edits-footer .turn-edits__reset {
   flex-shrink: 0;
   padding: 0.1rem 0.4rem;
   border: 1px solid color-mix(in srgb, var(--t-border-subtle) 80%, transparent);
-  border-radius: 0.3rem;
+  border-radius: var(--chat-radius-sm);
   background: transparent;
   color: inherit;
   font: inherit;

@@ -13,7 +13,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Clara's replies, including rendered markdown and code blocks.",
     selector: "[data-theme-group=\"chat.assistant-bubble\"]",
     component: "app/features/chat/chat-box",
-    tokens: ["--t-assistant-bg", "--t-assistant-border", "--t-assistant-fg", "--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-chat-bg", "--t-code-bg", "--t-code-inline-bg", "--t-code-text", "--t-danger", "--t-fg", "--t-glow", "--t-glow-soft", "--t-hljs-attr", "--t-hljs-class", "--t-hljs-comment", "--t-hljs-function", "--t-hljs-keyword", "--t-hljs-meta", "--t-hljs-name", "--t-hljs-number", "--t-hljs-operator", "--t-hljs-params", "--t-hljs-property", "--t-hljs-punctuation", "--t-hljs-selector", "--t-hljs-string", "--t-hljs-symbol", "--t-hljs-tag", "--t-hover-bg", "--t-log-level-warning", "--t-primary", "--t-secondary", "--t-surface-2", "--t-text-muted", "--t-tui-clara-frame", "--t-user-bg", "--t-user-border", "--t-user-fg"],
+    tokens: ["--t-assistant-bg", "--t-assistant-border", "--t-assistant-fg", "--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-chat-bg", "--t-code-bg", "--t-code-inline-bg", "--t-code-text", "--t-danger", "--t-fg", "--t-glow", "--t-glow-soft", "--t-hljs-attr", "--t-hljs-class", "--t-hljs-comment", "--t-hljs-function", "--t-hljs-keyword", "--t-hljs-meta", "--t-hljs-name", "--t-hljs-number", "--t-hljs-operator", "--t-hljs-params", "--t-hljs-property", "--t-hljs-punctuation", "--t-hljs-selector", "--t-hljs-string", "--t-hljs-symbol", "--t-hljs-tag", "--t-hover-bg", "--t-log-level-warning", "--t-primary", "--t-secondary", "--t-surface-2", "--t-text-muted", "--t-tui-clara-frame", "--t-user-fg"],
     supportsBackground: false,
   },
   {
@@ -68,7 +68,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Live thought, nudge, and tool-status pills during a reply.",
     selector: "[data-theme-group=\"chat.stream-pills\"]",
     component: "app/features/chat/chat-box/stream-tool-pill",
-    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-code-inline-bg", "--t-code-text", "--t-edge-darkest", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-log-level-error", "--t-panel", "--t-primary", "--t-process-a", "--t-secondary"],
+    tokens: ["--t-caution", "--t-code-bg", "--t-fg", "--t-hover-bg", "--t-log-level-error", "--t-primary", "--t-secondary", "--t-text-muted"],
     supportsBackground: false,
   },
   {
@@ -101,7 +101,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Scrollable conversation panel behind the message bubbles.",
     selector: "[data-theme-group=\"chat.transcript\"]",
     component: "app/features/chat/chat-box",
-    tokens: ["--t-assistant-bg", "--t-assistant-border", "--t-assistant-fg", "--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-chat-bg", "--t-code-bg", "--t-code-inline-bg", "--t-code-text", "--t-danger", "--t-edge-darkest", "--t-fg", "--t-font", "--t-font-mono", "--t-glow", "--t-glow-soft", "--t-hljs-attr", "--t-hljs-class", "--t-hljs-comment", "--t-hljs-function", "--t-hljs-keyword", "--t-hljs-meta", "--t-hljs-name", "--t-hljs-number", "--t-hljs-operator", "--t-hljs-params", "--t-hljs-property", "--t-hljs-punctuation", "--t-hljs-selector", "--t-hljs-string", "--t-hljs-symbol", "--t-hljs-tag", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-panel", "--t-primary", "--t-process-a", "--t-process-c", "--t-secondary", "--t-success", "--t-surface-2", "--t-text-muted", "--t-tui-clara-frame", "--t-tui-input-frame", "--t-user-bg", "--t-user-border", "--t-user-fg"],
+    tokens: ["--t-active-bg", "--t-assistant-bg", "--t-assistant-border", "--t-assistant-fg", "--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-caution", "--t-chat-bg", "--t-code-bg", "--t-code-inline-bg", "--t-code-text", "--t-danger", "--t-fg", "--t-font", "--t-font-mono", "--t-glow", "--t-glow-soft", "--t-hljs-attr", "--t-hljs-class", "--t-hljs-comment", "--t-hljs-function", "--t-hljs-keyword", "--t-hljs-meta", "--t-hljs-name", "--t-hljs-number", "--t-hljs-operator", "--t-hljs-params", "--t-hljs-property", "--t-hljs-punctuation", "--t-hljs-selector", "--t-hljs-string", "--t-hljs-symbol", "--t-hljs-tag", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-primary", "--t-process-c", "--t-secondary", "--t-success", "--t-surface-2", "--t-text-muted", "--t-tui-clara-frame", "--t-tui-input-frame", "--t-user-fg"],
     supportsBackground: true,
     backgroundClear: [".chat-box"],
   },
@@ -279,7 +279,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Command approvals, folder delete confirmations, plan confirmations, agent questions, and theme proposals.",
     selector: "[data-theme-group=\"hitl.cards\"]",
     component: "app/features/chat/hitl-composer-dock",
-    tokens: ["--t-bg", "--t-bg-surface", "--t-border-subtle", "--t-caution", "--t-composer-input-focus-bg", "--t-confirm", "--t-edge-darkest", "--t-edge-light", "--t-fg", "--t-hover-bg", "--t-input-bg", "--t-input-fg", "--t-log-level-error", "--t-log-level-warning", "--t-process-c", "--t-secondary", "--t-text-muted"],
+    tokens: ["--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-caution", "--t-code-bg", "--t-composer-input-focus-bg", "--t-confirm", "--t-edge-darkest", "--t-fg", "--t-hover-bg", "--t-input-bg", "--t-input-fg", "--t-log-level-error", "--t-log-level-warning", "--t-primary", "--t-process-c", "--t-secondary", "--t-text-muted"],
     supportsBackground: false,
   },
   {

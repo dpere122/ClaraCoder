@@ -7,7 +7,7 @@ app-tool-pill-group {
 app-tool-pill-group .tool-pill-group__members {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
   min-width: 0;
   margin: 0.1rem 0 0.25rem 0.55rem;
   padding-left: 0.5rem;

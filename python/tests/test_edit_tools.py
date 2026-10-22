@@ -238,21 +238,41 @@ async def test_parallel_snippet_edits_of_one_file_both_land(journaled, monkeypat
 
 
 @pytest.mark.asyncio(loop_scope='function')
-async def test_parallel_line_range_edits_of_one_file_apply_only_the_first(journaled, monkeypatch) -> None:
+async def test_parallel_line_range_edits_of_one_file_all_apply(journaled, monkeypatch) -> None:
     target = journaled.workspace / 'l.txt'
+    target.write_text('one\ntwo\nthree\nfour\n', encoding='utf-8')
+    _slow_formatter(monkeypatch)
+
+    outs = await _run_batch(
+        [
+            _lines_call('l.txt', 1, 1, 'zero\none\n'),
+            _lines_call('l.txt', 3, 3, 'THREE\n'),
+            _lines_call('l.txt', 4, 4, ''),
+        ]
+    )
+
+    # Each call's line numbers came from the same read; whichever order they ran in, each lands on its line.
+    assert all(o.startswith('Updated `l.txt`') for o in outs), outs
+    assert target.read_text(encoding='utf-8') == 'zero\none\ntwo\nTHREE\n'
+    rows = _journal_rows(journaled.session)
+    assert [r['beforeContent'] for r in rows] == ['one\ntwo\nthree\nfour\n']
+
+
+@pytest.mark.asyncio(loop_scope='function')
+async def test_parallel_line_range_edits_of_the_same_lines_apply_only_one(journaled, monkeypatch) -> None:
+    target = journaled.workspace / 'o.txt'
     target.write_text('one\ntwo\nthree\n', encoding='utf-8')
     _slow_formatter(monkeypatch)
 
-    outs = await _run_batch([_lines_call('l.txt', 1, 1, 'zero\none\n'), _lines_call('l.txt', 3, 3, 'THREE\n')])
+    outs = await _run_batch([_lines_call('o.txt', 2, 3, 'A\n'), _lines_call('o.txt', 3, 3, 'B\n')])
 
-    # Whichever call ran second is refused, so its line number never lands on the shifted file.
-    refused = [o for o in outs if 'another tool call in this same response already changed `l.txt`' in o]
+    refused = [o for o in outs if 'another tool call in this same response already changed `o.txt`' in o]
     assert len(refused) == 1, outs
     assert 'read_workspace_file' in refused[0]
-    assert target.read_text(encoding='utf-8') in ('zero\none\ntwo\nthree\n', 'one\ntwo\nTHREE\n')
+    assert target.read_text(encoding='utf-8') in ('one\nA\n', 'one\ntwo\nB\n')
 
 
-def test_line_range_edit_after_a_snippet_edit_in_the_same_batch_is_refused(journaled) -> None:
+def test_line_range_edit_after_a_snippet_edit_in_the_same_batch_is_shifted(journaled) -> None:
     target = journaled.workspace / 'm.txt'
     target.write_text('one\ntwo\n', encoding='utf-8')
     token = current_tool_batch_id.set('batch-1')
@@ -263,8 +283,68 @@ def test_line_range_edit_after_a_snippet_edit_in_the_same_batch_is_refused(journ
         current_tool_batch_id.reset(token)
 
     assert first.startswith('Updated'), first
-    assert 'your line numbers no longer match the file' in out
-    assert target.read_text(encoding='utf-8') == 'zero\none\ntwo\n'
+    assert out.startswith('Updated'), out
+    assert 'lines 2–2 were applied at 3–3' in out
+    assert target.read_text(encoding='utf-8') == 'zero\none\nTWO\n'
+
+
+def test_line_range_edit_of_lines_a_snippet_edit_changed_is_refused(journaled) -> None:
+    target = journaled.workspace / 'q.txt'
+    target.write_text('one\ntwo\nthree\n', encoding='utf-8')
+    token = current_tool_batch_id.set('batch-q')
+    try:
+        replace_workspace_snippet.invoke(_snippet_call('q.txt', 'two', 'TWO')['args'])
+        out = replace_workspace_lines.invoke(_lines_call('q.txt', 2, 2, 'deux\n')['args'])
+    finally:
+        current_tool_batch_id.reset(token)
+
+    assert 'lines 2–2 as you read them were changed already' in out
+    assert target.read_text(encoding='utf-8') == 'one\nTWO\nthree\n'
+
+
+def test_line_range_edit_past_the_base_end_is_refused_after_an_append(journaled) -> None:
+    target = journaled.workspace / 'r.txt'
+    target.write_text('one\n', encoding='utf-8')
+    token = current_tool_batch_id.set('batch-r')
+    try:
+        replace_workspace_lines.invoke(_lines_call('r.txt', 2, 2, 'two\n')['args'])
+        out = replace_workspace_lines.invoke(_lines_call('r.txt', 2, 2, 'other\n')['args'])
+    finally:
+        current_tool_batch_id.reset(token)
+
+    # Both calls asked to append after line 1 of the file they read; the second goes after the first.
+    assert out.startswith('Updated'), out
+    assert target.read_text(encoding='utf-8') == 'one\ntwo\nother\n'
+
+    # Lines past the end of the file as read are lines another call appended, not ones this call saw.
+    token = current_tool_batch_id.set('batch-r2')
+    try:
+        replace_workspace_lines.invoke(_lines_call('r.txt', 4, 4, 'four\n')['args'])
+        out = replace_workspace_lines.invoke(_lines_call('r.txt', 4, 5, 'x\n')['args'])
+    finally:
+        current_tool_batch_id.reset(token)
+    assert 'or are past its end' in out
+    assert target.read_text(encoding='utf-8') == 'one\ntwo\nother\nfour\n'
+
+
+def test_copy_over_a_file_in_the_same_batch_refuses_later_line_edits(journaled) -> None:
+    from clara_coder_backend.tools.copy import copy_workspace_files
+
+    (journaled.workspace / 'src.txt').write_text('copied\n', encoding='utf-8')
+    target = journaled.workspace / 'dst.txt'
+    target.write_text('one\ntwo\n', encoding='utf-8')
+    token = current_tool_batch_id.set('batch-c')
+    try:
+        copied = copy_workspace_files.invoke(
+            {'copies': [{'source_path': 'src.txt', 'destination_path': 'dst.txt'}], 'overwrite': True}
+        )
+        out = replace_workspace_lines.invoke(_lines_call('dst.txt', 1, 1, 'ONE\n')['args'])
+    finally:
+        current_tool_batch_id.reset(token)
+
+    assert copied.startswith('Copied'), copied
+    assert 'another tool call in this same response already changed `dst.txt`' in out
+    assert target.read_text(encoding='utf-8') == 'copied\n'
 
 
 @pytest.mark.asyncio(loop_scope='function')

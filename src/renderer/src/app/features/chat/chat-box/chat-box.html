@@ -21,16 +21,27 @@
         [class.assistant-bubble]="slot.row.kind === 'assistant-turn'"
         [class.assistant-turn-bubble]="slot.row.kind === 'assistant-turn'"
       >
-        @if (slot.row.kind === 'user' && canRestoreUserRow(slot.row.msg)) {
-          <button
-            type="button"
-            class="msg-restore-btn"
-            (click)="onRestoreUserRow(slot.row.msg, $event)"
-            aria-label="Restore conversation to this message"
-            title="Restore conversation to this message"
-          >
-            <lucide-icon name="undo-2" [size]="13" aria-hidden="true"></lucide-icon>
-          </button>
+        @if (slot.row.kind === 'user') {
+          <div class="msg-role msg-role--user">
+            <lucide-icon [name]="slot.row.msg.fromAgent ? 'bot' : 'user'" [size]="13" aria-hidden="true"></lucide-icon>
+            <span class="msg-role__name">{{ slot.row.msg.fromAgent ? 'Main agent' : 'You' }}</span>
+            @if (canRestoreUserRow(slot.row.msg)) {
+              <button
+                type="button"
+                class="msg-restore-btn"
+                (click)="onRestoreUserRow(slot.row.msg, $event)"
+                aria-label="Restore conversation to this message"
+                title="Restore conversation to this message"
+              >
+                <lucide-icon name="undo-2" [size]="13" aria-hidden="true"></lucide-icon>
+              </button>
+            }
+          </div>
+        } @else {
+          <div class="msg-role msg-role--assistant">
+            <app-clara-badge />
+            <span class="msg-role__name">Clara</span>
+          </div>
         }
         <div class="msg-bubble__body">
         @if (slot.row.kind === 'user') {
@@ -151,6 +162,10 @@
         class="msg-bubble assistant-bubble assistant-turn-bubble"
         [class.streaming-bubble]="!liveTurnPresentationSettled()"
       >
+        <div class="msg-role msg-role--assistant">
+          <app-clara-badge [live]="loading()" />
+          <span class="msg-role__name">Clara</span>
+        </div>
         <div class="msg-bubble__body">
         @if (livePlanPanel(); as planCtx) {
           <app-planner-checklist
@@ -185,16 +200,8 @@
             role="status"
             aria-live="polite"
           >
-            <div
-              class="processing-svg-host"
-              [class.processing-svg-host--jot]="liveTurnActivity() === 'write'"
-              [class.processing-svg-host--read]="liveTurnActivity() === 'read'"
-              [class.processing-svg-host--run]="liveTurnActivity() === 'run'"
-              [class.processing-svg-host--web]="liveTurnActivity() === 'web'"
-              [class.processing-svg-host--prefill]="liveTurnActivity() === 'prefill'"
-              aria-hidden="true"
-            >
-              <img class="processing-svg-spinner" [src]="processingSpinnerSrc()" alt="" />
+            <div class="processing-svg-host" aria-hidden="true">
+              <app-tool-spinner class="processing-svg-spinner" [kind]="processingSpinnerKind()" />
             </div>
             <span
               class="processing-text processing-text--shimmer"

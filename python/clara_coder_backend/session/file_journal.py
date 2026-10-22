@@ -7,7 +7,9 @@ journaled—later writes in the same turn would otherwise overwrite the restore 
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import threading
 from pathlib import Path
 from typing import Any, Literal
 
@@ -23,6 +25,8 @@ TREE_SNAPSHOT_MAX_BYTES = 20_000_000
 _TREE_SNAPSHOT_SKIP_DIRS = frozenset({'.git', 'node_modules', '.venv', 'venv', '__pycache__'})
 #: Earlier turns whose journaled paths are remembered (a sub-agent may outlive a few main-agent turns).
 _EARLIER_TURNS_KEPT = 16
+# Parallel tool calls (and sub-agents sharing their parent's ``edits``) journal from worker threads.
+_journal_lock = threading.Lock()
 
 FileJournalOp = Literal['create', 'modify', 'delete', 'delete-tree', 'copy']
 
@@ -131,19 +135,27 @@ def first_mutation_this_turn(session: SessionState, relative_path: str) -> bool:
     """Record *relative_path* for the current turn; True only on its first mutation in this turn."""
     turn_id = (getattr(session, 'current_user_message_id', '') or '').strip()
     edits = session.edits
-    if edits.journal_turn_id != turn_id:
-        # Park the previous turn's set: a background sub-agent may still journal under that turn.
-        if edits.journal_turn_id:
-            edits.journal_earlier_turns[edits.journal_turn_id] = edits.journaled_paths
-            while len(edits.journal_earlier_turns) > _EARLIER_TURNS_KEPT:
-                edits.journal_earlier_turns.pop(next(iter(edits.journal_earlier_turns)))
-        edits.journal_turn_id = turn_id
-        edits.journaled_paths = edits.journal_earlier_turns.pop(turn_id, set())
     key = (relative_path or '').strip().replace('\\', '/')
-    if key in edits.journaled_paths:
-        return False
-    edits.journaled_paths.add(key)
-    return True
+    with _journal_lock:
+        if edits.journal_turn_id != turn_id:
+            # Park the previous turn's set: a background sub-agent may still journal under that turn.
+            if edits.journal_turn_id:
+                edits.journal_earlier_turns[edits.journal_turn_id] = edits.journaled_paths
+                while len(edits.journal_earlier_turns) > _EARLIER_TURNS_KEPT:
+                    edits.journal_earlier_turns.pop(next(iter(edits.journal_earlier_turns)))
+            edits.journal_turn_id = turn_id
+            edits.journaled_paths = edits.journal_earlier_turns.pop(turn_id, set())
+        if key in edits.journaled_paths:
+            return False
+        edits.journaled_paths.add(key)
+        return True
+
+
+def _running_loop() -> asyncio.AbstractEventLoop | None:
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return None
 
 
 def emit_file_journal(session: SessionState, payload: dict[str, Any]) -> None:
@@ -162,12 +174,17 @@ def emit_file_journal(session: SessionState, payload: dict[str, Any]) -> None:
         return
     body = dict(payload)
     body['userMessageId'] = turn_id
-    queue = session.hitl_sse_queue
+    queue, loop = session.hitl_sse_queue, session.hitl_sse_loop
     if queue is None:
         logger.debug('file journal dropped (no HITL SSE queue) path=%s', body.get('relativePath'))
         return
     try:
-        queue.put_nowait(('file_journal', body))
+        if loop is None or _running_loop() is loop:
+            queue.put_nowait(('file_journal', body))
+        else:
+            # Tool worker thread: ``asyncio.Queue`` is not thread-safe, and a ``put_nowait`` here would not wake
+            # the stream loop awaiting ``queue.get()``.
+            loop.call_soon_threadsafe(queue.put_nowait, ('file_journal', body))
     except Exception as exc:
         logger.warning('file journal enqueue failed path=%s err=%s', body.get('relativePath'), exc)
 

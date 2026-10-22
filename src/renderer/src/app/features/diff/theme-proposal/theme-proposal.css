@@ -1,6 +1,6 @@
 app-theme-proposal .theme-proposal-card {
   overflow: hidden;
-  border-radius: 1rem !important;
+  border-radius: var(--chat-radius) !important;
   background:
     linear-gradient(to right, color-mix(in srgb, var(--t-secondary) 30%, transparent) 3px, transparent 3px),
     color-mix(in srgb, var(--t-secondary) 6%, var(--t-bg-surface));
@@ -44,7 +44,7 @@ app-theme-proposal .theme-proposal-badge {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   padding: 0.15rem 0.45rem;
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius) !important;
 }
 
 app-theme-proposal .theme-proposal-badge--complete {

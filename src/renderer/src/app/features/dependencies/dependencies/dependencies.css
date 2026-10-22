@@ -5,27 +5,32 @@
   font-family: var(--t-font);
 }
 
+/*
+ * Dependencies window (IDE flat): a header strip, then groups of hairline rows. Each row is the
+ * name with a status dot, muted version/size text and the description, with its actions on the
+ * right. Status colors come from theme status tokens via --deps-tone (never --t-primary, which
+ * some themes make amber and would read as a warning).
+ */
 .deps-shell {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  padding: 10px 14px 10px;
   box-sizing: border-box;
-  gap: 10px;
-  background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--t-primary) 12%, transparent), transparent 30%),
-    linear-gradient(180deg, color-mix(in srgb, var(--t-bg-surface) 88%, transparent), var(--t-bg));
+  background: var(--t-bg);
   color: var(--t-fg);
 }
 
 /* ---- Header -------------------------------------------------------------- */
 
 .deps-header {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--t-border-subtle);
+  background: var(--t-bg-deep);
   -webkit-app-region: drag;
 }
 
@@ -33,69 +38,63 @@
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.deps-header .deps-btn,
-.deps-header .deps-close-btn {
-  flex-shrink: 0;
-}
-
-.deps-summary {
-  padding: 1px 9px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--t-border) 80%, transparent);
-  color: var(--t-text-muted);
-  font-size: 11.5px;
-  white-space: nowrap;
-}
-
-.deps-summary--ok {
-  color: color-mix(in srgb, var(--t-success) 85%, var(--t-fg));
-  border-color: color-mix(in srgb, var(--t-success) 45%, var(--t-border));
-  background: color-mix(in srgb, var(--t-success) 10%, transparent);
-}
-
-.deps-summary--issue {
-  color: color-mix(in srgb, var(--t-warn) 85%, var(--t-fg));
-  border-color: color-mix(in srgb, var(--t-warn) 50%, var(--t-border));
-  background: color-mix(in srgb, var(--t-warn) 10%, transparent);
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 14px;
 }
 
 .deps-header h2 {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: 15px;
   font-weight: 600;
+  color: var(--t-fg);
+}
+
+.deps-summary {
+  font-size: 12px;
+  color: var(--t-text-muted);
+  white-space: nowrap;
+}
+
+.deps-summary--ok {
+  color: var(--t-success);
+}
+
+.deps-summary--issue {
+  color: var(--t-warn);
 }
 
 .deps-copy {
   margin: 0;
   color: var(--t-text-muted);
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 /* ---- Buttons ------------------------------------------------------------- */
 
-.deps-close-btn,
 .deps-btn {
   -webkit-app-region: no-drag;
   flex-shrink: 0;
-  padding: 5px 14px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--t-border) 82%, transparent);
-  background: color-mix(in srgb, var(--t-bg-surface) 88%, transparent);
+  min-height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--t-border);
+  background: transparent;
   color: var(--t-fg);
   font-family: var(--t-font);
   font-size: 12px;
-  line-height: 1.3;
+  line-height: 1;
   cursor: pointer;
   white-space: nowrap;
+  transition: background 0.12s ease;
 }
 
-.deps-close-btn:hover,
 .deps-btn:hover:not(:disabled) {
   background: var(--t-hover-bg);
+}
+
+.deps-btn:focus-visible {
+  outline: 1px solid var(--t-primary);
+  outline-offset: 1px;
 }
 
 .deps-btn:disabled {
@@ -104,17 +103,24 @@
 }
 
 .deps-btn--primary {
-  border-color: color-mix(in srgb, var(--t-primary) 55%, var(--t-border));
-  background: color-mix(in srgb, var(--t-primary) 18%, var(--t-bg-surface));
+  border-color: var(--t-primary);
+  background: var(--t-primary);
+  color: var(--t-on-primary, var(--t-bg-deep));
+  font-weight: 600;
+}
+
+.deps-btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--t-primary) 85%, var(--t-fg));
 }
 
 .deps-btn--danger {
-  border-color: color-mix(in srgb, var(--t-danger) 50%, var(--t-border));
-  color: color-mix(in srgb, var(--t-danger) 80%, var(--t-fg));
+  color: var(--t-danger);
 }
 
-.deps-btn--danger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--t-danger) 14%, var(--t-bg-surface));
+.deps-btn--small {
+  min-height: 22px;
+  padding: 0 8px;
+  font-size: 11.5px;
 }
 
 .deps-btn-wrap {
@@ -127,7 +133,7 @@
   display: none;
   align-items: center;
   gap: 10px;
-  padding: 8px 0;
+  padding: 12px 18px;
 }
 
 .deps-list-loading.is-active {
@@ -151,12 +157,8 @@
   background: transparent !important;
 }
 
-/* ---- Rows ---------------------------------------------------------------- */
+/* ---- Status tone ---------------------------------------------------------- */
 
-/*
- * Status colors come from theme status tokens (never --t-primary, which some themes make
- * amber and would read as a warning). --deps-tone drives the accent bar and the badge.
- */
 [data-state='installed'] {
   --deps-tone: var(--t-success);
 }
@@ -170,44 +172,44 @@
   --deps-tone: var(--t-error);
 }
 
+/* ---- List + groups ------------------------------------------------------- */
+
 .deps-list {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  padding: 4px 12px 16px;
   -webkit-app-region: no-drag;
 }
-
-/* ---- Groups -------------------------------------------------------------- */
 
 .deps-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-}
-
-.deps-group + .deps-group {
-  margin-top: 6px;
 }
 
 .deps-group__title {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 2px 4px 0;
+  margin: 14px 6px 4px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--t-text-muted);
 }
 
-.deps-group__title .deps-badge {
-  letter-spacing: 0.04em;
+.deps-soon {
+  font-size: 11px;
   font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--t-text-muted);
 }
+
+/* ---- Rows ---------------------------------------------------------------- */
 
 .deps-row {
   display: flex;
@@ -215,18 +217,13 @@
   /* Top-aligned so actions stay put when Details expands the row. */
   align-items: flex-start;
   justify-content: space-between;
-  padding: 9px 14px;
-  border: 1px solid color-mix(in srgb, var(--t-border) 75%, transparent);
-  border-left: 3px solid color-mix(in srgb, var(--t-border) 75%, transparent);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--t-bg-surface) 70%, transparent);
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--t-border-subtle);
+  transition: background 0.12s ease;
 }
 
-.deps-row[data-state='installed'],
-.deps-row[data-state='updating'],
-.deps-row[data-state='partial'],
-.deps-row[data-state='error'] {
-  border-left-color: color-mix(in srgb, var(--deps-tone) 70%, var(--t-border));
+.deps-list .deps-row:hover {
+  background: var(--t-hover-bg);
 }
 
 .deps-row__main {
@@ -234,21 +231,22 @@
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 .deps-row__head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 4px 12px;
   min-height: 22px;
 }
 
 .deps-row__head h3 {
-  margin: 0 2px 0 0;
-  font-size: 0.95rem;
-  font-weight: 600;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--t-fg);
 }
 
 .deps-row__desc {
@@ -258,38 +256,34 @@
   text-overflow: ellipsis;
 }
 
-.deps-badge {
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  padding: 1px 7px;
-  border-radius: 999px;
-  border: 1px solid var(--t-border);
-  color: var(--t-text-muted);
-  line-height: 1.5;
+/* Status: a dot and the label in the state's tone; muted when nothing is installed. */
+.deps-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--deps-tone, var(--t-text-muted));
+  white-space: nowrap;
 }
 
-.deps-badge[data-state='installed'],
-.deps-badge[data-state='updating'],
-.deps-badge[data-state='partial'],
-.deps-badge[data-state='error'] {
-  color: color-mix(in srgb, var(--deps-tone) 88%, var(--t-fg));
-  border-color: color-mix(in srgb, var(--deps-tone) 50%, var(--t-border));
-  background: color-mix(in srgb, var(--deps-tone) 12%, transparent);
+.deps-state__dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--deps-tone, transparent);
+  box-shadow: inset 0 0 0 1px var(--deps-tone, var(--t-text-muted));
 }
 
-.deps-badge--soon {
+/* Version · size · variant, in muted monospace. */
+.deps-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--t-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
   color: var(--t-text-muted);
-  border-style: dashed;
-}
-
-.deps-pill {
-  font-size: 11px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--t-bg) 70%, transparent);
-  color: var(--t-text-muted);
-  line-height: 1.5;
   white-space: nowrap;
 }
 
@@ -297,14 +291,22 @@
 .deps-inline-select {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  margin-left: 4px;
-  font-size: 11px;
+  gap: 6px;
+  font-size: 12px;
   color: var(--t-text-muted);
 }
 
 .deps-inline-select app-pill-select {
   max-width: 14rem;
+}
+
+.deps-row__actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
 }
 
 /* ---- Components (sub-dependency chips) ----------------------------------- */
@@ -318,41 +320,34 @@
 }
 
 .deps-components__label {
-  font-size: 10.5px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font-size: 11px;
   color: var(--t-text-muted);
-  margin-right: 2px;
+  margin-right: 4px;
 }
-
 
 .deps-chip {
   display: inline-block;
-  padding: 0 8px;
-  border-radius: 999px;
-  font-size: 11px;
+  padding: 0 6px;
+  font-size: 11.5px;
   line-height: 1.6;
   font-family: var(--t-mono, ui-monospace, monospace);
   color: var(--t-fg);
-  background: color-mix(in srgb, var(--t-bg) 65%, transparent);
-  border: 1px solid color-mix(in srgb, var(--t-border) 60%, transparent);
+  background: var(--t-code-inline-bg, var(--t-bg-deep));
   white-space: nowrap;
 }
 
 .deps-chip--ok {
-  color: color-mix(in srgb, var(--t-success) 85%, var(--t-fg));
-  border-color: color-mix(in srgb, var(--t-success) 40%, var(--t-border));
+  color: var(--t-success);
 }
 
 .deps-chip--link {
-  color: var(--t-secondary);
+  color: var(--t-primary);
   text-decoration: none;
   cursor: pointer;
 }
 
 .deps-chip--link:hover {
-  border-color: color-mix(in srgb, var(--t-secondary) 55%, var(--t-border));
-  background: var(--t-hover-bg);
+  text-decoration: underline;
 }
 
 /* ---- Row extras ---------------------------------------------------------- */
@@ -360,7 +355,7 @@
 .deps-path {
   flex: 1;
   min-width: 0;
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--t-code-text, var(--t-fg));
   font-family: var(--t-mono, ui-monospace, monospace);
   white-space: nowrap;
@@ -368,9 +363,49 @@
   text-overflow: ellipsis; /* full path in the title tooltip */
 }
 
+.deps-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--t-error);
+  line-height: 1.4;
+}
+
+.deps-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--t-text-muted);
+}
+
 /* Variant change that only applies after Reinstall. */
 .deps-note--action {
-  color: var(--t-secondary);
+  color: var(--t-primary);
+}
+
+.deps-row[data-state='partial'] .deps-note {
+  color: var(--t-warn);
+}
+
+/* Per-row result message: plain text in its tone. */
+.deps-row-msg {
+  --deps-msg-tone: var(--t-text-muted);
+  align-self: flex-start;
+  margin: 1px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--deps-msg-tone);
+}
+
+.deps-row-msg[data-tone='ok'] {
+  --deps-msg-tone: var(--t-success);
+}
+
+.deps-row-msg[data-tone='info'] {
+  --deps-msg-tone: var(--t-log-level-info);
+}
+
+.deps-row-msg[data-tone='error'] {
+  --deps-msg-tone: var(--t-error);
 }
 
 /* ---- Details (installs, location, sources) -------------------------------- */
@@ -380,8 +415,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: 2px;
-  padding: 1px 8px 1px 4px;
+  margin-top: 1px;
+  padding: 1px 4px 1px 0;
   border: none;
   background: transparent;
   color: var(--t-text-muted);
@@ -395,8 +430,8 @@
 }
 
 .deps-details-toggle__chevron {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-right: 1.5px solid currentColor;
   border-bottom: 1.5px solid currentColor;
   transform: rotate(-45deg);
@@ -407,27 +442,25 @@
   transform: rotate(45deg);
 }
 
+/* Expanded details: indented on a guide line, no box. */
 .deps-details {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-top: 2px;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--t-border) 60%, transparent);
-  background: color-mix(in srgb, var(--t-bg) 55%, transparent);
+  margin: 4px 0 2px 2px;
+  padding: 2px 0 2px 12px;
+  border-left: 1px solid var(--t-border-subtle);
 }
 
 .deps-details__section {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
   min-width: 0;
 }
 
 .deps-details__label {
-  font-size: 10.5px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font-size: 11px;
   color: var(--t-text-muted);
 }
 
@@ -436,11 +469,6 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
-}
-
-.deps-btn--small {
-  padding: 2px 10px;
-  font-size: 11px;
 }
 
 .deps-sources {
@@ -461,8 +489,8 @@
 }
 
 .deps-source__link {
-  font-weight: 600;
-  color: var(--t-secondary);
+  font-weight: 500;
+  color: var(--t-primary);
   text-decoration: none;
 }
 
@@ -483,41 +511,14 @@
   grid-column: 1 / -1;
   font-size: 12px;
   color: var(--t-text-muted);
-  line-height: 1.35;
+  line-height: 1.4;
 }
 
 .deps-chip--link:focus-visible,
 .deps-source__link:focus-visible,
 .deps-details-toggle:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--t-primary) 55%, transparent);
-  outline-offset: 2px;
-}
-
-.deps-error {
-  margin: 0;
-  font-size: 12px;
-  color: color-mix(in srgb, var(--t-error) 88%, var(--t-fg));
-  line-height: 1.35;
-}
-
-.deps-note {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.35;
-  color: var(--t-text-muted);
-}
-
-.deps-row[data-state='partial'] .deps-note {
-  color: color-mix(in srgb, var(--t-warn) 75%, var(--t-fg));
-}
-
-.deps-row__actions {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  -webkit-app-region: no-drag;
+  outline: 1px solid color-mix(in srgb, var(--t-primary) 60%, transparent);
+  outline-offset: 1px;
 }
 
 /* ---- Install progress (focused view) ------------------------------------ */
@@ -537,7 +538,7 @@
 }
 
 .deps-progress__phase {
-  font-weight: 600;
+  font-weight: 500;
   color: var(--t-fg);
 }
 
@@ -614,42 +615,30 @@
   }
 }
 
-/* ---- Per-row result messages --------------------------------------------- */
+/* ---- Focused install view + log ------------------------------------------ */
 
-.deps-row-msg {
-  --deps-msg-tone: var(--t-text-muted);
-  align-self: flex-start;
-  margin: 2px 0 0;
-  padding: 2px 10px;
-  font-size: 12px;
-  line-height: 1.4;
-  color: color-mix(in srgb, var(--deps-msg-tone) 85%, var(--t-fg));
-  border: 1px solid color-mix(in srgb, var(--deps-msg-tone) 45%, var(--t-border));
-  background: color-mix(in srgb, var(--deps-msg-tone) 10%, transparent);
+.deps-focused {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 18px 16px;
+  -webkit-app-region: no-drag;
 }
 
-.deps-row-msg[data-tone='ok'] {
-  --deps-msg-tone: var(--t-success);
+.deps-focused .deps-row {
+  padding: 0 0 12px;
 }
-
-.deps-row-msg[data-tone='info'] {
-  --deps-msg-tone: var(--t-log-level-info);
-}
-
-.deps-row-msg[data-tone='error'] {
-  --deps-msg-tone: var(--t-error);
-}
-
-/* ---- Focused install view + terminal ------------------------------------- */
 
 /* Failed install: stays on screen with the log until the user goes back or retries. */
 .deps-failed {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 14px;
-  border: 1px solid color-mix(in srgb, var(--t-error) 50%, var(--t-border));
-  background: color-mix(in srgb, var(--t-error) 10%, var(--t-bg-surface));
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--t-error) 45%, var(--t-border));
+  background: transparent;
 }
 
 .deps-failed__copy {
@@ -660,28 +649,24 @@
   gap: 2px;
 }
 
+.deps-failed__copy strong {
+  font-weight: 600;
+  color: var(--t-error);
+}
+
 .deps-failed__copy span {
   color: var(--t-text-muted);
   font-size: 12px;
 }
 
-.deps-focused {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  -webkit-app-region: no-drag;
-}
-
+/* Install log: the code surface from the theme, a muted caps header. */
 .deps-terminal {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-radius: 14px;
-  border: 1px solid color-mix(in srgb, #000 60%, var(--t-border));
-  background: #0b0e14;
+  border: 1px solid var(--t-border-subtle);
+  background: var(--t-code-bg, var(--t-bg-deep));
   overflow: hidden;
 }
 
@@ -689,21 +674,21 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 5px 10px;
-  border-bottom: 1px solid color-mix(in srgb, #fff 8%, #000);
-  background: color-mix(in srgb, #fff 6%, #0b0e14);
-  color: #9aa0aa;
+  min-height: 26px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--t-border-subtle);
+  color: var(--t-text-muted);
   font-size: 11px;
 }
 
 .deps-terminal__title {
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-weight: 500;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .deps-terminal__hint {
-  color: #6b7280;
+  color: var(--t-text-muted);
 }
 
 .deps-terminal__body {
@@ -712,8 +697,7 @@
   min-height: 0;
   overflow: auto;
   padding: 8px 10px;
-  background: #0b0e14;
-  color: #d4d7dd;
+  color: var(--t-code-text, var(--t-fg));
   font-family: var(--t-mono, ui-monospace, monospace);
   font-size: 12px;
   line-height: 1.5;
@@ -727,7 +711,7 @@
 }
 
 .deps-terminal__phase {
-  color: #9ec5ff;
+  color: var(--t-log-level-info);
   margin-right: 6px;
 }
 
@@ -736,20 +720,23 @@
 }
 
 .deps-terminal__line[data-phase='error'] .deps-terminal__phase {
-  color: #ff6b6b;
+  color: var(--t-error);
 }
 
 .deps-terminal__line[data-phase='done'] .deps-terminal__phase {
-  color: #6bd08c;
+  color: var(--t-success);
 }
 
 /* ---- Footer -------------------------------------------------------------- */
 
 .deps-footer {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 10px;
+  padding: 6px 18px;
+  border-top: 1px solid var(--t-border-subtle);
+  background: var(--t-bg-deep);
   -webkit-app-region: no-drag;
 }
 
@@ -757,12 +744,8 @@
   margin: 0;
   flex: 1 1 auto;
   min-width: 0;
-  padding: 5px 12px;
-  border-radius: 999px;
   font-size: 12px;
-  background: color-mix(in srgb, var(--t-bg-surface) 80%, transparent);
-  border: 1px solid color-mix(in srgb, var(--t-border) 70%, transparent);
-  color: var(--t-fg);
+  color: var(--t-text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

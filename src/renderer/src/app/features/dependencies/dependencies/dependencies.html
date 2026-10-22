@@ -23,7 +23,7 @@
     >
       Refresh
     </button>
-    <button type='button' class='deps-close-btn' (click)='closeWindow()'>Close</button>
+    <button type='button' class='deps-btn deps-close-btn' (click)='closeWindow()'>Close</button>
   </header>
 
   @if (isInstalling() && activeDep(); as dep) {
@@ -47,17 +47,21 @@
         <div class='deps-row__main'>
           <div class='deps-row__head'>
             <h3>{{ dep.label }}</h3>
-            <span class='deps-badge' [attr.data-state]='displayState(dep)'>{{ stateLabel(displayState(dep)) }}</span>
-            @if (dep.version) {
-              <span class='deps-pill'>{{ dep.version }}</span>
-            }
-            <span class='deps-pill' [attr.title]='dep.sizeHint'>{{ sizeShort(dep.sizeHint) }}</span>
-            @if (isLlamaServer(dep)) {
-              <span class='deps-pill'>{{ variantLabels[variantFor(dep)] }}</span>
-            }
-            @if (isWhisper(dep)) {
-              <span class='deps-pill'>{{ whisperSizeFor(dep) }}</span>
-            }
+            <span class='deps-state' [attr.data-state]='displayState(dep)'>
+              <span class='deps-state__dot' aria-hidden='true'></span>{{ stateLabel(displayState(dep)) }}
+            </span>
+            <span class='deps-meta'>
+              @if (dep.version) {
+                <span>{{ dep.version }}</span>
+              }
+              <span [attr.title]='dep.sizeHint'>{{ sizeShort(dep.sizeHint) }}</span>
+              @if (isLlamaServer(dep)) {
+                <span>{{ variantLabels[variantFor(dep)] }}</span>
+              }
+              @if (isWhisper(dep)) {
+                <span>{{ whisperSizeFor(dep) }}</span>
+              }
+            </span>
           </div>
           <div class='deps-components'>
             <span class='deps-components__label'>Installs</span>
@@ -144,7 +148,7 @@
             <h4 class='deps-group__title'>
               {{ group.label }}
               @if (group.comingSoon) {
-                <span class='deps-badge deps-badge--soon'>Coming soon</span>
+                <span class='deps-soon'>Coming soon</span>
               }
             </h4>
             @for (dep of group.deps; track dep.id) {
@@ -152,11 +156,15 @@
                 <div class='deps-row__main'>
                   <div class='deps-row__head'>
                     <h3>{{ dep.label }}</h3>
-                    <span class='deps-badge' [attr.data-state]='displayState(dep)'>{{ stateLabel(displayState(dep)) }}</span>
-                    @if (dep.version) {
-                      <span class='deps-pill'>{{ dep.version }}</span>
-                    }
-                    <span class='deps-pill' [attr.title]='dep.sizeHint'>{{ sizeShort(dep.sizeHint) }}</span>
+                    <span class='deps-state' [attr.data-state]='displayState(dep)'>
+                      <span class='deps-state__dot' aria-hidden='true'></span>{{ stateLabel(displayState(dep)) }}
+                    </span>
+                    <span class='deps-meta'>
+                      @if (dep.version) {
+                        <span>{{ dep.version }}</span>
+                      }
+                      <span [attr.title]='dep.sizeHint'>{{ sizeShort(dep.sizeHint) }}</span>
+                    </span>
 
                     @if (isLlamaServer(dep)) {
                       <label class='deps-inline-select' [attr.for]="'variant-' + dep.id">

@@ -131,36 +131,19 @@ html app-chat-box .chat-box {
   border-radius: var(--chat-radius-lg) !important;
 }
 
-.main-panel-empty__recent {
-  border-radius: 0.7rem !important;
-}
-
-/* Dependencies window keeps rounded chrome (pill controls, soft row corners). */
+/* Dependencies window (IDE flat): small corners on buttons and the log; round status dots. */
 app-dependencies .deps-btn,
-app-dependencies .deps-close-btn,
-app-dependencies .deps-badge,
-app-dependencies .deps-pill,
-app-dependencies .deps-chip,
-app-dependencies .deps-inline-select select,
-app-dependencies .deps-status,
-app-dependencies .deps-summary,
-app-dependencies .deps-details-toggle,
-app-dependencies .deps-progress__bar {
-  border-radius: 999px !important;
-}
-
-app-dependencies .deps-details {
-  border-radius: 10px !important;
-}
-
-app-dependencies .deps-row-msg {
-  border-radius: 0.6rem !important;
-}
-
-app-dependencies .deps-row,
 app-dependencies .deps-failed,
 app-dependencies .deps-terminal {
-  border-radius: 14px !important;
+  border-radius: var(--chat-radius) !important;
+}
+
+app-dependencies .deps-chip {
+  border-radius: var(--chat-radius-sm) !important;
+}
+
+app-dependencies .deps-state__dot {
+  border-radius: 50% !important;
 }
 
 /* Health window keeps rounded chrome: pill controls and status chips, soft cards, round dots. */

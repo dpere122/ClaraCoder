@@ -154,6 +154,12 @@ export const THEME_TOKENS: readonly ThemeTokenDef[] = [
   T('--t-process-b', 'Process indicator B', 'status'),
   T('--t-process-c', 'Process indicator C', 'status'),
   T('--t-run-command-tab', 'Run-command tab', 'status'),
+  T('--t-progress-track', 'Progress track', 'status', 'color', {
+    description: 'Unfilled part of download and install progress bars.',
+  }),
+  T('--t-progress-fill', 'Progress fill', 'status', 'color', {
+    description: 'Filled part of download and install progress bars.',
+  }),
   T('--t-warn', 'Warn (alias)', 'status', 'color', { alias: true }),
   T('--t-danger', 'Danger (alias)', 'status', 'color', { alias: true }),
   T('--t-error', 'Error (alias)', 'status', 'color', { alias: true }),

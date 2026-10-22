@@ -1,7 +1,12 @@
 <div class="editor-problems" data-theme-group="editor.problems">
-  @if (relativePath()) {
-    <div class="editor-problems__header">
-      <span class="editor-problems__path">{{ relativePath() }}</span>
+  @if (relativePath(); as path) {
+    <div class="editor-problems__header" [attr.title]="path">
+      <lucide-icon name="file" [size]="14" class="editor-problems__file-icon" aria-hidden="true" />
+      <span class="editor-problems__file">{{ fileName(path) }}</span>
+      <span class="editor-problems__dir">{{ dirName(path) }}</span>
+      @if (diagnostics().length > 0) {
+        <span class="editor-problems__count">{{ diagnostics().length }}</span>
+      }
     </div>
   }
   <ul class="editor-problems__list" role="list">
@@ -11,10 +16,20 @@
           type="button"
           class="editor-problems__row"
           [class]="severityClass(d)"
+          [class.editor-problems__row--nested]="!!relativePath()"
           (click)="onRowClick(d)"
         >
-          <span class="editor-problems__badge">{{ severityLabel(d) }}</span>
-          <span class="editor-problems__message">{{ d.message }}</span>
+          <lucide-icon
+            [name]="severityIcon(d)"
+            [size]="14"
+            class="editor-problems__icon"
+            [attr.aria-label]="severityLabel(d)"
+            [attr.title]="severityLabel(d)"
+          />
+          <span class="editor-problems__message" [attr.title]="d.message">{{ d.message }}</span>
+          @if (sourceLabel(d); as source) {
+            <span class="editor-problems__source">{{ source }}</span>
+          }
           <span class="editor-problems__loc">Ln {{ d.line }}, Col {{ d.character }}</span>
         </button>
       </li>

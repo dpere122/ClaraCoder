@@ -311,10 +311,8 @@ describe('App', () => {
     expect(app.fileTabs()).toEqual([]);
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('.app-content--no-workspace')).toBeTruthy();
-    expect(compiled.querySelector('.main-panel-empty__welcome')).toBeTruthy();
-    const checkbox = compiled.querySelector(
-      '.main-panel-empty__home-default-checkbox',
-    ) as HTMLInputElement | null;
+    expect(compiled.querySelector('.home')).toBeTruthy();
+    const checkbox = compiled.querySelector('.home__default input') as HTMLInputElement | null;
     expect(checkbox?.checked).toBe(true);
   });
 
@@ -328,7 +326,7 @@ describe('App', () => {
     fixture.detectChanges();
 
     const checkbox = (fixture.nativeElement as HTMLElement).querySelector(
-      '.main-panel-empty__home-default-checkbox',
+      '.home__default input',
     ) as HTMLInputElement | null;
     expect(checkbox).toBeTruthy();
     refs.saveConfig.mockClear();
@@ -594,7 +592,11 @@ describe('App', () => {
     expect(compiled.querySelector('app-workspace')).toBeNull();
     expect(compiled.querySelector('.sidebar')).toBeNull();
     expect(compiled.querySelector('app-chat-conversation-hub')).toBeNull();
-    expect(compiled.querySelector('app-managed-llama-controls')).toBeNull();
+    // The source picker lives in the home Runtime panel, not the (absent) workspace footer.
+    expect(compiled.querySelector('.workspace-footer-model-row')).toBeNull();
+    expect(compiled.querySelector('.home__runtime app-managed-llama-controls')).toBeTruthy();
+    // No status bar on the home screen: the Runtime panel already shows model status.
+    expect(compiled.querySelector('.app-status-footer')).toBeNull();
     expect(compiled.querySelector('app-workspace-terminal-dock')).toBeNull();
     expect(compiled.querySelector('.chat-area__tab-strip')).toBeNull();
     expect(compiled.querySelector('app-main-panel-empty-state')).toBeTruthy();
@@ -613,8 +615,8 @@ describe('App', () => {
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('.chat-area__tab-panel--empty.chat-area__tab-panel--hidden')).toBeNull();
-    expect(compiled.querySelector('.main-panel-empty__welcome')).toBeTruthy();
-    expect(compiled.querySelector('.main-panel-empty__cta')?.textContent).toContain('Add Workspace');
+    expect(compiled.querySelector('.home')).toBeTruthy();
+    expect(compiled.querySelector('.home__action')?.textContent).toContain('Add workspace');
   });
 
   it('lists recent workspaces on the no-workspace welcome screen', async () => {
@@ -629,11 +631,11 @@ describe('App', () => {
     await fixture.whenStable();
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
-    const recents = compiled.querySelector('.main-panel-empty__recents');
+    const recents = compiled.querySelector('.home__list--rows');
     expect(recents).toBeTruthy();
     expect(recents?.textContent).toContain('Alpha');
     expect(recents?.textContent).toContain('Beta');
-    expect(compiled.querySelector('.main-panel-empty__cta')?.textContent).toContain('Add Workspace');
+    expect(compiled.querySelector('.home__action')?.textContent).toContain('Add workspace');
   });
 
   it('shows workspace-specific chrome when a workspace is open', async () => {

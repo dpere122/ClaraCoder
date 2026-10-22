@@ -472,10 +472,11 @@ export class SettingsStore {
     if (subTabs.length > 0) {
       const activeId = this.activeSubTabId(parent);
       const sub = subTabs.find((t) => t.id === activeId) ?? subTabs[0];
-      return { label: sub.label, description: sub.description };
+      const parentLabel = this.tabs.find((t) => t.id === parent)?.label ?? null;
+      return { label: sub.label, description: sub.description, parentLabel };
     }
     const tab = this.tabs.find((t) => t.id === parent) ?? this.tabs[0];
-    return { label: tab.label, description: tab.description };
+    return { label: tab.label, description: tab.description, parentLabel: null as string | null };
   });
   /** Pinned sources first: LM Studio, remote llama URL, local managed llama, OpenRouter; remaining rows keep file order. */
   readonly sourcesOrdered = computed(() => {
@@ -2047,6 +2048,15 @@ export class SettingsStore {
       return 0;
     }
     return Math.max(0, Math.min(1, d.receivedBytes / d.totalBytes));
+  }
+
+  /** Whole-number percent for the row's progress bar; null while the total size is unknown. */
+  hfQuantDownloadPercent(repoId: string, file: HuggingFaceModelFile): number | null {
+    const d = this.modelManagerHfDownloads()[this.hfQuantDownloadId(repoId, file)];
+    if (!d || !d.totalBytes || d.totalBytes <= 0) {
+      return null;
+    }
+    return Math.round(this.hfQuantDownloadFraction(repoId, file) * 1000) / 10;
   }
 
   /** Human-readable progress label for a downloading quant. */

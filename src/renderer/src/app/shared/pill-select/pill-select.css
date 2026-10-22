@@ -11,24 +11,28 @@
 .pill-select__trigger {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
-  min-height: 28px;
-  padding: 4px 12px;
+  min-height: 26px;
+  padding: 2px 6px 2px 8px;
   font: inherit;
   font-size: 12px;
   color: inherit;
   text-align: left;
   cursor: pointer;
-  background: color-mix(in srgb, var(--t-bg, #1a1a1a) 70%, var(--t-bg-surface, #2a2a2a));
-  border: 1px solid color-mix(in srgb, var(--t-border, #444) 80%, transparent);
-  border-radius: 999px;
+  background: var(--t-bg-surface, #2a2a2a);
+  border: 1px solid var(--t-border, #444);
+  transition: border-color 0.12s ease;
 }
 
+.pill-select__trigger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--t-primary, #a8b89a) 45%, var(--t-border, #444));
+}
+
+.pill-select.is-open .pill-select__trigger,
 .pill-select__trigger:focus-visible {
   outline: none;
-  border-color: color-mix(in srgb, var(--t-primary, #a8b89a) 75%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--t-primary, #a8b89a) 25%, transparent);
+  border-color: var(--t-primary, #a8b89a);
 }
 
 .pill-select.is-disabled .pill-select__trigger,
@@ -56,7 +60,7 @@
   background-color: currentColor;
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
-  opacity: 0.85;
+  opacity: 0.7;
   transition: transform 0.15s ease;
 }
 
@@ -64,39 +68,44 @@
   transform: rotate(180deg);
 }
 
+/* Menu (IDE flat): one surface with a hairline border; rows are full-width with a check column. */
 .pill-select__menu {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
   /* Drop the popover UA centering; placeMenu() sets the edges inline. */
   inset: auto;
   margin: 0;
-  padding: 0.35rem;
+  padding: 4px;
   overflow: auto;
-  color: inherit;
-  background: color-mix(in srgb, var(--t-bg, #1a1a1a) 88%, var(--t-bg-surface, #2a2a2a));
-  border: 1px solid color-mix(in srgb, var(--t-border, #444) 80%, transparent);
-  border-radius: 0.9rem;
-  box-shadow:
-    0 8px 22px color-mix(in srgb, black 32%, transparent),
-    0 0 0 1px color-mix(in srgb, var(--t-primary, #a8b89a) 12%, transparent);
+  color: var(--t-fg, inherit);
+  background: var(--t-bg-surface, #2a2a2a);
+  border: 1px solid var(--t-border, #444);
+  box-shadow: var(--t-elev-shadow, 0 10px 28px rgba(0, 0, 0, 0.45));
 }
 
 .pill-select__group {
-  padding: 0.35rem 0.7rem 0.15rem;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--t-text-muted, var(--t-primary));
+  padding: 5px 8px 3px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--t-text-muted, inherit);
+}
+
+/* Each later group starts under a hairline. */
+.pill-select__group:not(:first-child) {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--t-border-subtle, #333);
 }
 
 .pill-select__option {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
-  padding: 0.4rem 0.7rem;
+  min-height: 26px;
+  padding: 2px 8px;
   border: none;
-  border-radius: 999px;
   background: transparent;
   color: inherit;
   font: inherit;
@@ -105,12 +114,34 @@
   cursor: pointer;
 }
 
-.pill-select__option:hover,
-.pill-select__option.is-selected {
-  background: color-mix(in srgb, var(--t-primary, #a8b89a) 18%, transparent);
+.pill-select__option:hover {
+  background: var(--t-active-bg, color-mix(in srgb, var(--t-primary, #a8b89a) 14%, transparent));
 }
 
 .pill-select__option:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--t-primary, #a8b89a) 45%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--t-primary, #a8b89a) 60%, transparent);
+  outline-offset: -1px;
+}
+
+.pill-select__option-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Check mark on the chosen option, painted in the accent through a mask like the chevron. */
+.pill-select__check {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  background-color: var(--t-primary, #a8b89a);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
+  visibility: hidden;
+}
+
+.pill-select__option.is-selected .pill-select__check {
+  visibility: visible;
 }

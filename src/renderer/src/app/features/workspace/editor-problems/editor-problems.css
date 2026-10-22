@@ -1,27 +1,58 @@
+/*
+ * Problems list (IDE flat rows): a file row, then one line per diagnostic with severity icon,
+ * message, `source(code)` and the location pushed to the right edge.
+ */
 .editor-problems {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  padding: 0.15rem 0.35rem 0.35rem;
+  box-sizing: border-box;
   background: var(--t-bg-deep);
+  font-size: 0.8rem;
 }
 
 .editor-problems__header {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.45rem;
   flex-shrink: 0;
-  padding: 0.25rem 0.5rem;
-  border-bottom: 1px solid var(--t-border-subtle);
-  color: var(--t-text-muted);
-  font-size: 0.75rem;
+  min-width: 0;
+  padding: 0.18rem 0.5rem;
+  color: var(--t-fg);
 }
 
-.editor-problems__path {
-  opacity: 0.75;
+.editor-problems__file-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--t-text-muted);
+}
+
+.editor-problems__file {
+  flex-shrink: 0;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.editor-problems__dir {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--t-text-muted);
+  font-size: 0.74rem;
+}
+
+.editor-problems__count {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0 0.3rem;
+  background: var(--t-border);
+  color: var(--t-fg);
+  font-size: 0.66rem;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
 }
 
 .editor-problems__list {
@@ -33,59 +64,85 @@
 }
 
 .editor-problems__row {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
+  display: flex;
+  align-items: center;
   gap: 0.5rem;
-  align-items: baseline;
   width: 100%;
-  padding: 0.2rem 0.5rem;
+  min-width: 0;
+  padding: 0.16rem 0.5rem;
   border: none;
   background: transparent;
   color: var(--t-fg);
-  font-size: 0.75rem;
+  font: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+/* Under the file row, diagnostics indent past its icon. */
+.editor-problems__row--nested {
+  padding-left: 1.9rem;
 }
 
 .editor-problems__row:hover {
   background: var(--t-hover-bg);
 }
 
-.editor-problems__badge {
-  text-transform: capitalize;
-  font-size: 0.65rem;
-  font-weight: 600;
+.editor-problems__row:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--t-primary) 60%, transparent);
+  outline-offset: -1px;
 }
 
-.editor-problems__severity--error .editor-problems__badge {
+.editor-problems__icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.editor-problems__severity--error .editor-problems__icon {
   color: var(--t-log-level-error);
 }
 
-.editor-problems__severity--warning .editor-problems__badge {
+.editor-problems__severity--warning .editor-problems__icon {
   color: var(--t-log-level-warning);
 }
 
-.editor-problems__severity--info .editor-problems__badge {
-  color: var(--t-hljs-number);
+.editor-problems__severity--info .editor-problems__icon {
+  color: var(--t-log-level-info, var(--t-primary));
 }
 
-.editor-problems__severity--hint .editor-problems__badge {
+.editor-problems__severity--hint .editor-problems__icon {
   color: var(--t-text-muted);
 }
 
+/* Message truncates last; the source label gives way first. */
 .editor-problems__message {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.editor-problems__source {
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--t-text-muted);
+  font-size: 0.74rem;
+}
+
 .editor-problems__loc {
-  opacity: 0.65;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 0.5rem;
+  color: var(--t-text-muted);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .editor-problems__empty {
   padding: 0.35rem 0.5rem;
-  font-size: 0.75rem;
   color: var(--t-text-muted);
 }

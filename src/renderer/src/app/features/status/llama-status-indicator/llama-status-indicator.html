@@ -1,4 +1,25 @@
-@if (show()) {
+@if (layout() === 'rows') {
+  <dl class="llama-status-rows" aria-label="Model and embeddings status">
+    <div class="llama-status-rows__row" [attr.title]="show() && showModelDot() ? modelTitle() : null">
+      <dt>Model</dt>
+      <dd>
+        <span
+          class="llama-status__dot"
+          [class]="'llama-status__dot--' + (show() && showModelDot() ? modelDot() : 'gray')"
+          aria-hidden="true"
+        ></span>
+        <span class="llama-status-rows__text">{{ modelSummary() }}</span>
+      </dd>
+    </div>
+    <div class="llama-status-rows__row" [attr.title]="embedTitle()">
+      <dt>Embeddings</dt>
+      <dd>
+        <span class="llama-status__dot" [class]="'llama-status__dot--' + embedDot()" aria-hidden="true"></span>
+        <span class="llama-status-rows__text">{{ embedSummary() }}</span>
+      </dd>
+    </div>
+  </dl>
+} @else if (show()) {
   <div class="llama-status" role="group" aria-label="Model and embeddings status">
     @if (showModelDot()) {
       <span class="llama-status__item" [attr.title]="modelTitle()">

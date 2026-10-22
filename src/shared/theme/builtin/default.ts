@@ -101,6 +101,8 @@ export const DEFAULT_THEME: ClaraThemeDocument = {
     '--t-process-b': '#ffb35c',
     '--t-process-c': '#5eead4',
     '--t-run-command-tab': '#5eead4',
+    '--t-progress-track': 'var(--t-border-subtle)',
+    '--t-progress-fill': 'var(--t-primary)',
     '--t-warn': 'var(--t-log-level-warning)',
     '--t-danger': 'var(--t-log-level-error)',
     '--t-error': 'var(--t-log-level-error)',

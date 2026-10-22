@@ -233,7 +233,6 @@
                                 class='model-quant-row'
                                 [class.model-quant-row--downloading]='s.isHfQuantDownloading(model.id, file)'
                                 [class.model-quant-row--done]='s.isHfQuantDownloaded(model.id, file)'
-                                [style.--hf-dl-pct]='(s.hfQuantDownloadFraction(model.id, file) * 100).toFixed(1) + "%"'
                               >
                                 <span class='model-quant-row__name'>{{ file.quant || file.fileName }}</span>
                                 <span class='settings-copy model-quant-row__size'>{{ s.formatFileSize(file.sizeBytes) }}</span>
@@ -262,6 +261,20 @@
                                   >
                                     Download Model
                                   </button>
+                                }
+                                @if (s.isHfQuantDownloading(model.id, file)) {
+                                  @let pct = s.hfQuantDownloadPercent(model.id, file);
+                                  <div
+                                    class='model-quant-row__progress'
+                                    [class.model-quant-row__progress--indeterminate]='pct === null'
+                                    role='progressbar'
+                                    aria-valuemin='0'
+                                    aria-valuemax='100'
+                                    [attr.aria-valuenow]='pct'
+                                    [attr.aria-label]="'Downloading ' + (file.quant || file.fileName)"
+                                  >
+                                    <div class='model-quant-row__progress-fill' [style.width.%]='pct ?? 30'></div>
+                                  </div>
                                 }
                               </div>
                             } @empty {

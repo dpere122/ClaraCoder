@@ -26,30 +26,59 @@ describe('MainPanelEmptyStateComponent', () => {
     vi.useRealTimers();
   });
 
-  it('shows the no-workspace welcome without a recents column when the list is empty', () => {
+  it('shows the home page with Start actions, Runtime and no workspace lists when there are none', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
     fixture.componentRef.setInput('hasWorkspace', false);
     fixture.componentRef.setInput('recentWorkspaces', []);
     fixture.detectChanges();
 
     const host = fixture.nativeElement as HTMLElement;
-    expect(host.querySelectorAll('h2.main-panel-empty__title')).toHaveLength(1);
-    expect(host.querySelector('h2')?.textContent?.trim()).toBe('Clara Coder');
+    expect(host.querySelector('h1.home__title')?.textContent?.trim()).toBe('Clara Coder');
     expect(host.textContent).not.toContain('> Clara Coder_');
-    expect(host.textContent).not.toContain('Need a model?');
-    expect(host.querySelector('.main-panel-empty__cta')?.textContent).toContain('Add Workspace');
-    const homeDefault = host.querySelector(
-      '.main-panel-empty__model .main-panel-empty__home-default-checkbox',
-    ) as HTMLInputElement | null;
-    expect(homeDefault).toBeTruthy();
+    const actions = Array.from(host.querySelectorAll('.home__action')).map((el) => el.textContent?.trim());
+    expect(actions).toEqual(['Add workspace…', 'Models', 'Dependencies']);
+    expect(Array.from(host.querySelectorAll('.home__heading')).map((el) => el.textContent?.trim())).toEqual([
+      'Start',
+      'Runtime',
+    ]);
+    expect(host.querySelector('.home__row')).toBeNull();
+    expect(host.querySelector('.home__empty')?.textContent).toContain('No workspaces yet');
+    const homeDefault = host.querySelector('.home__default input') as HTMLInputElement | null;
     expect(homeDefault?.checked).toBe(false);
-    expect(host.querySelector('.main-panel-empty__model')?.textContent).toContain('default Home page');
-    expect(host.querySelector('.main-panel-empty__recents')).toBeNull();
-    expect(host.querySelector('.main-panel-empty__etch')).toBeTruthy();
-    expect(host.textContent).not.toContain('Select a file');
+    expect(host.querySelector('.home__default')?.textContent).toContain('Use as default Home page');
+    expect(host.querySelector('.main-panel-empty__etch')).toBeNull();
   });
 
-  it('renders recent workspaces and emits openWorkspace on click', () => {
+  it('puts the source picker and model status in the Runtime panel', () => {
+    const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
+    fixture.componentRef.setInput('hasWorkspace', false);
+    fixture.detectChanges();
+
+    const runtime = (fixture.nativeElement as HTMLElement).querySelector('.home__runtime');
+    expect(runtime?.querySelector('app-managed-llama-controls')).toBeTruthy();
+    const rows = Array.from(runtime?.querySelectorAll('.llama-status-rows dt') ?? []).map((el) =>
+      el.textContent?.trim(),
+    );
+    expect(rows).toEqual(['Model', 'Embeddings']);
+    expect(runtime?.textContent).toContain('No model selected');
+  });
+
+  it('offers to add a model source when none are configured', () => {
+    const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
+    const events: string[] = [];
+    fixture.componentInstance.openModelManager.subscribe(() => events.push('models'));
+    fixture.componentRef.setInput('hasWorkspace', false);
+    fixture.detectChanges();
+
+    const link = (fixture.nativeElement as HTMLElement).querySelector('.home__runtime .home__link') as
+      | HTMLButtonElement
+      | null;
+    expect(link?.textContent).toContain('Add a model source');
+    link?.click();
+    expect(events).toEqual(['models']);
+  });
+
+  it('renders recent workspaces with their path and emits openWorkspace on click', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
     const opened: string[] = [];
     fixture.componentInstance.openWorkspace.subscribe((id) => opened.push(id));
@@ -61,19 +90,15 @@ describe('MainPanelEmptyStateComponent', () => {
     fixture.detectChanges();
 
     const host = fixture.nativeElement as HTMLElement;
-    const cta = host.querySelector('.main-panel-empty__cta');
-    const recents = host.querySelector('.main-panel-empty__recents');
-    expect(recents).toBeTruthy();
-    expect(cta).toBeTruthy();
-    expect(cta!.compareDocumentPosition(recents!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const start = host.querySelector('.home__action');
+    const recents = host.querySelector('.home__list--rows');
+    expect(start!.compareDocumentPosition(recents!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(recents?.textContent).toContain('Alpha');
-    expect(recents?.textContent).not.toContain('C:/tmp/alpha');
+    expect(recents?.textContent).toContain('C:/tmp/alpha');
     expect(recents?.textContent).toContain('Beta');
-    expect(recents?.textContent).toContain('Recent');
-    expect(recents?.querySelector('.main-panel-empty__recent-opened')?.textContent).toBeTruthy();
+    expect(recents?.querySelector('.home__row-age')?.textContent).toBeTruthy();
 
-    const first = host.querySelector('.main-panel-empty__recent-main') as HTMLButtonElement | null;
-    expect(first).toBeTruthy();
+    const first = host.querySelector('.home__row-main') as HTMLButtonElement | null;
     expect(first?.getAttribute('title')).toBe('C:/tmp/alpha');
     first?.click();
     expect(opened).toEqual(['ws-a']);
@@ -95,8 +120,7 @@ describe('MainPanelEmptyStateComponent', () => {
     fixture.detectChanges();
 
     const opened = () =>
-      (fixture.nativeElement as HTMLElement).querySelector('.main-panel-empty__recent-opened')
-        ?.textContent;
+      (fixture.nativeElement as HTMLElement).querySelector('.home__row-age')?.textContent;
     expect(opened()).toBe('14m ago');
 
     vi.setSystemTime(new Date('2026-09-01T12:15:05.000Z'));
@@ -127,42 +151,31 @@ describe('MainPanelEmptyStateComponent', () => {
     fixture.detectChanges();
 
     const host = fixture.nativeElement as HTMLElement;
-    const names = Array.from(host.querySelectorAll('.main-panel-empty__recent-name')).map((el) =>
-      el.textContent?.trim(),
-    );
+    const names = Array.from(host.querySelectorAll('.home__row-name')).map((el) => el.textContent?.trim());
     expect(names).toEqual(['Favorite One', 'Recent One']);
-    expect(host.textContent).toContain('Favorites');
-    expect(
-      Array.from(host.querySelectorAll('.main-panel-empty__recents-section .main-panel-empty__recents-heading')).map(
-        (el) => el.textContent?.trim(),
-      ),
-    ).toEqual(['Favorites', 'Recent']);
-    const frame = host.querySelector('.main-panel-empty__recents-frame');
-    const heading = host.querySelector('.main-panel-empty__recents-heading');
-    expect(frame).toBeTruthy();
-    expect(heading).toBeTruthy();
-    expect(frame?.contains(heading)).toBe(true);
-    expect(heading?.parentElement?.classList.contains('main-panel-empty__recents-section')).toBe(true);
-    expect(host.querySelector('.main-panel-empty__recent--favorite .main-panel-empty__recent-opened')).toBeNull();
-    expect(host.querySelector('.main-panel-empty__recent--favorite .main-panel-empty__lead-hover')).toBeNull();
+    expect(Array.from(host.querySelectorAll('.home__heading')).map((el) => el.textContent?.trim())).toEqual([
+      'Start',
+      'Favorites',
+      'Recent',
+      'Runtime',
+    ]);
+    const [favRow, recentRow] = Array.from(host.querySelectorAll('.home__row'));
+    expect(favRow?.querySelector('.home__row-age')).toBeNull();
 
-    const handle = host.querySelector('.main-panel-empty__drag') as HTMLButtonElement | null;
+    const handle = favRow?.querySelector('.home__row-grip') as HTMLButtonElement | null;
     expect(handle?.classList.contains('cdk-drag-handle')).toBe(true);
     handle?.click();
     expect(toggled).toEqual([]);
 
-    const remove = host.querySelector('.main-panel-empty__remove') as HTMLButtonElement | null;
-    expect(remove?.getAttribute('aria-label')).toBe('Remove favorite');
+    const remove = favRow?.querySelector('.home__row-action') as HTMLButtonElement | null;
+    expect(remove?.getAttribute('aria-label')).toBe('Remove Favorite One from favorites');
     remove?.click();
     expect(toggled).toEqual(['ws-fav']);
 
-    const recentLead = host.querySelector(
-      '.main-panel-empty__recent:not(.main-panel-empty__recent--favorite) .main-panel-empty__lead',
-    ) as HTMLButtonElement | null;
-    expect(recentLead?.classList.contains('cdk-drag-handle')).toBe(false);
-    expect(recentLead?.querySelector('.main-panel-empty__lead-idle')).toBeTruthy();
-    expect(recentLead?.querySelector('.main-panel-empty__lead-hover')).toBeTruthy();
-    recentLead?.click();
+    expect(recentRow?.querySelector('.home__row-grip')).toBeNull();
+    const add = recentRow?.querySelector('.home__row-action') as HTMLButtonElement | null;
+    expect(add?.getAttribute('aria-label')).toBe('Add Recent One to favorites');
+    add?.click();
     expect(toggled).toEqual(['ws-fav', 'ws-recent']);
   });
 
@@ -196,7 +209,7 @@ describe('MainPanelEmptyStateComponent', () => {
     fixture.detectChanges();
 
     const host = fixture.nativeElement as HTMLElement;
-    expect(host.querySelectorAll('.main-panel-empty__recent')).toHaveLength(8);
+    expect(host.querySelectorAll('.home__row')).toHaveLength(8);
     expect(host.textContent).toContain('Project 0');
     expect(host.textContent).toContain('Project 7');
   });
@@ -210,7 +223,7 @@ describe('MainPanelEmptyStateComponent', () => {
     fixture.detectChanges();
 
     const checkbox = (fixture.nativeElement as HTMLElement).querySelector(
-      '.main-panel-empty__home-default-checkbox',
+      '.home__default input',
     ) as HTMLInputElement | null;
     expect(checkbox?.checked).toBe(true);
     checkbox!.checked = false;
@@ -218,40 +231,20 @@ describe('MainPanelEmptyStateComponent', () => {
     expect(changes).toEqual([false]);
   });
 
-  it('emits addWorkspace from the primary CTA', () => {
-    const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
-    let added = 0;
-    fixture.componentInstance.addWorkspace.subscribe(() => {
-      added += 1;
-    });
-    fixture.componentRef.setInput('hasWorkspace', false);
-    fixture.detectChanges();
-
-    const cta = (fixture.nativeElement as HTMLElement).querySelector(
-      '.main-panel-empty__cta',
-    ) as HTMLButtonElement | null;
-    cta?.click();
-    expect(added).toBe(1);
-  });
-
-  it('emits openModelManager and openDependencies from the model footer', () => {
+  it('emits addWorkspace, openModelManager and openDependencies from the Start actions', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
     const events: string[] = [];
+    fixture.componentInstance.addWorkspace.subscribe(() => events.push('add'));
     fixture.componentInstance.openModelManager.subscribe(() => events.push('models'));
     fixture.componentInstance.openDependencies.subscribe(() => events.push('deps'));
     fixture.componentRef.setInput('hasWorkspace', false);
     fixture.detectChanges();
 
-    const host = fixture.nativeElement as HTMLElement;
-    const links = Array.from(host.querySelectorAll('.main-panel-empty__link')) as HTMLButtonElement[];
-    expect(links.map((el) => el.textContent?.trim())).toEqual(['Models', 'Dependencies']);
-    const deps = links[1];
-    const homeDefault = host.querySelector('.main-panel-empty__home-default');
-    expect(homeDefault).toBeTruthy();
-    expect(deps!.compareDocumentPosition(homeDefault!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    links[0]?.click();
-    links[1]?.click();
-    expect(events).toEqual(['models', 'deps']);
+    const actions = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('.home__action'),
+    ) as HTMLButtonElement[];
+    actions.forEach((button) => button.click());
+    expect(events).toEqual(['add', 'models', 'deps']);
   });
 
   it('shows the etched Clara Coder brand when a workspace is open with no file', () => {
@@ -265,13 +258,9 @@ describe('MainPanelEmptyStateComponent', () => {
     const host = fixture.nativeElement as HTMLElement;
     expect(host.querySelector('.main-panel-empty__welcome--workspace')).toBeTruthy();
     expect(host.querySelector('.main-panel-empty__etch')).toBeTruthy();
-    expect(host.querySelector('h2')).toBeNull();
+    expect(host.querySelector('.home')).toBeNull();
     expect(host.textContent).not.toContain('Clara Coder');
-    expect(host.textContent).not.toContain('Select a file');
-    expect(host.textContent).not.toContain('Double-click a file');
-    expect(host.querySelector('.main-panel-empty__cta')).toBeNull();
-    expect(host.querySelector('.main-panel-empty__home-default')).toBeNull();
-    expect(host.querySelector('.main-panel-empty__recents')).toBeNull();
-    expect(host.querySelector('.main-panel-empty__model')).toBeNull();
+    expect(host.querySelector('app-managed-llama-controls')).toBeNull();
+    expect(host.querySelector('.home__default')).toBeNull();
   });
 });

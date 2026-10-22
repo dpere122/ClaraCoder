@@ -12,7 +12,9 @@ import { ElectronService } from '../../../core/electron.service';
 import {
   computeStatusPollIntervalMs,
   embeddingsStatusDotState,
+  embeddingsStatusSummary,
   modelStatusDotState,
+  modelStatusSummary,
   openRouterModelDotState,
   type LlamaStatusDotState,
 } from './llama-status-display';
@@ -37,6 +39,11 @@ export class LlamaStatusIndicator {
 
   /** Current app config (from shell). */
   readonly appConfig = input<AppConfig | null>(null);
+  /**
+   * ``bar``: compact dots for the status bar. ``rows``: labelled Model / Embeddings rows with a
+   * one-line status (home screen Runtime panel); rows also show when no model is selected.
+   */
+  readonly layout = input<'bar' | 'rows'>('bar');
 
   /** Monotonic id so stale async status replies never overwrite newer ones. */
   private refreshSeq = 0;
@@ -98,6 +105,18 @@ export class LlamaStatusIndicator {
   });
 
   protected readonly modelLabel = computed(() => (this.openRouterConnected() ? 'Connected' : 'Model'));
+
+  protected readonly modelSummary = computed(() =>
+    modelStatusSummary({
+      provider: this.show() ? this.activeProvider() : null,
+      dot: this.modelDot(),
+      warming: this.modelWarming(),
+      status: this.status(),
+      model: this.activeConnection()?.model ?? '',
+    }),
+  );
+
+  protected readonly embedSummary = computed(() => embeddingsStatusSummary(this.embedStatus()));
 
   protected readonly embedDot = computed((): LlamaStatusDotState => {
     const es = this.embedStatus();
@@ -204,6 +223,11 @@ export class LlamaStatusIndicator {
         this.stopPolling();
         this.stopEmbedPolling();
         this.clearDebounceRefresh();
+        // The rows layout keeps its Embeddings row with no model selected; CPU embeddings do not need one.
+        if (cfg && this.layout() === 'rows') {
+          this.armEmbedPolling(cfg);
+          onCleanup(() => this.stopEmbedPolling());
+        }
         return;
       }
 

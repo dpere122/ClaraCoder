@@ -1,20 +1,11 @@
 <div class='settings-window' data-theme-group='settings.window'>
   <header class='settings-top-bar' (dblclick)='s.onTopBarDoubleClick()'>
-    <h1 class='settings-top-bar__title'>&gt; Settings_</h1>
+    <h1 class='settings-top-bar__title'>Settings</h1>
   </header>
 
   <div class='settings-shell'>
-  <aside class='settings-nav' data-theme-group='settings.nav'>
-    <div class='settings-nav__header'>
-      <p class='settings-eyebrow'>Configuration</p>
-      <h2>Settings</h2>
-      <p class='settings-copy'>Manage models, MCP servers, audio, themes, and project folders from one focused workspace.</p>
-    </div>
-
-    <hr class='settings-divider settings-divider--nav' />
-
+  <aside class='settings-nav' data-theme-group='settings.nav' aria-label='Settings categories'>
     <div class='settings-nav__group'>
-      <p class='settings-nav__label'>Categories</p>
 
       @for (tab of s.tabs; track tab.id) {
         <div
@@ -71,27 +62,16 @@
       }
     </div>
 
-    <hr class='settings-divider settings-divider--nav' />
-
-    <div class='settings-nav__note'>
-      <strong>Heads up</strong>
-      <p>Edits stay in memory until you close this window. Nothing is written to disk until then, and only if you changed something.</p>
-    </div>
   </aside>
 
   <section class='settings-content' data-theme-group='settings.content'>
     <header class='settings-overview'>
       <div>
-        <p class='settings-eyebrow'>Current Section</p>
+        @if (s.settingsOverviewMeta().parentLabel; as parent) {
+          <p class='settings-breadcrumb'>{{ parent }} <span aria-hidden='true'>›</span> {{ s.settingsOverviewMeta().label }}</p>
+        }
         <h3>{{ s.settingsOverviewMeta().label }}</h3>
         <p class='panel__copy'>{{ s.settingsOverviewMeta().description }}</p>
-      </div>
-
-      <div class='settings-overview__right'>
-        <div class='settings-overview__meta'>
-          <span class='pill'>Save on close</span>
-          <span class='settings-copy'>Unsaved changes are written when you leave this window (only if you edited something).</span>
-        </div>
       </div>
     </header>
 
@@ -134,6 +114,13 @@
   </section>
 
   <footer class='settings-footer'>
+    <p class='settings-footer__note'>
+      @if (s.settingsDirty()) {
+        <span class='settings-footer__dot' aria-hidden='true'></span>Unsaved changes are written when you close this window.
+      } @else {
+        Edits stay in memory until you close this window; nothing is written unless you change something.
+      }
+    </p>
     @if (s.settingsDirty()) {
       <button
         type='button'

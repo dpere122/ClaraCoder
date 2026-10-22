@@ -75,11 +75,14 @@ app-message-box app-pill-select .pill-select__menu {
   border-radius: var(--chat-radius) !important;
 }
 
-.tcd-btn,
-.main-panel-empty__cta,
-.main-panel-empty__recents-scroll::-webkit-scrollbar-thumb,
-.main-panel-empty__recents-scroll::-webkit-scrollbar-track {
-  border-radius: 999px !important;
+/* Home screen (IDE flat): small corners on action and workspace rows. */
+.home__action,
+.home__row {
+  border-radius: var(--chat-radius) !important;
+}
+
+.home__row-action {
+  border-radius: var(--chat-radius-sm) !important;
 }
 
 /* HITL review cards, action pills, and chips beat the global square reset. */
@@ -122,47 +125,25 @@ app-chat-box .msg-bubble {
   border-radius: 0 !important;
 }
 
-.main-panel-empty__recents-frame,
-app-conversation-manager .conv-context-menu {
-  border-radius: 0.85rem !important;
-}
-
 /* Chat transcript panel matches the composer card. */
 html app-chat-box,
 html app-chat-box .chat-box {
   border-radius: var(--chat-radius-lg) !important;
 }
 
-.main-panel-empty__recent {
-  border-radius: 0.7rem !important;
-}
-
-/* Dependencies window keeps rounded chrome (pill controls, soft row corners). */
+/* Dependencies window (IDE flat): small corners on buttons and the log; round status dots. */
 app-dependencies .deps-btn,
-app-dependencies .deps-close-btn,
-app-dependencies .deps-badge,
-app-dependencies .deps-pill,
-app-dependencies .deps-chip,
-app-dependencies .deps-inline-select select,
-app-dependencies .deps-status,
-app-dependencies .deps-summary,
-app-dependencies .deps-details-toggle,
-app-dependencies .deps-progress__bar {
-  border-radius: 999px !important;
-}
-
-app-dependencies .deps-details {
-  border-radius: 10px !important;
-}
-
-app-dependencies .deps-row-msg {
-  border-radius: 0.6rem !important;
-}
-
-app-dependencies .deps-row,
 app-dependencies .deps-failed,
 app-dependencies .deps-terminal {
-  border-radius: 14px !important;
+  border-radius: var(--chat-radius) !important;
+}
+
+app-dependencies .deps-chip {
+  border-radius: var(--chat-radius-sm) !important;
+}
+
+app-dependencies .deps-state__dot {
+  border-radius: 50% !important;
 }
 
 /* Health window keeps rounded chrome: pill controls and status chips, soft cards, round dots. */
@@ -204,29 +185,87 @@ app-health-monitor .health-log__row {
   border-radius: 0.55rem !important;
 }
 
-/* Conversations sidebar toolbar buttons are pills. */
+/* Conversations sidebar (IDE flat): small corners on toolbar buttons, rows and the context menu. */
 app-chat-conversation-hub .chat-hub__expand,
 app-chat-conversation-hub .chat-hub__new-conv,
 app-chat-conversation-hub .chat-hub__conv-toggle,
 app-chat-conversation-hub .chat-hub__collapse,
 app-chat-conversation-hub .chat-hub__uncollapse,
-app-conversation-manager .conv-item,
 app-conversation-manager .delete-btn,
+app-conversation-manager .conv-expand,
+app-conversation-manager .conv-filter__field,
+app-conversation-manager .conv-filter__clear,
 app-conversation-manager .conv-context-menu-item {
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius-sm) !important;
 }
 
-/* Managed llama-server row in the workspace footer: Start/Stop, source select, settings. */
+app-conversation-manager .conv-item,
+app-conversation-manager .conv-context-menu {
+  border-radius: var(--chat-radius) !important;
+}
+
+/* Managed llama-server row in the workspace footer: Start/Stop, settings. */
 app-managed-llama-controls .managed-llama-controls__btn,
-app-pill-select .pill-select__trigger,
-app-pill-select .pill-select__option,
 app-workspace .workspace-footer-model-row .workspace-icon-btn,
 app-workspace .workspace-tree-cog {
   border-radius: 999px !important;
 }
 
-app-pill-select .pill-select__menu {
-  border-radius: 0.9rem !important;
+/* Selects and dialogs (IDE flat): small corners on triggers, menus, options and dialog buttons. */
+app-pill-select .pill-select__trigger,
+app-pill-select .pill-select__menu,
+.tcd-panel,
+.tpd-panel,
+.tcd-btn,
+.tpd-btn,
+.tpd-input {
+  border-radius: var(--chat-radius) !important;
+}
+
+app-pill-select .pill-select__option,
+.tcd-close,
+.tpd-close,
+.tcd-detail {
+  border-radius: var(--chat-radius-sm) !important;
+}
+
+/* Settings window (IDE flat): small corners on controls and rows, smaller still on badges. */
+.settings-window .field input:not([type='checkbox']):not([type='radio']):not([type='range']),
+.settings-window .field select,
+.settings-window .field textarea,
+.settings-window .action-button,
+.settings-window .tab-button,
+.settings-window .source-row-wrap,
+.settings-window .connection-card,
+.settings-window .models-sources,
+.settings-window .models-sources__add,
+.settings-window .hf-filters-panel,
+.settings-window .hf-filter-chip,
+.settings-window .model-hf-pager__page,
+.settings-window .model-manager-actions--search input,
+.settings-window .model-manager-accordion > summary,
+.settings-window .model-card__header-btn,
+.settings-window .model-quant-row,
+.settings-window .lm-loaded-card,
+.settings-window .cache-location-loading,
+.settings-window .settings-voice-device-select,
+.settings-window .settings-voice-threshold button,
+.settings-window .tll__item,
+.settings-window .tgp__header,
+.settings-window .tte__text,
+.settings-window .themes-json,
+.settings-window .tgp__css,
+.settings-window .tmp__style,
+.settings-window .ws-row__star {
+  border-radius: var(--chat-radius) !important;
+}
+
+.settings-window .pill,
+.settings-window .section-count,
+.settings-window .models-sources__count,
+.settings-window .settings-field-hint code,
+.settings-window .source-row__remove {
+  border-radius: var(--chat-radius-sm) !important;
 }
 
 /* Floating markdown Edit | Preview pill over the Monaco editor. */
@@ -235,11 +274,20 @@ app-workspace-monaco .workspace-monaco-md-toggle__btn {
   border-radius: 999px !important;
 }
 
-/* Monaco editor file tabs sit as pills above the editor. */
-.chat-main-tab,
-.chat-main-tab.cdk-drag-preview,
-.chat-main-tab-close {
-  border-radius: 999px !important;
+/* Editor file tabs are flat; only the close button and the drag clone keep small corners. */
+.chat-main-tab-close,
+.chat-main-tab.cdk-drag-preview {
+  border-radius: var(--chat-radius-sm) !important;
+}
+
+.chat-main-tab-unsaved {
+  border-radius: 50% !important;
+}
+
+/* Count badges on the Problems tab and file row. */
+.workspace-terminal-dock__tab-badge,
+app-editor-problems .editor-problems__count {
+  border-radius: var(--chat-radius-sm) !important;
 }
 
 /* Status-bar Model / Embeddings traffic-light orbs stay circular. */
@@ -647,14 +695,10 @@ html .terminal-shell .output-pre.terminal-output {
 }
 
 /* ── Flat divider layout (baseline for every theme) ─ */
-html .settings-nav,
 html .connection-card,
 html .workspace-card {
   border: none;
   box-shadow: none;
-}
-html .settings-nav {
-  border-bottom: 1px solid var(--t-border);
 }
 html .connection-card,
 html .workspace-card__body {
@@ -665,23 +709,6 @@ html .workspace-card__body {
 html .connection-card:last-child,
 html .workspace-card:last-child .workspace-card__body {
   border-bottom: none;
-}
-html .tab-button {
-  border: none;
-  border-bottom: 1px solid var(--t-border-subtle);
-}
-html .tab-button:hover,
-html .tab-button.is-active {
-  border: none;
-  border-bottom: 1px solid var(--t-primary);
-  background: color-mix(in srgb, var(--t-primary) 10%, var(--t-bg));
-  transform: none;
-}
-html .settings-overview {
-  border-bottom: 1px solid var(--t-border);
-}
-html .settings-footer {
-  border-top: 1px solid var(--t-border);
 }
 html .form-section + .settings-divider {
   border-color: var(--t-border-subtle);
@@ -1091,24 +1118,6 @@ html app-message-box .composer-status-cluster .context-capacity {
   gap: 0.35rem;
 }
 
-html app-chat-conversation-hub .chat-hub__expand,
-html app-chat-conversation-hub .chat-hub__conv-toggle,
-html app-chat-conversation-hub .chat-hub__collapse,
-html app-chat-conversation-hub .chat-hub__uncollapse,
-html app-chat-conversation-hub .chat-hub__new-conv {
-  border: 1px solid var(--t-border) !important;
-}
-
-html app-chat-conversation-hub .chat-hub__expand:hover:not(:disabled),
-html app-chat-conversation-hub .chat-hub__conv-toggle:hover,
-html app-chat-conversation-hub .chat-hub__collapse:hover,
-html app-chat-conversation-hub .chat-hub__uncollapse:hover,
-html app-chat-conversation-hub .chat-hub__new-conv:hover:not(:disabled) {
-  background: var(--t-hover-bg);
-  border-color: var(--t-primary) !important;
-  color: var(--t-primary);
-}
-
 /*
  * ASCII pseudo-elements provide frame lines; strip all other CSS borders in chat + composer.
  * Limited to the composer input subtree — the HITL dock is a sibling in the same section and
@@ -1173,9 +1182,4 @@ html app-chat-box app-tool-pill-group .tool-pill-group__members {
   border-left: 1px solid color-mix(in srgb, var(--t-primary) 30%, var(--t-border-subtle)) !important;
 }
 
-@media (max-width: 1100px) {
-  html .settings-nav {
-    border-bottom: 1px solid var(--t-border);
-    border-right: none;
-  }
-}
+

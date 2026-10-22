@@ -31,7 +31,7 @@
 }
 
 .mcp-warning {
-  color: var(--warning, #c9a227);
+  color: var(--t-warn, #c9a227);
   margin: 0;
 }
 

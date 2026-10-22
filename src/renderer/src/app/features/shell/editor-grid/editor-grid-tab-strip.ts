@@ -131,6 +131,13 @@ export class EditorGridTabStripComponent {
     return chatFileTabBasename(tab);
   }
 
+  /** Lower-case extension for the file icon tint (`css`, `ts`, …); empty when there is none. */
+  protected extension(tab: ChatFileTab): string {
+    const name = chatFileTabBasename(tab);
+    const dot = name.lastIndexOf('.');
+    return dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+  }
+
   protected isUnsaved(tab: ChatFileTab): boolean {
     return this.unsavedKeys().has(chatFileTabModelKey(tab));
   }

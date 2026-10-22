@@ -46,7 +46,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Saved conversations in the sidebar hub.",
     selector: "[data-theme-group=\"chat.conversation-list\"]",
     component: "app/features/chat/conversation-manager",
-    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-border", "--t-border-subtle", "--t-danger", "--t-fg", "--t-hover-bg", "--t-primary", "--t-secondary", "--t-text-muted", "--t-warn"],
+    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-danger", "--t-elev-shadow", "--t-fg", "--t-hover-bg", "--t-primary", "--t-secondary", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -135,7 +135,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Dependencies manager window.",
     selector: "[data-theme-group=\"dependencies.window\"]",
     component: "app/features/dependencies/dependencies",
-    tokens: ["--t-bg", "--t-bg-surface", "--t-border", "--t-code-text", "--t-danger", "--t-error", "--t-fg", "--t-font", "--t-hover-bg", "--t-log-level-info", "--t-mono", "--t-primary", "--t-secondary", "--t-success", "--t-text-muted", "--t-warn"],
+    tokens: ["--t-bg", "--t-bg-deep", "--t-border", "--t-border-subtle", "--t-code-bg", "--t-code-inline-bg", "--t-code-text", "--t-danger", "--t-error", "--t-fg", "--t-font", "--t-hover-bg", "--t-log-level-info", "--t-mono", "--t-on-primary", "--t-primary", "--t-progress-fill", "--t-progress-track", "--t-success", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -146,7 +146,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Themed confirmation dialog panel.",
     selector: "[data-theme-group=\"dialogs.confirm\"]",
     component: "app/shared/themed-confirm-dialog",
-    tokens: ["--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-elev-shadow", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-primary", "--t-text-muted", "--t-warn"],
+    tokens: ["--t-bg-deep", "--t-bg-surface", "--t-border", "--t-code-bg", "--t-danger", "--t-elev-shadow", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-on-primary", "--t-primary", "--t-text-muted"],
     supportsBackground: false,
   },
   {
@@ -157,7 +157,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Themed text-input dialog panel.",
     selector: "[data-theme-group=\"dialogs.prompt\"]",
     component: "app/shared/themed-prompt-dialog",
-    tokens: ["--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-elev-shadow", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-primary", "--t-warn"],
+    tokens: ["--t-bg-deep", "--t-bg-surface", "--t-border", "--t-danger", "--t-elev-shadow", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-on-primary", "--t-primary", "--t-text-muted"],
     supportsBackground: false,
   },
   {
@@ -202,7 +202,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Diagnostics list from the language server.",
     selector: "[data-theme-group=\"editor.problems\"]",
     component: "app/features/workspace/editor-problems",
-    tokens: ["--t-bg-deep", "--t-border-subtle", "--t-fg", "--t-hljs-number", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-text-muted"],
+    tokens: ["--t-bg-deep", "--t-border", "--t-fg", "--t-hover-bg", "--t-log-level-error", "--t-log-level-info", "--t-log-level-warning", "--t-primary", "--t-text-muted"],
     supportsBackground: false,
   },
   {
@@ -213,7 +213,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Integrated terminal tabs below the editor.",
     selector: "[data-theme-group=\"editor.terminal\"]",
     component: "app/features/workspace-terminal",
-    tokens: ["--t-bg-deep", "--t-border", "--t-border-subtle", "--t-code-bg", "--t-error", "--t-hover-bg", "--t-primary", "--t-run-command-tab", "--t-secondary", "--t-surface-3", "--t-text-muted"],
+    tokens: ["--t-bg-deep", "--t-border", "--t-border-subtle", "--t-code-bg", "--t-error", "--t-fg", "--t-hover-bg", "--t-primary", "--t-run-command-tab", "--t-secondary", "--t-text-muted"],
     supportsBackground: false,
   },
   {
@@ -301,7 +301,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Section header and form panes.",
     selector: "[data-theme-group=\"settings.content\"]",
     component: "app/features/settings/settings",
-    tokens: ["--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-danger", "--t-edge-light", "--t-fg", "--t-font-mono", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-log-level-warning", "--t-muted", "--t-on-primary", "--t-primary", "--t-secondary", "--t-success", "--t-titlebar-end", "--t-titlebar-start", "--t-warn"],
+    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-border", "--t-border-subtle", "--t-code-inline-bg", "--t-danger", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-log-level-warning", "--t-muted", "--t-on-primary", "--t-primary", "--t-progress-fill", "--t-progress-track", "--t-success", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -312,7 +312,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Category and section list on the left.",
     selector: "[data-theme-group=\"settings.nav\"]",
     component: "app/features/settings/settings",
-    tokens: ["--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-danger", "--t-edge-light", "--t-fg", "--t-font-mono", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-log-level-warning", "--t-muted", "--t-on-primary", "--t-primary", "--t-secondary", "--t-success", "--t-titlebar-end", "--t-titlebar-start", "--t-warn"],
+    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-border", "--t-border-subtle", "--t-code-inline-bg", "--t-danger", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-log-level-warning", "--t-muted", "--t-on-primary", "--t-primary", "--t-progress-fill", "--t-progress-track", "--t-success", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -323,7 +323,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Settings window frame and title bar.",
     selector: "[data-theme-group=\"settings.window\"]",
     component: "app/features/settings/settings",
-    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-danger", "--t-edge-darkest", "--t-edge-light", "--t-fg", "--t-font-mono", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-muted", "--t-on-primary", "--t-primary", "--t-secondary", "--t-success", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-warn"],
+    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-code-inline-bg", "--t-danger", "--t-edge-darkest", "--t-elev-shadow", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-muted", "--t-on-primary", "--t-primary", "--t-progress-fill", "--t-progress-track", "--t-success", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -334,7 +334,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Split-pane container for open editor tabs.",
     selector: "[data-theme-group=\"shell.editor-grid\"]",
     component: "app/features/shell/editor-grid",
-    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-primary", "--t-text-muted", "--t-warn"],
+    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-code-bg", "--t-elev-shadow", "--t-fg", "--t-font-mono", "--t-hljs-attr", "--t-hljs-function", "--t-hljs-keyword", "--t-hljs-name", "--t-hljs-string", "--t-hover-bg", "--t-primary", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -345,7 +345,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Home panel shown when no file is open.",
     selector: "[data-theme-group=\"shell.empty-state\"]",
     component: "app/features/shell/main-panel-empty-state",
-    tokens: ["--t-bg", "--t-bg-surface", "--t-border", "--t-edge-light", "--t-fg", "--t-glow-soft", "--t-hover-bg", "--t-primary", "--t-text-muted"],
+    tokens: ["--t-active-bg", "--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-danger", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-hover-bg", "--t-primary", "--t-text-muted"],
     supportsBackground: false,
   },
   {
@@ -386,10 +386,10 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     label: "File tabs",
     category: "shell",
     categoryLabel: "Shell & layout",
-    description: "Pill tabs above each editor slot.",
+    description: "File tabs above each editor slot.",
     selector: "[data-theme-group=\"shell.tab-strip\"]",
     component: "app/features/shell/editor-grid",
-    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-primary", "--t-text-muted", "--t-warn"],
+    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-code-bg", "--t-elev-shadow", "--t-fg", "--t-font-mono", "--t-hljs-attr", "--t-hljs-function", "--t-hljs-keyword", "--t-hljs-name", "--t-hljs-string", "--t-hover-bg", "--t-primary", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {

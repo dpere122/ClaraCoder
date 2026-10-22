@@ -85,3 +85,68 @@ export function embeddingsStatusDotState(status: string): LlamaStatusDotState {
       return 'gray';
   }
 }
+
+/**
+ * One-line model status for the home Runtime panel: managed llama.cpp shows its server state
+ * (Running / Starting… / Stopped), OpenRouter and remote llama URLs show whether they are connected.
+ * Other sources are not probed.
+ */
+export function modelStatusSummary(args: {
+  provider: string | null;
+  dot: LlamaStatusDotState;
+  warming: 'starting' | 'downloading' | null;
+  status: LlamaServerStatusResult | null;
+  model: string;
+}): string {
+  const { provider, dot, warming, status, model } = args;
+  if (!provider) {
+    return 'No model selected';
+  }
+  if (provider === 'openrouter') {
+    return dot === 'green' ? `Connected · ${model}` : 'Needs a model and API key';
+  }
+  if (provider !== 'llamacpp') {
+    return 'Not checked for this source';
+  }
+  if (warming === 'downloading') {
+    return 'Downloading weights…';
+  }
+  if (warming === 'starting' || (status?.ok === true && status.starting)) {
+    return 'Starting…';
+  }
+  if (!status || status.ok === false) {
+    return 'Stopped';
+  }
+  const remote = status.remote === true;
+  if (!status.running && !remote) {
+    return 'Stopped';
+  }
+  switch (dot) {
+    case 'green':
+      return remote ? 'Connected' : 'Running';
+    case 'yellow':
+      return 'Loading model…';
+    case 'red':
+      return remote ? 'Not responding' : 'Error';
+    default:
+      return 'Stopped';
+  }
+}
+
+/** One-line CPU embeddings status for the home Runtime panel. */
+export function embeddingsStatusSummary(status: string | null): string {
+  switch (status) {
+    case 'ready':
+      return 'Ready';
+    case 'loading':
+      return 'Loading…';
+    case 'idle':
+      return 'Loads on first search';
+    case 'disabled':
+      return 'Off';
+    case 'error':
+      return 'Error';
+    default:
+      return 'Unknown';
+  }
+}

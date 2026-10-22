@@ -124,6 +124,7 @@ export function activitySummary(
   const unbatchedMs: number[] = [];
   const slowestByBatch = new Map<string, number>();
   const labels: ToolPillLabel[] = [];
+  const unsettled: boolean[] = [];
 
   for (const index of members) {
     const item = items[index];
@@ -145,10 +146,13 @@ export function activitySummary(
     tools += 1;
     const part: StreamPart = item.part;
     labels.push(toolPillLabel(part));
-    if (auxStreamToolPartPillState(part, false) === 'error') {
+    const isFailed = auxStreamToolPartPillState(part, false) === 'error';
+    const isStopped = isStoppedToolCall(part);
+    unsettled.push(isFailed || isStopped);
+    if (isFailed) {
       failed += 1;
     }
-    if (isStoppedToolCall(part)) {
+    if (isStopped) {
       stopped += 1;
     }
     const ms = part.toolDurationMs;
@@ -169,7 +173,7 @@ export function activitySummary(
   ].filter(Boolean);
   const toolMs = [...slowestByBatch.values(), ...unbatchedMs].reduce((sum, ms) => sum + ms, 0);
   const totalMs = thinkingMs + toolMs;
-  const actions = activityHeadline(labels);
+  const actions = activityHeadline(labels, unsettled);
   return {
     headline: actions.text || (thoughts + nudges > 0 ? 'Thought' : ''),
     outcomes: toolOutcomeNotes(failed, stopped).join(' · '),

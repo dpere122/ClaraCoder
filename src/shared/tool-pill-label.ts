@@ -527,6 +527,8 @@ interface HeadlineAction {
   key: string;
   /** Past-tense verb (`edited`, `ran`, `searched`). */
   verb: string;
+  /** Changes only: the verb for a call that failed or stopped and so changed nothing (`tried to edit`). */
+  attempt?: string;
   noun: [string, string];
   /** Lower ranks survive when there are more clauses than fit: changes before lookups. */
   rank: number;
@@ -551,11 +553,11 @@ function headlineAction(label: ToolPillLabel): HeadlineAction {
   const fixed = (key: string, text: string, rank: number): HeadlineAction => ({ key, verb: '', noun: ['', ''], rank, fixed: text });
   switch (label.verb) {
     case 'Create':
-      return { key: 'create', verb: 'created', noun: ['file', 'files'], rank: 0 };
+      return { key: 'create', verb: 'created', attempt: 'tried to create', noun: ['file', 'files'], rank: 0 };
     case 'Delete':
-      return { key: 'delete', verb: 'deleted', noun: ['item', 'items'], rank: 0 };
+      return { key: 'delete', verb: 'deleted', attempt: 'tried to delete', noun: ['item', 'items'], rank: 0 };
     case 'Stage':
-      return { key: 'stage', verb: 'staged', noun: ['file', 'files'], rank: 0 };
+      return { key: 'stage', verb: 'staged', attempt: 'tried to stage', noun: ['file', 'files'], rank: 0 };
     case 'Sub-agent':
       return { key: 'subagent', verb: 'started', noun: ['sub-agent', 'sub-agents'], rank: 1 };
     case 'Tests':
@@ -581,7 +583,7 @@ function headlineAction(label: ToolPillLabel): HeadlineAction {
   }
   switch (label.category) {
     case 'edit':
-      return { key: 'edit', verb: 'edited', noun: ['file', 'files'], rank: 0 };
+      return { key: 'edit', verb: 'edited', attempt: 'tried to edit', noun: ['file', 'files'], rank: 0 };
     case 'run':
       return label.verb === 'Run'
         ? { key: 'run', verb: 'ran', noun: ['command', 'commands'], rank: 1, target: (t) => cut(t, 40) }
@@ -616,34 +618,39 @@ export interface ActivityHeadline {
  * (one target names it, several count it). Past three clauses the lookups drop first and the
  * headline ends `+2 more`; `clauses` keeps them all for the hover title. Reading back a file
  * the stretch already changed is checking that change, so it folds into the change's clause.
- * Empty for no calls.
+ * A change whose call failed or stopped (`unsettled[i]`) changed nothing: it reads `tried to edit
+ * a.py` and does not fold later reads. Empty for no calls.
  */
-export function activityHeadline(labels: readonly ToolPillLabel[]): ActivityHeadline {
-  const clauses = new Map<string, { action: HeadlineAction; first: number; calls: number; targets: Set<string> }>();
+export function activityHeadline(labels: readonly ToolPillLabel[], unsettled: readonly boolean[] = []): ActivityHeadline {
+  const clauses = new Map<string, { action: HeadlineAction; first: number; untargeted: number; targets: Set<string> }>();
   const changed = new Set<string>();
   labels.forEach((label, index) => {
-    const action = headlineAction(label);
+    let action = headlineAction(label);
     const target = label.target.trim();
     if (action.key === 'read' && target && changed.has(target)) {
       return;
     }
-    if (action.rank === 0 && target) {
+    if (action.attempt && unsettled[index]) {
+      action = { ...action, key: `${action.key}:attempt`, verb: action.attempt };
+    } else if (action.rank === 0 && target) {
       changed.add(target);
     }
-    const clause = clauses.get(action.key) ?? { action, first: index, calls: 0, targets: new Set<string>() };
-    clause.calls += 1;
+    const clause = clauses.get(action.key) ?? { action, first: index, untargeted: 0, targets: new Set<string>() };
     if (target) {
       clause.targets.add(target);
+    } else {
+      clause.untargeted += 1;
     }
     clauses.set(action.key, clause);
   });
 
   const ordered = [...clauses.values()].sort((a, b) => a.first - b.first);
-  const texts = ordered.map(({ action, calls, targets }) => {
+  const texts = ordered.map(({ action, untargeted, targets }) => {
     if (action.fixed) {
       return action.fixed;
     }
-    const n = targets.size || calls;
+    // Calls with no target (a failed run has none) count one each; repeats of one target count once.
+    const n = targets.size + untargeted;
     const only = targets.size === 1 && n === 1 ? [...targets][0]! : '';
     const what = only ? (action.target ?? shortTarget)(only) : plural(n, ...action.noun);
     return `${action.verb} ${what}`;

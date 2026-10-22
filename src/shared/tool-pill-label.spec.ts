@@ -246,6 +246,19 @@ describe('activityHeadline', () => {
     expect(headline(edit('a.py'), read('b.py'))).toBe('Edited a.py, read b.py');
   });
 
+  it('counts calls with no target beside the named ones', () => {
+    const failedRun = label('run_command', 'Tool error: command timed out', { toolChainState: 'error' });
+    expect(failedRun.target).toBe('');
+    expect(headline(run('npm test'), failedRun, failedRun)).toBe('Ran 3 commands');
+    expect(headline(failedRun, failedRun)).toBe('Ran 2 commands');
+  });
+
+  it('a failed or stopped change reads as tried and does not fold a later read', () => {
+    const out = activityHeadline([edit('a.py'), read('a.py')], [true, false]);
+    expect(out.text).toBe('Tried to edit a.py, read a.py');
+    expect(activityHeadline([edit('b.py'), edit('a.py')], [false, true]).text).toBe('Edited b.py, tried to edit a.py');
+  });
+
   it('keeps changes over lookups when there are more kinds than fit', () => {
     const lsp = label('lsp_get_diagnostics', 'No diagnostics');
     const list = label('list_workspace_directory', 'Directory: src');

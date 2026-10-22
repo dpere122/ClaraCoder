@@ -101,3 +101,31 @@ def test_copy_workspace_files_rejects_duplicate_destinations(copy_env) -> None:
     )
 
     assert 'duplicate destination path' in out
+
+
+def test_copy_reports_items_copied_before_a_destination_appears(copy_env, monkeypatch) -> None:
+    """A parallel call creating a later destination mid-copy stops the batch; the earlier copy is reported."""
+    import clara_coder_backend.tools.copy as copy_mod
+
+    ws = copy_env.workspace
+    (ws / 'one.txt').write_text('one', encoding='utf-8')
+    (ws / 'two.txt').write_text('two', encoding='utf-8')
+    real_copy2 = copy_mod.shutil.copy2
+
+    def copy_then_race(src, dest):
+        real_copy2(src, dest)
+        (ws / 'two-copy.txt').write_text('raced', encoding='utf-8')
+
+    monkeypatch.setattr(copy_mod.shutil, 'copy2', copy_then_race)
+    out = copy_workspace_files.invoke(
+        {
+            'copies': [
+                {'source_path': 'one.txt', 'destination_path': 'one-copy.txt'},
+                {'source_path': 'two.txt', 'destination_path': 'two-copy.txt'},
+            ]
+        }
+    )
+
+    assert 'Destination already exists: `two-copy.txt`' in out
+    assert 'Copied 1 file(s) before stopping: `one.txt` -> `one-copy.txt`' in out
+    assert (ws / 'two-copy.txt').read_text(encoding='utf-8') == 'raced'

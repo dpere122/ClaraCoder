@@ -126,6 +126,14 @@ def _perform_copy(root: Path, copies: list[CopyWorkspaceFileItem | dict], overwr
         except Exception:
             session = None
     root_resolved = root.resolve()
+    copied = 0
+
+    def _stopped(reason: str) -> str:
+        # Earlier items are already on disk; say so, or a retry of the whole request hits them as existing files.
+        if not copied:
+            return reason
+        return f'{reason} Copied {copied} file(s) before stopping: {_preview_pairs(preview_pairs[:copied])}'
+
     try:
         for src, dest in copy_pairs:
             rel_dest = dest.relative_to(root_resolved).as_posix()
@@ -133,7 +141,9 @@ def _perform_copy(root: Path, copies: list[CopyWorkspaceFileItem | dict], overwr
             with locked_path(dest) as key:
                 dest_existed = dest.exists()
                 if dest_existed and not overwrite:
-                    return False, f'Destination already exists: `{rel_dest}`. Pass `overwrite=true` to replace it.'
+                    return False, _stopped(
+                        f'Destination already exists: `{rel_dest}`. Pass `overwrite=true` to replace it.'
+                    )
                 snap = snapshot_text_file(dest) if dest_existed else None
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dest)
@@ -146,9 +156,10 @@ def _perform_copy(root: Path, copies: list[CopyWorkspaceFileItem | dict], overwr
                         before_encoding=snap['encoding'] if snap else None,
                         before_newline=snap['newline'] if snap else None,
                     )
+            copied += 1
     except OSError as exc:
         logger.warning('copy failed err=%s', exc)
-        return False, f'Copy failed: {exc}'
+        return False, _stopped(f'Copy failed: {exc}')
 
     summary = _preview_pairs(preview_pairs)
     if overwrite:

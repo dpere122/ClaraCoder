@@ -21,7 +21,6 @@
       <app-tool-spinner class="stream-tool-pill__spinner-img" [kind]="spinnerKind()" />
     </span>
   }
-  <ng-content select="[pillIcon]" />
   @if (shimmer()) {
     <!-- Letters reuse `.processing-text__letter` (chat-box.css): the thinking preview header's glow. -->
     <span
@@ -33,7 +32,7 @@
         <span class="processing-text__letter" [style.animation-delay]="($index * 0.08) + 's'" aria-hidden="true">{{ ch }}</span>
       }
     </span>
-  } @else if (name()) {
+  } @else {
     <span class="stream-tool-pill__name" [attr.title]="nameTitle() || name()">{{ name() }}</span>
   }
   @if (meta()) {

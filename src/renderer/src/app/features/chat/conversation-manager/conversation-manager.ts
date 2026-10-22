@@ -1,4 +1,4 @@
-import { Component, computed, HostListener, input, output, signal, ViewEncapsulation } from '@angular/core';
+import { Component, computed, DestroyRef, HostListener, inject, input, output, signal, ViewEncapsulation } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import type { ConversationMeta } from '@shared/index';
 import { FormsModule } from '@angular/forms';
@@ -6,7 +6,14 @@ import { LucideAngularModule } from 'lucide-angular';
 import { turnActivitySpinnerKind, type TurnActivity } from '../chat-box/chat-box';
 import { ToolSpinnerComponent } from '../chat-box/tool-spinner/tool-spinner';
 import type { SpinnerKind } from '../chat-box/tool-spinner-kind';
-import { buildConversationTree, type ConversationTreeNode } from './conversation-tree';
+import {
+  buildConversationTree,
+  conversationAgeLabel,
+  filterConversationTree,
+  groupConversationTreeByDate,
+  type ConversationTreeNode,
+  type FilteredConversationTreeNode,
+} from './conversation-tree';
 
 /** Screen-reader label for each live turn activity shown on a conversation row. */
 const ACTIVITY_LABELS: Record<TurnActivity, string> = {
@@ -39,6 +46,20 @@ export class ConversationManager {
 
   /** Top-level conversations with their sub-agent conversations nested under them. */
   protected readonly tree = computed(() => buildConversationTree(this.conversations()));
+  /** Name filter typed above the list; matches titles only (message search comes later). */
+  protected readonly filterQuery = signal('');
+  protected readonly filteredTree = computed(() => filterConversationTree(this.tree(), this.filterQuery()));
+  /** Ticks once a minute so ages and date sections stay current while the list is open. */
+  private readonly now = signal(new Date());
+  protected readonly sections = computed(() => groupConversationTreeByDate(this.filteredTree(), this.now()));
+  protected readonly footerLabel = computed(() => {
+    const total = this.tree().length;
+    const noun = total === 1 ? 'conversation' : 'conversations';
+    if (!this.filterQuery().trim()) {
+      return `${total} ${noun}`;
+    }
+    return `${this.filteredTree().length} of ${total} ${noun}`;
+  });
   /** Parents the user expanded (`true`) or collapsed (`false`); others follow {@link isExpanded}'s default. */
   private readonly expandOverrides = signal<ReadonlyMap<string, boolean>>(new Map());
 
@@ -48,6 +69,20 @@ export class ConversationManager {
   protected contextMenuX = signal(0);
   protected contextMenuY = signal(0);
   protected contextMenuConvId = signal<string | null>(null);
+
+  constructor() {
+    const timer = setInterval(() => this.now.set(new Date()), 60_000);
+    inject(DestroyRef).onDestroy(() => clearInterval(timer));
+  }
+
+  protected age(conv: ConversationMeta): string {
+    return conversationAgeLabel(conv.updatedAt, this.now());
+  }
+
+  protected clearFilter(event: Event): void {
+    event.stopPropagation();
+    this.filterQuery.set('');
+  }
 
   protected activitySpinnerKind(activity: TurnActivity): SpinnerKind | null {
     return turnActivitySpinnerKind(activity);
@@ -59,12 +94,16 @@ export class ConversationManager {
 
   /**
    * Sub-agents show by default while they matter: the parent or one of them is open, or one is
-   * still running. Otherwise they fold away so finished delegations do not crowd the list.
+   * still running. Otherwise they fold away so finished delegations do not crowd the list. A parent
+   * kept by the filter only for its matching sub-agents opens so the matches show.
    */
-  protected isExpanded(node: ConversationTreeNode): boolean {
+  protected isExpanded(node: ConversationTreeNode | FilteredConversationTreeNode): boolean {
     const override = this.expandOverrides().get(node.conversation.id);
     if (override !== undefined) {
       return override;
+    }
+    if ('forceExpanded' in node && node.forceExpanded) {
+      return true;
     }
     const active = this.activeId();
     const activity = this.activity();

@@ -1,6 +1,7 @@
 import {
   afterNextRender,
   Component,
+  computed,
   effect,
   inject,
   Injector,
@@ -142,6 +143,15 @@ export class ChatConversationHubComponent implements OnDestroy {
       untracked(() => this.scheduleNewConvSpinnerSync(creating));
     });
   }
+
+  /** The sidebar body shows the conversation list (always, while the chat is expanded into the main panel). */
+  protected readonly showingList = computed(() => this.expanded() || this.view() === 'conversations');
+
+  protected readonly activeConversationTitle = computed(() => {
+    const id = this.activeConversationId();
+    const title = id ? this.conversations().find((c) => c.id === id)?.title?.trim() : '';
+    return title || 'New conversation';
+  });
 
   protected toggleExpanded(): void {
     if (this.view() !== 'activeChat') {

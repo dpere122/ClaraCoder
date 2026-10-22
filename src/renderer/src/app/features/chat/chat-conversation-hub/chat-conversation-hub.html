@@ -13,18 +13,12 @@
   </div>
 } @else {
   <div class="chat-hub">
-    <div class="chat-hub__toolbar" [class.chat-hub__toolbar--expanded]="expanded()">
-      <button
-        type="button"
-        class="chat-hub__expand"
-        [disabled]="view() !== 'activeChat'"
-        [attr.aria-pressed]="expanded()"
-        [attr.aria-label]="expanded() ? 'Collapse chat to sidebar' : 'Expand chat to main panel'"
-        [title]="expanded() ? 'Collapse chat' : 'Expand chat'"
-        (click)="toggleExpanded()"
-      >
-        <lucide-icon [name]="expanded() ? 'minimize-2' : 'maximize-2'" [size]="16" />
-      </button>
+    <div class="chat-hub__toolbar">
+      @if (showingList()) {
+        <h2 class="chat-hub__title chat-hub__title--section">Conversations</h2>
+      } @else {
+        <h2 class="chat-hub__title" [attr.title]="activeConversationTitle()">{{ activeConversationTitle() }}</h2>
+      }
 
       <button
         type="button"
@@ -35,8 +29,7 @@
         [attr.aria-busy]="creatingConversation() ? true : null"
         (click)="newConversation.emit()"
       >
-        <lucide-icon name="plus" [size]="16" />
-        <span class="chat-hub__new-conv-label">New Conversation</span>
+        <lucide-icon name="square-pen" [size]="15" />
       </button>
 
       @if (!expanded()) {
@@ -48,9 +41,21 @@
           [title]="view() === 'conversations' ? 'Active chat' : 'Conversations'"
           (click)="toggleView()"
         >
-          <lucide-icon [name]="view() === 'conversations' ? 'message-square' : 'list'" [size]="16" />
+          <lucide-icon [name]="view() === 'conversations' ? 'message-square' : 'list'" [size]="15" />
         </button>
       }
+
+      <button
+        type="button"
+        class="chat-hub__expand"
+        [disabled]="view() !== 'activeChat'"
+        [attr.aria-pressed]="expanded()"
+        [attr.aria-label]="expanded() ? 'Collapse chat to sidebar' : 'Expand chat to main panel'"
+        [title]="expanded() ? 'Collapse chat' : 'Expand chat'"
+        (click)="toggleExpanded()"
+      >
+        <lucide-icon [name]="expanded() ? 'minimize-2' : 'maximize-2'" [size]="15" />
+      </button>
 
       <button
         type="button"
@@ -59,12 +64,12 @@
         title="Collapse chat"
         (click)="toggleCollapsed()"
       >
-        <lucide-icon name="chevron-right" [size]="16" />
+        <lucide-icon name="chevron-right" [size]="15" />
       </button>
     </div>
 
     <div class="chat-hub__body-wrap" [class.chat-hub__body-wrap--loading]="creatingConversation()">
-      @if (expanded() || view() === 'conversations') {
+      @if (showingList()) {
         <app-conversation-manager
           class="chat-hub__body"
           [conversations]="conversations()"

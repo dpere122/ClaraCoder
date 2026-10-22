@@ -204,16 +204,23 @@ app-health-monitor .health-log__row {
   border-radius: 0.55rem !important;
 }
 
-/* Conversations sidebar toolbar buttons are pills. */
+/* Conversations sidebar (IDE flat): small corners on toolbar buttons, rows and the context menu. */
 app-chat-conversation-hub .chat-hub__expand,
 app-chat-conversation-hub .chat-hub__new-conv,
 app-chat-conversation-hub .chat-hub__conv-toggle,
 app-chat-conversation-hub .chat-hub__collapse,
 app-chat-conversation-hub .chat-hub__uncollapse,
-app-conversation-manager .conv-item,
 app-conversation-manager .delete-btn,
+app-conversation-manager .conv-expand,
+app-conversation-manager .conv-filter__field,
+app-conversation-manager .conv-filter__clear,
 app-conversation-manager .conv-context-menu-item {
-  border-radius: 999px !important;
+  border-radius: var(--chat-radius-sm) !important;
+}
+
+app-conversation-manager .conv-item,
+app-conversation-manager .conv-context-menu {
+  border-radius: var(--chat-radius) !important;
 }
 
 /* Managed llama-server row in the workspace footer: Start/Stop, source select, settings. */
@@ -1098,24 +1105,6 @@ html .chat-active-stack__status {
 
 html app-message-box .composer-status-cluster .context-capacity {
   gap: 0.35rem;
-}
-
-html app-chat-conversation-hub .chat-hub__expand,
-html app-chat-conversation-hub .chat-hub__conv-toggle,
-html app-chat-conversation-hub .chat-hub__collapse,
-html app-chat-conversation-hub .chat-hub__uncollapse,
-html app-chat-conversation-hub .chat-hub__new-conv {
-  border: 1px solid var(--t-border) !important;
-}
-
-html app-chat-conversation-hub .chat-hub__expand:hover:not(:disabled),
-html app-chat-conversation-hub .chat-hub__conv-toggle:hover,
-html app-chat-conversation-hub .chat-hub__collapse:hover,
-html app-chat-conversation-hub .chat-hub__uncollapse:hover,
-html app-chat-conversation-hub .chat-hub__new-conv:hover:not(:disabled) {
-  background: var(--t-hover-bg);
-  border-color: var(--t-primary) !important;
-  color: var(--t-primary);
 }
 
 /*

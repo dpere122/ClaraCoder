@@ -76,6 +76,8 @@ class SessionHitlState:
     pending_user_event_notes: list[str] = field(default_factory=list)
     # LangGraph worker: middleware signals here so the SSE loop can emit a diff before on_tool_end.
     hitl_sse_queue: asyncio.Queue | None = None
+    #: Event loop that owns ``hitl_sse_queue``; tool worker threads post through it with ``call_soon_threadsafe``.
+    hitl_sse_loop: asyncio.AbstractEventLoop | None = None
 
 
 @dataclass

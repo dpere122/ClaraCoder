@@ -13,6 +13,7 @@ from clara_coder_backend.session.file_journal import emit_copy_journal, snapshot
 from clara_coder_backend.session.state import current_session_id, get_session, mutation_tools_blocked_reason
 from clara_coder_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
+from clara_coder_backend.workspace.path_locks import locked_path, note_batch_replaced
 
 logger = logging.getLogger('clara.tools.copy')
 
@@ -127,19 +128,24 @@ def _perform_copy(root: Path, copies: list[CopyWorkspaceFileItem | dict], overwr
     root_resolved = root.resolve()
     try:
         for src, dest in copy_pairs:
-            dest_existed = dest.exists()
             rel_dest = dest.relative_to(root_resolved).as_posix()
-            snap = snapshot_text_file(dest) if dest_existed else None
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest)
-            if session is not None:
-                emit_copy_journal(
-                    session,
-                    rel_dest,
-                    before_content=snap['content'] if snap else None,
-                    before_encoding=snap['encoding'] if snap else None,
-                    before_newline=snap['newline'] if snap else None,
-                )
+            # Same lock as the edit tools, so a parallel edit of ``dest`` lands wholly before or after the copy.
+            with locked_path(dest) as key:
+                dest_existed = dest.exists()
+                if dest_existed and not overwrite:
+                    return False, f'Destination already exists: `{rel_dest}`. Pass `overwrite=true` to replace it.'
+                snap = snapshot_text_file(dest) if dest_existed else None
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dest)
+                note_batch_replaced(key)
+                if session is not None:
+                    emit_copy_journal(
+                        session,
+                        rel_dest,
+                        before_content=snap['content'] if snap else None,
+                        before_encoding=snap['encoding'] if snap else None,
+                        before_newline=snap['newline'] if snap else None,
+                    )
     except OSError as exc:
         logger.warning('copy failed err=%s', exc)
         return False, f'Copy failed: {exc}'

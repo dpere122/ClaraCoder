@@ -7,17 +7,16 @@ reviews the turn's edited files after the reply and can reset any of them. Auto 
 Each write runs the in-memory formatter (Black / Prettier, when enabled in Settings → Tools), writes the file,
 journals it, and syncs the language server. The result ends with the post-edit diagnostics footer.
 
-Parallel tool calls run in a thread pool, so each edit holds its file's lock from read to LSP sync, and edits of
-one file apply one after another. Snippet edits then build on each other. A line-range edit or whole-file
-rewrite of a file another call in the same response already changed is refused, since its line numbers or
-content came from the file before that change.
+Parallel tool calls run in a thread pool, so each edit holds its file's lock (see :mod:`.path_locks`) from read
+to LSP sync, and edits of one file apply one after another. Snippet edits then build on each other. A line-range
+edit of a file another call in the same response already changed is moved onto the shifted lines, and refused
+only when that call changed the lines it targets. A whole-file rewrite of such a file is refused, since it would
+discard that change.
 """
 
 from __future__ import annotations
 
 import logging
-import os
-import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -33,7 +32,6 @@ from clara_coder_backend.session.file_journal import emit_edit_journal
 from clara_coder_backend.session.state import (
     agent_formatters_enabled,
     current_session_id,
-    current_tool_batch_id,
     current_tool_call_id,
     get_session,
     mutation_tools_blocked_reason,
@@ -45,6 +43,7 @@ from clara_coder_backend.tools.tool_conventions import ONE_BASED, RELATIVE_PATH,
 from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
 from clara_coder_backend.workspace.formatters import format_python_source_str, format_source_via_prettier
 from clara_coder_backend.workspace.partial_edit import line_range_edit_tool_feedback, merge_partial_edit
+from clara_coder_backend.workspace.path_locks import batch_line_map, locked_path, note_batch_write
 from clara_coder_backend.workspace.workspace_text_io import (
     DiskNewline,
     NewlineMode,
@@ -66,12 +65,6 @@ _DIAGNOSTICS_FOOTER_MAX_CHARS = 14_000
 
 _ENCODING_HINT = 'empty = Settings default'
 _NEWLINE_HINT = 'lf | crlf | preserve (match existing); empty = Settings default'
-
-# Keyed by normcased absolute path, so edits from every session to one file on disk share a lock.
-_path_locks: dict[str, threading.Lock] = {}
-_path_locks_guard = threading.Lock()
-# Tool batch (see ``current_tool_batch_id``) that last wrote each file.
-_last_write_batch: dict[str, str] = {}
 
 __all__ = [
     'FORMAT_WORKSPACE_FILE_NAME',
@@ -115,16 +108,6 @@ class _EditTarget:
 
 
 @contextmanager
-def _locked_path(path: Path) -> Iterator[str]:
-    """Hold ``path``'s edit lock; yields the key it is registered under."""
-    key = os.path.normcase(os.path.abspath(path))
-    with _path_locks_guard:
-        lock = _path_locks.setdefault(key, threading.Lock())
-    with lock:
-        yield key
-
-
-@contextmanager
 def _edit_target(relative_path: str, encoding: str, newline: str) -> Iterator[_EditTarget | str]:
     """Validate params, lock the file, and read it once; yields the target or a ``Tool error:`` string.
 
@@ -145,7 +128,7 @@ def _edit_target(relative_path: str, encoding: str, newline: str) -> Iterator[_E
     except ValueError as exc:
         yield f'Tool error: {exc}'
         return
-    with _locked_path(path) as key:
+    with locked_path(path) as key:
         yield _read_target(session_id, rel, path, enc, nm, key)
 
 
@@ -220,9 +203,7 @@ def _write_through(t: _EditTarget, merged: str, mode: str) -> str:
         return f'Tool error: content cannot be encoded as {t.encoding!r} ({exc}). Adjust characters or `encoding`.'
     except OSError as exc:
         return f'Tool error: could not write `{t.rel}` ({exc}).'
-    batch = current_tool_batch_id.get()
-    if batch:
-        _last_write_batch[t.path_key] = batch
+    note_batch_write(t.path_key, t.old_text, text)
     emit_edit_journal(
         t.session,
         t.rel,
@@ -246,12 +227,6 @@ def _merge_error(t: _EditTarget, err: str) -> str:
     )
 
 
-def _changed_earlier_in_batch(t: _EditTarget) -> bool:
-    """True when another tool call from the same model response already wrote this file."""
-    batch = current_tool_batch_id.get()
-    return bool(batch) and _last_write_batch.get(t.path_key) == batch
-
-
 def _changed_in_batch_error(t: _EditTarget, consequence: str) -> str:
     return (
         f'Tool error: another tool call in this same response already changed `{t.rel}`, so {consequence}. '
@@ -264,7 +239,7 @@ def write_workspace_text(relative_path: str, content: str, *, encoding: str = ''
     with _edit_target(relative_path, encoding, newline) as t:
         if isinstance(t, str):
             return t
-        if t.existed and _changed_earlier_in_batch(t):
+        if t.existed and batch_line_map(t.path_key) is not None:
             return _changed_in_batch_error(t, 'rewriting the whole file now would discard that change')
         return _write_through(t, content or '', 'full-file')
 
@@ -299,8 +274,9 @@ def write_workspace_file(
         not_='new files (use `write_workspace_file`); unique text anchors (use `replace_workspace_snippet`)',
         shape=(
             f'{ONE_BASED}; empty `new_content` deletes the lines; `start_line=end_line=n+1` appends after the '
-            'last line. Line numbers shift after each edit, so re-read before the next one on the same file '
-            '(parallel calls too: in one response, do not pair this with another edit of the same file)'
+            'last line. Line numbers shift after each edit, so re-read before an edit in a later response; '
+            'parallel calls in one response may all use line numbers from the same read if their ranges do not '
+            'overlap'
         ),
         verify=VERIFY_LSP,
     ),
@@ -319,8 +295,20 @@ def replace_workspace_lines(
     with _edit_target(relative_path, encoding, newline) as t:
         if isinstance(t, str):
             return t
-        if _changed_earlier_in_batch(t):
-            return _changed_in_batch_error(t, 'your line numbers no longer match the file')
+        moved_note = ''
+        line_map = batch_line_map(t.path_key)
+        if line_map is not None:
+            moved = line_map.map_range(start, end)
+            if moved is None:
+                return _changed_in_batch_error(
+                    t, f'lines {start}–{end} as you read them were changed already (or are past its end)'
+                )
+            if moved != (start, end):
+                moved_note = (
+                    f'\nAn earlier edit in this response shifted the file, so lines {start}–{end} were applied at '
+                    f'{moved[0]}–{moved[1]}.'
+                )
+                start, end = moved
         merged, err = merge_partial_edit(
             t.old_text,
             new_content='',
@@ -331,8 +319,10 @@ def replace_workspace_lines(
         )
         if err or merged is None:
             return _merge_error(t, err or 'line-range merge failed.')
-        return _write_through(t, merged, 'line-range') + line_range_edit_tool_feedback(
-            t.old_text, start, end, new_content or ''
+        return (
+            _write_through(t, merged, 'line-range')
+            + moved_note
+            + line_range_edit_tool_feedback(t.old_text, start, end, new_content or '')
         )
 
 

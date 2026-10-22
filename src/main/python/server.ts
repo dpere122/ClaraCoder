@@ -19,6 +19,7 @@ import {
   getRuntimePythonDir,
   getWorkspaceSemanticIndexDir,
   getWorkspaceStagingDir,
+  getBundledRipgrep,
   getBundledVtslsEntry,
   PYTHON_ENV_KEYS_TO_STRIP,
   pythonIsolationEnv,
@@ -284,6 +285,7 @@ export function startPythonServer(): ChildProcess {
       // Node mode (ELECTRON_RUN_AS_NODE=1) without requiring a system Node install.
       CLARA_ELECTRON_EXEC_PATH: process.execPath,
       CLARA_VTSLS_BUNDLED_ENTRY: getBundledVtslsEntry() ?? '',
+      CLARA_RG_PATH: getBundledRipgrep() ?? '',
       ...(hfToken ? { HF_TOKEN: hfToken, HUGGING_FACE_HUB_TOKEN: hfToken } : {}),
       ...pythonIsolationEnv(),
     },

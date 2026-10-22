@@ -29,6 +29,11 @@ extraResources:
     to: runtime-python
     filter:
       - "**/*"
+  # Pinned ripgrep from `npm run bundle:rg`; the sidecar gets its path as CLARA_RG_PATH.
+  - from: runtime-bundle/ripgrep
+    to: ripgrep
+    filter:
+      - "**/*"
   # Bundled vtsls (TypeScript/JavaScript LSP) from `npm run bundle:vtsls`.
   # Run via the Electron binary in Node mode (ELECTRON_RUN_AS_NODE=1); no system Node required.
   #

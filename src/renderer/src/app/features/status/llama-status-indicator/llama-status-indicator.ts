@@ -223,6 +223,11 @@ export class LlamaStatusIndicator {
         this.stopPolling();
         this.stopEmbedPolling();
         this.clearDebounceRefresh();
+        // The rows layout keeps its Embeddings row with no model selected; CPU embeddings do not need one.
+        if (cfg && this.layout() === 'rows') {
+          this.armEmbedPolling(cfg);
+          onCleanup(() => this.stopEmbedPolling());
+        }
         return;
       }
 

@@ -11,7 +11,7 @@
           spellcheck="false"
           autocomplete="off"
           [ngModel]="filterQuery()"
-          (ngModelChange)="filterQuery.set($event)"
+          (ngModelChange)="setFilter($event)"
           (keydown.escape)="clearFilter($event)"
         />
         @if (filterQuery()) {

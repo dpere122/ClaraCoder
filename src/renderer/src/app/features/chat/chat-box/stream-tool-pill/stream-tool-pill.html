@@ -21,6 +21,7 @@
       <app-tool-spinner class="stream-tool-pill__spinner-img" [kind]="spinnerKind()" />
     </span>
   }
+  <ng-content select="[pillIcon]" />
   @if (shimmer()) {
     <!-- Letters reuse `.processing-text__letter` (chat-box.css): the thinking preview header's glow. -->
     <span

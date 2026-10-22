@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { hitlTrailStreamTag, toolTrailStatusStreamTag, type StreamPart, type TurnFeedItem } from '@shared/index';
-import { activityLayout, activitySummary } from './activity-blocks';
+import { activityFractalKinds, activityLayout, activitySummary } from './activity-blocks';
 import type { FeedDisplayRole } from './stream-preview-queue';
 import { toolChipLayout } from './tool-chip-groups';
 
@@ -134,5 +134,13 @@ describe('activitySummary', () => {
       duration: '',
       failed: true,
     });
+  });
+});
+
+describe('activityFractalKinds', () => {
+  it('lists the steps in order for the turn fractal, skipping merged duplicate rows', () => {
+    const items = [thought(), read('a.py'), edit('a.py'), tool('run_command', 'Command: `npm test`'), read('b.py'), md()];
+    expect(activityFractalKinds(items, [0, 1, 2, 3, 4], new Set())).toEqual(['think', 'read', 'edit', 'run', 'read']);
+    expect(activityFractalKinds(items, [0, 1, 2, 3, 4], new Set([3]))).toEqual(['think', 'read', 'edit', 'read']);
   });
 });

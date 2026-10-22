@@ -11,6 +11,7 @@ import {
   type TurnFeedItem,
 } from '@shared/index';
 import { auxStreamToolPartPillState } from '../aux-stream-tool-part/aux-stream-tool-part';
+import { fractalKindForCategory, type FractalKind } from '../turn-fractal/turn-fractal-geometry';
 import type { FeedDisplayRole } from './stream-preview-queue';
 
 /** How a stretch of work renders: one activity block per stretch, in execution order. */
@@ -179,4 +180,26 @@ export function activitySummary(
     duration: totalMs > 0 ? formatThoughtDuration(totalMs) : '',
     failed: failed > 0,
   };
+}
+
+/**
+ * The block's steps for its turn fractal, in order: a thought, or each tool call by its
+ * category. Nudges add nothing; `merged` rows (duplicates of a run_command output lane) are
+ * skipped like in {@link activitySummary}.
+ */
+export function activityFractalKinds(
+  items: readonly TurnFeedItem[],
+  members: readonly number[],
+  merged: ReadonlySet<number>,
+): FractalKind[] {
+  const kinds: FractalKind[] = [];
+  for (const index of members) {
+    const item = items[index];
+    if (item?.kind === 'thought') {
+      kinds.push('think');
+    } else if (item?.kind === 'tool' && !merged.has(index)) {
+      kinds.push(fractalKindForCategory(toolPillLabel(item.part).category));
+    }
+  }
+  return kinds;
 }

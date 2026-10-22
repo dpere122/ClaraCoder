@@ -120,10 +120,11 @@
           [expanded]="open"
           [live]="live()"
           [shimmer]="working && live()"
-          [spinner]="!open && spinnerHost() === 'pill' && activityHostsPreview(members)"
-          [spinnerKind]="hostedSpinnerKind() ?? 'think'"
           (toggle)="toggleActivity($index, members)"
-        />
+        >
+          <!-- The block's turn fractal stands in for the spinner: it grows as each step lands. -->
+          <app-turn-fractal pillIcon [kinds]="activityFractals().get($index) ?? []" [live]="working && live()" />
+        </app-stream-tool-pill>
         @if (!open && previewShowsBody() && activityHostsPreview(members)) {
           <!-- The streaming reasoning / nudge box stays in view under a closed block. -->
           <ng-container *ngTemplateOutlet="entry; context: { $implicit: items()[previewIndex()], index: previewIndex() }" />

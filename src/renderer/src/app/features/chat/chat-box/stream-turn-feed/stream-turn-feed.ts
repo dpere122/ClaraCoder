@@ -24,6 +24,8 @@ import { ToolPillExpansion } from '../tool-pill-expansion';
 import { ToolPillGroupComponent } from '../tool-pill-group/tool-pill-group';
 import type { PillSpinnerKind } from '../tool-spinner-kind';
 import { ToolSpinnerComponent } from '../tool-spinner/tool-spinner';
+import { TurnFractalComponent } from '../turn-fractal/turn-fractal';
+import type { FractalKind } from '../turn-fractal/turn-fractal-geometry';
 import {
   committedItemIndices,
   decidePreviewCommit,
@@ -43,7 +45,7 @@ import {
   queueableItems,
   splitQueuedFeed,
 } from './stream-preview-queue';
-import { activityLayout, activitySummary, type ActivitySummary } from './activity-blocks';
+import { activityFractalKinds, activityLayout, activitySummary, type ActivitySummary } from './activity-blocks';
 import { settlingChipIndices, toolChipGroupParts, toolChipLayout } from './tool-chip-groups';
 
 /** How long chips that just left the live preview play their settle animation (see the CSS). */
@@ -70,6 +72,7 @@ export type HostedSpinnerKind = PillSpinnerKind;
     StreamToolPillComponent,
     ToolPillGroupComponent,
     ToolSpinnerComponent,
+    TurnFractalComponent,
   ],
   // Open pills are tracked per feed, so a pill keeps its state when it joins a group.
   providers: [ToolPillExpansion],
@@ -159,6 +162,19 @@ export class StreamTurnFeedComponent {
     for (const [lead, members] of blocks) {
       const landed = members.filter((index) => roles[index] === 'chip');
       out.set(lead, activitySummary(items, landed, merged));
+    }
+    return out;
+  });
+
+  /** Turn fractal steps by block lead index: landed rows plus the live preview, so it grows as a call starts. */
+  readonly activityFractals = computed(() => {
+    const items = this.items();
+    const roles = this.displayRoles();
+    const merged = this.toolChipLayout().merged;
+    const out = new Map<number, FractalKind[]>();
+    for (const [lead, members] of this.activityLayout().blocks) {
+      const shown = members.filter((index) => roles[index] === 'chip' || roles[index] === 'preview');
+      out.set(lead, activityFractalKinds(items, shown, merged));
     }
     return out;
   });

@@ -101,10 +101,19 @@ describe('activitySummary', () => {
   it('counts thoughts and tools and sums thinking plus tool time', () => {
     const items = [thought(4_000), read('a.py', { toolDurationMs: 1_000 }), edit('a.py', { toolDurationMs: 2_000 })];
     expect(activitySummary(items, [0, 1, 2], new Set())).toEqual({
-      meta: '1 thought, 2 tools',
+      headline: 'Read a.py, edited a.py',
+      outcomes: '',
+      title: 'Read a.py\nEdited a.py\n1 thought, 2 tools',
       duration: '7s',
       failed: false,
     });
+  });
+
+  it('names what the stretch did, or Thought for thinking alone', () => {
+    const items = [read('a.py'), read('b.py'), edit('a.py'), thought()];
+    expect(activitySummary(items, [0, 1, 2], new Set()).headline).toBe('Read 2 files, edited a.py');
+    expect(activitySummary(items, [3], new Set()).headline).toBe('Thought');
+    expect(activitySummary(items, [], new Set()).headline).toBe('');
   });
 
   it('counts parallel calls from one step by their slowest', () => {
@@ -119,7 +128,9 @@ describe('activitySummary', () => {
   it('reports failures and skips merged duplicate rows', () => {
     const items = [thought(), tool('run_command', 'Tool error: boom', { toolChainState: 'error' }), read('a.py')];
     expect(activitySummary(items, [0, 1, 2], new Set([2]))).toEqual({
-      meta: '1 thought, 1 tool · 1 failed',
+      headline: 'Ran 1 command',
+      outcomes: '1 failed',
+      title: 'Ran 1 command\n1 thought, 1 tool',
       duration: '',
       failed: true,
     });

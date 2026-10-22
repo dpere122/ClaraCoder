@@ -519,6 +519,149 @@ export function toolPillGroupLabel(labels: readonly ToolPillLabel[]): { verb: st
   return { verb, meta: [tally, targets.join(', ')].filter(Boolean).join(' · ') };
 }
 
+/**
+ * How one kind of action reads in an activity headline. Calls of a kind fold into one clause:
+ * `edited chat-box.css` for one target, `edited 3 files` for several, or fixed text.
+ */
+interface HeadlineAction {
+  key: string;
+  /** Past-tense verb (`edited`, `ran`, `searched`). */
+  verb: string;
+  noun: [string, string];
+  /** Lower ranks survive when there are more clauses than fit: changes before lookups. */
+  rank: number;
+  /** How a lone target reads after the verb; default: its last path segment. */
+  target?: (target: string) => string;
+  /** Whole clause with no target or count (`checked diagnostics`). */
+  fixed?: string;
+}
+
+const HEADLINE_MAX_CLAUSES = 3;
+
+function cut(text: string, max: number): string {
+  const t = text.trim().replace(/\s+/g, ' ');
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
+
+function urlHost(target: string): string {
+  return target.replace(/^[a-z]+:\/\//i, '').split(/[/?#]/)[0] || target;
+}
+
+function headlineAction(label: ToolPillLabel): HeadlineAction {
+  const fixed = (key: string, text: string, rank: number): HeadlineAction => ({ key, verb: '', noun: ['', ''], rank, fixed: text });
+  switch (label.verb) {
+    case 'Create':
+      return { key: 'create', verb: 'created', noun: ['file', 'files'], rank: 0 };
+    case 'Delete':
+      return { key: 'delete', verb: 'deleted', noun: ['item', 'items'], rank: 0 };
+    case 'Stage':
+      return { key: 'stage', verb: 'staged', noun: ['file', 'files'], rank: 0 };
+    case 'Sub-agent':
+      return { key: 'subagent', verb: 'started', noun: ['sub-agent', 'sub-agents'], rank: 1 };
+    case 'Tests':
+      return fixed('tests', 'ran tests', 1);
+    case 'Smoke test':
+      return fixed('smoke', 'ran a smoke test', 1);
+    case 'Review':
+      return fixed('review', 'reviewed changes', 2);
+    case 'Web search':
+      return fixed('web-search', 'searched the web', 2);
+    case 'Fetch':
+      return { key: 'fetch', verb: 'fetched', noun: ['page', 'pages'], rank: 2, target: urlHost };
+    case 'Plan progress':
+      return fixed('plan-progress', 'updated the plan', 3);
+    case 'Read plan':
+      return fixed('read-plan', 'read the plan', 5);
+    case 'Waiting for sub-agents':
+      return fixed('subagent-wait', 'waited for sub-agents', 3);
+    case 'Outline':
+      return { key: 'outline', verb: 'outlined', noun: ['file', 'files'], rank: 6 };
+    case 'Diagnostics':
+      return fixed('diagnostics', 'checked diagnostics', 7);
+  }
+  switch (label.category) {
+    case 'edit':
+      return { key: 'edit', verb: 'edited', noun: ['file', 'files'], rank: 0 };
+    case 'run':
+      return label.verb === 'Run'
+        ? { key: 'run', verb: 'ran', noun: ['command', 'commands'], rank: 1, target: (t) => cut(t, 40) }
+        : fixed('run-status', 'checked commands', 8);
+    case 'web':
+      return fixed('web', 'used the web', 2);
+    case 'read':
+      return { key: 'read', verb: 'read', noun: ['file', 'files'], rank: 5 };
+    case 'list':
+      return { key: 'list', verb: 'listed', noun: ['folder', 'folders'], rank: 6 };
+    case 'search':
+      return { key: 'search', verb: 'searched', noun: ['pattern', 'patterns'], rank: 4, target: (t) => `for "${cut(t, 28)}"` };
+    case 'lsp':
+      return fixed('lsp', 'looked up symbols', 7);
+    default:
+      // A delegated `Read` preview lane is a read whatever its category.
+      return label.verb === 'Read'
+        ? { key: 'read', verb: 'read', noun: ['file', 'files'], rank: 5 }
+        : fixed(`other:${label.verb}`, `used ${label.verb.charAt(0).toLowerCase()}${label.verb.slice(1)}`, 3);
+  }
+}
+
+/** Headline for a stretch of tool calls, plus every clause (the headline may drop some). */
+export interface ActivityHeadline {
+  text: string;
+  clauses: string[];
+}
+
+/**
+ * Activity block headline from its tool calls, in the order the model took them:
+ * `Read 3 files, edited chat-box.css, ran npm test`. Calls of a kind fold into one clause
+ * (one target names it, several count it). Past three clauses the lookups drop first and the
+ * headline ends `+2 more`; `clauses` keeps them all for the hover title. Reading back a file
+ * the stretch already changed is checking that change, so it folds into the change's clause.
+ * Empty for no calls.
+ */
+export function activityHeadline(labels: readonly ToolPillLabel[]): ActivityHeadline {
+  const clauses = new Map<string, { action: HeadlineAction; first: number; calls: number; targets: Set<string> }>();
+  const changed = new Set<string>();
+  labels.forEach((label, index) => {
+    const action = headlineAction(label);
+    const target = label.target.trim();
+    if (action.key === 'read' && target && changed.has(target)) {
+      return;
+    }
+    if (action.rank === 0 && target) {
+      changed.add(target);
+    }
+    const clause = clauses.get(action.key) ?? { action, first: index, calls: 0, targets: new Set<string>() };
+    clause.calls += 1;
+    if (target) {
+      clause.targets.add(target);
+    }
+    clauses.set(action.key, clause);
+  });
+
+  const ordered = [...clauses.values()].sort((a, b) => a.first - b.first);
+  const texts = ordered.map(({ action, calls, targets }) => {
+    if (action.fixed) {
+      return action.fixed;
+    }
+    const n = targets.size || calls;
+    const only = targets.size === 1 && n === 1 ? [...targets][0]! : '';
+    const what = only ? (action.target ?? shortTarget)(only) : plural(n, ...action.noun);
+    return `${action.verb} ${what}`;
+  });
+
+  const keep = new Set(
+    ordered
+      .map((clause, i) => ({ rank: clause.action.rank, i }))
+      .sort((a, b) => a.rank - b.rank || a.i - b.i)
+      .slice(0, HEADLINE_MAX_CLAUSES)
+      .map(({ i }) => i),
+  );
+  const shown = texts.filter((_, i) => keep.has(i));
+  const dropped = texts.length - shown.length;
+  const joined = [...shown, dropped > 0 ? `+${dropped} more` : ''].filter(Boolean).join(', ');
+  return { text: joined.charAt(0).toUpperCase() + joined.slice(1), clauses: texts };
+}
+
 /** Calls at least this long count as slow: their run time reads at full strength on the pill. */
 export const TOOL_PILL_SLOW_MS = 1000;
 

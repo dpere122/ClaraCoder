@@ -1155,7 +1155,7 @@ html app-message-box .composer-entry-row .composer-prompt--active {
   border-radius: var(--chat-radius) !important;
 }
 
-/* The only rules in the transcript allowed past the border strip above: turn dividers and the edits rule. */
+/* The only rules in the transcript allowed past the border strip above: turn dividers, the edits rule, activity guide lines. */
 html app-chat-box .chat-row {
   border-top: 1px solid var(--t-border-subtle) !important;
 }
@@ -1166,6 +1166,11 @@ html app-chat-box .chat-row-mount[data-chat-row='0'] .chat-row {
 
 html app-chat-box app-turn-edits-footer .turn-edits {
   border-top: 1px dashed var(--t-border-subtle) !important;
+}
+
+html app-chat-box app-stream-turn-feed .stream-turn-feed__activity-body,
+html app-chat-box app-tool-pill-group .tool-pill-group__members {
+  border-left: 1px solid color-mix(in srgb, var(--t-primary) 30%, var(--t-border-subtle)) !important;
 }
 
 @media (max-width: 1100px) {

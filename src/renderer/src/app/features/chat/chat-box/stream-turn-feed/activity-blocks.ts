@@ -1,10 +1,13 @@
 import {
+  activityHeadline,
   formatThoughtDuration,
   isHitlTrailStreamTag,
   isStoppedToolCall,
   plural,
   toolOutcomeNotes,
+  toolPillLabel,
   type StreamPart,
+  type ToolPillLabel,
   type TurnFeedItem,
 } from '@shared/index';
 import { auxStreamToolPartPillState } from '../aux-stream-tool-part/aux-stream-tool-part';
@@ -20,9 +23,14 @@ export interface ActivityLayout {
   working: ReadonlySet<number>;
 }
 
-/** Pill text for one activity block: `Worked · 2 thoughts, 7 tools · 1 failed · 42s`. */
+/** Pill text for one activity block: `Read 3 files, edited a.py · 1 failed · 42s`. */
 export interface ActivitySummary {
-  meta: string;
+  /** What the stretch did, in order (`Read 3 files, edited a.py`); `Thought` for thinking alone; '' when nothing landed. */
+  headline: string;
+  /** `1 failed · 1 stopped`, or ''. */
+  outcomes: string;
+  /** Hover text: every action (the headline may drop some), then the tally. */
+  title: string;
   duration: string;
   failed: boolean;
 }
@@ -97,9 +105,10 @@ export function activityLayout(
 }
 
 /**
- * Activity pill text. Time is thinking plus tool run time; parallel calls from one LLM step
- * overlap, so each step counts its slowest call. `merged` rows (run_command status rows whose
- * output lane is also in the feed) are duplicates and are not counted.
+ * Activity pill text. The headline names what the model did between prose, from its tool calls
+ * in order. Time is thinking plus tool run time; parallel calls from one LLM step overlap, so
+ * each step counts its slowest call. `merged` rows (run_command status rows whose output lane is
+ * also in the feed) are duplicates and are not counted.
  */
 export function activitySummary(
   items: readonly TurnFeedItem[],
@@ -114,6 +123,7 @@ export function activitySummary(
   let thinkingMs = 0;
   const unbatchedMs: number[] = [];
   const slowestByBatch = new Map<string, number>();
+  const labels: ToolPillLabel[] = [];
 
   for (const index of members) {
     const item = items[index];
@@ -134,6 +144,7 @@ export function activitySummary(
     }
     tools += 1;
     const part: StreamPart = item.part;
+    labels.push(toolPillLabel(part));
     if (auxStreamToolPartPillState(part, false) === 'error') {
       failed += 1;
     }
@@ -156,11 +167,15 @@ export function activitySummary(
     nudges > 0 ? plural(nudges, 'nudge') : '',
     tools > 0 ? plural(tools, 'tool') : '',
   ].filter(Boolean);
-  const outcomes = toolOutcomeNotes(failed, stopped);
   const toolMs = [...slowestByBatch.values(), ...unbatchedMs].reduce((sum, ms) => sum + ms, 0);
   const totalMs = thinkingMs + toolMs;
+  const actions = activityHeadline(labels);
   return {
-    meta: [counts.join(', '), ...outcomes].filter(Boolean).join(' · '),
+    headline: actions.text || (thoughts + nudges > 0 ? 'Thought' : ''),
+    outcomes: toolOutcomeNotes(failed, stopped).join(' · '),
+    title: [...actions.clauses.map((c) => c.charAt(0).toUpperCase() + c.slice(1)), counts.join(', ')]
+      .filter(Boolean)
+      .join('\n'),
     duration: totalMs > 0 ? formatThoughtDuration(totalMs) : '',
     failed: failed > 0,
   };

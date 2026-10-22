@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { StreamPart } from './types/conversation';
 import { toolTrailStatusStreamTag } from './stream-parts';
 import {
+  activityHeadline,
   formatThoughtDuration,
   formatToolDuration,
   humanizeToolName,
@@ -12,6 +13,7 @@ import {
   toolPillMeta,
   toolPillsGroupTogether,
   toolTargetFromRunningDetail,
+  type ToolPillLabel,
 } from './tool-pill-label';
 
 function status(label: string, text: string, extra: Partial<StreamPart> = {}): StreamPart {
@@ -215,6 +217,48 @@ describe('grouping', () => {
     const label = toolPillGroupLabel([read('src/a.py'), search, read('b.py')]);
     expect(label.verb).toBe('Explore');
     expect(label.meta.startsWith('2 files, 1 search')).toBe(true);
+  });
+});
+
+describe('activityHeadline', () => {
+  const label = (name: string, text: string, extra: Partial<StreamPart> = {}) => toolPillLabel(status(name, text, extra));
+  const read = (path: string) => label('read_workspace_file', `File: ${path} Encoding: utf-8 Lines: 1-3 (of 3 in file)`);
+  const edit = (path: string) => label('replace_workspace_lines', `Updated \`${path}\` (line-range; 1 → 2 lines).`);
+  const run = (cmd: string) => label('run_command', `Command: \`${cmd}\` exit 0`);
+  const search = (query: string) => label('search_workspace', 'Found 2 matches', { toolTarget: query });
+  const headline = (...labels: ToolPillLabel[]) => activityHeadline(labels).text;
+
+  it('names a lone target and counts several, folding calls of a kind into one clause', () => {
+    expect(headline(read('src/app/main.ts'))).toBe('Read main.ts');
+    expect(headline(read('a.py'), read('b.py'), read('a.py'))).toBe('Read 2 files');
+    expect(headline(edit('src/chat-box.css'), edit('src/chat-box.css'))).toBe('Edited chat-box.css');
+  });
+
+  it('lists what the model did in the order it did it', () => {
+    expect(headline(read('a.py'), read('b.py'), edit('a.py'), run('npm test'))).toBe('Read 2 files, edited a.py, ran npm test');
+    expect(headline(search('sidebar-resizing'))).toBe('Searched for "sidebar-resizing"');
+    expect(headline(search('a'), search('b'), read('x.ts'))).toBe('Searched 2 patterns, read x.ts');
+  });
+
+  it('folds reading back a changed file into the change', () => {
+    expect(headline(read('a.py'), edit('a.py'), read('a.py'))).toBe('Read a.py, edited a.py');
+    expect(headline(edit('a.py'), read('a.py'))).toBe('Edited a.py');
+    expect(headline(edit('a.py'), read('b.py'))).toBe('Edited a.py, read b.py');
+  });
+
+  it('keeps changes over lookups when there are more kinds than fit', () => {
+    const lsp = label('lsp_get_diagnostics', 'No diagnostics');
+    const list = label('list_workspace_directory', 'Directory: src');
+    const out = activityHeadline([read('a.py'), list, search('q'), edit('a.py'), lsp]);
+    expect(out.text).toBe('Read a.py, searched for "q", edited a.py, +2 more');
+    expect(out.clauses).toEqual(['read a.py', 'listed src', 'searched for "q"', 'edited a.py', 'checked diagnostics']);
+  });
+
+  it('shortens long commands and is empty with no calls', () => {
+    expect(headline(run('npx vitest run --config vitest.node.config.mjs src/shared'))).toBe(
+      'Ran npx vitest run --config vitest.node.con…',
+    );
+    expect(headline()).toBe('');
   });
 });
 

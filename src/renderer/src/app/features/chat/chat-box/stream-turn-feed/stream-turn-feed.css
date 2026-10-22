@@ -27,6 +27,13 @@ app-stream-turn-feed .stream-turn-feed__activity {
   max-width: 100%;
 }
 
+/* The activity headline (`Read 3 files, edited a.py`) can run long: it shrinks before the time does. */
+app-stream-turn-feed .stream-turn-feed__activity > app-stream-tool-pill .stream-tool-pill__name {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: none;
+}
+
 /* Expanded activity block: its thoughts and tools stack in execution order on a guide line. */
 app-stream-turn-feed .stream-turn-feed__activity-body {
   display: flex;

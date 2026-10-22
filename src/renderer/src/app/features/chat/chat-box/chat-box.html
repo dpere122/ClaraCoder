@@ -209,7 +209,7 @@
               [class.processing-svg-host--prefill]="liveTurnActivity() === 'prefill'"
               aria-hidden="true"
             >
-              <img class="processing-svg-spinner" [src]="processingSpinnerSrc()" alt="" />
+              <app-tool-spinner class="processing-svg-spinner" [kind]="processingSpinnerKind()" />
             </div>
             <span
               class="processing-text processing-text--shimmer"

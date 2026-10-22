@@ -47,6 +47,7 @@ import { ClaraBadgeComponent } from './clara-badge/clara-badge';
 import { PlannerChecklistComponent } from './planner-checklist/planner-checklist';
 import { RunButtonDirective } from './run-button.directive';
 import { StreamTurnFeedComponent } from './stream-turn-feed/stream-turn-feed';
+import { ToolSpinnerComponent } from './tool-spinner/tool-spinner';
 import { TurnEditsFooterComponent, type TurnDiffOpenRequest } from './turn-edits-footer/turn-edits-footer';
 import type { HostedSpinnerKind } from './stream-turn-feed/stream-turn-feed';
 import { LiveTurnActivityService } from './live-turn-activity';
@@ -85,7 +86,7 @@ import {
   resolveLiveAssistantTurn,
   resolvePrimaryStreamLiveText,
   resolveTurnActivity,
-  turnActivitySpinnerSrc,
+  turnActivitySpinnerKind,
   liveTurnPresentationSettled as computeLiveTurnPresentationSettled,
   mergeClaraBriefsFromChainIntoTimeline,
   TOOL_BUILDING_SYNONYMS,
@@ -129,7 +130,7 @@ export {
   resolveLiveAssistantTurn,
   resolvePrimaryStreamLiveText,
   resolveTurnActivity,
-  turnActivitySpinnerSrc,
+  turnActivitySpinnerKind,
   liveTurnPresentationSettled,
   mergeClaraBriefsFromChainIntoTimeline,
   turnHasPlanPanel,
@@ -182,6 +183,7 @@ const THINKING_PROCESSING_LABEL = 'thinking';
     NgxSpinnerComponent,
     PlannerChecklistComponent,
     StreamTurnFeedComponent,
+    ToolSpinnerComponent,
     TurnEditsFooterComponent,
   ],
   templateUrl: './chat-box.html',
@@ -537,10 +539,8 @@ export class ChatBox implements OnDestroy {
     return this.liveTurnActivity();
   });
 
-  /** Spinner image in the processing row (falls back to the think spinner). */
-  readonly processingSpinnerSrc = computed(
-    () => turnActivitySpinnerSrc(this.liveTurnActivity()) ?? 'spinner.svg',
-  );
+  /** Spinner in the processing row (falls back to the think spinner). */
+  readonly processingSpinnerKind = computed(() => turnActivitySpinnerKind(this.liveTurnActivity()) ?? 'think');
 
   /** Persisted turn feed (timeline + final assistant markdown). */
   turnFeedForRow(row: Extract<ChatDisplayRow, { kind: 'assistant-turn' }>): TurnFeedItem[] {

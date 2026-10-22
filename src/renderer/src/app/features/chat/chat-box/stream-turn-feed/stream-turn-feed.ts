@@ -23,6 +23,7 @@ import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
 import { ToolPillExpansion } from '../tool-pill-expansion';
 import { ToolPillGroupComponent } from '../tool-pill-group/tool-pill-group';
 import type { PillSpinnerKind } from '../tool-spinner-kind';
+import { ToolSpinnerComponent } from '../tool-spinner/tool-spinner';
 import {
   committedItemIndices,
   decidePreviewCommit,
@@ -68,6 +69,7 @@ export type HostedSpinnerKind = PillSpinnerKind;
     StreamThoughtPillComponent,
     StreamToolPillComponent,
     ToolPillGroupComponent,
+    ToolSpinnerComponent,
   ],
   // Open pills are tracked per feed, so a pill keeps its state when it joins a group.
   providers: [ToolPillExpansion],

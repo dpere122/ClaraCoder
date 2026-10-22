@@ -6,13 +6,16 @@ import {
 } from '@shared/index';
 
 /**
- * Which tool spinner a running tool shows: `read` (book highlighter), `run` (terminal),
- * `web` (globe) or `write` (jot pen — every other tool).
+ * Which tool spinner a running tool shows: `read` (nested squares), `run` (hex core),
+ * `web` (branching signal) or `write` (fractal tree — every other tool).
  */
 export type ToolSpinnerKind = 'read' | 'write' | 'run' | 'web';
 
 /** Spinner a live pill can host: a tool kind, or `think` for the compact thinking pill. */
 export type PillSpinnerKind = ToolSpinnerKind | 'think';
+
+/** Every spinner {@link ToolSpinnerComponent} draws: pill kinds plus `prefill` (reading the prompt). */
+export type SpinnerKind = PillSpinnerKind | 'prefill';
 
 /** Shell / background-command tools (terminal spinner). */
 const RUN_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
@@ -37,20 +40,4 @@ export function toolSpinnerKind(label: string, streamTag: string): ToolSpinnerKi
     return 'run';
   }
   return 'write';
-}
-
-/** Spinner image for a tool kind (`think` is the turn spinner the thinking preview header uses). */
-export function toolSpinnerSrc(kind: PillSpinnerKind): string {
-  switch (kind) {
-    case 'think':
-      return 'spinner.svg';
-    case 'read':
-      return 'spinner-read.svg';
-    case 'run':
-      return 'spinner-run.svg';
-    case 'web':
-      return 'spinner-web.svg';
-    default:
-      return 'spinner-jot.svg';
-  }
 }

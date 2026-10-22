@@ -1,10 +1,12 @@
 import { Component, ViewEncapsulation, computed, input, output } from '@angular/core';
 import type { ToolTrailPillState } from '@shared/index';
-import { toolSpinnerSrc, type PillSpinnerKind } from '../tool-spinner-kind';
+import type { PillSpinnerKind } from '../tool-spinner-kind';
+import { ToolSpinnerComponent } from '../tool-spinner/tool-spinner';
 
 @Component({
   selector: 'app-stream-tool-pill',
   standalone: true,
+  imports: [ToolSpinnerComponent],
   templateUrl: './stream-tool-pill.html',
   styleUrl: './stream-tool-pill.css',
   encapsulation: ViewEncapsulation.None,
@@ -27,12 +29,11 @@ export class StreamToolPillComponent {
   /** Tool spinner inside the pill while this tool batch is the live preview. */
   readonly spinner = input(false);
   /**
-   * Book for reads, terminal for commands, globe for web tools, jot pen for everything else;
+   * Nested squares for reads, hex core for commands, branching signal for web tools, fractal
+   * tree for everything else;
    * `think` for the compact thinking pill.
    */
   readonly spinnerKind = input<PillSpinnerKind>('write');
-
-  readonly spinnerSrc = computed(() => toolSpinnerSrc(this.spinnerKind()));
 
   /** Glow the name letter by letter (like the thinking preview header) while calls are active. */
   readonly shimmer = input(false);

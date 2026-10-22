@@ -15,7 +15,7 @@ import {
   isPrimaryAssistantStreamTag,
   PLANNER_STREAM_TAG,
 } from '@shared/index';
-import { toolSpinnerKind, toolSpinnerSrc, type ToolSpinnerKind } from './tool-spinner-kind';
+import { toolSpinnerKind, type SpinnerKind, type ToolSpinnerKind } from './tool-spinner-kind';
 
 export const DEFAULT_AUXILIARY_STREAM_PANEL_TITLE = 'Model reasoning & tools';
 import {
@@ -586,21 +586,9 @@ export function resolveTurnActivity(state: {
   return 'think';
 }
 
-/** Spinner image for a spinning activity (`null` for `reply` / `review`). */
-export function turnActivitySpinnerSrc(activity: TurnActivity): string | null {
-  switch (activity) {
-    case 'prefill':
-      return 'spinner-prefill.svg';
-    case 'think':
-      return 'spinner.svg';
-    case 'read':
-    case 'write':
-    case 'run':
-    case 'web':
-      return toolSpinnerSrc(activity);
-    default:
-      return null;
-  }
+/** Spinner for a spinning activity (`null` for `reply` / `review`, which show none). */
+export function turnActivitySpinnerKind(activity: TurnActivity): SpinnerKind | null {
+  return activity === 'reply' || activity === 'review' ? null : activity;
 }
 
 /** Small stable hash for synonym index (FNV-1a 32-bit). */

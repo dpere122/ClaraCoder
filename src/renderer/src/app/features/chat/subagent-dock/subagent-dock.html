@@ -40,8 +40,8 @@
           >
             <div class="subagent-card__head">
               <span class="subagent-card__status" aria-hidden="true">
-                @if (spinnerSrc(card); as src) {
-                  <img class="subagent-card__spinner" [src]="src" alt="" />
+                @if (spinnerKind(card); as kind) {
+                  <app-tool-spinner class="subagent-card__spinner" [kind]="kind" />
                 } @else if (card.state === 'review') {
                   <lucide-icon name="circle-alert" [size]="13" />
                 } @else if (card.state === 'done') {

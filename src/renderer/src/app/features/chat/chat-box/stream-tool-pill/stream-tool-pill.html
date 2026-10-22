@@ -18,11 +18,7 @@
       [class]="'stream-tool-pill__spinner--' + spinnerKind()"
       aria-hidden="true"
     >
-      <img
-        class="stream-tool-pill__spinner-img"
-        [src]="spinnerSrc()"
-        alt=""
-      />
+      <app-tool-spinner class="stream-tool-pill__spinner-img" [kind]="spinnerKind()" />
     </span>
   }
   @if (shimmer()) {

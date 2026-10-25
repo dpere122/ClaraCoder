@@ -77,18 +77,13 @@
 
           @if (planPanelForTurn(row); as planCtx) {
             <app-planner-checklist
+              variant="transcript"
               [planner]="planCtx.planner"
               [planConfirm]="planCtx.planConfirm ?? null"
               [planConfirmReviewStatus]="planCtx.planConfirmReviewStatus ?? 'pending'"
               [planConfirmReviewSummary]="planCtx.planConfirmReviewSummary"
-              [agentQuestion]="planCtx.agentQuestion ?? null"
-              [agentQuestionReviewStatus]="planCtx.agentQuestionReviewStatus ?? 'pending'"
-              [agentQuestionReviewSummary]="planCtx.agentQuestionReviewSummary"
               [conversationId]="conversationId()"
               [live]="false"
-              [hitlActionsInComposerDock]="true"
-              (planConfirmFinished)="planConfirmFinished.emit($event)"
-              (agentQuestionFinished)="agentQuestionFinished.emit($event)"
             />
           }
 
@@ -167,22 +162,7 @@
           <span class="msg-role__name">Clara</span>
         </div>
         <div class="msg-bubble__body">
-        @if (livePlanPanel(); as planCtx) {
-          <app-planner-checklist
-            [planner]="planCtx.planner"
-            [planConfirm]="planCtx.planConfirm ?? null"
-            [planConfirmReviewStatus]="planCtx.planConfirmReviewStatus ?? 'pending'"
-            [planConfirmReviewSummary]="planCtx.planConfirmReviewSummary"
-            [agentQuestion]="planCtx.agentQuestion ?? null"
-            [agentQuestionReviewStatus]="planCtx.agentQuestionReviewStatus ?? 'pending'"
-            [agentQuestionReviewSummary]="planCtx.agentQuestionReviewSummary"
-            [conversationId]="conversationId()"
-            [live]="true"
-            [hitlActionsInComposerDock]="true"
-            (planConfirmFinished)="planConfirmFinished.emit($event)"
-            (agentQuestionFinished)="agentQuestionFinished.emit($event)"
-          />
-        }
+        <!-- The live plan is pinned to the composer (plan dock), not drawn in this bubble. -->
         @if (liveTurnFeed().length > 0) {
           <app-stream-turn-feed
             [items]="liveTurnFeed()"

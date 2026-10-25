@@ -29,7 +29,6 @@ from clara_coder_backend.plan.plan_execute import (
     _build_discovery_preamble,
     _coerce_planner_model,
     _finalize_rewritten_plan,
-    _grounding_gap_questions,
     _planner_markdown_chain,
     _planner_markdown_from_channels,
     _slice_build_plan_markdown,
@@ -47,6 +46,13 @@ from clara_coder_backend.session.state import get_session
 
 async def _collect_lines(generator: Any) -> list[str]:
     return [line async for line in generator]
+
+
+@pytest.fixture(autouse=True)
+def _workspace_has_planned_file(tmp_path: Path) -> None:
+    """Sample plans modify ``src/app.ts``; it exists so the on-disk path check has nothing to ask."""
+    (tmp_path / 'src').mkdir(exist_ok=True)
+    (tmp_path / 'src' / 'app.ts').write_text('export {};\n', encoding='utf-8')
 
 
 def _sse_json_rows(lines: list[str]) -> list[dict[str, Any]]:
@@ -635,41 +641,6 @@ def test_build_discovery_preamble_includes_findings() -> None:
     assert 'Auth is in middleware/auth.py' in preamble
 
 
-def test_grounding_gap_questions_flags_ungrounded_paths() -> None:
-    plan = _sample_plan()  # files_to_change modify src/app.ts
-    gaps = _grounding_gap_questions(plan, 'Discovery looked at src/other.ts and tests/foo.py')
-    assert len(gaps) == 1
-    assert 'src/app.ts' in gaps[0].prompt
-
-
-def test_grounding_gap_questions_empty_when_grounded() -> None:
-    plan = _sample_plan()
-    gaps = _grounding_gap_questions(plan, 'Discovery confirmed src/app.ts handler exists.')
-    assert gaps == []
-
-
-def test_grounding_gap_questions_no_summary_returns_empty() -> None:
-    plan = _sample_plan()
-    assert _grounding_gap_questions(plan, '') == []
-
-
-def test_grounding_gap_questions_skips_create_entries() -> None:
-    plan = BuildPlanModel(
-        title='Create plan',
-        task='Add file',
-        current_implementation='None',
-        files_to_change=[
-            FileChangeEntry(path='src/brand-new.ts', operation='create', rationale='new module'),
-            FileChangeEntry(path='src/missing.ts', operation='delete', rationale='remove dead code'),
-        ],
-        action_steps=[ActionStep(id='step-1', goal='Do work')],
-    )
-    gaps = _grounding_gap_questions(plan, 'Discovery looked at src/other.ts only')
-    assert len(gaps) == 1
-    assert 'src/missing.ts' in gaps[0].prompt
-    assert 'safe to delete' in gaps[0].prompt
-
-
 def test_plan_confirm_sse_payload_includes_structured_files_to_change() -> None:
     session = SessionState()
     pending = stage_plan_confirm_request(
@@ -1078,7 +1049,7 @@ def test_bind_answers_into_prior_plan_strips_questions_and_adds_assumptions() ->
     assert 'REST' in md
 
 
-def test_finalize_rewritten_plan_converts_grounding_gaps_to_assumptions() -> None:
+def test_finalize_rewritten_plan_turns_unverified_paths_into_assumptions(tmp_path: Path) -> None:
     plan = BuildPlanModel(
         title='Feature plan',
         task='Build the feature',
@@ -1091,7 +1062,7 @@ def test_finalize_rewritten_plan_converts_grounding_gaps_to_assumptions() -> Non
         ],
         action_steps=[ActionStep(id='step-1', goal='Implement change')],
     )
-    finalized = _finalize_rewritten_plan(plan, 'Discovery looked at src/app.ts only.')
+    finalized = _finalize_rewritten_plan(plan, str(tmp_path))
     assert finalized.open_questions == []
     assert any('src/missing.ts' in a for a in finalized.assumptions)
 
@@ -1159,3 +1130,221 @@ def test_stream_plan_execute_binds_answers_when_rewrite_has_no_steps(
     assert 'Implement change' in disk
     assert 'REST' in disk
     assert '## Open Questions' not in disk
+
+
+def test_build_build_plan_executor_prompt_inlines_plan_and_findings() -> None:
+    prompt = build_build_plan_executor_prompt(
+        '.clara/build-plans/plan-abc.md',
+        plan_md='# Build Plan: Feature\n\n- [ ] Implement change',
+        discovery_summary='Relevant files: src/app.ts (request handler).',
+    )
+    assert '# Build Plan: Feature' in prompt
+    assert 'src/app.ts (request handler)' in prompt
+    assert 'do not repeat this exploration' in prompt
+    assert 'mark_build_plan_steps_complete' in prompt
+
+
+def test_build_build_plan_executor_prompt_omits_empty_blocks() -> None:
+    prompt = build_build_plan_executor_prompt('.clara/build-plans/plan-abc.md')
+    assert 'Approved plan' not in prompt
+    assert 'Discovery findings' not in prompt
+
+
+def _two_run_exec(prompts: list[str]):
+    """Fake agent runs: discovery first, then the executor."""
+
+    async def _fake_exec(*args: Any, **kwargs: Any):
+        prompts.append(str(args[2] if len(args) > 2 else kwargs.get('user_message', '')))
+        outcome: LangGraphWorkerOutcome = kwargs['outcome']
+        outcome.mark_completed(
+            final_text='Discovery found the router.' if len(prompts) == 1 else 'Plan execution finished.'
+        )
+        yield 'data: {"type":"chunk"}\n\n'
+
+    return _fake_exec
+
+
+def _planner_md_for(path: str):
+    async def _fake_planner_md(*_args: Any, **kwargs: Any):
+        md_out: list[str] = kwargs['md_out']
+        md_out.clear()
+        md_out.append(
+            render_build_plan_md(
+                BuildPlanModel(
+                    title='Router plan',
+                    task='Mount auth',
+                    current_implementation='Router without auth',
+                    files_to_change=[FileChangeEntry(path=path, operation='modify', rationale='mount')],
+                    action_steps=[ActionStep(id='step-1', goal='Mount auth', files_touched=[path])],
+                )
+            )
+        )
+        yield 'data: {"type":"build_plan_chunk"}\n\n'
+
+    return _fake_planner_md
+
+
+def _run_plan(session: SessionState, session_id: str, outcome: LangGraphWorkerOutcome) -> list[str]:
+    from clara_coder_backend.session.state import sessions
+
+    sessions[session_id] = session
+    return asyncio.run(
+        _collect_lines(
+            stream_plan_execute_langgraph(session, 'Mount auth', True, session_id=session_id, outcome=outcome)
+        )
+    )
+
+
+@patch('clara_coder_backend.plan.plan_execute._stream_langgraph_tool_agent')
+@patch('clara_coder_backend.plan.plan_execute._stream_planner_md')
+@patch('clara_coder_backend.plan.plan_execute.await_diff_review_note')
+@patch('clara_coder_backend.plan.plan_execute.await_question_answers')
+def test_stream_plan_execute_existing_file_needs_no_question(
+    mock_question_pause: AsyncMock,
+    mock_pause: AsyncMock,
+    mock_planner: AsyncMock,
+    mock_exec: AsyncMock,
+    tmp_path: Path,
+) -> None:
+    """Discovery never mentioned the file, but it is on disk: nothing to ask."""
+    (tmp_path / 'src' / 'router.ts').write_text('', encoding='utf-8')
+    mock_planner.side_effect = _planner_md_for('src/router.ts')
+    prompts: list[str] = []
+    mock_exec.side_effect = _two_run_exec(prompts)
+    mock_pause.return_value = None
+
+    outcome = LangGraphWorkerOutcome()
+    lines = _run_plan(SessionState(workspace_path=str(tmp_path)), 'sess-path-exists', outcome)
+
+    assert not any('"type": "agent_question"' in line for line in lines)
+    assert mock_question_pause.call_count == 0
+    assert outcome.state == AgentLoopOutcome.COMPLETED
+
+
+@patch('clara_coder_backend.plan.plan_execute._stream_langgraph_tool_agent')
+@patch('clara_coder_backend.plan.plan_execute._stream_planner_md')
+@patch('clara_coder_backend.plan.plan_execute.await_diff_review_note')
+@patch('clara_coder_backend.plan.plan_execute.await_question_answers')
+def test_stream_plan_execute_corrects_unique_misplaced_path(
+    mock_question_pause: AsyncMock,
+    mock_pause: AsyncMock,
+    mock_planner: AsyncMock,
+    mock_exec: AsyncMock,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / 'src' / 'server').mkdir()
+    (tmp_path / 'src' / 'server' / 'router.ts').write_text('', encoding='utf-8')
+    mock_planner.side_effect = _planner_md_for('src/router.ts')
+    prompts: list[str] = []
+    mock_exec.side_effect = _two_run_exec(prompts)
+    mock_pause.return_value = None
+
+    outcome = LangGraphWorkerOutcome()
+    lines = _run_plan(SessionState(workspace_path=str(tmp_path)), 'sess-path-fix', outcome)
+
+    assert mock_question_pause.call_count == 0
+    confirm_line = next(line for line in lines if '"type": "plan_confirm"' in line)
+    assert 'src/server/router.ts' in confirm_line
+    assert 'src/server/router.ts' in prompts[1]
+    assert 'Path corrected' in prompts[1]
+    assert outcome.state == AgentLoopOutcome.COMPLETED
+
+
+@patch('clara_coder_backend.plan.plan_execute._stream_langgraph_tool_agent')
+@patch('clara_coder_backend.plan.plan_execute._stream_planner_md')
+@patch('clara_coder_backend.plan.plan_execute.await_diff_review_note')
+@patch('clara_coder_backend.plan.plan_execute.await_question_answers')
+def test_stream_plan_execute_ambiguous_path_asks_then_applies_without_replan(
+    mock_question_pause: AsyncMock,
+    mock_pause: AsyncMock,
+    mock_planner: AsyncMock,
+    mock_exec: AsyncMock,
+    tmp_path: Path,
+) -> None:
+    for folder in ('api', 'web'):
+        (tmp_path / folder).mkdir()
+        (tmp_path / folder / 'router.ts').write_text('', encoding='utf-8')
+    mock_planner.side_effect = _planner_md_for('src/router.ts')
+    prompts: list[str] = []
+    mock_exec.side_effect = _two_run_exec(prompts)
+    mock_pause.return_value = None
+    asked: list[dict[str, Any]] = []
+
+    async def _answer(sid: str) -> list[dict[str, Any]]:
+        pending = get_session(sid).pending_question_request
+        asked.extend(pending['questions'])
+        q = pending['questions'][0]
+        web = next(o for o in q['options'] if o['label'] == 'web/router.ts')
+        return [{'question_id': q['id'], 'option_id': web['id'], 'other_text': None}]
+
+    mock_question_pause.side_effect = _answer
+    outcome = LangGraphWorkerOutcome()
+    lines = _run_plan(SessionState(workspace_path=str(tmp_path)), 'sess-path-ambiguous', outcome)
+
+    assert {o['label'] for o in asked[0]['options']} == {'api/router.ts', 'web/router.ts'}
+    # One planner pass and no follow-up discovery: the answer is applied directly.
+    assert mock_planner.call_count == 1
+    assert len(prompts) == 2
+    assert not any('Rewriting plan' in line for line in lines)
+    assert 'web/router.ts' in prompts[1]
+    assert outcome.state == AgentLoopOutcome.COMPLETED
+
+
+@patch('clara_coder_backend.plan.plan_execute._stream_langgraph_tool_agent')
+@patch('clara_coder_backend.plan.plan_execute._stream_planner_md')
+@patch('clara_coder_backend.plan.plan_execute.await_diff_review_note')
+@patch('clara_coder_backend.plan.plan_execute.await_question_answers')
+def test_stream_plan_execute_missing_file_clarify_stops_planning(
+    mock_question_pause: AsyncMock,
+    mock_pause: AsyncMock,
+    mock_planner: AsyncMock,
+    mock_exec: AsyncMock,
+    tmp_path: Path,
+) -> None:
+    mock_planner.side_effect = _planner_md_for('src/router.ts')
+    prompts: list[str] = []
+    mock_exec.side_effect = _two_run_exec(prompts)
+    mock_question_pause.return_value = [
+        {'question_id': 'q-path-1', 'option_id': 'q-path-1-opt-2', 'other_text': None},
+    ]
+    mock_pause.return_value = None
+
+    outcome = LangGraphWorkerOutcome()
+    lines = _run_plan(SessionState(workspace_path=str(tmp_path)), 'sess-path-clarify', outcome)
+
+    assert sum('"type": "agent_question"' in line for line in lines) == 1
+    assert not any('"type": "plan_confirm"' in line for line in lines)
+    assert len(prompts) == 1
+    assert outcome.state == AgentLoopOutcome.COMPLETED
+    assert 'src/router.ts' in (outcome.final_text or '')
+
+
+def test_triage_drops_file_fact_and_duplicate_questions_and_caps_the_rest() -> None:
+    from clara_coder_backend.plan.plan_execute import MAX_OPEN_QUESTIONS, _triage_planner_questions
+
+    design = [
+        OpenQuestion(id=f'q-{i}', prompt=f'Design choice {i}?', options=[f'A{i}', f'B{i}'])
+        for i in range(MAX_OPEN_QUESTIONS + 1)
+    ]
+    plan = BuildPlanModel(
+        title='T',
+        task='T',
+        current_implementation='',
+        open_questions=[
+            OpenQuestion(id='q-x', prompt='Does src/ui/inventoryUI.ts exist?', options=['Yes', 'No']),
+            design[0],
+            OpenQuestion(id='q-dup', prompt='design choice 0?', options=['A', 'B']),
+            *design[1:],
+        ],
+        action_steps=[ActionStep(id='step-1', goal='Work')],
+    )
+    defaults = _triage_planner_questions(plan)
+    assert [q.id for q in plan.open_questions] == [q.id for q in design[:MAX_OPEN_QUESTIONS]]
+    assert defaults == [f'Design choice {MAX_OPEN_QUESTIONS}? → A{MAX_OPEN_QUESTIONS} (default; not asked)']
+
+
+def test_planner_guidelines_forbid_file_existence_questions() -> None:
+    from clara_coder_backend.plan.plan_execute import PLAN_AUTHORING_GUIDELINES
+
+    assert 'never ask the user whether a file exists' in PLAN_AUTHORING_GUIDELINES
+    assert 'no backticks' in PLAN_AUTHORING_GUIDELINES

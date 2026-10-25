@@ -125,6 +125,8 @@ export {
   shouldFollowStreamToken,
   shouldShowJumpToBottom,
   stickThresholdPx,
+  hitlDockArtifactsBesidePlan,
+  livePlanDockContext,
   pendingHitlArtifactsForDock,
   planPanelContext,
   resolveLiveAssistantTurn,
@@ -335,8 +337,6 @@ export class ChatBox implements OnDestroy {
   private prevLiveAwaitingHitl = false;
   /** Fingerprint tail for streaming scroll dedupe (unified turn feed). */
   private prevStreamFeedKey = '';
-  /** Tracks live plan checklist mount so discovery/planning chrome can autoscroll. */
-  private prevLivePlanPanelVisible = false;
   private wasProcessingToolsActive = false;
   /** Stable synonym pick for the “tool building” processing label. */
   private readonly toolPhaseSynonymIndex = signal(0);
@@ -604,7 +604,7 @@ export class ChatBox implements OnDestroy {
     );
   });
 
-  /** Planner checklist + optional plan-confirm HITL for the live bubble. */
+  /** Live plan (shown in the composer's plan dock); still shapes the live bubble's chrome. */
   readonly livePlanPanel = computed(() => {
     if (!this.loading()) return null;
     return planPanelContext(this.streamingPlanner(), this.liveTurn()?.artifacts ?? []);
@@ -783,38 +783,11 @@ export class ChatBox implements OnDestroy {
       });
     });
 
-    // Plan mode: autoscroll when the live plan checklist first takes layout height.
-    effect(() => {
-      const loading = this.loading();
-      const planVisible = !!this.livePlanPanel();
-      untracked(() => {
-        if (!loading) {
-          this.prevLivePlanPanelVisible = false;
-          return;
-        }
-        const becameVisible = planVisible && !this.prevLivePlanPanelVisible;
-        this.prevLivePlanPanelVisible = planVisible;
-        if (!becameVisible || !this.stickMode()) {
-          return;
-        }
-        afterNextRender(
-          () => {
-            if (this.chatDestroyed || !this.stickMode()) {
-              return;
-            }
-            this.scrollToBottom('instant');
-          },
-          { injector: this.inj },
-        );
-      });
-    });
-
     // One smooth scroll when a turn finishes loading (stream → persisted).
     effect(() => {
       const loading = this.loading();
       untracked(() => {
         if (loading && !this.prevLoadingForCompletionScroll) {
-          this.prevLivePlanPanelVisible = false;
           this.prevStreamFeedKey = '';
           this.prevHadStreamingFinalText = false;
         }

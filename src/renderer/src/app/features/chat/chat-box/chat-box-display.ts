@@ -490,6 +490,26 @@ export function pendingHitlArtifactsForDock(messages: readonly ChatMessage[]): A
   return [];
 }
 
+/**
+ * Plan for the composer's plan dock: the in-flight turn's planner progress with its question /
+ * approval artifacts. Only while a reply streams — a finished turn's plan stays in its transcript row.
+ */
+export function livePlanDockContext(
+  messages: readonly ChatMessage[],
+  planner: PlannerProgress | null | undefined,
+  loading: boolean,
+): PlanPanelContext | null {
+  if (!loading) return null;
+  const turn = resolveLiveAssistantTurn(buildChatDisplayRows([...messages]));
+  return planPanelContext(planner, turn?.artifacts ?? []);
+}
+
+/** Review-dock cards minus the plan's own question / approval while the plan dock hosts them. */
+export function hitlDockArtifactsBesidePlan<T extends { role: string }>(artifacts: readonly T[], planDocked: boolean): T[] {
+  if (!planDocked) return [...artifacts];
+  return artifacts.filter((a) => a.role !== 'plan_confirm' && a.role !== 'agent_question');
+}
+
 /** In-flight assistant turn for the live bubble (no final ``assistant`` message yet). */
 export function resolveLiveAssistantTurn(
   rows: readonly ChatDisplayRow[],

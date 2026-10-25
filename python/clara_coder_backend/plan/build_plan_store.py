@@ -49,6 +49,35 @@ class OpenQuestion(BaseModel):
     )
 
 
+_MD_LINK_PATH_RE = re.compile(r'^\[[^\]]*\]\(([^)\s]+)\)')
+# ``a.ts:85``, ``a.ts:12-34``, ``a.ts:12:4``, ``a.ts#L10``, ``a.ts#L10-L20``
+_PATH_LOCATION_SUFFIX_RE = re.compile(r'(?:#L\d+(?:-L?\d+)?|:\d+(?:[-:]\d+)?)$')
+_PATH_TRAILING_NOTE_RE = re.compile(r'\s+\([^()]*\)$')
+
+
+def clean_plan_path(text: object) -> str:
+    """Reduce a planner-written path to a plain workspace-relative path.
+
+    Planners write paths the way they write prose: in backticks, as markdown links, with a line
+    number (``src/a.ts:85``) or a note (``src/a.ts (new)``). Left as-is, none of those match a file
+    on disk, so every check downstream misreads a real file as missing.
+    """
+    s = str(text or '').strip()
+    link = _MD_LINK_PATH_RE.match(s)
+    if link:
+        s = link.group(1)
+    # Quotes / emphasis on both ends; sentence punctuation only at the end (keeps ``./`` and ``.github``).
+    for _ in range(2):
+        s = _PATH_TRAILING_NOTE_RE.sub('', s.strip('`*"\' ')).rstrip('.,; ')
+    s = _PATH_LOCATION_SUFFIX_RE.sub('', s)
+    s = s.replace('\\', '/')
+    while s.startswith('./'):
+        s = s[2:]
+    s = s.strip()
+    # A bare line list left over from ``a.ts:144, 178`` split on commas is not a path.
+    return '' if re.fullmatch(r'[\d\s,:\-–]*', s) else s
+
+
 class FileChangeEntry(BaseModel):
     """One planned file create, modify, or delete with rationale."""
 
@@ -61,6 +90,11 @@ class FileChangeEntry(BaseModel):
         default='',
         description='Brief reason for the file operation.',
     )
+
+    @field_validator('path', mode='before')
+    @classmethod
+    def _clean_path(cls, value: object) -> str:
+        return clean_plan_path(value)
 
 
 class ActionStep(BaseModel):
@@ -82,6 +116,13 @@ class ActionStep(BaseModel):
         description='Command or check to run to verify the step (e.g. `pytest tests/x`).',
     )
     risks: list[str] = Field(default_factory=list, description='Risks or caveats for this step.')
+
+    @field_validator('files_touched', mode='before')
+    @classmethod
+    def _clean_files(cls, value: object) -> list[str]:
+        items = value if isinstance(value, list) else [value] if value else []
+        cleaned = [clean_plan_path(item) for item in items]
+        return [p for p in cleaned if p]
 
 
 class BuildPlanModel(BaseModel):
@@ -322,7 +363,16 @@ def _parse_bullet_list(lines: list[str]) -> list[str]:
 
 
 def _split_path_rationale(text: str) -> tuple[str, str]:
-    """Split ``path — rationale`` (em/en dash) into path and rationale."""
+    """Split ``path — rationale`` (em/en dash) into path and rationale.
+
+    A leading backticked path ends at its closing backtick, so ``\\`a.ts\\`: why`` and
+    ``\\`a.ts\\` - why`` split too.
+    """
+    stripped = text.strip()
+    if stripped.startswith('`') and '`' in stripped[1:]:
+        end = stripped.index('`', 1)
+        rest = stripped[end + 1 :].strip().lstrip('—–-:').strip()
+        return stripped[: end + 1], rest
     for sep in ('—', '–'):
         if sep in text:
             left, right = text.split(sep, 1)

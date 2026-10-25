@@ -472,3 +472,16 @@ def test_delete_entry_files_rewrites_stale_nemo_path(tmp_path: Path) -> None:
     )
     assert not clara_md.exists()
 
+
+
+def test_clean_plan_path_strips_prose_formatting() -> None:
+    from clara_coder_backend.plan.build_plan_store import clean_plan_path
+
+    assert clean_plan_path('`src/a.ts:85`') == 'src/a.ts'
+    assert clean_plan_path('[a](src/b.ts)') == 'src/b.ts'
+    assert clean_plan_path('src/c.ts (new)') == 'src/c.ts'
+    assert clean_plan_path('./d/e.ts#L10-L20') == 'd/e.ts'
+    assert clean_plan_path('**`g/h.py`**.') == 'g/h.py'
+    assert clean_plan_path('.github/workflows/ci.yml') == '.github/workflows/ci.yml'
+    assert clean_plan_path(r'src\x\y.ts') == 'src/x/y.ts'
+    assert clean_plan_path('178`') == ''

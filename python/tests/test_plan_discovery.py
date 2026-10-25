@@ -47,6 +47,13 @@ async def _collect_lines(generator: Any) -> list[str]:
     return [line async for line in generator]
 
 
+@pytest.fixture(autouse=True)
+def _workspace_has_planned_file(tmp_path) -> None:
+    """The sample plan modifies ``src/a.ts``; it exists so the on-disk path check has nothing to ask."""
+    (tmp_path / 'src').mkdir(exist_ok=True)
+    (tmp_path / 'src' / 'a.ts').write_text('', encoding='utf-8')
+
+
 def _sample_plan() -> BuildPlanModel:
     return BuildPlanModel(
         title='Plan',

@@ -8,6 +8,7 @@ proposes a structured build plan written to ``.clara/build-plans/``; user approv
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -74,6 +75,11 @@ from clara_coder_backend.logging.llm_interaction_logging import log_llm_failure
 from clara_coder_backend.llm.messages import build_system_prompt, stringify_content
 from clara_coder_backend.session.state import get_active_connection
 from clara_coder_backend.plan.plan_confirm import plan_confirm_sse_payload, stage_plan_confirm_request
+from clara_coder_backend.plan.plan_path_check import (
+    apply_path_answers,
+    is_path_question,
+    verify_plan_paths,
+)
 from clara_coder_backend.plan.plan_discovery import (
     PLAN_DISCOVERY_EXECUTE_LABEL,
     build_followup_discovery_prompt,
@@ -89,6 +95,17 @@ logger = logging.getLogger('clara.plan_execute')
 RECORD_PLAN_LABEL = 'record_plan'
 EXECUTE_BUILD_PLAN_LABEL = 'execute_build_plan'
 REWRITE_PLAN_LABEL = 'Rewriting plan'
+
+# Planner questions asked per round; the rest default to their first option as written assumptions.
+MAX_OPEN_QUESTIONS = 3
+
+# "Does src/a.ts exist?" / "Where is router.ts?" — answered by the on-disk path check, never the user.
+_FILE_FACT_QUESTION_RE = re.compile(
+    r'\b(?:(?:does|do|did)\b[^?]*\bexist|located|where (?:is|are) (?:the )?(?:file|files)?|'
+    r'which file (?:is|contains|defines|holds)|what is the (?:file )?path)\b',
+    re.IGNORECASE,
+)
+_PATHISH_TOKEN_RE = re.compile(r'[\w./\\-]+\.[A-Za-z0-9]{1,6}\b|[\w-]+/[\w./-]+')
 
 # Plan mode always binds the full outer-agent tool surface (staging, transfer, deps, tests, …)
 # regardless of the toolbar Editor toggle for this HTTP request.
@@ -135,8 +152,10 @@ PLAN_AUTHORING_GUIDELINES = (
     'Plan authoring guidelines (apply to every build plan):\n'
     '- Grounding: every modify/delete files_to_change entry must be justified by a concrete discovery '
     'finding (a path, symbol, or pattern you observed). Create entries may use new paths, but the '
-    'parent directory or related existing code must still be grounded in discovery. If you cannot '
-    'ground an entry, do not invent it — surface the gap as an open_question instead.\n'
+    'parent directory or related existing code must still be grounded in discovery.\n'
+    '- Paths: write plain workspace-relative paths (src/app.ts) in files_to_change and Files — no '
+    'backticks, line numbers, or notes on the path itself. Paths are checked against the workspace '
+    'automatically after you write the plan, so never ask the user whether a file exists or where it is.\n'
     '- File operations: include creates, modifies, and deletes in files_to_change. Set operation to '
     'create, modify, or delete for each entry; do not omit deletes or new files.\n'
     '- Granularity: use coarse-grained milestones — roughly one major outcome per action step. '
@@ -151,9 +170,11 @@ PLAN_AUTHORING_GUIDELINES = (
     '- Risks: call out per-step risks (shared code, migrations, dep changes, breaking changes). At the '
     'plan level, set rollback_notes describing how to revert.\n'
     '- Assumptions: record assumptions explicitly in the assumptions section so the user can challenge them.\n'
-    '- Open questions: only include questions that genuinely block the plan and that only the user can '
-    'answer. Provide 2-4 concrete suggested options per question. If you have enough context to proceed, '
-    'omit open_questions entirely.\n'
+    '- Open questions: only product or design decisions that genuinely block the plan and that only the '
+    'user can answer (behavior, scope, trade-offs) — never facts you could look up in the code. At most '
+    f'{MAX_OPEN_QUESTIONS} questions, each with 2-4 concrete suggested options. When a sensible default '
+    'exists, take it and record it under assumptions instead of asking. If you have enough context to '
+    'proceed, omit open_questions entirely.\n'
     '- Definition of done: list plan-level outcomes that prove the whole objective is met.\n'
     '- Completion: the final action step must validate the whole objective (run the test suite / smoke check).'
 )
@@ -183,6 +204,10 @@ PLAN_DRAFTING_OVERRIDE = (
 )
 
 PLAN_DRAFT_DISK_WRITE_INTERVAL_SEC = 0.5
+
+# Executor prompt budget for the inlined plan / findings (the full plan stays on disk).
+EXECUTOR_PLAN_INLINE_CHARS = 12_000
+EXECUTOR_DISCOVERY_INLINE_CHARS = 6_000
 
 # Line-start heading only — inline CoT like "I'll write a # Build Plan next" must not count.
 # ``# Build Plan: Title`` (colon) or a bare ``# Build Plan`` line; last match is the real document.
@@ -312,20 +337,21 @@ def _bind_answers_into_prior_plan(plan: BuildPlanModel, resolved_answers: str) -
     return plan
 
 
-def _finalize_rewritten_plan(plan: BuildPlanModel, discovery_summary: str) -> BuildPlanModel:
-    """Never ask again after answers: strip questions; leftover grounding gaps become assumptions."""
-    gaps = _grounding_gap_questions(plan, discovery_summary)
+def _finalize_rewritten_plan(plan: BuildPlanModel, workspace_root: str) -> BuildPlanModel:
+    """Never ask again after answers: fix paths on disk; anything still unresolved becomes an assumption."""
+    check = verify_plan_paths(plan, workspace_root)
+    plan.open_questions = []
+    if check.questions:
+        _add_plan_assumptions(plan, [f'Unverified path, proceeding anyway: {q.prompt}' for q in check.questions])
+    return plan
+
+
+def _add_plan_assumptions(plan: BuildPlanModel, lines: list[str]) -> None:
     assumptions = [str(a).strip() for a in (plan.assumptions or []) if str(a).strip()]
-    for gap in gaps:
-        prompt = str(getattr(gap, 'prompt', '') or '').strip()
-        if not prompt:
-            continue
-        line = f'Proceeding despite discovery gap: {prompt}'
+    for line in lines:
         if line not in assumptions:
             assumptions.append(line)
     plan.assumptions = assumptions
-    plan.open_questions = []
-    return plan
 
 
 def _plan_from_planner_output(md_text: str) -> BuildPlanModel | None:
@@ -439,48 +465,51 @@ def _gemma_planner_split_enabled(delta: str, *, already: bool) -> bool:
     return gemma_content_needs_parsing(delta)
 
 
-def _grounding_gap_questions(plan_model: BuildPlanModel, discovery_summary: str) -> list[OpenQuestion]:
-    """Surface open questions for modify/delete files_to_change entries not grounded by discovery.
+def _is_file_fact_question(question: OpenQuestion) -> bool:
+    prompt = str(question.prompt or '')
+    return bool(_FILE_FACT_QUESTION_RE.search(prompt) and _PATHISH_TOKEN_RE.search(prompt))
 
-    Lightweight LLM-free heuristic: an entry is grounded when its path (or basename) appears in the
-    discovery summary. Create entries are skipped (new paths will not appear in discovery).
-    Ungrounded modify/delete entries become a yes/no open question so the user can confirm the
-    planner should proceed despite the gap.
+
+def _triage_planner_questions(plan: BuildPlanModel) -> list[str]:
+    """Keep only planner questions worth the user's time; returns assumption lines for the rest.
+
+    Drops blanks, duplicates, and file-fact questions (the path check answers those). Beyond
+    ``MAX_OPEN_QUESTIONS`` a question is not asked: its first option becomes a stated default.
     """
-    summary = (discovery_summary or '').strip()
-    if not summary:
-        return []
-    gaps: list[OpenQuestion] = []
-    summary_lower = summary.lower()
-    for entry in plan_model.files_to_change or []:
-        path = str(getattr(entry, 'path', '') or '').strip()
-        operation = str(getattr(entry, 'operation', 'modify') or 'modify').strip().lower()
-        if not path or operation == 'create':
+    kept: list[OpenQuestion] = []
+    seen: set[str] = set()
+    defaults: list[str] = []
+    for q in plan.open_questions or []:
+        prompt = str(q.prompt or '').strip()
+        key = re.sub(r'\W+', ' ', prompt.lower()).strip()
+        if not key or key in seen or _is_file_fact_question(q):
             continue
-        basename = path.rsplit('/', 1)[-1].rsplit('\\', 1)[-1].strip().lower()
-        path_lower = path.lower()
-        if path_lower and path_lower in summary_lower:
-            continue
-        if basename and basename in summary_lower:
-            continue
-        if operation == 'delete':
-            prompt = (
-                f'Discovery did not confirm the path "{path}". Should I proceed assuming it exists '
-                f'and is safe to delete?'
-            )
-        else:
-            prompt = (
-                f'Discovery did not confirm the path "{path}". Should I proceed assuming it exists '
-                f'and is the right place to make this change?'
-            )
-        gaps.append(
-            OpenQuestion(
-                id=f'q-ground-{len(gaps) + 1}',
-                prompt=prompt,
-                options=['Proceed with the assumption', 'Cancel and let me clarify'],
-            )
-        )
-    return gaps
+        seen.add(key)
+        if len(kept) < MAX_OPEN_QUESTIONS:
+            kept.append(q)
+        elif q.options:
+            defaults.append(f'{prompt} → {q.options[0]} (default; not asked)')
+    plan.open_questions = kept
+    return defaults
+
+
+def _answers_by_qid(answers: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {str(a.get('question_id') or '').strip(): a for a in answers}
+
+
+def _answer_texts(open_questions: list[OpenQuestion], answers: list[dict[str, Any]]) -> dict[str, str]:
+    by_qid = _answers_by_qid(answers)
+    out: dict[str, str] = {}
+    for q in open_questions:
+        answer = by_qid.get(q.id.strip())
+        if answer:
+            out[q.id] = _answer_text(q, answer)
+    return out
+
+
+def _planner_questions_answered(open_questions: list[OpenQuestion], answer_texts: dict[str, str]) -> bool:
+    """True when the user answered a planner question (not a path check): the plan must be rewritten."""
+    return any(answer_texts.get(q.id) for q in open_questions if not is_path_question(q))
 
 
 def _answer_text(question: OpenQuestion, answer: dict[str, Any]) -> str:
@@ -599,25 +628,49 @@ def _steps_from_texts(
     return out
 
 
-def build_build_plan_executor_prompt(build_plan_path: str) -> str:
-    """User message for the single non-sequential plan executor run."""
+def build_build_plan_executor_prompt(
+    build_plan_path: str,
+    *,
+    plan_md: str = '',
+    discovery_summary: str = '',
+) -> str:
+    """User message for the single non-sequential plan executor run.
+
+    The approved plan and the discovery findings are inlined so the executor starts editing
+    instead of spending its first turns on ``read_build_plan`` and repeating discovery.
+    """
 
     path = (build_plan_path or '').strip() or f'{BUILD_PLANS_REL_DIR}/active-plan.md'
+    plan_text = (plan_md or '').strip()
+    findings = (discovery_summary or '').strip()
+    plan_block = (
+        f'Approved plan (as of approval):\n\n{truncate_text(plan_text, EXECUTOR_PLAN_INLINE_CHARS)}\n\n'
+        if plan_text
+        else ''
+    )
+    findings_block = (
+        'Discovery findings (already verified read-only; do not repeat this exploration — read a '
+        'file again only right before you edit it):\n'
+        f'{truncate_text(findings, EXECUTOR_DISCOVERY_INLINE_CHARS)}\n\n'
+        if findings
+        else ''
+    )
     return (
         f'Implement the build plan at `{path}`.\n\n'
+        f'{plan_block}'
+        f'{findings_block}'
         'Work at your own pace — action steps need not be completed in strict order. '
-        'Use `read_build_plan` whenever you need the latest plan text. '
+        'Use `read_build_plan` only if you need the latest plan text from disk. '
         'When you finish one or more milestones, call `mark_build_plan_steps_complete` with their '
         'step ids (for example `step-1`); you may pass multiple ids in one call. '
-        'Do not wait for step order before marking progress.\n\n'
+        'Do not wait for step order before marking progress. '
+        "Run each step's verification before marking it complete.\n\n"
         'When all action steps are done, summarize what you accomplished.'
     )
 
 
 def emit_planner_progress_from_md(session: SessionState, *, phase: str = 'executing') -> None:
     """Push ``planner_progress`` onto the nested SSE queue (callable from sync tools)."""
-    import asyncio
-
     from clara_coder_backend.plan.build_plan_store import parse_action_steps, read_build_plan_text
 
     try:
@@ -1040,9 +1093,18 @@ async def stream_plan_execute_langgraph(
         plan_model = _plan_from_planner_output(md_text) or parse_build_plan_md(md_text)
         if _plan_has_action_steps(plan_model) and not _markdown_looks_like_build_plan(md_text):
             md_text = render_build_plan_md(plan_model)
-        grounding_gaps = _grounding_gap_questions(plan_model, discovery_summary)
-        if grounding_gaps:
-            plan_model.open_questions = list(plan_model.open_questions) + grounding_gaps
+        # Review the draft before asking anything: trim the planner's questions, then check planned
+        # paths on disk (obvious fixes applied silently; only real ambiguity becomes a question).
+        question_defaults = _triage_planner_questions(plan_model)
+        if question_defaults:
+            _add_plan_assumptions(plan_model, question_defaults)
+        path_check = await asyncio.to_thread(verify_plan_paths, plan_model, session.workspace_path)
+        if path_check.questions:
+            plan_model.open_questions = list(plan_model.open_questions) + path_check.questions
+        if path_check.changed or question_defaults:
+            md_text = render_build_plan_md(plan_model)
+            write_build_plan_draft_content(session.workspace_path, record, md_text)
+            yield sse_line(build_plan_chunk_event(relative_path=record.relative_path, content=md_text))
         record = finalize_build_plan_draft(session.workspace_path, record, md_text)
     except Exception as exc:
         logger.exception('Build plan finalize failed')
@@ -1062,6 +1124,7 @@ async def stream_plan_execute_langgraph(
     yield sse_line(build_plan_stream_end_event(relative_path=record.relative_path))
 
     # Open-questions HITL: ask once, follow-up discovery, then stream a full rewrite (no more questions).
+    executor_findings = discovery_summary
     resolved_questions: list[dict[str, str]] = []
     if plan_model.open_questions:
         # Show the draft steps in the plan panel while the user answers questions.
@@ -1090,140 +1153,173 @@ async def stream_plan_execute_langgraph(
         session.question_answers = None
         resolved_questions = _resolved_questions_for_confirm(plan_model.open_questions, answers)
         resolved_answers_text = _format_resolved_answers(plan_model.open_questions, answers)
-        prior_md = md_text
+        answer_texts = _answer_texts(plan_model.open_questions, answers)
+        path_outcome = apply_path_answers(plan_model, path_check, answer_texts, session.workspace_path)
         prior_plan = plan_model
+        prior_md = render_build_plan_md(plan_model) if path_check.checks else md_text
 
-        followup_box: list[str] = ['']
-        try:
-            async with aclosing(
-                _stream_plan_discovery_phase(
-                    session,
-                    user_input,
-                    session_id=session_id,
-                    summary_out=followup_box,
-                    prompt=build_followup_discovery_prompt(
-                        user_input,
-                        resolved_answers=resolved_answers_text,
-                        prior_summary=discovery_summary,
-                    ),
-                    checkpoint_session_key=f'{session_id}:plan_discover_followup',
-                    graph_name='plan_discover_followup',
-                    thread_kind='plan_discover_followup',
-                    status_detail='Follow-up discovery from your answers (read-only).',
-                    llm_event_prefix='discover_followup',
-                    event_id_prefix='plan-discover-followup',
-                )
-            ) as lines:
-                async for line in lines:
-                    if session.abort_event.is_set():
-                        outcome.mark_aborted()
-                        return
-                    yield line
-        except Exception:
-            logger.exception('Follow-up discovery failed; continuing with the original summary')
-            followup_box = ['']
-
-        if session.abort_event.is_set():
-            outcome.mark_aborted()
-            return
-
-        combined_summary = _combine_discovery_summaries(
-            discovery_summary,
-            followup_box[0] if followup_box else '',
-        )
-        yield sse_line(
-            planner_progress_event(
-                _planner_progress_payload(phase='planning', steps=draft_step_rows, plan_ready=False),
-            )
-        )
-        rewrite_status_id = f'plan-rewrite-{uuid.uuid4().hex[:10]}'
-        yield sse_line(
-            status_event(
-                rewrite_status_id,
-                REWRITE_PLAN_LABEL,
-                detail='Incorporating your answers.',
-                state='running',
-                source='tool',
-                stream_tag=PLANNER_STREAM_TAG,
-            )
-        )
-        write_build_plan_draft_content(session.workspace_path, record, BUILD_PLAN_REWRITE_STUB)
-        yield sse_line(
-            build_plan_chunk_event(relative_path=record.relative_path, content=BUILD_PLAN_REWRITE_STUB)
-        )
-        rewrite_box: list[str] = ['']
-        try:
-            async with aclosing(
-                _stream_planner_md(
-                    user_input,
-                    session=session,
-                    apply_mode=tool_apply_mode,
-                    discovery_summary=combined_summary,
-                    record=record,
-                    md_out=rewrite_box,
-                    resolved_answers=resolved_answers_text,
-                    prior_plan_md=prior_md,
-                )
-            ) as lines:
-                async for line in lines:
-                    if session.abort_event.is_set():
-                        outcome.mark_aborted()
-                        return
-                    yield line
-        except Exception as exc:
-            logger.exception('Plan rewrite failed; binding answers into the prior draft')
-            log_llm_failure(exc, context='plan:rewrite', agent_role=None)
-            rewrite_box = ['']
-
-        rewritten = _plan_from_planner_output(rewrite_box[0] if rewrite_box else '')
-        if rewritten is not None and _plan_has_action_steps(rewritten):
-            rewritten = _finalize_rewritten_plan(rewritten, combined_summary)
-            rewritten_md = render_build_plan_md(rewritten)
-            write_build_plan_draft_content(session.workspace_path, record, rewritten_md)
-            record = finalize_build_plan_draft(session.workspace_path, record, rewritten_md)
-            plan_model = rewritten
+        if path_outcome.clarify:
+            cancel_build_plan(session, record.id)
+            asks = '\n'.join(f'- {path}' for path in path_outcome.clarify)
             yield sse_line(
                 status_event(
-                    rewrite_status_id,
-                    REWRITE_PLAN_LABEL,
-                    detail='Plan updated.',
+                    'plan-clarify',
+                    'Planning paused',
+                    detail='Waiting for you to clarify file paths.',
                     state='complete',
-                    source='tool',
                     stream_tag=PLANNER_STREAM_TAG,
                 )
             )
-            yield sse_line(build_plan_chunk_event(relative_path=record.relative_path, content=rewritten_md))
-            yield sse_line(build_plan_stream_end_event(relative_path=record.relative_path))
-        else:
-            logger.warning(
-                'Plan rewrite produced no action steps; binding answers into prior draft at %s',
-                record.relative_path,
+            outcome.mark_completed(
+                final_text=(
+                    f'Planning stopped so you can clarify which files these should be:\n{asks}\n\n'
+                    'Reply with the right paths or more detail, then run plan mode again.'
+                ),
             )
+            return
+
+        if not (_planner_questions_answered(plan_model.open_questions, answer_texts) or path_outcome.needs_replan):
+            # Only path checks were answered (already applied): nothing new to discover, so skip
+            # the second discovery pass and the full rewrite and bind the answers into the draft.
             plan_model = _bind_answers_into_prior_plan(prior_plan, resolved_answers_text)
             bound_md = render_build_plan_md(plan_model)
             write_build_plan_draft_content(session.workspace_path, record, bound_md)
             record = finalize_build_plan_draft(session.workspace_path, record, bound_md)
+            yield sse_line(build_plan_chunk_event(relative_path=record.relative_path, content=bound_md))
+            yield sse_line(build_plan_stream_end_event(relative_path=record.relative_path))
+        else:
+            followup_box: list[str] = ['']
+            try:
+                async with aclosing(
+                    _stream_plan_discovery_phase(
+                        session,
+                        user_input,
+                        session_id=session_id,
+                        summary_out=followup_box,
+                        prompt=build_followup_discovery_prompt(
+                            user_input,
+                            resolved_answers=resolved_answers_text,
+                            prior_summary=discovery_summary,
+                        ),
+                        checkpoint_session_key=f'{session_id}:plan_discover_followup',
+                        graph_name='plan_discover_followup',
+                        thread_kind='plan_discover_followup',
+                        status_detail='Follow-up discovery from your answers (read-only).',
+                        llm_event_prefix='discover_followup',
+                        event_id_prefix='plan-discover-followup',
+                    )
+                ) as lines:
+                    async for line in lines:
+                        if session.abort_event.is_set():
+                            outcome.mark_aborted()
+                            return
+                        yield line
+            except Exception:
+                logger.exception('Follow-up discovery failed; continuing with the original summary')
+                followup_box = ['']
+
+            if session.abort_event.is_set():
+                outcome.mark_aborted()
+                return
+
+            combined_summary = _combine_discovery_summaries(
+                discovery_summary,
+                followup_box[0] if followup_box else '',
+            )
+            executor_findings = combined_summary
+            yield sse_line(
+                planner_progress_event(
+                    _planner_progress_payload(phase='planning', steps=draft_step_rows, plan_ready=False),
+                )
+            )
+            rewrite_status_id = f'plan-rewrite-{uuid.uuid4().hex[:10]}'
             yield sse_line(
                 status_event(
                     rewrite_status_id,
                     REWRITE_PLAN_LABEL,
-                    detail='Could not rewrite the plan from your answers; keeping the draft with answers applied.',
-                    state='error',
+                    detail='Incorporating your answers.',
+                    state='running',
                     source='tool',
                     stream_tag=PLANNER_STREAM_TAG,
                 )
             )
+            write_build_plan_draft_content(session.workspace_path, record, BUILD_PLAN_REWRITE_STUB)
             yield sse_line(
-                status_event(
-                    'plan-rewrite-fallback',
-                    'Plan kept',
-                    detail='Could not rewrite the plan from your answers; keeping the draft with answers applied.',
-                    state='error',
-                    stream_tag=PLANNER_STREAM_TAG,
-                )
+                build_plan_chunk_event(relative_path=record.relative_path, content=BUILD_PLAN_REWRITE_STUB)
             )
-            yield sse_line(build_plan_chunk_event(relative_path=record.relative_path, content=bound_md))
-            yield sse_line(build_plan_stream_end_event(relative_path=record.relative_path))
+            rewrite_box: list[str] = ['']
+            try:
+                async with aclosing(
+                    _stream_planner_md(
+                        user_input,
+                        session=session,
+                        apply_mode=tool_apply_mode,
+                        discovery_summary=combined_summary,
+                        record=record,
+                        md_out=rewrite_box,
+                        resolved_answers=resolved_answers_text,
+                        prior_plan_md=prior_md,
+                    )
+                ) as lines:
+                    async for line in lines:
+                        if session.abort_event.is_set():
+                            outcome.mark_aborted()
+                            return
+                        yield line
+            except Exception as exc:
+                logger.exception('Plan rewrite failed; binding answers into the prior draft')
+                log_llm_failure(exc, context='plan:rewrite', agent_role=None)
+                rewrite_box = ['']
+
+            rewritten = _plan_from_planner_output(rewrite_box[0] if rewrite_box else '')
+            if rewritten is not None and _plan_has_action_steps(rewritten):
+                rewritten = await asyncio.to_thread(_finalize_rewritten_plan, rewritten, session.workspace_path)
+                rewritten_md = render_build_plan_md(rewritten)
+                write_build_plan_draft_content(session.workspace_path, record, rewritten_md)
+                record = finalize_build_plan_draft(session.workspace_path, record, rewritten_md)
+                plan_model = rewritten
+                yield sse_line(
+                    status_event(
+                        rewrite_status_id,
+                        REWRITE_PLAN_LABEL,
+                        detail='Plan updated.',
+                        state='complete',
+                        source='tool',
+                        stream_tag=PLANNER_STREAM_TAG,
+                    )
+                )
+                yield sse_line(build_plan_chunk_event(relative_path=record.relative_path, content=rewritten_md))
+                yield sse_line(build_plan_stream_end_event(relative_path=record.relative_path))
+            else:
+                logger.warning(
+                    'Plan rewrite produced no action steps; binding answers into prior draft at %s',
+                    record.relative_path,
+                )
+                plan_model = _bind_answers_into_prior_plan(prior_plan, resolved_answers_text)
+                bound_md = render_build_plan_md(plan_model)
+                write_build_plan_draft_content(session.workspace_path, record, bound_md)
+                record = finalize_build_plan_draft(session.workspace_path, record, bound_md)
+                yield sse_line(
+                    status_event(
+                        rewrite_status_id,
+                        REWRITE_PLAN_LABEL,
+                        detail='Could not rewrite the plan from your answers; keeping the draft with answers applied.',
+                        state='error',
+                        source='tool',
+                        stream_tag=PLANNER_STREAM_TAG,
+                    )
+                )
+                yield sse_line(
+                    status_event(
+                        'plan-rewrite-fallback',
+                        'Plan kept',
+                        detail='Could not rewrite the plan from your answers; keeping the draft with answers applied.',
+                        state='error',
+                        stream_tag=PLANNER_STREAM_TAG,
+                    )
+                )
+                yield sse_line(build_plan_chunk_event(relative_path=record.relative_path, content=bound_md))
+                yield sse_line(build_plan_stream_end_event(relative_path=record.relative_path))
 
     action_step_goals = [s.goal.strip() for s in plan_model.action_steps if s.goal.strip()]
     if not action_step_goals:
@@ -1320,7 +1416,15 @@ async def stream_plan_execute_langgraph(
         )
     )
 
-    exec_prompt = build_build_plan_executor_prompt(record.relative_path)
+    try:
+        approved_md = read_build_plan_md(session.workspace_path, record)
+    except OSError:
+        approved_md = render_build_plan_md(plan_model)
+    exec_prompt = build_build_plan_executor_prompt(
+        record.relative_path,
+        plan_md=approved_md,
+        discovery_summary=executor_findings,
+    )
     exec_outcome = LangGraphWorkerOutcome()
     exec_cfg = AgentGraphConfig(
         session_id=session_id,

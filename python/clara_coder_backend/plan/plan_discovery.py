@@ -11,6 +11,23 @@ from __future__ import annotations
 
 PLAN_DISCOVERY_EXECUTE_LABEL = 'plan_discovery'
 
+# Discovery is the slowest phase on local models; most of its cost is one-read-per-turn round trips.
+_DISCOVERY_PACING_RULES = (
+    '- Batch independent reads: when you already know several files or searches you need, call '
+    'those tools together in one turn instead of one per turn.\n'
+    '- Prefer targeted search over reading whole directories; read a file only when its contents '
+    'change the plan.\n'
+)
+
+# A fixed shape lets the planner ground files_to_change and turn Unknowns into open questions.
+_DISCOVERY_SUMMARY_SHAPE = (
+    'Use these headings (omit empty ones):\n'
+    '- Relevant files: workspace-relative paths, each with one line on its role.\n'
+    '- Patterns and conventions: how similar features are built here.\n'
+    '- Constraints: tests, build, dependencies, or APIs the change must respect.\n'
+    '- Unknowns: decisions only the user can make (these become clarifying questions).'
+)
+
 
 def build_freeform_discovery_prompt(objective: str) -> str:
     """ReAct executor user message for the free-form discovery pass."""
@@ -25,9 +42,10 @@ def build_freeform_discovery_prompt(objective: str) -> str:
         'run mutating commands.\n'
         '- Gather concrete facts: file paths, symbols, existing patterns, and constraints relevant '
         'to the objective.\n'
+        f'{_DISCOVERY_PACING_RULES}'
         '- Stop once you have enough context to plan the implementation.\n\n'
-        'When finished, output a concise factual summary of your findings (paths, modules, '
-        'patterns, constraints). This summary feeds the implementation planner.'
+        'When finished, output a concise factual summary of your findings. This summary feeds the '
+        f'implementation planner.\n{_DISCOVERY_SUMMARY_SHAPE}'
     )
 
 
@@ -57,6 +75,8 @@ def build_followup_discovery_prompt(
         '- Use read-only / discovery tools only. Do not edit, create, delete, stage, transfer, or '
         'run mutating commands.\n'
         '- Focus on facts that change the implementation plan given the answers above.\n'
+        f'{_DISCOVERY_PACING_RULES}'
+        '- If the answers need no new facts, stop immediately and say so.\n'
         '- Stop once you have enough context to rewrite the implementation plan.\n\n'
         'When finished, output a concise factual summary of the NEW findings only. This summary '
         'is appended to prior discovery for the planner.'

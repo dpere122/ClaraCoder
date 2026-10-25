@@ -46,7 +46,8 @@
   />
 
   <section class="chat-active-stack__composer" #composer [style.transform]="composerTransform()">
-    <!-- Wrapper is the transcript's `bottomInsetElement`: its height eats the chat's buffer zone. -->
+    <!-- Wrapper is the transcript's `bottomInsetElement`: its height eats the chat's buffer zone.
+         The plan dock comes last so it sits on the composer's top edge. -->
     <div class="chat-active-stack__hitl-dock" #hitlDock>
       <app-subagent-dock />
       <app-hitl-composer-dock
@@ -58,6 +59,23 @@
         (agentQuestionFinished)="agentQuestionFinished.emit($event)"
         (themeProposalFinished)="themeProposalFinished.emit($event)"
       />
+      @if (planDock(); as plan) {
+        <app-planner-checklist
+          class="chat-active-stack__plan-dock"
+          variant="dock"
+          [planner]="plan.planner"
+          [planConfirm]="plan.planConfirm ?? null"
+          [planConfirmReviewStatus]="plan.planConfirmReviewStatus ?? 'pending'"
+          [planConfirmReviewSummary]="plan.planConfirmReviewSummary"
+          [agentQuestion]="plan.agentQuestion ?? null"
+          [agentQuestionReviewStatus]="plan.agentQuestionReviewStatus ?? 'pending'"
+          [agentQuestionReviewSummary]="plan.agentQuestionReviewSummary"
+          [conversationId]="conversationId()"
+          [live]="loading()"
+          (planConfirmFinished)="planConfirmFinished.emit($event)"
+          (agentQuestionFinished)="agentQuestionFinished.emit($event)"
+        />
+      }
     </div>
     @if (subagentParentId(); as parentId) {
       <!-- Sub-agent conversations are read-only: only the main agent prompts them. -->

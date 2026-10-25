@@ -1,16 +1,131 @@
-app-plan-confirm .plan-confirm-card {
+/* Stand-alone plan approval (review dock fallback when no live plan dock is showing). IDE flat. */
+
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.pc {
+  border: 1px solid var(--t-border-subtle, var(--t-border));
+  border-top: 2px solid var(--t-primary);
   border-radius: var(--chat-radius) !important;
+  background: var(--t-bg-surface, var(--t-bg));
+  font-size: 0.74rem;
+}
+
+.pc__head,
+.pc--collapsed {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.35rem 0.6rem;
+}
+
+.pc--collapsed {
+  border-top-width: 1px;
+  border-top-color: var(--t-border-subtle, var(--t-border));
+}
+
+.pc__label {
+  flex-shrink: 0;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--t-primary);
+}
+
+.pc__title {
+  min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--t-fg);
 }
 
-app-plan-confirm .plan-confirm-steps {
-  padding-left: 1.25rem;
+.pc__count,
+.pc__summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--t-text-muted);
 }
 
-app-plan-confirm .plan-confirm-steps__item {
-  margin: 0.15rem 0;
+.pc__count {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-family: var(--t-font-mono, ui-monospace, monospace);
+  font-size: 0.66rem;
 }
 
-app-plan-confirm .plan-confirm-code {
-  word-break: break-word;
+.pc__badge {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0.02rem 0.45rem;
+  border: 1px solid var(--t-border-subtle, var(--t-border));
+  border-radius: var(--chat-radius-sm) !important;
+  font-size: 0.64rem;
+  color: var(--t-text-muted);
+}
+
+.pc__badge--approved {
+  color: var(--t-process-c);
+  border-color: color-mix(in srgb, var(--t-process-c) 45%, transparent);
+}
+
+.pc__message {
+  margin: 0;
+  padding: 0 0.6rem 0.4rem;
+  color: var(--t-text-muted);
+}
+
+.pc__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: min(30vh, 14rem);
+  margin: 0;
+  padding: 0.35rem 0.6rem;
+  overflow-y: auto;
+  border-top: 1px solid var(--t-border-subtle, var(--t-border));
+  list-style: none;
+}
+
+.pc__step {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.15rem 0;
+  line-height: 1.4;
+}
+
+.pc__step-num {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 1.05rem;
+  height: 1.05rem;
+  border: 1px solid var(--t-border-subtle, var(--t-border));
+  border-radius: var(--chat-radius-sm) !important;
+  font-family: var(--t-font-mono, ui-monospace, monospace);
+  font-size: 0.6rem;
+  color: var(--t-text-muted);
+}
+
+.pc__step-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pc__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  border-top: 1px solid var(--t-border-subtle, var(--t-border));
 }

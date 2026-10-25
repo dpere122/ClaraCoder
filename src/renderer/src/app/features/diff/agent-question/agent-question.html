@@ -1,97 +1,188 @@
 @if (reviewStatus() !== 'pending') {
-  <div class="agent-question-card agent-question-card--collapsed">
-    <div class="agent-question-collapsed-row">
-      <div class="agent-question-collapsed-text">
-        @if (reviewSummary()) {
-          <span class="agent-question-summary">{{ reviewSummary() }}</span>
-        }
-      </div>
-      <span
-        class="agent-question-badge"
-        [class.agent-question-badge--complete]="reviewStatus() === 'complete'"
-        [class.agent-question-badge--cancelled]="reviewStatus() === 'cancelled'"
-        >{{ reviewStatus() === 'complete' ? 'Answered' : 'Cancelled' }}</span
-      >
-    </div>
+  <div class="aq aq--collapsed" data-theme-group="hitl.cards">
+    <lucide-icon class="aq__icon" name="message-circle-question-mark" [size]="13" aria-hidden="true" />
+    <span class="aq__label">Questions</span>
+    @if (reviewSummary()) {
+      <span class="aq__collapsed-summary">{{ reviewSummary() }}</span>
+    }
+    <span
+      class="aq__badge"
+      [class.aq__badge--complete]="reviewStatus() === 'complete'"
+      [class.aq__badge--cancelled]="reviewStatus() === 'cancelled'"
+      >{{ reviewStatus() === 'complete' ? 'Answered' : 'Cancelled' }}</span
+    >
   </div>
 } @else {
-  <div class="agent-question-card">
-    <div class="agent-question-toolbar">
-      @if (payload().message) {
-        <div class="agent-question-message">{{ payload().message }}</div>
+  <div
+    class="aq"
+    [class.aq--embedded]="embedded()"
+    role="group"
+    aria-roledescription="carousel"
+    [attr.aria-label]="payload().title || 'Clarifying questions'"
+    tabindex="-1"
+    (keydown)="onKeydown($event)"
+  >
+    <div class="aq__head">
+      @if (!embedded()) {
+        <lucide-icon class="aq__icon" name="message-circle-question-mark" [size]="13" aria-hidden="true" />
+        <span class="aq__label">{{ payload().title || 'Clarify' }}</span>
       }
-      <div class="agent-question-list">
-        @for (q of payload().questions; track q.id) {
-          <div class="agent-question-item">
-            <div class="agent-question-prompt">{{ q.prompt }}</div>
-            <div class="agent-question-options">
-              @for (opt of q.options; track opt.id) {
-                <label class="agent-question-option">
-                  <input
-                    type="radio"
-                    [name]="q.id"
-                    [checked]="isOptionSelected(q.id, opt.id)"
-                    (change)="selectOption(q.id, opt.id)"
-                  />
-                  <span>{{ opt.label }}</span>
-                </label>
-              }
-              @if (q.allowOther) {
-                <label class="agent-question-option">
-                  <input
-                    type="radio"
-                    [name]="q.id"
-                    [checked]="isOtherSelected(q.id)"
-                    (change)="selectOther(q.id)"
-                  />
-                  <span class="agent-question-other">
-                    <span>Other:</span>
-                    <input
-                      type="text"
-                      class="agent-question-other-input"
-                      [disabled]="!isOtherSelected(q.id)"
-                      [value]="selections()[q.id]?.otherText ?? ''"
-                      (input)="setOtherText(q.id, $any($event.target).value)"
-                      placeholder="Type your answer"
-                    />
-                  </span>
-                </label>
-              }
-            </div>
-          </div>
+      <span class="aq__count" aria-live="polite">
+        <span class="aq__count-now">{{ index() + 1 }}</span><span class="aq__count-sep">/</span>{{ total() }}
+      </span>
+      <span class="aq__answered">{{ answeredCount() }} answered</span>
+      <span class="aq__nav">
+        <button
+          type="button"
+          class="aq__nav-btn"
+          [disabled]="total() < 2"
+          (click)="prev()"
+          aria-label="Previous question"
+          title="Previous question (←)"
+        >
+          <lucide-icon name="chevron-left" [size]="14" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          class="aq__nav-btn"
+          [disabled]="total() < 2"
+          (click)="next()"
+          aria-label="Next question"
+          title="Next question (→)"
+        >
+          <lucide-icon name="chevron-right" [size]="14" aria-hidden="true" />
+        </button>
+      </span>
+    </div>
+
+    @if (total() > 1) {
+      <div class="aq__dots" role="tablist" aria-label="Questions">
+        @for (q of questions(); track q.id; let i = $index) {
+          <button
+            type="button"
+            role="tab"
+            class="aq__dot"
+            [class.aq__dot--current]="i === index()"
+            [class.aq__dot--answered]="isAnswered(q.id)"
+            [attr.aria-selected]="i === index()"
+            [attr.aria-label]="'Question ' + (i + 1) + (isAnswered(q.id) ? ', answered' : '')"
+            [title]="q.prompt"
+            (click)="goTo(i)"
+          ></button>
         }
       </div>
-      <div class="agent-question-actions">
-        <button
-          type="button"
-          class="hitl-btn hitl-btn--primary"
-          [disabled]="busy() || !canSubmit()"
-          [attr.aria-busy]="busy() ? 'true' : null"
-          (click)="onSubmit()"
-        >
-          @if (busy()) {
-            <span class="hitl-btn-spinner-host" role="status" aria-live="polite" aria-label="Loading">
-              <ngx-spinner
-                [name]="busySpinnerName"
-                [type]="busySpinnerType"
-                [fullScreen]="false"
-                bdColor="rgba(0,0,0,0)"
-                size="small"
-                color="currentColor"
-              ></ngx-spinner>
-            </span>
-          }
-          <span>{{ payload().submitLabel }}</span>
-        </button>
-        <button
-          type="button"
-          class="hitl-btn hitl-btn--secondary"
-          [disabled]="busy()"
-          (click)="onCancel()"
-        >
-          {{ payload().cancelLabel || 'Cancel' }}
-        </button>
+    }
+
+    @if (payload().message && !embedded()) {
+      <p class="aq__message">{{ payload().message }}</p>
+    }
+
+    <div class="aq__viewport" (pointerdown)="onPointerDown($event)" (pointerup)="onPointerUp($event)">
+      <div class="aq__track" #slides [style.transform]="'translateX(' + index() * -100 + '%)'">
+        @for (q of questions(); track q.id; let i = $index) {
+          <section
+            class="aq__slide"
+            role="group"
+            aria-roledescription="slide"
+            [attr.aria-label]="'Question ' + (i + 1) + ' of ' + total()"
+            [attr.aria-hidden]="i !== index() ? 'true' : null"
+            [attr.inert]="i !== index() ? '' : null"
+          >
+            <div class="aq__prompt">{{ q.prompt }}</div>
+            <div class="aq__options" role="radiogroup" [attr.aria-label]="q.prompt">
+              @for (opt of q.options; track opt.id; let n = $index) {
+                <button
+                  type="button"
+                  role="radio"
+                  class="aq__option"
+                  [class.aq__option--selected]="isOptionSelected(q.id, opt.id)"
+                  [attr.aria-checked]="isOptionSelected(q.id, opt.id)"
+                  (click)="selectOption(q.id, opt.id)"
+                >
+                  <span class="aq__key" aria-hidden="true">{{ n + 1 }}</span>
+                  <span class="aq__option-text">
+                    <span class="aq__option-label">{{ opt.label }}</span>
+                    @if (opt.description) {
+                      <span class="aq__option-desc">{{ opt.description }}</span>
+                    }
+                  </span>
+                  @if (isOptionSelected(q.id, opt.id)) {
+                    <lucide-icon class="aq__check" name="check" [size]="13" aria-hidden="true" />
+                  }
+                </button>
+              }
+              @if (q.allowOther) {
+                <div
+                  class="aq__option aq__option--other"
+                  [class.aq__option--selected]="isOtherSelected(q.id)"
+                  role="radio"
+                  [attr.aria-checked]="isOtherSelected(q.id)"
+                  tabindex="0"
+                  (click)="selectOther(q.id)"
+                  (keydown.space)="$event.preventDefault(); selectOther(q.id)"
+                >
+                  <span class="aq__key" aria-hidden="true">{{ q.options.length + 1 }}</span>
+                  <span class="aq__option-text">
+                    <span class="aq__option-label">Other</span>
+                    <input
+                      type="text"
+                      class="aq__other-input"
+                      [attr.data-other-for]="q.id"
+                      [value]="selections()[q.id]?.otherText ?? ''"
+                      (focus)="!isOtherSelected(q.id) && selectOther(q.id)"
+                      (input)="setOtherText(q.id, $any($event.target).value)"
+                      placeholder="Type your own answer"
+                      aria-label="Your own answer"
+                    />
+                  </span>
+                  @if (isAnswered(q.id) && isOtherSelected(q.id)) {
+                    <lucide-icon class="aq__check" name="check" [size]="13" aria-hidden="true" />
+                  }
+                </div>
+              }
+            </div>
+          </section>
+        }
       </div>
+    </div>
+
+    <div class="aq__actions">
+      <span class="aq__hint" aria-hidden="true">
+        @if (total() > 1) {
+          <kbd>←</kbd><kbd>→</kbd> cycle ·
+        }
+        <kbd>1</kbd>–<kbd>{{ choiceCount() }}</kbd> pick
+      </span>
+      <button type="button" class="hitl-btn hitl-btn--secondary" [disabled]="busy()" (click)="onCancel()">
+        {{ payload().cancelLabel || 'Cancel' }}
+      </button>
+      <button
+        type="button"
+        class="hitl-btn hitl-btn--primary"
+        [disabled]="busy()"
+        [attr.aria-busy]="busy() ? 'true' : null"
+        (click)="onPrimary()"
+      >
+        @if (busy()) {
+          <span class="hitl-btn-spinner-host" role="status" aria-live="polite" aria-label="Loading">
+            <ngx-spinner
+              [name]="busySpinnerName"
+              [type]="busySpinnerType"
+              [fullScreen]="false"
+              bdColor="rgba(0,0,0,0)"
+              size="small"
+              color="currentColor"
+            ></ngx-spinner>
+          </span>
+        }
+        @if (canSubmit()) {
+          <span>{{ payload().submitLabel || 'Submit answers' }}</span>
+          <lucide-icon name="corner-down-left" [size]="12" aria-hidden="true" />
+        } @else {
+          <span>Next unanswered</span>
+          <lucide-icon name="chevron-right" [size]="12" aria-hidden="true" />
+        }
+      </button>
     </div>
   </div>
 }

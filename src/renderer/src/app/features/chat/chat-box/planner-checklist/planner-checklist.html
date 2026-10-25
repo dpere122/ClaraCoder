@@ -1,237 +1,239 @@
-@if (planner().steps.length > 0 || planner().phase === 'discovery' || showAgentQuestion()) {
-  <div
-    class="plan-panel"
-    data-theme-group="chat.plan-panel"
-    [class.plan-panel--live]="live()"
-    [class.plan-panel--awaiting]="showApprovalActions()"
-    [class.plan-panel--discovering]="planner().phase === 'discovery'"
-    [class.plan-panel--writing]="planner().phase === 'planning' && planner().planReady !== true"
-    [class.plan-panel--complete]="planner().phase === 'complete'"
-    [class.plan-panel--error]="planner().phase === 'error'"
-    role="region"
-    aria-label="Plan"
-  >
-    <div class="plan-panel__frame" aria-hidden="true">
-      <span class="plan-panel__frame-label">{{ frameLabel() }}</span>
-      <span class="plan-panel__frame-count">
-        @if (totalSteps() > 0 && (planner().phase === 'executing' || planner().phase === 'complete' || planner().phase === 'error')) {
-          {{ completeCount() }}/{{ totalSteps() }}
+<section
+  class="plan"
+  data-theme-group="chat.plan-panel"
+  [class.plan--dock]="isDock()"
+  [class.plan--transcript]="!isDock()"
+  [class.plan--collapsed]="collapsed()"
+  [class]="'plan plan--' + tone()"
+  [attr.aria-label]="'Plan: ' + statusText()"
+>
+  <header class="plan__head">
+    <button
+      type="button"
+      class="plan__toggle"
+      [attr.aria-expanded]="!collapsed()"
+      [disabled]="needsInput()"
+      [title]="collapsed() ? 'Show plan' : 'Hide plan'"
+      (click)="toggle()"
+    >
+      <lucide-icon class="plan__chevron" [name]="collapsed() ? 'chevron-right' : 'chevron-down'" [size]="13" aria-hidden="true" />
+      <span class="plan__label">Plan</span>
+      @if (title()) {
+        <span class="plan__title">{{ title() }}</span>
+      }
+      <span class="plan__status">
+        @if (showWorkingSpinner()) {
+          <app-tool-spinner class="plan__spinner" [kind]="spinnerKind()" aria-hidden="true" />
         }
+        <span class="plan__status-text" role="status" aria-live="polite">{{ statusText() }}</span>
       </span>
-    </div>
+    </button>
 
-    <div class="plan-panel__inner">
-        <div class="plan-panel__header">
-          <span class="plan-panel__title">{{ planConfirm()?.title ?? 'Plan' }}</span>
-          <div class="plan-panel__meta">
-            @if (showHeaderSpinner()) {
-              <span class="plan-panel__header-spinner-host" aria-hidden="true">
+    <ol class="plan__stages" aria-label="Plan stages">
+      @for (stage of stages(); track stage.key; let last = $last) {
+        <li class="plan__stage plan__stage--{{ stage.state }}" [attr.aria-current]="stage.state === 'current' ? 'step' : null">
+          <span class="plan__stage-mark" aria-hidden="true">
+            @switch (stage.state) {
+              @case ('done') {
+                <lucide-icon name="check" [size]="10" />
+              }
+              @case ('failed') {
+                <lucide-icon name="x" [size]="10" />
+              }
+              @case ('stopped') {
+                <lucide-icon name="square" [size]="8" />
+              }
+            }
+          </span>
+          <span class="plan__stage-label">{{ stage.label }}</span>
+        </li>
+      }
+    </ol>
+
+    @if (totalSteps() > 0) {
+      <span class="plan__count" [title]="completeCount() + ' of ' + totalSteps() + ' steps done'">
+        {{ completeCount() }}/{{ totalSteps() }}
+      </span>
+    }
+  </header>
+
+  @if (totalSteps() > 0) {
+    <div
+      class="plan__bar"
+      role="progressbar"
+      [attr.aria-valuenow]="progressPct()"
+      aria-valuemin="0"
+      aria-valuemax="100"
+      [attr.aria-label]="'Plan progress ' + completeCount() + ' of ' + totalSteps()"
+    >
+      <span class="plan__bar-fill" [style.width.%]="progressPct()"></span>
+    </div>
+  }
+
+  @if (!collapsed()) {
+    <div class="plan__body">
+      @if (questionPending()) {
+        <div class="plan__section plan__section--questions">
+          <app-agent-question
+            [payload]="agentQuestion()!"
+            [conversationId]="conversationId()"
+            [reviewStatus]="agentQuestionReviewStatus()"
+            [reviewSummary]="agentQuestionReviewSummary()"
+            [embedded]="true"
+            (agentQuestionFinished)="agentQuestionFinished.emit($event)"
+          />
+        </div>
+      }
+
+      @if (approvalPending()) {
+        <p class="plan__message">
+          {{ planConfirm()!.message || 'Approve this plan before the agent runs it.' }}
+          @if (buildPlanPath()) {
+            <span class="plan__path" [title]="buildPlanPath()">Full plan open in the preview tab.</span>
+          }
+        </p>
+      }
+
+      @if (showSteps()) {
+        <ol class="plan__steps" #stepList>
+          @for (step of planner().steps; track step.id; let i = $index) {
+            @let mark = stepMark(step, i);
+            <li
+              class="plan__step"
+              [attr.data-step-id]="step.id"
+              [class.plan__step--complete]="step.state === 'complete'"
+              [class.plan__step--error]="step.state === 'error'"
+              [class.plan__step--current]="step.id === currentStepId()"
+            >
+              <span class="plan__step-mark" aria-hidden="true">
+                @switch (mark) {
+                  @case ('spinner') {
+                    <app-tool-spinner class="plan__step-spinner" kind="write" />
+                  }
+                  @case ('complete') {
+                    <lucide-icon name="check" [size]="11" />
+                  }
+                  @case ('error') {
+                    <lucide-icon name="x" [size]="11" />
+                  }
+                  @case ('current') {
+                    <lucide-icon name="chevron-right" [size]="11" />
+                  }
+                  @default {
+                    {{ mark }}
+                  }
+                }
+              </span>
+              <span class="plan__step-text">{{ step.text }}</span>
+              @if (step.addedDuringExecution) {
+                <span class="plan__step-new" title="Added while the plan was running">new</span>
+              }
+            </li>
+          }
+        </ol>
+      }
+
+      @if (showDetails() && planConfirm(); as confirm) {
+        <div class="plan__details">
+          @if (planFileChanges().length > 0) {
+            <details class="plan__detail">
+              <summary class="plan__detail-summary">
+                <span>Files</span><span class="plan__detail-count">{{ planFileChanges().length }}</span>
+              </summary>
+              <ul class="plan__detail-list plan__files">
+                @for (f of planFileChanges(); track f.operation + ':' + f.path + ':' + f.rationale) {
+                  <li class="plan__file">
+                    <span class="plan__file-op plan__file-op--{{ f.operation }}">{{ f.operation }}</span>
+                    <span class="plan__file-path" [title]="f.path">{{ f.path }}</span>
+                    @if (f.rationale) {
+                      <span class="plan__file-why">{{ f.rationale }}</span>
+                    }
+                  </li>
+                }
+              </ul>
+            </details>
+          }
+          @if (confirm.risks.length > 0) {
+            <details class="plan__detail">
+              <summary class="plan__detail-summary">
+                <span>Risks</span><span class="plan__detail-count">{{ confirm.risks.length }}</span>
+              </summary>
+              <ul class="plan__detail-list">
+                @for (r of confirm.risks; track r) {
+                  <li>{{ r }}</li>
+                }
+              </ul>
+            </details>
+          }
+          @if (confirm.definitionOfDone.length > 0) {
+            <details class="plan__detail">
+              <summary class="plan__detail-summary">
+                <span>Done when</span><span class="plan__detail-count">{{ confirm.definitionOfDone.length }}</span>
+              </summary>
+              <ul class="plan__detail-list">
+                @for (d of confirm.definitionOfDone; track d) {
+                  <li>{{ d }}</li>
+                }
+              </ul>
+            </details>
+          }
+          @if (confirm.resolvedQuestions.length > 0) {
+            <details class="plan__detail">
+              <summary class="plan__detail-summary">
+                <span>Your answers</span><span class="plan__detail-count">{{ confirm.resolvedQuestions.length }}</span>
+              </summary>
+              <dl class="plan__qa">
+                @for (q of confirm.resolvedQuestions; track q.prompt) {
+                  <dt>{{ q.prompt }}</dt>
+                  <dd>{{ q.answer }}</dd>
+                }
+              </dl>
+            </details>
+          }
+        </div>
+      }
+
+      @if (approvalPending()) {
+        <div class="plan__actions">
+          <button type="button" class="hitl-btn hitl-btn--secondary" [disabled]="busy()" (click)="onCancel()">
+            {{ planConfirm()!.cancelLabel || 'Cancel' }}
+          </button>
+          <button
+            type="button"
+            class="hitl-btn hitl-btn--primary"
+            [disabled]="busy()"
+            [attr.aria-busy]="busy() ? 'true' : null"
+            (click)="onConfirm()"
+          >
+            @if (busy()) {
+              <span class="hitl-btn-spinner-host" role="status" aria-label="Loading">
                 <ngx-spinner
-                  [name]="headerSpinnerName"
-                  [type]="planProgressSpinnerType"
+                  [name]="approveSpinnerName"
+                  [type]="approveSpinnerType"
                   [fullScreen]="false"
                   bdColor="rgba(0,0,0,0)"
                   size="small"
-                  color="var(--t-secondary)"
+                  color="currentColor"
                 ></ngx-spinner>
               </span>
-            }
-            <span
-              class="plan-panel__phase"
-              [class.plan-panel__phase--discovering]="planner().phase === 'discovery'"
-              [class.plan-panel__phase--writing]="planner().phase === 'planning' && planner().planReady !== true"
-              [class.plan-panel__phase--executing]="planner().phase === 'executing'"
-              [class.plan-panel__phase--complete]="planner().phase === 'complete'"
-              [class.plan-panel__phase--error]="planner().phase === 'error'"
-            >
-              {{ phaseLabel() }}
-            </span>
-          </div>
-        </div>
-
-        @if (approvalMessage() && showApprovalActions()) {
-          <p class="plan-panel__message">{{ approvalMessage() }}</p>
-        }
-
-        @if (showAgentQuestion()) {
-          <div class="plan-panel__agent-question">
-            <app-agent-question
-              [payload]="agentQuestion()!"
-              [conversationId]="conversationId()"
-              [reviewStatus]="agentQuestionReviewStatus()"
-              [reviewSummary]="agentQuestionReviewSummary()"
-              (agentQuestionFinished)="agentQuestionFinished.emit($event)"
-            />
-          </div>
-        }
-
-        @if (showApprovalActions()) {
-          <div class="plan-panel__actions">
-            <button
-              type="button"
-              class="hitl-btn hitl-btn--primary"
-              [disabled]="busy()"
-              (click)="onConfirm()"
-            >
-              @if (busy()) {
-                <span class="hitl-btn-spinner-host" aria-hidden="true">
-                  <ngx-spinner
-                    [name]="approveSpinnerName"
-                    type="ball-scale-multiple"
-                    [fullScreen]="false"
-                    bdColor="rgba(0,0,0,0)"
-                    size="small"
-                    color="var(--bs-btn-color, #fff)"
-                  ></ngx-spinner>
-                </span>
-              }
-              <span>{{ planConfirm()!.confirmLabel }}</span>
-            </button>
-            <button
-              type="button"
-              class="hitl-btn hitl-btn--secondary"
-              [disabled]="busy()"
-              (click)="onCancel()"
-            >
-              {{ planConfirm()!.cancelLabel || 'Cancel' }}
-            </button>
-          </div>
-        } @else if (approvalResolved()) {
-          <div
-            class="plan-panel__resolved"
-            [class.plan-panel__resolved--approved]="planConfirmReviewStatus() === 'complete'"
-            [class.plan-panel__resolved--cancelled]="planConfirmReviewStatus() === 'cancelled'"
-          >
-            @if (planConfirmReviewStatus() === 'complete') {
-              <span class="plan-panel__resolved-mark" aria-hidden="true">✓</span>
             } @else {
-              <span class="plan-panel__resolved-mark" aria-hidden="true">✗</span>
+              <lucide-icon name="play" [size]="11" aria-hidden="true" />
             }
-            <span class="plan-panel__resolved-label">
-              {{ planConfirmReviewStatus() === 'complete' ? 'Approved' : 'Cancelled' }}
-            </span>
-            @if (planConfirmReviewSummary()) {
-              <span class="plan-panel__resolved-summary">{{ planConfirmReviewSummary() }}</span>
-            }
-          </div>
-        }
-
-        @if (planner().steps.length > 0) {
-          <div
-            class="plan-panel__steps-wrap"
-            role="progressbar"
-            [attr.aria-valuenow]="progressPct()"
-            aria-valuemin="0"
-            aria-valuemax="100"
-            [attr.aria-label]="'Plan progress ' + completeCount() + ' of ' + totalSteps()"
-          >
-            <ol class="plan-panel__steps" [style.--plan-rail-pct]="railPct()">
-              @for (step of planner().steps; track step.id; let i = $index; let last = $last) {
-                <li
-                  class="plan-panel__step"
-                  [class.plan-panel__step--active]="isActiveStep(step)"
-                  [class.plan-panel__step--complete]="step.state === 'complete'"
-                  [class.plan-panel__step--error]="step.state === 'error'"
-                  [class.plan-panel__step--running]="isRunningStep(step)"
-                  [class.plan-panel__step--new]="step.addedDuringExecution"
-                >
-                  <div class="plan-panel__rail-col" aria-hidden="true">
-                    <span class="plan-panel__node">
-                      @if (runningStepId() === step.id) {
-                        <span class="plan-panel__step-spinner-host" aria-label="Running">
-                          <ngx-spinner
-                            [name]="stepSpinnerName"
-                            [type]="planProgressSpinnerType"
-                            [fullScreen]="false"
-                            bdColor="rgba(0,0,0,0)"
-                            size="small"
-                            color="var(--t-secondary)"
-                          ></ngx-spinner>
-                        </span>
-                      } @else if (step.state === 'complete') {
-                        <span class="plan-panel__node-glyph plan-panel__node-glyph--complete">✓</span>
-                      } @else if (step.state === 'error') {
-                        <span class="plan-panel__node-glyph plan-panel__node-glyph--error">✗</span>
-                      } @else if (isRunningStep(step) || isActiveStep(step)) {
-                        <span class="plan-panel__node-glyph plan-panel__node-glyph--active">{{ i + 1 }}</span>
-                      } @else {
-                        <span class="plan-panel__node-glyph plan-panel__node-glyph--pending">{{ i + 1 }}</span>
-                      }
-                    </span>
-                    @if (!last) {
-                      <span
-                        class="plan-panel__seg"
-                        [class.plan-panel__seg--filled]="step.state === 'complete'"
-                        [class.plan-panel__seg--active]="isRunningStep(step) || (isActiveStep(step) && step.state !== 'complete' && step.state !== 'error')"
-                      ></span>
-                    }
-                  </div>
-                  <div class="plan-panel__step-body">
-                    <span class="plan-panel__step-text">{{ step.text }}</span>
-                    @if (step.addedDuringExecution) {
-                      <span class="plan-panel__step-badge">+new</span>
-                    }
-                  </div>
-                </li>
-              }
-            </ol>
-          </div>
-        }
-
-        @if (showApprovalActions() && planConfirm(); as confirm) {
-          @if (planFileChanges().length > 0 || confirm.risks.length > 0 || confirm.definitionOfDone.length > 0 || confirm.resolvedQuestions.length > 0) {
-            <div class="plan-panel__details">
-              @if (planFileChanges().length > 0) {
-                <details class="plan-panel__enriched">
-                  <summary class="plan-panel__enriched-summary">Files ({{ planFileChanges().length }})</summary>
-                  <ul class="plan-panel__enriched-list plan-panel__file-list">
-                    @for (f of planFileChanges(); track f.operation + ':' + f.path + ':' + f.rationale) {
-                      <li class="plan-panel__file-row">
-                        <span class="plan-panel__file-op plan-panel__file-op--{{ f.operation }}">{{ f.operation }}</span>
-                        <span class="plan-panel__file-path">{{ f.path }}</span>
-                        @if (f.rationale) {
-                          <span class="plan-panel__file-rationale">— {{ f.rationale }}</span>
-                        }
-                      </li>
-                    }
-                  </ul>
-                </details>
-              }
-              @if (confirm.risks.length > 0) {
-                <details class="plan-panel__enriched">
-                  <summary class="plan-panel__enriched-summary">Risks ({{ confirm.risks.length }})</summary>
-                  <ul class="plan-panel__enriched-list">
-                    @for (r of confirm.risks; track r) {
-                      <li>{{ r }}</li>
-                    }
-                  </ul>
-                </details>
-              }
-              @if (confirm.definitionOfDone.length > 0) {
-                <details class="plan-panel__enriched">
-                  <summary class="plan-panel__enriched-summary">Done when</summary>
-                  <ul class="plan-panel__enriched-list">
-                    @for (d of confirm.definitionOfDone; track d) {
-                      <li>{{ d }}</li>
-                    }
-                  </ul>
-                </details>
-              }
-              @if (confirm.resolvedQuestions.length > 0) {
-                <details class="plan-panel__enriched" open>
-                  <summary class="plan-panel__enriched-summary">Answers</summary>
-                  <dl class="plan-panel__enriched-qa">
-                    @for (q of confirm.resolvedQuestions; track q.prompt) {
-                      <dt>{{ q.prompt }}</dt>
-                      <dd>{{ q.answer }}</dd>
-                    }
-                  </dl>
-                </details>
-              }
-            </div>
+            <span>{{ planConfirm()!.confirmLabel || 'Run plan' }}</span>
+          </button>
+        </div>
+      } @else if (approvalResolved() && !isDock()) {
+        <div
+          class="plan__resolved"
+          [class.plan__resolved--approved]="planConfirmReviewStatus() === 'complete'"
+        >
+          <lucide-icon [name]="planConfirmReviewStatus() === 'complete' ? 'check' : 'x'" [size]="11" aria-hidden="true" />
+          <span class="plan__resolved-label">{{ planConfirmReviewStatus() === 'complete' ? 'Approved' : 'Cancelled' }}</span>
+          @if (planConfirmReviewSummary()) {
+            <span class="plan__resolved-summary">{{ planConfirmReviewSummary() }}</span>
           }
-        }
+        </div>
+      }
     </div>
-
-  </div>
-}
+  }
+</section>

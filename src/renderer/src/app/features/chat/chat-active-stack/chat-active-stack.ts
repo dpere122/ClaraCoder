@@ -22,7 +22,14 @@ import type {
 } from '@shared/index';
 import { DEFAULT_COMPOSER_RUN_MODE, normalizeChatContainerSize, normalizeChatThinkingDisplay } from '@shared/index';
 import type { ThemeProposalFinishedEvent } from '@shared/index';
-import { ChatBox, pendingHitlArtifactsForDock, type ChatMessage } from '../chat-box/chat-box';
+import {
+  ChatBox,
+  hitlDockArtifactsBesidePlan,
+  livePlanDockContext,
+  pendingHitlArtifactsForDock,
+  type ChatMessage,
+} from '../chat-box/chat-box';
+import { PlannerChecklistComponent } from '../chat-box/planner-checklist/planner-checklist';
 import { handleChatContextDragOver, handleChatContextDrop, type ChatContextDroppedPath } from '../chat-context-bar/chat-context-drop';
 import { type ChatContextFile } from '../chat-context-bar/chat-context-file';
 import { HitlComposerDockComponent } from '../hitl-composer-dock/hitl-composer-dock';
@@ -38,7 +45,15 @@ export type ChatLayoutMode = 'sidebar' | 'expanded';
 /** Chat transcript, composer, and status bar — shared by sidebar hub and expanded main overlay. */
 @Component({
   selector: 'app-chat-active-stack',
-  imports: [ChatBox, HitlComposerDockComponent, LucideAngularModule, MessageBox, SubagentDockComponent, TalkMode],
+  imports: [
+    ChatBox,
+    HitlComposerDockComponent,
+    LucideAngularModule,
+    MessageBox,
+    PlannerChecklistComponent,
+    SubagentDockComponent,
+    TalkMode,
+  ],
   templateUrl: './chat-active-stack.html',
   styleUrl: './chat-active-stack.css',
   host: {
@@ -135,9 +150,20 @@ export class ChatActiveStackComponent implements OnDestroy {
     normalizeChatThinkingDisplay(this.appConfig()?.chatThinkingDisplay),
   );
 
-  /** Pending HITL reviews for the slide-up composer dock (all roles including plan/question). */
+  /** The running plan, pinned to the top of the composer (stages, questions, approval, steps). */
+  readonly planDock = computed(() =>
+    livePlanDockContext(this.messages(), this.streamingPlanner(), this.loading()),
+  );
+
+  /**
+   * Pending HITL reviews for the slide-up composer dock. The plan's own questions and approval
+   * move into the plan dock while it shows; a stale card after a reload still lands here.
+   */
   readonly pendingHitlDockArtifacts = computed((): HitlTrailArtifact[] =>
-    pendingHitlArtifactsForDock(this.messages()) as HitlTrailArtifact[],
+    hitlDockArtifactsBesidePlan(
+      pendingHitlArtifactsForDock(this.messages()) as HitlTrailArtifact[],
+      this.planDock() != null,
+    ),
   );
 
   // --- Sub-agent conversations: read-only, with a banner in place of the composer ---

@@ -279,3 +279,25 @@
   width: 100%;
   max-width: var(--chat-container-max-width);
 }
+
+/* Plan dock: attached to the composer's top edge, eased in when a plan turn starts. */
+.chat-active-stack__plan-dock {
+  animation: chat-plan-dock-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes chat-plan-dock-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.6rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-active-stack__plan-dock {
+    animation: none;
+  }
+}

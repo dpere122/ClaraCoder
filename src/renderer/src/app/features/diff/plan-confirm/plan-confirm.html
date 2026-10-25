@@ -1,60 +1,61 @@
 @if (reviewStatus() !== 'pending') {
-  <div class="plan-confirm-card plan-confirm-card--collapsed border rounded-2 px-3 py-2">
-    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
-      <div>
-        <span class="fw-medium">{{ payload().title }}</span>
-        @if (reviewSummary()) {
-          <span class="text-secondary small ms-2">{{ reviewSummary() }}</span>
-        }
-      </div>
-      <span
-        class="badge"
-        [class.text-bg-success]="reviewStatus() === 'complete'"
-        [class.text-bg-secondary]="reviewStatus() === 'cancelled'"
-        >{{ reviewStatus() === 'complete' ? 'Approved' : 'Cancelled' }}</span
-      >
-    </div>
+  <div class="pc pc--collapsed">
+    <span class="pc__label">Plan</span>
+    <span class="pc__title">{{ payload().title }}</span>
+    @if (reviewSummary()) {
+      <span class="pc__summary">{{ reviewSummary() }}</span>
+    }
+    <span class="pc__badge" [class.pc__badge--approved]="reviewStatus() === 'complete'">
+      {{ reviewStatus() === 'complete' ? 'Approved' : 'Cancelled' }}
+    </span>
   </div>
 } @else {
-  <div class="plan-confirm-card border border-primary border-opacity-50 rounded-2 overflow-hidden">
-    <div class="plan-confirm-toolbar p-2 border-bottom bg-primary bg-opacity-10">
-      <div class="fw-medium text-primary">{{ payload().title }}</div>
-      @if (payload().message) {
-        <div class="small text-secondary">{{ payload().message }}</div>
-      }
+  <div class="pc">
+    <div class="pc__head">
+      <span class="pc__label">Plan</span>
+      <span class="pc__title">{{ payload().title }}</span>
       @if (payload().steps.length > 0) {
-        <ol class="plan-confirm-steps small mt-2 mb-0">
-          @for (step of payload().steps; track $index) {
-            <li class="plan-confirm-steps__item">{{ step }}</li>
-          }
-        </ol>
+        <span class="pc__count">{{ payload().steps.length }} steps</span>
       }
-      <div class="d-flex flex-wrap gap-2 mt-2">
-        <button
-          type="button"
-          class="hitl-btn hitl-btn--primary"
-          [disabled]="busy()"
-          [attr.aria-busy]="busy() ? 'true' : null"
-          (click)="onConfirm()"
-        >
-          @if (busy()) {
-            <span class="hitl-btn-spinner-host" role="status" aria-live="polite" aria-label="Loading">
-              <ngx-spinner
-                [name]="busySpinnerName"
-                [type]="busySpinnerType"
-                [fullScreen]="false"
-                bdColor="rgba(0,0,0,0)"
-                size="small"
-                color="currentColor"
-              ></ngx-spinner>
-            </span>
-          }
-          <span>{{ payload().confirmLabel }}</span>
-        </button>
-        <button type="button" class="hitl-btn hitl-btn--secondary" [disabled]="busy()" (click)="onCancel()">
-          {{ payload().cancelLabel || 'Cancel' }}
-        </button>
-      </div>
+    </div>
+    @if (payload().message) {
+      <p class="pc__message">{{ payload().message }}</p>
+    }
+    @if (payload().steps.length > 0) {
+      <ol class="pc__steps">
+        @for (step of payload().steps; track $index; let i = $index) {
+          <li class="pc__step">
+            <span class="pc__step-num" aria-hidden="true">{{ i + 1 }}</span>
+            <span class="pc__step-text">{{ step }}</span>
+          </li>
+        }
+      </ol>
+    }
+    <div class="pc__actions">
+      <button type="button" class="hitl-btn hitl-btn--secondary" [disabled]="busy()" (click)="onCancel()">
+        {{ payload().cancelLabel || 'Cancel' }}
+      </button>
+      <button
+        type="button"
+        class="hitl-btn hitl-btn--primary"
+        [disabled]="busy()"
+        [attr.aria-busy]="busy() ? 'true' : null"
+        (click)="onConfirm()"
+      >
+        @if (busy()) {
+          <span class="hitl-btn-spinner-host" role="status" aria-live="polite" aria-label="Loading">
+            <ngx-spinner
+              [name]="busySpinnerName"
+              [type]="busySpinnerType"
+              [fullScreen]="false"
+              bdColor="rgba(0,0,0,0)"
+              size="small"
+              color="currentColor"
+            ></ngx-spinner>
+          </span>
+        }
+        <span>{{ payload().confirmLabel }}</span>
+      </button>
     </div>
   </div>
 }

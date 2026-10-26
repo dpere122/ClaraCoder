@@ -1145,9 +1145,10 @@ export function managedPickerValueForCmd(cmd: string, inventory: ModelManagerFil
 }
 
 /**
- * Display name for a managed llama-server source row, mirroring the Local model
- * dropdown: the inventory file name for a GGUF/hub pick, or the HF id for an HF
- * pick, falling back to the stored provider name when no model is selected.
+ * Display name for a managed llama-server source row: the user-set ``customName``
+ * when present, else mirroring the Local model dropdown: the inventory file name
+ * for a GGUF/hub pick, or the HF id for an HF pick, falling back to the stored
+ * provider name when no model is selected.
  * Non-managed (non-llamacpp or URL-only llama) providers return their stored name.
  * The ``.gguf`` / ``.ggml`` extension is trimmed from loose GGUF file names so the
  * Models list shows a clean model label instead of a raw filename.
@@ -1159,6 +1160,18 @@ export function managedLlamaSourceDisplayName(
   if (provider.provider !== 'llamacpp' || isPinnedLlamaServerUrlProviderId(provider.id)) {
     return provider.name;
   }
+  const custom = (provider.customName ?? '').trim();
+  if (custom) {
+    return custom;
+  }
+  return managedLlamaModelLabel(provider, inventory);
+}
+
+/**
+ * Label a managed llama-server source gets from its selected model, ignoring any
+ * ``customName``; the placeholder of the source Name field.
+ */
+export function managedLlamaModelLabel(provider: LlmProviderConfig, inventory: ModelManagerFileEntry[]): string {
   const cmd = provider.models[0]?.llamaCppManaged?.chatRunCommand ?? '';
   const picker = managedPickerValueForCmd(cmd, inventory);
   if (!picker) {

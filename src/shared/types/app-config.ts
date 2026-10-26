@@ -228,6 +228,11 @@ export interface LlmModelProfile {
 export interface LlmProviderConfig {
   id: string;
   name: string;
+  /**
+   * Managed llamacpp: user-set label for the source. When empty the label mirrors the
+   * selected local model (see ``managedLlamaSourceDisplayName``), falling back to ``name``.
+   */
+  customName?: string;
   /** ``llamacpp`` targets llama.cpp’s OpenAI-compatible HTTP server (``llama-server``). ``openrouter`` is OpenRouter’s chat API. */
   provider: 'openai' | 'lmstudio' | 'llamacpp' | 'openrouter' | 'python-t2i';
   baseUrl: string;

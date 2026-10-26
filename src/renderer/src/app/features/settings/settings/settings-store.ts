@@ -79,6 +79,7 @@ import {
   MANAGED_LLAMA_NGL_MIN,
   managedLlamaCommandHasNoHost,
   managedLlamaCommandHasNoMmproj,
+  managedLlamaModelLabel,
   managedLlamaSourceDisplayName,
   managedLlamaSourceHint,
   managedPickerValueForCmd,
@@ -1403,7 +1404,10 @@ export class SettingsStore {
 
   updateSelectedProvider(
     changes: Partial<
-      Pick<LlmProviderConfig, 'name' | 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel' | 'embeddingsBaseUrl'>
+      Pick<
+        LlmProviderConfig,
+        'name' | 'customName' | 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel' | 'embeddingsBaseUrl'
+      >
     >,
   ): void {
     const loc = this.selectedLocation();
@@ -1488,16 +1492,20 @@ export class SettingsStore {
   }
 
   /**
-   * Display name for a source row in the Models sources list. Any managed
-   * (non-URL-only) llamacpp source mirrors the model picked in its Local model
-   * dropdown — the inventory file name for a GGUF/hub pick, or the HF id for an
-   * HF pick — so the sidebar reflects the same label the dropdown shows. The
-   * name is not user-editable for these sources; it falls back to the stored
-   * provider name (a fixed default) when no model is selected. Other providers
-   * show their stored name.
+   * Display name for a source row in the Models sources list. A managed
+   * (non-URL-only) llamacpp source shows its custom name when one is set, else
+   * mirrors the model picked in its Local model dropdown — the inventory file
+   * name for a GGUF/hub pick, or the HF id for an HF pick — falling back to the
+   * stored provider name (a fixed default) when no model is selected. Other
+   * providers show their stored name.
    */
   sourceDisplayName(provider: LlmProviderConfig): string {
     return managedLlamaSourceDisplayName(provider, this.modelManagerCustomModels());
+  }
+
+  /** Placeholder for a managed llamacpp source's Name field: the label it gets with no custom name. */
+  sourceModelLabel(provider: LlmProviderConfig): string {
+    return managedLlamaModelLabel(provider, this.modelManagerCustomModels());
   }
 
   presetDescription(connection: LlmConnectionConfig): string {
@@ -3425,7 +3433,10 @@ export class SettingsStore {
   private applyProviderPatch(
     providerId: string,
     changes: Partial<
-      Pick<LlmProviderConfig, 'name' | 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel' | 'embeddingsBaseUrl'>
+      Pick<
+        LlmProviderConfig,
+        'name' | 'customName' | 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel' | 'embeddingsBaseUrl'
+      >
     >,
   ): void {
     this.llmProviders.update((providers) =>

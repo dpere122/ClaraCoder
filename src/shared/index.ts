@@ -74,6 +74,7 @@ export {
   managedLlamaCommandHasParallel,
   managedLlamaSourceHint,
   managedLlamaSourceDisplayName,
+  managedLlamaModelLabel,
   managedPickerValueForCmd,
   optimizationPresetDefaultsPatch,
   parseCustomManagedContextTokens,

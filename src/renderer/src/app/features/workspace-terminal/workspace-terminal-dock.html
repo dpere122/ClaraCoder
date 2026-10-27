@@ -11,7 +11,16 @@
     [attr.aria-expanded]="expanded()"
   >
     <span class="workspace-terminal-dock__chevron" [class.workspace-terminal-dock__chevron--open]="expanded()" aria-hidden="true"></span>
-    <span class="workspace-terminal-dock__bar-label">Terminal</span>
+    <span class="workspace-terminal-dock__bar-label">
+      Terminal
+      @if (unseenAgentCommandCount() > 0) {
+        <span
+          class="workspace-terminal-dock__bar-badge"
+          [attr.aria-label]="unseenAgentCommandLabel()"
+          [attr.title]="unseenAgentCommandLabel()"
+        >{{ unseenAgentCommandCount() }}</span>
+      }
+    </span>
     @if (tabStripCount() > 0) {
       <span class="workspace-terminal-dock__bar-count">{{ tabStripCount() }}</span>
     }

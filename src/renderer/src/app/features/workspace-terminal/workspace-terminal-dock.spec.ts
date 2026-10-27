@@ -843,24 +843,108 @@ describe('WorkspaceTerminalDockComponent', () => {
   });
 
   describe('agent command tabs', () => {
-    it('opens a tab when background_command_open arrives for the active conversation', async () => {
+    const openCommand = (conversationId: string, commandId: string, label = 'npm run dev') =>
+      backgroundCommandOpenSubject.next({
+        conversationId,
+        commandId,
+        commandText: label,
+        cwdLabel: '.',
+        label,
+        streamTag: `run-command:${commandId}`,
+      });
+
+    const barBadge = (): HTMLElement | null =>
+      fixture.nativeElement.querySelector('.workspace-terminal-dock__bar-badge');
+
+    it('adds a tab and a bar badge without expanding a collapsed dock', async () => {
       fixture.componentRef.setInput('conversationId', 'conv-1');
       fixture.detectChanges();
 
-      backgroundCommandOpenSubject.next({
-        conversationId: 'conv-1',
-        commandId: 'abc12345',
-        commandText: 'npm run dev',
-        cwdLabel: '.',
-        label: 'npm run dev',
-        streamTag: 'run-command:abc12345',
-      });
+      openCommand('conv-1', 'abc12345');
       await flushMicrotasks();
+      fixture.detectChanges();
 
-      expect(component.expanded()).toBe(true);
+      expect(component.expanded()).toBe(false);
       expect(component.agentCommandTabsForConversation().length).toBe(1);
       expect(component.agentCommandTabsForConversation()[0].title).toBe('npm run dev');
+      expect(component.unseenAgentCommandCount()).toBe(1);
+      expect(barBadge()?.textContent?.trim()).toBe('1');
+      expect(barBadge()?.getAttribute('aria-label')).toBe('1 new command');
+    });
+
+    it('counts each new command on the badge', async () => {
+      fixture.componentRef.setInput('conversationId', 'conv-1');
+      fixture.detectChanges();
+
+      openCommand('conv-1', 'aaa11111');
+      openCommand('conv-1', 'bbb22222');
+      openCommand('conv-1', 'aaa11111');
+      await flushMicrotasks();
+      fixture.detectChanges();
+
+      expect(component.unseenAgentCommandCount()).toBe(2);
+      expect(barBadge()?.textContent?.trim()).toBe('2');
+    });
+
+    it('expanding selects the newest unseen command and clears the badge', async () => {
+      fixture.componentRef.setInput('conversationId', 'conv-1');
+      fixture.detectChanges();
+
+      openCommand('conv-1', 'aaa11111');
+      openCommand('conv-1', 'bbb22222');
+      await flushMicrotasks();
+
+      component.toggleExpanded();
+      await flushMicrotasks();
+      fixture.detectChanges();
+
+      expect(component.expanded()).toBe(true);
+      expect(component.activeTabId()).toBe('agent-command-tab-bbb22222');
+      expect(component.unseenAgentCommandCount()).toBe(0);
+      expect(barBadge()).toBeNull();
+    });
+
+    it('selects the new command tab without a badge when the dock is already open', async () => {
+      fixture.componentRef.setInput('conversationId', 'conv-1');
+      fixture.detectChanges();
+      component.expanded.set(true);
+
+      openCommand('conv-1', 'abc12345');
+      await flushMicrotasks();
+      fixture.detectChanges();
+
       expect(component.activeTabId()).toBe('agent-command-tab-abc12345');
+      expect(component.unseenAgentCommandCount()).toBe(0);
+      expect(barBadge()).toBeNull();
+    });
+
+    it('badges another chat\'s command only once that chat is active', async () => {
+      fixture.componentRef.setInput('conversationId', 'conv-1');
+      fixture.detectChanges();
+
+      openCommand('conv-2', 'abc12345');
+      await flushMicrotasks();
+      fixture.detectChanges();
+
+      expect(component.unseenAgentCommandCount()).toBe(0);
+
+      fixture.componentRef.setInput('conversationId', 'conv-2');
+      fixture.detectChanges();
+
+      expect(component.unseenAgentCommandCount()).toBe(1);
+    });
+
+    it('drops the badge when the unseen command tab is closed', async () => {
+      fixture.componentRef.setInput('conversationId', 'conv-1');
+      fixture.detectChanges();
+
+      openCommand('conv-1', 'abc12345');
+      await flushMicrotasks();
+
+      await component.closeTab('agent-command-tab-abc12345');
+      await flushMicrotasks();
+
+      expect(component.unseenAgentCommandTabIds()).toEqual([]);
     });
 
     it('notifies backend and removes tab when closed after confirm', async () => {

@@ -295,6 +295,15 @@
 
                   <div class='form-grid'>
                     <label class='field field--full'>
+                      <span>Name</span>
+                      <input
+                        type='text'
+                        [placeholder]='s.sourceModelLabel(s.selectedProvider()!)'
+                        [ngModel]='s.selectedProvider()!.customName ?? ""'
+                        (ngModelChange)='s.updateSelectedProvider({ customName: $event })'
+                      />
+                    </label>
+                    <label class='field field--full'>
                       <span class='local-model-label'>
                         Local model
                         <span

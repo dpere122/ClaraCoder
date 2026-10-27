@@ -68,6 +68,42 @@ def test_validate_drops_unknown_tokens_groups_and_unsafe_values() -> None:
     assert 'assets: dropped' in joined
 
 
+def test_summary_lists_real_class_names_per_group() -> None:
+    reg = load_theme_registry()
+    composer = next(g for g in reg['groups'] if g['id'] == 'chat.composer')
+    assert 'composer-stack' in composer['classes']
+    summary = theme_registry_summary()
+    assert '- chat.composer: .composer-stack' in summary
+
+
+def test_css_notes_flag_unknown_classes_remote_urls_and_misplaced_css() -> None:
+    doc, warnings = validate_theme_proposal(
+        {
+            'name': 'Notes',
+            'css': '.composer-stack { color: red }',
+            'groups': {
+                'chat.composer': {
+                    'css': (
+                        '& { border-radius: 0 } .composer-stack { padding: 0; &:hover { opacity: 1 } } '
+                        '.made-up-input, .also-fake { color: red } '
+                        '.composer-stack::after { content: ".not-a-class"; background: url(https://x.example/a.png) } '
+                        '@media (min-width: 0.5em) { .composer-stack { gap: 0 } }'
+                    )
+                },
+            },
+        }
+    )
+    assert doc is not None
+    # Notes never change the css; the renderer sanitizer is the source of truth.
+    assert doc['groups']['chat.composer']['css'].startswith('& { border-radius: 0 }')
+    joined = '\n'.join(warnings)
+    assert '.made-up-input, .also-fake not found' in joined
+    assert '.not-a-class' not in joined
+    assert '.composer-stack not found' not in joined
+    assert 'remote url()' in joined
+    assert 'css: dropped; advanced CSS goes per group' in joined
+
+
 def test_validate_rejects_non_objects_and_bad_versions() -> None:
     assert validate_theme_proposal('not json')[0] is None
     assert validate_theme_proposal(42)[0] is None

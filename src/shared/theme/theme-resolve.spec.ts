@@ -40,7 +40,7 @@ describe('resolveThemeDocument', () => {
       fit: 'cover',
       clearSelectors: ['.chat-box'],
     });
-    expect(transcript.css).toContain('[data-theme-group="chat.transcript"] .msg-bubble');
+    expect(transcript.css).toContain('@scope ([data-theme-group="chat.transcript"]) {\n:scope .msg-bubble');
     expect(resolved.groups.find((g) => g.id === 'chat.composer')).toBeUndefined();
   });
 

@@ -18,6 +18,8 @@
  *   tokens              `var(--t-…)` names found in that folder's *.css and inline `styles`
  *                       (+ manifest `styleSources` folders/files, + manifest `tokens`)
  *   supportsBackground  manifest `groups[id].supportsBackground === true`
+ *   classes             (registry.json only) class names in the group's markup and the
+ *                       templates of child components it renders, for agent-authored CSS
  *
  * Attribute forms recognised:
  *   data-theme-group="chat.transcript"                         (template attribute)
@@ -67,6 +69,17 @@ const ATTR_BINDING_PATTERNS = [
 ];
 const BOUND_ID_LITERAL = /['"]([a-z][a-z0-9-]*\.[a-z][a-z0-9-]*)['"]/g;
 const TOKEN_USE = /var\(\s*(--t-[a-z0-9-]+)/g;
+/** Index of the host-binding form in ATTR_PATTERNS (the group root is the whole component). */
+const HOST_ATTR_PATTERN = 2;
+/** Agent catalog: at most this many class names per group (own subtree first). */
+const MAX_GROUP_CLASSES = 200;
+const TEMPLATE_TAG = /<(\/?)([a-zA-Z][\w-]*)((?:[^>"']|"[^"]*"|'[^']*')*?)(\/?)>/g;
+const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
+const CLASS_NAME = /^-?[A-Za-z_][\w-]*$/;
+const CLASS_ATTR = /(?:^|\s)class\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+const CLASS_BINDING = /\[class\.(-?[A-Za-z_][\w-]*)\]/g;
+const CLASS_EXPRESSION = /\[(?:ngClass|class)\]\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+const QUOTED_LITERAL = /['"]([^'"]+)['"]/g;
 /** Set inline from user font preferences, not by themes (see THEME_RUNTIME_ONLY_PROPERTIES). */
 const RUNTIME_ONLY_TOKENS = new Set(['--t-font-ui-override', '--t-font-code-override']);
 
@@ -108,6 +121,97 @@ function collectMatches(text, regex) {
   return out;
 }
 
+function collectMatchesWithIndex(text, regex) {
+  const out = [];
+  regex.lastIndex = 0;
+  let m;
+  while ((m = regex.exec(text)) !== null) {
+    out.push({ value: m[1], index: m.index });
+  }
+  return out;
+}
+
+/** Tags of an Angular template (`{ name, attrs, close, selfClosing }`), comments removed. */
+function templateTags(text, from = 0) {
+  const tags = [];
+  const src = text.replace(/<!--[\s\S]*?-->/g, (c) => ' '.repeat(c.length));
+  TEMPLATE_TAG.lastIndex = from;
+  let m;
+  while ((m = TEMPLATE_TAG.exec(src)) !== null) {
+    tags.push({ name: m[2].toLowerCase(), attrs: m[3], close: m[1] === '/', selfClosing: m[4] === '/' });
+  }
+  return tags;
+}
+
+/** Tags of the element whose opening tag contains `attrIndex`, through its closing tag. */
+function elementSubtree(text, attrIndex) {
+  const start = text.lastIndexOf('<', attrIndex);
+  if (start < 0) return [];
+  const out = [];
+  let depth = 0;
+  for (const tag of templateTags(text, start)) {
+    out.push(tag);
+    const opens = !tag.close && !tag.selfClosing && !VOID_TAGS.has(tag.name);
+    if (opens) depth++;
+    else if (tag.close) depth--;
+    if (depth <= 0) break;
+  }
+  return out;
+}
+
+/** Class names an element can carry: `class="…"`, `[class.x]`, literals in `[ngClass]` / `[class]`. */
+function classesOfTag(attrs) {
+  const out = [];
+  for (const m of attrs.matchAll(CLASS_ATTR)) {
+    out.push(...(m[1] ?? m[2]).split(/\s+/));
+  }
+  for (const m of attrs.matchAll(CLASS_BINDING)) out.push(m[1]);
+  for (const m of attrs.matchAll(CLASS_EXPRESSION)) {
+    for (const lit of (m[1] ?? m[2]).matchAll(QUOTED_LITERAL)) out.push(...lit[1].split(/\s+/));
+  }
+  // `'plan--' + state` leaves a `plan--` fragment; it is not a class anything carries.
+  return out.filter((c) => CLASS_NAME.test(c) && !c.endsWith('-'));
+}
+
+/**
+ * Class names inside a group, breadth first: the group's own markup, then the templates of
+ * child components it renders (by element selector), until `MAX_GROUP_CLASSES`.
+ */
+function groupClasses(roots, componentTemplates) {
+  const classes = [];
+  const queue = [...roots];
+  const visited = new Set();
+  while (queue.length > 0 && classes.length < MAX_GROUP_CLASSES) {
+    const tags = queue.shift();
+    for (const tag of tags) {
+      if (tag.close) continue;
+      for (const cls of classesOfTag(tag.attrs)) {
+        if (!classes.includes(cls)) classes.push(cls);
+      }
+      const child = componentTemplates.get(tag.name);
+      if (child !== undefined && !visited.has(tag.name)) {
+        visited.add(tag.name);
+        queue.push(templateTags(child));
+      }
+    }
+  }
+  return classes.slice(0, MAX_GROUP_CLASSES);
+}
+
+/** Template of the component defined in `tsFile` (`templateUrl` or inline `template`), or null. */
+async function componentTemplate(tsFile, text) {
+  const url = /\btemplateUrl:\s*['"]([^'"]+)['"]/.exec(text);
+  if (url) {
+    try {
+      return await fs.readFile(path.join(path.dirname(tsFile), url[1]), 'utf8');
+    } catch {
+      return null;
+    }
+  }
+  const inline = /\btemplate:\s*`([\s\S]*?)`/.exec(text);
+  return inline ? inline[1] : null;
+}
+
 /** Extract the token catalog from `theme-tokens.ts` (`T('--t-x', 'Label', 'category'[, 'kind'])`). */
 async function readTokenCatalog() {
   const src = await fs.readFile(tokensSource, 'utf8');
@@ -140,7 +244,13 @@ async function buildRegistry() {
   /** folder → { css: string[] (file contents), inlineTs: string[] } */
   const folderStyles = new Map();
   const manifests = [];
-  const declarations = []; // { id, file, folder }
+  const declarations = []; // { id, file, folder, index, host }
+  /** file → text of every scanned template source (group subtrees are cut from it). */
+  const declaringText = new Map();
+  /** element selector → template text (agent catalog class names). */
+  const componentTemplates = new Map();
+  /** file → template text of the component it defines (for host-bound groups). */
+  const templateOfFile = new Map();
 
   for (const file of files) {
     const folder = path.dirname(file);
@@ -161,18 +271,25 @@ async function buildRegistry() {
     if (file.endsWith('.ts')) {
       // Inline `styles:` blocks consume tokens too.
       folderStyles.get(folder).push(text);
+      const template = await componentTemplate(file, text);
+      if (template !== null) {
+        templateOfFile.set(file, template);
+        const selector = /\bselector:\s*['"]([a-z][\w-]*)['"]/.exec(text);
+        if (selector) componentTemplates.set(selector[1], template);
+      }
     }
-    for (const pattern of ATTR_PATTERNS) {
-      for (const id of collectMatches(text, pattern)) {
+    declaringText.set(file, text);
+    for (const [p, pattern] of ATTR_PATTERNS.entries()) {
+      for (const { value: id, index } of collectMatchesWithIndex(text, pattern)) {
         // Skip code that builds selectors dynamically (`[data-theme-group="${id}"]`).
         if (id.includes('$') || id.includes('{')) continue;
-        declarations.push({ id, file, folder });
+        declarations.push({ id, file, folder, index, host: p === HOST_ATTR_PATTERN });
       }
     }
     for (const pattern of ATTR_BINDING_PATTERNS) {
-      for (const expression of collectMatches(text, pattern)) {
+      for (const { value: expression, index } of collectMatchesWithIndex(text, pattern)) {
         for (const id of collectMatches(expression, BOUND_ID_LITERAL)) {
-          declarations.push({ id, file, folder });
+          declarations.push({ id, file, folder, index, host: false });
         }
       }
     }
@@ -225,19 +342,20 @@ async function buildRegistry() {
     }
   }
 
-  /** id → { folders:Set, files:Set } */
+  /** id → { folders:Set, files:Set, roots: tag lists of the group's own markup } */
   const byId = new Map();
-  for (const { id, file, folder } of declarations) {
+  for (const { id, file, folder, index, host } of declarations) {
     const rel = toPosix(path.relative(projectRoot, file));
     if (!GROUP_ID_PATTERN.test(id)) {
       errors.push(`${rel}: data-theme-group "${id}" is not <category>.<name> (lowercase, hyphens)`);
       continue;
     }
     if (!byId.has(id)) {
-      byId.set(id, { folders: new Set(), files: new Set() });
+      byId.set(id, { folders: new Set(), files: new Set(), roots: [] });
     }
     byId.get(id).folders.add(folder);
     byId.get(id).files.add(rel);
+    byId.get(id).roots.push(host ? templateTags(templateOfFile.get(file) ?? '') : elementSubtree(declaringText.get(file), index));
   }
 
   for (const [id, { file }] of groupManifest) {
@@ -287,6 +405,10 @@ async function buildRegistry() {
       const clear = manifest.backgroundClear.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim());
       if (clear.length > 0) group.backgroundClear = clear;
     }
+    // Agent catalog only (registry.json; renderTs lists fields explicitly): real class names
+    // advanced CSS can target, so models do not invent selectors that match nothing.
+    const classes = groupClasses(info.roots, componentTemplates);
+    if (classes.length > 0) group.classes = classes;
     groups.push(group);
   }
 

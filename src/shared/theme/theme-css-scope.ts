@@ -10,14 +10,17 @@
  * 1. Every style rule is wrapped in a native `@scope (<group root>) { … }` block. The browser
  *    then only matches subjects inside the group root, no matter how the selector is written
  *    (`:not(&)`, `:is(&, body)`, `html:has(&) *`, sibling combinators, … all stay contained).
- * 2. Selectors are additionally prefixed (`.msg-bubble` → `[data-theme-group="g"] .msg-bubble`)
- *    so specificity matches component CSS, and selectors that can only ever target a
- *    *sibling* of the root (`& ~ .x`, `+ .x`) are dropped with a warning because they can
- *    never match anything in scope.
+ * 2. Selectors are anchored on `:scope` (`.msg-bubble` → `:scope .msg-bubble`) so specificity
+ *    matches component CSS (`:scope` counts like the attribute selector it stands for). The
+ *    anchor must be `:scope`: inside `@scope` a selector without `:scope`/`&` is implicitly
+ *    relative to the root, so prefixing the group's attribute selector would match nothing.
+ *    Selectors that can only ever target a *sibling* of the root (`& ~ .x`, `+ .x`) are
+ *    dropped with a warning because they can never match anything in scope.
  *
  * Author conventions:
- * - Plain selectors become descendants: `.msg-bubble` → `[data-theme-group="g"] .msg-bubble`.
- * - `&`, `:host`, `:scope`, `:root`, `html`, `body` at the start of a selector target the group root.
+ * - Plain selectors become descendants: `.msg-bubble` → `:scope .msg-bubble`.
+ * - `&`, `:host`, `:scope`, `:root`, `html`, `body`, and the group's own selector
+ *   (`[data-theme-group="g"]`) target the group root.
  * - `@media`, `@supports`, `@container`, `@layer` blocks are kept and their contents scoped.
  * - `@keyframes`, `@font-face`, `@page`, `@property`, `@counter-style` are kept verbatim and
  *   hoisted outside the `@scope` block (they are global by nature).
@@ -44,6 +47,8 @@ const VERBATIM_AT_RULES = new Set([
   'font-feature-values',
 ]);
 const ROOT_SELECTOR_PREFIX = /^(:root|:host|:scope|html|body)(?![\w-])/;
+/** A further root-like compound right after the first (`html body`, `:root > body`). */
+const LEADING_ROOT_COMPOUND = /^\s*>?\s*(?::root|:scope|html|body)(?![\w(-])/;
 const DANGEROUS_DECLARATION = /(expression\s*\(|behavior\s*:|-moz-binding|javascript\s*:|@import|<\/?\s*style|vbscript\s*:)/i;
 /** Functions whose arguments load a resource. */
 const URL_FUNCTIONS = new Set(['url', 'src', 'image', 'image-set', '-webkit-image-set']);
@@ -362,31 +367,57 @@ function processRuleBody(body: string, warnings: string[]): string {
   return parts.join(' ');
 }
 
+/**
+ * Rewrite one selector so it is anchored on `:scope` (the group root inside `@scope`).
+ *
+ * The anchor must be `:scope`, not the group's attribute selector: inside `@scope`, a selector
+ * without `:scope` / `&` is implicitly relative to the root, so `[data-theme-group="g"] .a`
+ * would mean `:scope [data-theme-group="g"] .a` and never match. Authors (and models) often
+ * copy the group selector itself, so occurrences of `scope` are treated like `&`.
+ */
 export function scopeThemeSelector(selector: string, scope: string): string {
-  const s = selector.trim();
+  let s = selector.trim();
   if (!s) {
     return '';
   }
+  if (scope && s.indexOf(scope) >= 0) {
+    s = s.split(scope).join('&');
+  }
   if (s.indexOf('&') >= 0) {
-    return s.split('&').join(scope);
+    return s.split('&').join(':scope');
   }
   const m = ROOT_SELECTOR_PREFIX.exec(s);
-  if (m) {
-    return scope + s.slice(m[0].length);
+  if (!m) {
+    return `:scope ${s}`;
   }
-  return `${scope} ${s}`;
+  let rest = s.slice(m[0].length);
+  let anchor = ':scope';
+  if (m[1] === ':host' && rest.charAt(0) === '(') {
+    // `:host(.open)` → `:scope:is(.open)`
+    const close = findMatchingParen(rest, 0);
+    if (close > 0) {
+      anchor = `:scope:is(${rest.slice(1, close)})`;
+      rest = rest.slice(close + 1);
+    }
+  }
+  // `html body .x` / `:root > body .x`: every leading root-like compound is the group root.
+  let next: RegExpExecArray | null;
+  while ((next = LEADING_ROOT_COMPOUND.exec(rest)) !== null) {
+    rest = rest.slice(next[0].length);
+  }
+  return anchor + rest;
 }
 
 /**
  * True when a scoped selector starts at the group root and immediately steps to a sibling
- * (`[scope] ~ .x`, `[scope] + .x`). Such subjects are never inside the root, so the rule could
+ * (`:scope ~ .x`, `:scope + .x`). Such subjects are never inside the root, so the rule could
  * not match under `@scope`; dropping it with a warning is more useful than silence.
  */
-function targetsRootSibling(scopedSelector: string, scope: string): boolean {
-  if (scopedSelector.indexOf(scope) !== 0) {
+function targetsRootSibling(scopedSelector: string): boolean {
+  if (scopedSelector.indexOf(':scope') !== 0) {
     return false;
   }
-  const rest = scopedSelector.slice(scope.length).trim();
+  const rest = scopedSelector.slice(':scope'.length).trim();
   return rest.charAt(0) === '~' || rest.charAt(0) === '+';
 }
 
@@ -458,7 +489,7 @@ function processBlock(src: string, scope: string, warnings: string[], global: st
       if (!scoped) {
         continue;
       }
-      if (targetsRootSibling(scoped, scope)) {
+      if (targetsRootSibling(scoped)) {
         warnings.push(`Dropped selector "${raw.trim().slice(0, 40)}": siblings of the group root are outside the group`);
         continue;
       }

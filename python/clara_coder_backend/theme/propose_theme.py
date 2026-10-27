@@ -43,6 +43,14 @@ _MAX_TOKEN_VALUE = 400
 _MAX_GROUP_CSS = 20_000
 _MAX_SUMMARY = 600
 _MAX_MONACO_RULES = 200
+_SUMMARY_CLASSES_PER_GROUP = 24
+_MAX_UNKNOWN_CLASS_WARNINGS = 6
+
+# Style-rule preludes (not at-rules) and the class names in them, for unknown-class warnings.
+_CSS_COMMENT_RE = re.compile(r'/\*.*?\*/', re.DOTALL)
+_CSS_STRING_RE = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'')
+_CSS_RULE_PRELUDE_RE = re.compile(r'(?:^|[{};])\s*([^{};@\s][^{};]*)\{')
+_CSS_CLASS_RE = re.compile(r'\.(-?[A-Za-z_][\w-]*)')
 
 
 @lru_cache(maxsize=1)
@@ -67,8 +75,8 @@ def _registry_groups() -> dict[str, dict[str, Any]]:
     return out
 
 
-def theme_registry_summary(*, max_groups: int | None = None) -> str:
-    """Compact text for the tool description: token names by category and group ids by category."""
+def theme_registry_summary(*, max_groups: int | None = None, max_classes: int = _SUMMARY_CLASSES_PER_GROUP) -> str:
+    """Compact catalog text: token names by category, then one line per group with its class names."""
     reg = load_theme_registry()
     tokens_by_cat: dict[str, list[str]] = {}
     for t in reg.get('tokens', []):
@@ -81,13 +89,20 @@ def theme_registry_summary(*, max_groups: int | None = None) -> str:
     groups = list(reg.get('groups', []))
     if max_groups is not None:
         groups = groups[:max_groups]
-    group_ids = []
+    group_lines = []
     for g in groups:
         if not isinstance(g, dict):
             continue
         flag = ' (bg)' if g.get('supportsBackground') else ''
-        group_ids.append(f"{g.get('id')}{flag}")
-    return 'Tokens — ' + '; '.join(token_lines) + '. Groups — ' + ', '.join(group_ids) + '.'
+        classes = [c for c in g.get('classes', []) if isinstance(c, str)][:max_classes]
+        line = f"- {g.get('id')}{flag}"
+        if classes:
+            line += ': ' + ' '.join(f'.{c}' for c in classes)
+        group_lines.append(line)
+    return (
+        'Tokens — ' + '; '.join(token_lines) + '.\n'
+        'Groups (id: class names inside the group, outermost first) —\n' + '\n'.join(group_lines)
+    )
 
 
 def _slugify(value: str) -> str:
@@ -180,6 +195,7 @@ def _validate_groups(raw: Any, known_tokens: set[str], warnings: list[str]) -> d
             if len(css) > _MAX_GROUP_CSS:
                 warnings.append(f'{path}.css: truncated to {_MAX_GROUP_CSS} characters')
                 css = css[:_MAX_GROUP_CSS]
+            _css_notes(css, f'{path}.css', definition, warnings)
             override['css'] = css
         elif css is not None and not isinstance(css, str):
             warnings.append(f'{path}.css: must be a string (dropped)')
@@ -192,6 +208,35 @@ def _validate_groups(raw: Any, known_tokens: set[str], warnings: list[str]) -> d
         if override:
             out[group_id] = override
     return out
+
+
+def _css_notes(css: str, path: str, definition: dict[str, Any], warnings: list[str]) -> None:
+    """Warn (without changing ``css``) about rules the renderer will drop or that cannot match.
+
+    The renderer's sanitizer (``theme-css-scope.ts``) is the source of truth; these checks only
+    surface the common mistakes to the agent, which never sees the renderer's warnings.
+    """
+    text = _CSS_STRING_RE.sub('""', _CSS_COMMENT_RE.sub('', css))
+    if re.search(r'@import\b', text, re.IGNORECASE):
+        warnings.append(f'{path}: @import is removed')
+    if re.search(r'url\(\s*["\']?\s*(?:https?:|//|file:)', css, re.IGNORECASE):
+        warnings.append(f'{path}: remote url() is replaced with none; only data:image/ and data:font/ URIs load')
+    known = definition.get('classes')
+    if not isinstance(known, list) or not known:
+        return
+    known_set = set(known)
+    unknown: list[str] = []
+    for prelude in _CSS_RULE_PRELUDE_RE.findall(text):
+        for cls in _CSS_CLASS_RE.findall(prelude):
+            if cls not in known_set and cls not in unknown:
+                unknown.append(cls)
+    if unknown:
+        shown = ', '.join(f'.{c}' for c in unknown[:_MAX_UNKNOWN_CLASS_WARNINGS])
+        more = f' (+{len(unknown) - _MAX_UNKNOWN_CLASS_WARNINGS} more)' if len(unknown) > _MAX_UNKNOWN_CLASS_WARNINGS else ''
+        warnings.append(
+            f"{path}: {shown}{more} not found in this group's templates; those rules match nothing unless a "
+            "library renders the class inside the group (e.g. Monaco, xterm). Use the group's listed classes"
+        )
 
 
 def _monaco_hex(value: Any) -> str | None:
@@ -311,6 +356,8 @@ def validate_theme_proposal(raw: Any) -> tuple[dict[str, Any] | None, list[str]]
     monaco = _validate_monaco(raw.get('monaco'), mode, warnings)
     if raw.get('assets'):
         warnings.append('assets: dropped; images are added by the user in Settings → Themes')
+    if raw.get('css') is not None:
+        warnings.append('css: dropped; advanced CSS goes per group under groups.<id>.css')
 
     doc: dict[str, Any] = {
         'version': 1,
@@ -352,8 +399,9 @@ _TOOL_DESCRIPTION = describe(
     shape=(
         '`theme` = {name, mode: dark|light, description?, tokens: {"--t-…": cssValue}, groups?: {"<category>.<name>": '
         '{tokens?, css?, background?: {opacity 0–1, fit}}}, monaco?: {base, colors: {id: "#rrggbb"}, rules: [{token, '
-        'foreground: "rrggbb", fontStyle?}]}}; `summary` = 1–2 sentences for the card. Load the valid token names and '
-        "group ids with `activate_context('theme')` first"
+        'foreground: "rrggbb", fontStyle?}]}}; `summary` = 1–2 sentences for the card. Group `css` is plain CSS scoped '
+        'to that group: `.cls {…}` styles descendants, `& {…}` / `&:hover {…}` the group root; prefer tokens for '
+        "colors. Load token names, group ids and each group's class names with `activate_context('theme')` first"
     ),
 )
 
@@ -384,8 +432,10 @@ async def propose_theme_tool(theme: dict[str, Any] | str, summary: str = '') -> 
         'The user can preview, save, or dismiss it from the card in chat.'
     )
     if notes:
-        shown = notes[:5]
-        more = f' (+{len(notes) - 5} more)' if len(notes) > 5 else ''
+        # CSS notes first: they are the ones that explain "my styles did nothing".
+        ordered = sorted(notes, key=lambda n: '.css' not in n.split(':', 1)[0])
+        shown = ordered[:8]
+        more = f' (+{len(notes) - 8} more)' if len(notes) > 8 else ''
         summary_line += ' Dropped/adjusted: ' + '; '.join(shown) + more + '.'
     return summary_line
 

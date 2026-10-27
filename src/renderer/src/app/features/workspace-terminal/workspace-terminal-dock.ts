@@ -139,6 +139,8 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
   readonly agentCommandTabs = signal<AgentCommandTab[]>([]);
   readonly llamaTabs = signal<LlamaTerminalTab[]>([]);
   readonly activeTabId = signal<string | null>(null);
+  /** Agent command tabs opened while the dock was collapsed (or for another chat), newest last. */
+  readonly unseenAgentCommandTabIds = signal<readonly string[]>([]);
 
   /** Exposed for template bindings. */
   readonly problemsTabId = PROBLEMS_TAB_ID;
@@ -158,6 +160,19 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       return [];
     }
     return this.agentCommandTabs().filter((t) => t.conversationId === cid);
+  });
+
+  /** Unseen agent command tab ids for the active conversation (bar label badge). */
+  readonly unseenAgentCommandTabIdsForConversation = computed(() => {
+    const visible = new Set(this.agentCommandTabsForConversation().map((t) => t.id));
+    return this.unseenAgentCommandTabIds().filter((id) => visible.has(id));
+  });
+
+  readonly unseenAgentCommandCount = computed(() => this.unseenAgentCommandTabIdsForConversation().length);
+
+  readonly unseenAgentCommandLabel = computed(() => {
+    const n = this.unseenAgentCommandCount();
+    return `${n} new ${n === 1 ? 'command' : 'commands'}`;
   });
 
   readonly hasDockPanelContent = computed(
@@ -414,6 +429,17 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     });
 
     effect(() => {
+      // An open dock shows the active chat's command tabs in its strip, so they count as seen.
+      if (!this.expanded()) {
+        return;
+      }
+      const seen = this.unseenAgentCommandTabIdsForConversation();
+      if (seen.length > 0) {
+        untracked(() => this.forgetUnseenAgentCommandTabs(seen));
+      }
+    });
+
+    effect(() => {
       const ids = this.allManagedTabIds();
       const cur = this.activeTabId();
       if (cur && !ids.includes(cur)) {
@@ -500,7 +526,13 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
   toggleExpanded(): void {
     this.expanded.update((v) => !v);
     if (this.expanded()) {
-      if (this.ptyTabs().length === 0 && this.hasWorkspace()) {
+      const newestUnseen = this.unseenAgentCommandTabIdsForConversation().at(-1);
+      if (newestUnseen) {
+        if (this.ptyTabs().length === 0 && this.hasWorkspace()) {
+          this.addTab();
+        }
+        this.selectTab(newestUnseen);
+      } else if (this.ptyTabs().length === 0 && this.hasWorkspace()) {
         this.addTab();
       } else if (
         this.ptyTabs().length === 0
@@ -1192,14 +1224,21 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
         }
       });
     }
-    this.expanded.set(true);
-    if (this.conversationId().trim() === conversationId) {
-      this.activeTabId.set(tabId);
+    // Don't pop the dock open: a collapsed dock (or another chat's command) gets a badge instead.
+    if (!this.expanded() || this.conversationId().trim() !== conversationId) {
+      this.unseenAgentCommandTabIds.update((ids) => [...ids.filter((id) => id !== tabId), tabId]);
+      return;
     }
+    this.activeTabId.set(tabId);
     this.queueSafe(() => {
       this.observeActiveHostResize();
       this.fitActive();
     });
+  }
+
+  private forgetUnseenAgentCommandTabs(tabIds: readonly string[]): void {
+    const drop = new Set(tabIds);
+    this.unseenAgentCommandTabIds.update((ids) => ids.filter((id) => !drop.has(id)));
   }
 
   private writeAgentCommandChunk(tabId: string, data: string): void {
@@ -1251,6 +1290,7 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
     await this.electron.notifyBackgroundCommandTerminalClosed(tab.conversationId, tab.commandId);
     this.disposeXterm(tabId);
     this.agentCommandBacklogByTab.delete(tabId);
+    this.forgetUnseenAgentCommandTabs([tabId]);
     const remainingAll = this.agentCommandTabs().filter((t) => t.id !== tabId);
     this.agentCommandTabs.set(remainingAll);
     const remainingVisible = remainingAll.filter((t) => t.conversationId === this.conversationId().trim());

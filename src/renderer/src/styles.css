@@ -284,8 +284,9 @@ app-workspace-monaco .workspace-monaco-md-toggle__btn {
   border-radius: 50% !important;
 }
 
-/* Count badges on the Problems tab and file row. */
+/* Count badges on the Problems tab, Terminal bar and file row. */
 .workspace-terminal-dock__tab-badge,
+.workspace-terminal-dock__bar-badge,
 app-editor-problems .editor-problems__count {
   border-radius: var(--chat-radius-sm) !important;
 }

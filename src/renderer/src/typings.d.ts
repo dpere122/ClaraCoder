@@ -209,6 +209,10 @@ declare global {
     ) => void;
     abortMessage: (conversationId: string) => Promise<{ ok: boolean; error?: string }>;
     cancelBuildPlan: (conversationId: string, planId: string) => Promise<{ ok: boolean; error?: string }>;
+    /** A conversation's running turn and the approval cards it waits on (null when none runs). */
+    getLiveTurn: (
+      conversationId: string,
+    ) => Promise<{ userMessageId: string; waitingCards: { channel: string; payload: unknown }[] } | null>;
     getPendingStreamIdsForWorkspace: (workspaceId: string | null) => Promise<string[]>;
     abortPendingStreamsForWorkspace: (workspaceId: string | null) => Promise<{ aborted: string[] }>;
     agentContinue: (

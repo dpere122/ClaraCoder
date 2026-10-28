@@ -866,6 +866,33 @@ export class ElectronService {
     );
   }
 
+  /** `conversationId`'s running turn in main (a reloaded renderer rejoins it), or null. */
+  async getLiveTurn(
+    conversationId: string,
+  ): Promise<{ userMessageId: string; waitingCards: { channel: string; payload: unknown }[] } | null> {
+    return (await this.api?.getLiveTurn?.(conversationId)) ?? null;
+  }
+
+  /** Deliver an approval card a rejoined turn still waits on, as if it had just streamed in. */
+  replayWaitingCard(conversationId: string, card: { channel: string; payload: unknown }): void {
+    this.zone.run(() => {
+      switch (card.channel) {
+        case 'message-accept-command':
+          this.acceptCommandSubject.next({ conversationId, payload: card.payload as AcceptCommandPayload });
+          return;
+        case 'message-delete-confirm':
+          this.deleteConfirmSubject.next({ conversationId, payload: card.payload as DeleteConfirmPayload });
+          return;
+        case 'message-plan-confirm':
+          this.planConfirmSubject.next({ conversationId, payload: card.payload as PlanConfirmPayload });
+          return;
+        case 'message-agent-question':
+          this.agentQuestionSubject.next({ conversationId, payload: card.payload as AgentQuestionPayload });
+          return;
+      }
+    });
+  }
+
   getPendingStreamIdsForWorkspace(workspaceId: string | null): Promise<string[]> {
     return this.api?.getPendingStreamIdsForWorkspace(workspaceId) ?? Promise.resolve([]);
   }

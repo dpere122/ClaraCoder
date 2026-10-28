@@ -12,14 +12,19 @@ import { mainState } from '../../state';
 import { createSettingsWindow, notifySettingsRendererReady, parseSettingsWindowTab } from '../../windows/settings-window';
 import { getConversationMetaById } from '../../conversations-db';
 import { finalizeTurnEdits } from '../../turn-edits';
-import { dispatchParsedPayload, parseStreamPayload } from './chat-stream-payload';
+import type { ParsedAgentStreamPayload } from '../../../shared';
+import { dispatchParsedPayload, parseStreamPayload, type RendererSend } from './chat-stream-payload';
 import { rememberConversationRenderer } from './conversation-renderers';
 import {
   abortChatStream,
   beginChatStream,
   endChatStream,
+  forgetWaitingCard,
+  getLiveTurn,
   getPendingStreamIdsForWorkspace,
+  rememberWaitingCard,
   wasChatStreamSuperseded,
+  type WaitingCard,
 } from './chat-stream-state';
 import { workspacePathForWorkspaceId } from './conversation-timeline';
 
@@ -55,7 +60,7 @@ async function finalizeTurnEditsSafe(conversationId: string, turn: ChatTurnRef):
  * interrupted turn from the done of the turn it is showing now.
  */
 async function replyMessageDone(
-  event: Electron.IpcMainEvent,
+  send: RendererSend,
   conversationId: string,
   outcome: ChatStreamOutcome,
   turn: ChatTurnRef,
@@ -67,7 +72,23 @@ async function replyMessageDone(
     // settle the newer turn the renderer is now showing.
     return;
   }
-  event.reply('message-done', conversationId, outcome, editedFiles, turn.userMessageId);
+  send('message-done', conversationId, outcome, editedFiles, turn.userMessageId);
+}
+
+/** The approval card a stream payload carries (the turn blocks until it is answered), if any. */
+export function waitingCardOf(parsed: ParsedAgentStreamPayload): WaitingCard | null {
+  switch (parsed.type) {
+    case 'accept_command':
+      return { channel: 'message-accept-command', payload: parsed.acceptCommand };
+    case 'delete_confirm':
+      return { channel: 'message-delete-confirm', payload: parsed.deleteConfirm };
+    case 'plan_confirm':
+      return { channel: 'message-plan-confirm', payload: parsed.planConfirm };
+    case 'agent_question':
+      return { channel: 'message-agent-question', payload: parsed.agentQuestion };
+    default:
+      return null;
+  }
 }
 
 function workspaceNotesFromIpc(raw: unknown): string[] {
@@ -146,13 +167,14 @@ export function registerChatIpc(): void {
         return;
       }
 
-      // Its sub-agents' events (which outlive this stream) go back to this same renderer.
-      rememberConversationRenderer(conversationId, event);
-      const abortController = beginChatStream(conversationId, workspaceId ?? null);
+      // Its sub-agents' events (which outlive this stream) go back to this same renderer, and so
+      // does the stream itself, even after that renderer reloads.
+      const send = rememberConversationRenderer(conversationId, event);
       const turn: ChatTurnRef = {
         userMessageId: typeof userMessageId === 'string' ? userMessageId.trim() : '',
         workspaceId: workspaceId ?? null,
       };
+      const abortController = beginChatStream(conversationId, workspaceId ?? null, turn.userMessageId);
 
       const body: Record<string, unknown> = {
         session_id: conversationId,
@@ -186,10 +208,15 @@ export function registerChatIpc(): void {
 
       // Sub-agents' own events arrive on their channel (`subagent-events.ts`), not on this stream.
       const forward = (payload: string): void => {
-        dispatchParsedPayload(event, conversationId, parseStreamPayload(payload));
+        const parsed = parseStreamPayload(payload);
+        const card = waitingCardOf(parsed);
+        if (card) {
+          rememberWaitingCard(conversationId, card);
+        }
+        dispatchParsedPayload(send, conversationId, parsed);
       };
       const completeTurn = (): Promise<void> =>
-        replyMessageDone(event, conversationId, 'completed', turn, abortController);
+        replyMessageDone(send, conversationId, 'completed', turn, abortController);
 
       try {
         const res = await pythonSsePost('/chat/stream', body, abortController.signal);
@@ -241,19 +268,19 @@ export function registerChatIpc(): void {
             return;
           }
           console.log('Stream aborted for', conversationId);
-          await replyMessageDone(event, conversationId, 'aborted', turn, abortController);
+          await replyMessageDone(send, conversationId, 'aborted', turn, abortController);
           return;
         }
         console.error('Failed to reach Python server:', err);
-        event.reply('message-status', conversationId, {
+        send('message-status', conversationId, {
           id: 'fatal',
           label: 'Backend request failed',
           detail: 'Clara could not reach the LangChain backend.',
           state: 'error',
           source: 'agent',
         } as LlmStatusPayload);
-        event.reply('message-chunk', conversationId, 'Error: could not reach the AI backend.');
-        await replyMessageDone(event, conversationId, 'error', turn, abortController);
+        send('message-chunk', conversationId, 'Error: could not reach the AI backend.');
+        await replyMessageDone(send, conversationId, 'error', turn, abortController);
       } finally {
         endChatStream(conversationId, abortController);
       }
@@ -296,6 +323,9 @@ export function registerChatIpc(): void {
         if (!res.ok) {
           const text = await res.text();
           return { ok: false, error: text || `HTTP ${res.status}` };
+        }
+        for (const requestId of [deleteRequestId, acceptCommandRequestId, planConfirmRequestId]) {
+          forgetWaitingCard(conversationId, requestId);
         }
         const data = (await res.json()) as { ok?: boolean; batchComplete?: boolean; detail?: string };
         if (data.ok === false && data.detail) {
@@ -382,6 +412,7 @@ export function registerChatIpc(): void {
           const text = await res.text();
           return { ok: false, error: text || `HTTP ${res.status}` };
         }
+        forgetWaitingCard(conversationId, requestId);
         const data = (await res.json()) as { ok?: boolean };
         return { ok: data.ok !== false };
       } catch (err) {
@@ -413,6 +444,15 @@ export function registerChatIpc(): void {
       console.error('build-plan-cancel failed:', err);
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
+  });
+
+  ipcMain.handle('get-live-turn', (event, conversationId: string) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return null;
+    }
+    return typeof conversationId === 'string' ? getLiveTurn(conversationId) : null;
   });
 
   ipcMain.handle('get-pending-stream-ids-for-workspace', (event, workspaceId: string | null) => {

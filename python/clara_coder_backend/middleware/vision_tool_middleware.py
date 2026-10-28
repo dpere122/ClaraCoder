@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
@@ -91,13 +92,59 @@ def _payload_from_tool_args(
     return payload
 
 
+def tool_responses_before_interjections(messages: list[AnyMessage]) -> list[AnyMessage]:
+    """Move each batch's ToolMessages ahead of HumanMessages that landed between them.
+
+    Every tool call's result lands in tool-call order, so a parallel batch with an image read
+    yields ``tool, vision human, tool``. Providers (Moonshot, OpenAI) require all of an
+    assistant message's tool responses to follow it directly and reject the rest as unanswered.
+    """
+    out: list[AnyMessage] = []
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        out.append(msg)
+        i += 1
+        if not isinstance(msg, AIMessage):
+            continue
+        pending = {str(tc.get('id') or '') for tc in msg.tool_calls or []}
+        if not pending:
+            continue
+        responses: list[AnyMessage] = []
+        interjections: list[AnyMessage] = []
+        while i < len(messages) and pending and isinstance(messages[i], (ToolMessage, HumanMessage)):
+            nxt = messages[i]
+            if isinstance(nxt, ToolMessage):
+                responses.append(nxt)
+                pending.discard(str(nxt.tool_call_id or ''))
+            else:
+                interjections.append(nxt)
+            i += 1
+        out.extend(responses)
+        out.extend(interjections)
+    return out
+
+
 class VisionImageInjectionMiddleware(AgentMiddleware):
     """After ``read_workspace_image``, append a multimodal HumanMessage with the loaded image.
 
     Sync ``@tool`` functions run via ``run_in_executor``, so a ContextVar set inside the tool
     is not visible here. The tool returns ``(summary, VisionImagePayload)`` as a ToolMessage
     artifact; we read that (or reload from args) and inject the image into the next model turn.
+    Before each model call the batch is reordered so the images follow every tool response
+    (this also repairs checkpoints saved with the interleaved order).
     """
+
+    async def awrap_model_call(
+        self,
+        request: Any,
+        handler: Callable[[Any], Awaitable[Any]],
+    ) -> Any:
+        messages = list(request.messages)
+        ordered = tool_responses_before_interjections(messages)
+        if all(a is b for a, b in zip(ordered, messages)):
+            return await handler(request)
+        return await handler(request.override(messages=ordered))
 
     async def awrap_tool_call(
         self,

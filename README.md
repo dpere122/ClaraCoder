@@ -343,4 +343,6 @@ On NVIDIA GPUs, Kokoro uses CUDA via PyTorch. If TTS is slow or falls back to CP
 | `scripts/`                 | Build, bundling, native-rebuild, and theme-registry scripts (`setup-python.mjs` creates `.venv` and installs PyTorch + deps + Kokoro) |
 | `tests/branch-smoke/`      | Local, gitignored smoke scripts for a branch ([README](tests/branch-smoke/README.md)) |
 
+## License
 
+ClaraCoder is licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for attribution.

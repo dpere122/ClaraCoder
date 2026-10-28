@@ -41,6 +41,7 @@
   "type": "commonjs",
   "electronmon": {
     "patterns": [
+      "!python/**",
       "!**/__pycache__/**",
       "!**/*.pyc",
       "!**/*.pyo"

@@ -125,6 +125,7 @@ import {
   isPinnedLlamaCppLocalProviderId,
   isPinnedLlamaServerUrlProviderId,
   isPinnedOpenRouterProviderId,
+  OPENROUTER_DEFAULT_BASE_URL,
   type ManagedLlamaCacheType,
   type ManagedLlamaFlashAttn,
   type ManagedLlamaModelSource,
@@ -1195,6 +1196,24 @@ export class SettingsStore {
       contextWindowTokens,
     });
     this.markSettingsDirty();
+  }
+
+  /**
+   * Commit the API key and base URL drafted on the OpenRouter card. Unlike the other source fields
+   * these are only written on Save, which persists right away and then reloads the catalog.
+   */
+  async saveOpenRouterConnection(changes: { apiKey: string; baseUrl: string }): Promise<void> {
+    const p = this.selectedProvider();
+    if (!p || p.provider !== 'openrouter') {
+      return;
+    }
+    this.applyProviderPatch(p.id, {
+      apiKey: SecretValue.of(changes.apiKey.trim()),
+      baseUrl: changes.baseUrl.trim() || OPENROUTER_DEFAULT_BASE_URL,
+    });
+    this.markSettingsDirty();
+    await this.applySettings();
+    await this.refreshOpenRouterModels();
   }
 
   isPinnedSource(providerId: string): boolean {

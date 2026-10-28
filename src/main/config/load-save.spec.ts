@@ -451,7 +451,7 @@ describe('migrateConfig openrouter pin', () => {
     }
   });
 
-  it('keeps a customized OpenRouter row instead of rewriting it to OpenAI', () => {
+  it('keeps a customized OpenRouter row instead of rewriting it to OpenAI, but restores its fixed name', () => {
     const cfg = sampleConfig();
     const row = cfg.llmProviders.find((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID);
     expect(row).toBeDefined();
@@ -462,7 +462,7 @@ describe('migrateConfig openrouter pin', () => {
     const migrated = migrateConfig(cfg);
     const openrouter = migrated.llmProviders.find((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID);
     expect(openrouter?.provider).toBe('openrouter');
-    expect(openrouter?.name).toBe('My Router');
+    expect(openrouter?.name).toBe('OpenRouter');
     expect(openrouter?.baseUrl).toBe('https://openrouter.ai/api');
     expect(openrouter?.models[0]?.model).toBe('anthropic/claude-sonnet-4.5');
     expect(migrated.activeLlmModelId).toBe(active);

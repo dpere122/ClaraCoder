@@ -27,6 +27,7 @@ import {
   PINNED_LM_STUDIO_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
   PINNED_OPENROUTER_PROVIDER_ID,
+  OPENROUTER_DEFAULT_BASE_URL,
   TTS_SPEECH_SPEED_DEFAULT,
 } from '../../shared';
 import { SecretValue } from '../../shared/types/app-config';
@@ -158,7 +159,7 @@ export function createPinnedOpenRouterProvider(): LlmProviderConfig {
     id: PINNED_OPENROUTER_PROVIDER_ID,
     name: 'OpenRouter',
     provider: 'openrouter',
-    baseUrl: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+    baseUrl: process.env.OPENROUTER_BASE_URL || OPENROUTER_DEFAULT_BASE_URL,
     apiKey: SecretValue.of(process.env.OPENROUTER_API_KEY || ''),
     models: [defaultOpenRouterModelProfile()],
   };

@@ -31,6 +31,7 @@ import {
   isPinnedOpenRouterProviderId,
   isPinnedLlmSourceId,
   managedLlamaSourceDisplayName,
+  openRouterSourceLabel,
 } from '@shared/index';
 import { filter, merge } from 'rxjs';
 import { ElectronService } from '../../../core/electron.service';
@@ -250,8 +251,11 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     );
   }
 
-  /** Display name for a source option in the dropdown (model name for llama sources, else stored name). */
+  /** Display name for a source option in the dropdown (model name for llama and OpenRouter sources, else stored name). */
   protected sourceLabel(provider: LlmProviderConfig): string {
+    if (provider.provider === 'openrouter') {
+      return openRouterSourceLabel(provider);
+    }
     return managedLlamaSourceDisplayName(provider, this.inventory());
   }
 

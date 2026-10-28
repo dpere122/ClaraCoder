@@ -744,13 +744,17 @@ def _on_chat_model_stream(
         state.deferred_agent_text += delta
     if not emit_model_token_sse:
         return preview_lines
-    out: list[str] = list(preview_lines)
-    if main_ok:
-        # Stream primary live; tool steps clear it at ``on_chat_model_end``.
-        out.append(model_chunk_sse_line(delta, stream_tag))
+    # One provider chunk can carry the tail of the thought / prose and the first tool call
+    # delta. Text the model wrote first must reach the timeline first; a preview row ahead of
+    # it splits the sentence around the tool card.
+    out: list[str] = []
     if reasoning_ok:
         out.append(model_chunk_sse_line(reason_delta, REASONING_AUXILIARY_STREAM_TAG))
         state.reasoning_emitted_this_step = True
+    if main_ok:
+        # Stream primary live; tool steps clear it at ``on_chat_model_end``.
+        out.append(model_chunk_sse_line(delta, stream_tag))
+    out.extend(preview_lines)
     return out
 
 

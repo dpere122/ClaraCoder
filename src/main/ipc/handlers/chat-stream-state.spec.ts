@@ -12,6 +12,9 @@ import {
   abortChatStream,
   beginChatStream,
   endChatStream,
+  forgetWaitingCard,
+  getLiveTurn,
+  rememberWaitingCard,
   wasChatStreamSuperseded,
 } from './chat-stream-state';
 
@@ -76,5 +79,44 @@ describe('wasChatStreamSuperseded', () => {
 
     expect(controller.signal.aborted).toBe(true);
     expect(wasChatStreamSuperseded(controller)).toBe(false);
+  });
+});
+
+describe('getLiveTurn', () => {
+  const card = (requestId: string) => ({ channel: 'message-accept-command', payload: { requestId } });
+
+  it('reports the turn and the cards it still waits on, so a reloaded renderer can rejoin', () => {
+    const controller = beginChatStream('conv-live', null, 'user-msg-1');
+    rememberWaitingCard('conv-live', card('req-1'));
+    rememberWaitingCard('conv-live', card('req-2'));
+    forgetWaitingCard('conv-live', 'req-1');
+
+    expect(getLiveTurn('conv-live')).toEqual({ userMessageId: 'user-msg-1', waitingCards: [card('req-2')] });
+    endChatStream('conv-live', controller);
+  });
+
+  it('is null once the stream ends or is aborted', async () => {
+    const controller = beginChatStream('conv-ended', null, 'u');
+    rememberWaitingCard('conv-ended', card('req'));
+    endChatStream('conv-ended', controller);
+    expect(getLiveTurn('conv-ended')).toBeNull();
+
+    beginChatStream('conv-aborted', null, 'u');
+    await abortChatStream('conv-aborted');
+    expect(getLiveTurn('conv-aborted')).toBeNull();
+  });
+
+  it('starts a replacement stream without the cards of the turn it replaced', () => {
+    beginChatStream('conv-replaced', null, 'old');
+    rememberWaitingCard('conv-replaced', card('req-old'));
+    const second = beginChatStream('conv-replaced', null, 'new');
+
+    expect(getLiveTurn('conv-replaced')).toEqual({ userMessageId: 'new', waitingCards: [] });
+    endChatStream('conv-replaced', second);
+  });
+
+  it('ignores cards for a conversation with no live turn', () => {
+    rememberWaitingCard('conv-none', card('req'));
+    expect(getLiveTurn('conv-none')).toBeNull();
   });
 });

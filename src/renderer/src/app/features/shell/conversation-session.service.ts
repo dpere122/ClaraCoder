@@ -506,6 +506,27 @@ export class ConversationSessionService {
     });
   }
 
+  /**
+   * A turn of `conversationId` can still run in main while this renderer does not know it (the
+   * renderer reloaded mid-turn). Mark it live again so its stream, its done and its approval
+   * cards land in this renderer, and return it. Text streamed before the reload is not replayed.
+   */
+  private async rejoinLiveTurn(
+    conversationId: string,
+  ): Promise<{ userMessageId: string; waitingCards: { channel: string; payload: unknown }[] } | null> {
+    if (this.pendingIds().has(conversationId)) {
+      return null;
+    }
+    const live = await this.electron.getLiveTurn(conversationId);
+    if (!live || this.pendingIds().has(conversationId)) {
+      return null;
+    }
+    this.addPending(conversationId);
+    this.generationRate.startTurn(conversationId);
+    this.beginLiveTurn(conversationId, live.userMessageId || undefined);
+    return live;
+  }
+
   /** Remember the user message id of `conversationId`'s live turn (matched against its done). */
   beginLiveTurn(conversationId: string, userMessageId: string | undefined): void {
     if (userMessageId) {
@@ -1052,6 +1073,7 @@ export class ConversationSessionService {
       await queuedWrite;
     }
     const isSubagent = !!this.conversations().find((c) => c.id === id)?.parentConversationId;
+    const rejoined = isSubagent ? null : await this.rejoinLiveTurn(id);
     const skipPython =
       isSubagent ||
       (loadOpts?.skipPythonResync !== undefined ? loadOpts.skipPythonResync : this.pendingIds().has(id));
@@ -1084,6 +1106,16 @@ export class ConversationSessionService {
           this.pendingSave = true;
         }
         this.autoSave();
+      }
+    }
+    if (rejoined) {
+      // Cards the transcript did not save before the reload; saved ones stayed pending above.
+      const shown = new Set(conv.messages.map((m) => (m as { payload?: { requestId?: string } }).payload?.requestId));
+      for (const card of rejoined.waitingCards) {
+        const requestId = (card.payload as { requestId?: string } | null)?.requestId;
+        if (requestId && !shown.has(requestId)) {
+          this.electron.replayWaitingCard(conv.id, card);
+        }
       }
     }
     // After transcript + stream signals match this conversation, so load hooks do not

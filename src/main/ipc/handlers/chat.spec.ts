@@ -1,9 +1,11 @@
+import { EventEmitter } from 'events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ConversationFile, ConversationMeta } from '../../../shared';
 
 const mocks = vi.hoisted(() => ({
   onHandlers: new Map<string, (...args: unknown[]) => unknown>(),
+  handleHandlers: new Map<string, (...args: unknown[]) => unknown>(),
   pythonSsePost: vi.fn(),
   pythonControlFetch: vi.fn(async () => ({ ok: true, json: async () => ({}) })),
   finalizeTurnEdits: vi.fn(async () => [] as unknown[]),
@@ -15,7 +17,9 @@ vi.mock('electron', () => ({
     on: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
       mocks.onHandlers.set(channel, handler);
     }),
-    handle: vi.fn(),
+    handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
+      mocks.handleHandlers.set(channel, handler);
+    }),
   },
 }));
 
@@ -60,7 +64,12 @@ vi.mock('../../conversations-db', () => ({
 }));
 
 import { registerChatIpc } from './chat';
-import { abortChatStream } from './chat-stream-state';
+import { abortChatStream, getLiveTurn } from './chat-stream-state';
+
+/** The turn renderer's `webContents` (reloads emit `did-navigate`). */
+function fakeSender() {
+  return Object.assign(new EventEmitter(), { isDestroyed: () => false, send: vi.fn() });
+}
 
 const PARENT = 'parent-conversation-1';
 const CHILD = 'child-abc12345';
@@ -104,7 +113,7 @@ function streamResponse(lines: string[], signal: AbortSignal, open = false) {
 function sendMessage(reply: ReturnType<typeof vi.fn>, conversationId = PARENT, userMessageId = 'turn-1') {
   const handler = mocks.onHandlers.get('message')!;
   return handler(
-    { reply, sender: {} },
+    { reply, sender: fakeSender() },
     conversationId,
     'hello',
     true,
@@ -160,7 +169,7 @@ describe('chat message stream', () => {
     );
     const handler = mocks.onHandlers.get('message')!;
     await (handler(
-      { reply: vi.fn(), sender: {} },
+      { reply: vi.fn(), sender: fakeSender() },
       PARENT,
       'Results from sub-agents: a',
       true,
@@ -229,6 +238,46 @@ describe('chat message stream', () => {
     expect(reply.mock.calls.filter((c) => c[0] === 'message-done')).toEqual([]);
     await abortChatStream(PARENT);
     await second;
+  });
+
+  it('keeps the approval card the turn waits on until it is answered, for a renderer that reloads', async () => {
+    const acceptCommand = { version: 1, requestId: 'req-1', kind: 'run_command', title: 'Run npm test', commandText: 'npm test' };
+    mocks.pythonSsePost.mockImplementation(async (_path: string, _body: unknown, signal: AbortSignal) =>
+      streamResponse([sse({ type: 'accept_command', acceptCommand })], signal, true),
+    );
+    const reply = vi.fn();
+    const running = sendMessage(reply, PARENT, 'turn-7');
+    await vi.waitFor(() => expect(reply).toHaveBeenCalledWith('message-accept-command', PARENT, acceptCommand));
+
+    expect(getLiveTurn(PARENT)).toEqual({
+      userMessageId: 'turn-7',
+      waitingCards: [{ channel: 'message-accept-command', payload: acceptCommand }],
+    });
+    mocks.pythonControlFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) });
+    await mocks.handleHandlers.get('agent-continue')!({}, PARENT, '', undefined, '', 'confirm', 'req-1');
+    expect(getLiveTurn(PARENT)?.waitingCards).toEqual([]);
+
+    await abortChatStream(PARENT);
+    await running;
+    expect(getLiveTurn(PARENT)).toBeNull();
+  });
+
+  it('sends the rest of the turn to the reloaded page, where event.reply no longer arrives', async () => {
+    mocks.pythonSsePost.mockImplementation(async (_path: string, _body: unknown, signal: AbortSignal) =>
+      streamResponse([sse({ type: 'chunk', delta: 'before' })], signal, true),
+    );
+    const reply = vi.fn();
+    const sender = fakeSender();
+    const handler = mocks.onHandlers.get('message')!;
+    const running = handler({ reply, sender }, PARENT, 'hi', true, false, undefined, 'ws-1', 'agent', false, 'kokoro', 'turn-8', false, []) as Promise<void>;
+    await vi.waitFor(() => expect(reply).toHaveBeenCalledWith('message-chunk', PARENT, 'before', undefined));
+
+    sender.emit('did-navigate');
+    await abortChatStream(PARENT);
+    await running;
+
+    expect(sender.send).toHaveBeenCalledWith('message-done', PARENT, 'aborted', [], 'turn-8');
+    expect(reply).not.toHaveBeenCalledWith('message-done', expect.anything(), expect.anything(), expect.anything(), expect.anything());
   });
 
   it('refuses a turn for a sub-agent conversation (only the main agent prompts it)', async () => {

@@ -156,6 +156,7 @@ export const createChatApi = (ipcRenderer: PreloadIpc) => ({
   abortMessage: (conversationId: string) => ipcRenderer.invoke('abort-message', conversationId),
   cancelBuildPlan: (conversationId: string, planId: string) =>
     ipcRenderer.invoke('build-plan-cancel', conversationId, planId),
+  getLiveTurn: (conversationId: string) => ipcRenderer.invoke('get-live-turn', conversationId),
   getPendingStreamIdsForWorkspace: (workspaceId: string | null) =>
     ipcRenderer.invoke('get-pending-stream-ids-for-workspace', workspaceId),
   abortPendingStreamsForWorkspace: (workspaceId: string | null) =>

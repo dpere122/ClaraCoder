@@ -62,6 +62,7 @@ function mockElectron(overrides: Partial<{
   newConversation: ElectronService['newConversation'];
   readConversationFromDisk: ElectronService['readConversationFromDisk'];
   getConversations: ElectronService['getConversations'];
+  getLiveTurn: ElectronService['getLiveTurn'];
 }> = {}) {
   const doneSubject = new Subject<DoneEvent>();
   const chunkSubject = new Subject<{ conversationId: string; delta: string; streamTag?: string }>();
@@ -152,6 +153,12 @@ function mockElectron(overrides: Partial<{
     getConversations: overrides.getConversations ?? (async () => [convMeta]),
     maybeAutoTitleConversation: async () => ({ ok: false as const, reason: 'not_due' as const }),
     abortMessage,
+    getLiveTurn: overrides.getLiveTurn ?? (async () => null),
+    replayWaitingCard: vi.fn((conversationId: string, card: { channel: string; payload: unknown }) => {
+      if (card.channel === 'message-accept-command') {
+        acceptCommandSubject.next({ conversationId, payload: card.payload as AcceptCommandPayload });
+      }
+    }),
   } as unknown as ElectronService;
   return {
     electron,
@@ -231,6 +238,87 @@ describe('ConversationSessionService', () => {
       saveConversation,
     };
   }
+
+  const waitingCard = {
+    version: 1 as const,
+    requestId: 'req-9',
+    kind: 'run_command',
+    title: 'Run npm test',
+    message: '',
+    confirmLabel: 'Run',
+    cancelLabel: 'Cancel',
+    commandText: 'npm test',
+    details: [],
+  };
+
+  it('rejoins a turn still running in main after a reload: keeps its cards and settles on its done', async () => {
+    const loadConversation = vi.fn(async () => ({
+      id: 'test-conv',
+      title: 'Test',
+      createdAt: '2026-10-20T00:00:00.000Z',
+      updatedAt: '2026-10-20T00:00:00.000Z',
+      workspaceId: 'ws-1',
+      customTitle: false,
+      themeId: 'clara-dark',
+      messages: [
+        { role: 'user' as const, text: 'remodel the shovel', id: 'turn-1' },
+        {
+          role: 'diff' as const,
+          payload: { version: 1 as const, relativePath: 'a.ts', rows: [], language: 'typescript', fullNewContent: '', truncated: false },
+          reviewStatus: 'pending' as const,
+        },
+      ],
+    }));
+    const { service, doneSubject } = setup({
+      loadConversation,
+      getLiveTurn: async () => ({
+        userMessageId: 'turn-1',
+        waitingCards: [{ channel: 'message-accept-command', payload: waitingCard }],
+      }),
+    });
+
+    await service.loadConversation('test-conv', 'ws-1');
+
+    expect(service.pendingIds().has('test-conv')).toBe(true);
+    // Python is mid-turn: a resync would stop it.
+    expect(loadConversation).toHaveBeenCalledWith('test-conv', 'ws-1', { skipPythonResync: true });
+    // The saved card is still waiting, not abandoned as stale.
+    expect(service.messages().find((m) => m.role === 'diff')).toMatchObject({ reviewStatus: 'pending' });
+    // The card that was never saved comes back.
+    expect(service.messages().find((m) => m.role === 'accept_command')).toMatchObject({
+      reviewStatus: 'pending',
+      payload: { requestId: 'req-9' },
+    });
+
+    doneSubject.next({ conversationId: 'test-conv', outcome: 'completed', userMessageId: 'turn-1' });
+    expect(service.pendingIds().has('test-conv')).toBe(false);
+  });
+
+  it('does not show a rejoined turn\'s card twice when the transcript already saved it', async () => {
+    const { service } = setup({
+      loadConversation: async () => ({
+        id: 'test-conv',
+        title: 'Test',
+        createdAt: '2026-10-20T00:00:00.000Z',
+        updatedAt: '2026-10-20T00:00:00.000Z',
+        workspaceId: 'ws-1',
+        customTitle: false,
+        themeId: 'clara-dark',
+        messages: [
+          { role: 'user' as const, text: 'go', id: 'turn-1' },
+          { role: 'accept_command' as const, payload: waitingCard, reviewStatus: 'pending' as const },
+        ],
+      }),
+      getLiveTurn: async () => ({
+        userMessageId: 'turn-1',
+        waitingCards: [{ channel: 'message-accept-command', payload: waitingCard }],
+      }),
+    });
+
+    await service.loadConversation('test-conv', 'ws-1');
+
+    expect(service.messages().filter((m) => m.role === 'accept_command')).toHaveLength(1);
+  });
 
   it('abandons stale HITL on load when not streaming and persists cancelled status', async () => {
     const { service, saveConversation } = setup();

@@ -17,25 +17,48 @@ export function sendToMainWindow(channel: string, ...args: unknown[]): void {
   }
 }
 
-/** `event.reply`, falling back to the main window once that frame is gone (e.g. the renderer reloaded). */
-function replyOrMainWindow(event: Electron.IpcMainEvent): RendererSend {
+/** Main-frame page loads per renderer, counted from the first turn it sent. */
+const pageLoads = new WeakMap<Electron.WebContents, number>();
+
+function pageLoadCount(wc: Electron.WebContents): number {
+  if (!pageLoads.has(wc)) {
+    pageLoads.set(wc, 0);
+    wc.on('did-navigate', () => pageLoads.set(wc, (pageLoads.get(wc) ?? 0) + 1));
+  }
+  return pageLoads.get(wc) ?? 0;
+}
+
+/**
+ * `event.reply` while the page that sent the turn is still loaded. After a reload `event.reply`
+ * is silently dropped (the frame object survives, so it cannot tell), so the renderer's current
+ * page gets `webContents.send` instead; it rejoins the turn when it opens the conversation. Once
+ * the renderer is gone, the main window.
+ */
+export function replyToTurnRenderer(event: Electron.IpcMainEvent): RendererSend {
+  const wc = event.sender;
+  const loadAtTurnStart = wc && !wc.isDestroyed() ? pageLoadCount(wc) : 0;
   return (channel, ...args) => {
-    const frame = event.senderFrame as { detached?: boolean } | null | undefined;
-    if (!frame || frame.detached || event.sender?.isDestroyed?.()) {
+    if (!wc || wc.isDestroyed()) {
       sendToMainWindow(channel, ...args);
+      return;
+    }
+    if (pageLoadCount(wc) !== loadAtTurnStart) {
+      wc.send(channel, ...args);
       return;
     }
     try {
       event.reply(channel, ...args);
     } catch {
-      sendToMainWindow(channel, ...args);
+      wc.send(channel, ...args);
     }
   };
 }
 
-/** Remember the renderer of a chat turn (called for every `message` IPC). */
-export function rememberConversationRenderer(conversationId: string, event: Electron.IpcMainEvent): void {
-  renderers.set(conversationId, replyOrMainWindow(event));
+/** Remember the renderer of a chat turn (called for every `message` IPC); returns its send. */
+export function rememberConversationRenderer(conversationId: string, event: Electron.IpcMainEvent): RendererSend {
+  const send = replyToTurnRenderer(event);
+  renderers.set(conversationId, send);
+  return send;
 }
 
 /** Where to deliver events about `conversationId`: its last turn's renderer, else the main window. */

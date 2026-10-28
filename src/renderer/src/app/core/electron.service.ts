@@ -490,7 +490,9 @@ export class ElectronService {
   /**
    * Deliver queued chunks now instead of on the next frame. Events that settle or reshape a turn
    * (done, final text, clear / promote primary, sub-agent start) are not batched, so they flush
-   * first: otherwise a turn's last chunks would land after it ended.
+   * first: otherwise a turn's last chunks would land after it ended. Tool status rows and HITL
+   * prompts flush too: a row that overtook text sent before it would split a sentence around
+   * the tool card (`I` | card | `’ll read it`, or a lone `.` after the card).
    */
   flushPendingStreamBatch(): void {
     if (this.streamBatchRaf == null) {
@@ -651,6 +653,7 @@ export class ElectronService {
       );
     });
     this.api?.onMessageStatus((_event, conversationId, status) => {
+      this.flushPendingStreamBatch();
       this.zone.run(() => this.llmStatusSubject.next({ conversationId, status }));
     });
     this.api?.onMessageFinalText?.((_event, conversationId, text) => {
@@ -666,9 +669,11 @@ export class ElectronService {
       this.zone.run(() => this.promotePrimaryToNudgeSubject.next({ conversationId }));
     });
     this.api?.onMessageAcceptCommand?.((_event, conversationId, payload) => {
+      this.flushPendingStreamBatch();
       this.zone.run(() => this.acceptCommandSubject.next({ conversationId, payload }));
     });
     this.api?.onMessageDeleteConfirm?.((_event, conversationId, payload) => {
+      this.flushPendingStreamBatch();
       this.zone.run(() => this.deleteConfirmSubject.next({ conversationId, payload }));
     });
     this.api?.onMessagePlannerProgress?.((_event, conversationId, planner) => {
@@ -701,11 +706,13 @@ export class ElectronService {
       );
     });
     this.api?.onMessagePlanConfirm?.((_event, conversationId, payload) => {
+      this.flushPendingStreamBatch();
       this.zone.run(() =>
         this.planConfirmSubject.next({ conversationId, payload: payload as PlanConfirmPayload }),
       );
     });
     this.api?.onMessageAgentQuestion?.((_event, conversationId, payload) => {
+      this.flushPendingStreamBatch();
       this.zone.run(() =>
         this.agentQuestionSubject.next({ conversationId, payload: payload as AgentQuestionPayload }),
       );
@@ -714,6 +721,7 @@ export class ElectronService {
       if (!isThemeProposalPayload(payload)) {
         return;
       }
+      this.flushPendingStreamBatch();
       this.zone.run(() => this.themeProposalSubject.next({ conversationId, payload }));
     });
     this.api?.onConfigUpdated((_event, config) => {
@@ -856,6 +864,33 @@ export class ElectronService {
       this.api?.cancelBuildPlan(conversationId, planId) ??
       Promise.resolve({ ok: false, error: 'API not available' })
     );
+  }
+
+  /** `conversationId`'s running turn in main (a reloaded renderer rejoins it), or null. */
+  async getLiveTurn(
+    conversationId: string,
+  ): Promise<{ userMessageId: string; waitingCards: { channel: string; payload: unknown }[] } | null> {
+    return (await this.api?.getLiveTurn?.(conversationId)) ?? null;
+  }
+
+  /** Deliver an approval card a rejoined turn still waits on, as if it had just streamed in. */
+  replayWaitingCard(conversationId: string, card: { channel: string; payload: unknown }): void {
+    this.zone.run(() => {
+      switch (card.channel) {
+        case 'message-accept-command':
+          this.acceptCommandSubject.next({ conversationId, payload: card.payload as AcceptCommandPayload });
+          return;
+        case 'message-delete-confirm':
+          this.deleteConfirmSubject.next({ conversationId, payload: card.payload as DeleteConfirmPayload });
+          return;
+        case 'message-plan-confirm':
+          this.planConfirmSubject.next({ conversationId, payload: card.payload as PlanConfirmPayload });
+          return;
+        case 'message-agent-question':
+          this.agentQuestionSubject.next({ conversationId, payload: card.payload as AgentQuestionPayload });
+          return;
+      }
+    });
   }
 
   getPendingStreamIdsForWorkspace(workspaceId: string | null): Promise<string[]> {

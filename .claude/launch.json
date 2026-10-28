@@ -5,7 +5,8 @@
       "name": "clara-dev-bridge",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev:bridge"],
-      "port": 4200
+      "port": 4200,
+      "url": "http://127.0.0.1:4200"
     },
     {
       "name": "spinner-preview",

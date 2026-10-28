@@ -37,7 +37,7 @@
   "keywords": [],
   "author": "Clara Coder <dev@clara.coder>",
   "desktopName": "clara-coder",
-  "license": "ISC",
+  "license": "Apache-2.0",
   "type": "commonjs",
   "electronmon": {
     "patterns": [

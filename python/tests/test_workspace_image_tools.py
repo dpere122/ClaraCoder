@@ -5,12 +5,15 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
 from PIL import Image
 
 from clara_coder_backend.llm.model_tuning import combined_model_prompt_suffix, is_qwen35_vision_model
-from clara_coder_backend.middleware.vision_tool_middleware import VisionImageInjectionMiddleware
+from clara_coder_backend.middleware.vision_tool_middleware import (
+    VisionImageInjectionMiddleware,
+    tool_responses_before_interjections,
+)
 from clara_coder_backend.session.state import current_session_id, get_session
 from clara_coder_backend.tools.workspace_image import (
     READ_WORKSPACE_IMAGE_NAME,
@@ -204,6 +207,77 @@ def test_vision_middleware_reloads_from_args_when_artifact_missing(workspace_ses
     assert isinstance(vision.content, list)
     assert vision.content[1]['type'] == 'image_url'
     assert 'Focus: icons' in str(vision.content[0]['text'])
+
+
+def _parallel_image_batch() -> list:
+    """History after a parallel batch: each image read appends its vision HumanMessage in order."""
+    return [
+        HumanMessage(content='check the textures'),
+        AIMessage(
+            content='',
+            tool_calls=[
+                {'name': READ_WORKSPACE_IMAGE_NAME, 'args': {'relative_path': 'a.png'}, 'id': 'img:11'},
+                {'name': READ_WORKSPACE_IMAGE_NAME, 'args': {'relative_path': 'b.png'}, 'id': 'img:12'},
+                {'name': 'read_workspace_file', 'args': {'relative_path': 'x.ts'}, 'id': 'file:13'},
+            ],
+        ),
+        ToolMessage(content='Loaded image: a.png', tool_call_id='img:11'),
+        HumanMessage(content=[{'type': 'text', 'text': 'vision a'}]),
+        ToolMessage(content='Loaded image: b.png', tool_call_id='img:12'),
+        HumanMessage(content=[{'type': 'text', 'text': 'vision b'}]),
+        ToolMessage(content='x.ts text', tool_call_id='file:13'),
+    ]
+
+
+def _shape(messages: list) -> list[str]:
+    return [m.tool_call_id if isinstance(m, ToolMessage) else type(m).__name__ for m in messages]
+
+
+def test_tool_responses_move_ahead_of_vision_messages_in_a_parallel_batch() -> None:
+    """Regression: Moonshot rejected img:12 / file:13 as unanswered behind the first vision message."""
+    ordered = tool_responses_before_interjections(_parallel_image_batch())
+    assert _shape(ordered) == [
+        'HumanMessage',
+        'AIMessage',
+        'img:11',
+        'img:12',
+        'file:13',
+        'HumanMessage',
+        'HumanMessage',
+    ]
+    assert [m.content[0]['text'] for m in ordered[-2:]] == ['vision a', 'vision b']
+
+
+def test_tool_response_order_leaves_later_turns_alone() -> None:
+    """Messages after a fully answered batch, and batches with no interjection, keep their order."""
+    history = [
+        *_parallel_image_batch()[:3],
+        HumanMessage(content='vision a'),
+        AIMessage(content='', tool_calls=[{'name': 'read_workspace_file', 'args': {}, 'id': 'file:14'}]),
+        ToolMessage(content='y', tool_call_id='file:14'),
+        HumanMessage(content='next user turn'),
+    ]
+    history[1] = AIMessage(content='', tool_calls=[history[1].tool_calls[0]])
+    assert tool_responses_before_interjections(history) == history
+
+
+def test_vision_middleware_sends_reordered_history_to_the_model() -> None:
+    class Req:
+        def __init__(self, messages: list) -> None:
+            self.messages = messages
+
+        def override(self, *, messages: list) -> Req:
+            return Req(messages)
+
+    seen: list[list] = []
+
+    async def handler(request):
+        seen.append(request.messages)
+        return 'ok'
+
+    mw = VisionImageInjectionMiddleware()
+    assert asyncio.run(mw.awrap_model_call(Req(_parallel_image_batch()), handler)) == 'ok'
+    assert _shape(seen[0])[2:5] == ['img:11', 'img:12', 'file:13']
 
 
 def test_qwen_vision_prompt_suffix_when_preset_and_model_match() -> None:

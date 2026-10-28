@@ -51,16 +51,37 @@ app-stream-tool-pill .stream-tool-pill__spinner {
   margin: -0.25rem -0.1rem -0.25rem -0.2rem;
 }
 
-app-stream-tool-pill .stream-tool-pill__spinner--read {
-  width: 1.55rem;
-  height: 1.55rem;
+/*
+ * Still tool glyphs beside the name, after the chevron so chevrons stay in one column however
+ * many tools a block ran. Each glyph takes the live spinner's 1.2rem footprint.
+ */
+app-stream-tool-pill .stream-tool-pill__icons {
+  flex-shrink: 0;
+  display: flex;
+  gap: 0.05rem;
 }
 
-app-stream-tool-pill .stream-tool-pill__spinner-img {
+app-stream-tool-pill .stream-tool-pill__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  margin: -0.1rem 0;
+  opacity: 0.85;
+}
+
+app-stream-tool-pill .stream-tool-pill__spinner-img,
+app-stream-tool-pill .stream-tool-pill__icon-img {
   display: block;
   width: 100%;
   height: 100%;
   pointer-events: none;
+}
+
+app-stream-tool-pill .stream-tool-pill__icon-img {
+  width: 1.05rem;
+  height: 1.05rem;
 }
 
 app-stream-tool-pill .stream-tool-pill__chevron {

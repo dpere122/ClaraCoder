@@ -32,6 +32,7 @@ import { AnsiTerminalPreComponent } from '../../../../core/ansi-terminal-pre';
 import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
 import { ToolEditDiffComponent } from '../tool-edit-diff/tool-edit-diff';
 import { ToolPillExpansion } from '../tool-pill-expansion';
+import { toolGlyph } from '../tool-spinner-kind';
 
 export type AuxStreamToolPartKind = 'status' | 'shell' | 'delegated' | 'hitl';
 
@@ -119,6 +120,8 @@ export class AuxStreamToolPartComponent {
   readonly label = computed(() => toolPillLabel(this.part(), this.live()));
 
   readonly pillName = computed(() => this.label().verb);
+  /** The tool's own glyph, drawn still beside the name. */
+  readonly pillIcons = computed(() => [toolGlyph(this.part().label, this.part().streamTag)]);
   /** Raw tool name (or command) on hover, since the pill shows the friendly verb. */
   readonly pillNameTitle = computed(() => this.part().label || this.label().verb);
   readonly pillMeta = computed(() => {

@@ -1,12 +1,13 @@
 import {
   type ChatThinkingDisplay,
+  type StreamPart,
   isHitlTrailStreamTag,
   isToolTrailStatusStreamTag,
   toolPillLabel,
   toolStatusStreamPartMeta,
   type TurnFeedItem,
 } from '@shared/index';
-import { toolSpinnerKind, type PillSpinnerKind } from '../tool-spinner-kind';
+import { toolGlyph, toolSpinnerKind, type PillGlyph, type PillSpinnerKind } from '../tool-spinner-kind';
 
 /** Min time the live preview pane stays open before a contending event can become a chip. */
 export const PREVIEW_OPEN_DWELL_MS = 450;
@@ -188,29 +189,51 @@ export function previewQueueMeta(
 }
 
 /**
- * Spinner kind for the live preview pill (book / terminal / globe / jot, or the think spinner
- * for a compact thinking pill). Follows the latest running tool in the batch; falls back to the
- * current preview item.
+ * The tool row the live preview pill's spinner follows: the latest running tool in the batch,
+ * else the current preview item; `think` for a compact thinking pill, `null` when not a tool.
+ */
+function previewQueueSpinnerPart(
+  current: TurnFeedItem | undefined,
+  inbound: readonly TurnFeedItem[],
+): StreamPart | 'think' | null {
+  if (current?.kind === 'thought') {
+    return 'think';
+  }
+  if (!current || current.kind !== 'tool') {
+    return null;
+  }
+  const batch = [current, ...currentBatchInbound(current, inbound)];
+  for (let i = batch.length - 1; i >= 0; i--) {
+    const item = batch[i]!;
+    if (item.kind === 'tool' && item.part.toolChainState === 'running') {
+      return item.part;
+    }
+  }
+  return current.part;
+}
+
+/**
+ * Spinner kind for the live preview (book / terminal / globe / jot, or the think spinner for a
+ * compact thinking pill); reported as the turn's activity.
  */
 export function previewQueueToolSpinnerKind(
   current: TurnFeedItem | undefined,
   inbound: readonly TurnFeedItem[],
 ): PillSpinnerKind {
-  if (current?.kind === 'thought') {
+  const part = previewQueueSpinnerPart(current, inbound);
+  if (part === 'think') {
     return 'think';
   }
-  if (!current || current.kind !== 'tool') {
-    return 'write';
+  return part ? toolSpinnerKind(part.label, part.streamTag) : 'write';
+}
+
+/** The running tool's own glyph for the live preview pill (`think` for a thinking pill). */
+export function previewQueueToolGlyph(current: TurnFeedItem | undefined, inbound: readonly TurnFeedItem[]): PillGlyph {
+  const part = previewQueueSpinnerPart(current, inbound);
+  if (part === 'think') {
+    return 'think';
   }
-  const batch = [current, ...currentBatchInbound(current, inbound)];
-  for (let i = batch.length - 1; i >= 0; i--) {
-    const item = batch[i]!;
-    if (item.kind !== 'tool' || item.part.toolChainState !== 'running') {
-      continue;
-    }
-    return toolSpinnerKind(item.part.label, item.part.streamTag);
-  }
-  return toolSpinnerKind(current.part.label, current.part.streamTag);
+  return part ? toolGlyph(part.label, part.streamTag) : 'plug';
 }
 
 export function clampCommittedCount(items: readonly TurnFeedItem[], committedCount: number): number {

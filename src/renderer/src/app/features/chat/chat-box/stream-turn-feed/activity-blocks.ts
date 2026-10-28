@@ -11,6 +11,7 @@ import {
   type TurnFeedItem,
 } from '@shared/index';
 import { auxStreamToolPartPillState } from '../aux-stream-tool-part/aux-stream-tool-part';
+import { toolGlyph, type ToolGlyph } from '../tool-spinner-kind';
 import type { FeedDisplayRole } from './stream-preview-queue';
 
 /** How a stretch of work renders: one activity block per stretch, in execution order. */
@@ -183,4 +184,26 @@ export function activitySummary(
     duration: totalMs > 0 ? formatThoughtDuration(totalMs) : '',
     failed: failed > 0,
   };
+}
+
+/** Most tool glyphs a closed activity pill lines up; the headline names the rest. */
+export const ACTIVITY_GLYPH_LIMIT = 4;
+
+/** The distinct glyphs of a block's landed tool rows, in order of first use. */
+export function activityGlyphs(items: readonly TurnFeedItem[], landed: readonly number[]): ToolGlyph[] {
+  const glyphs: ToolGlyph[] = [];
+  for (const index of landed) {
+    const item = items[index];
+    if (item?.kind !== 'tool' || isHitlTrailStreamTag(item.part.streamTag)) {
+      continue;
+    }
+    const glyph = toolGlyph(item.part.label, item.part.streamTag);
+    if (!glyphs.includes(glyph)) {
+      glyphs.push(glyph);
+      if (glyphs.length === ACTIVITY_GLYPH_LIMIT) {
+        break;
+      }
+    }
+  }
+  return glyphs;
 }

@@ -45,4 +45,21 @@ describe('StreamTurnFeedComponent activity blocks', () => {
     expect(block?.querySelector('.stream-turn-feed__preview')).toBeNull();
     expect(block?.querySelector('.stream-tool-pill__meta')?.textContent).toMatch(/Thinking.*<1s/);
   });
+
+  it("lines up the still glyphs of the tools a finished, closed block ran", () => {
+    const search: TurnFeedItem = {
+      kind: 'tool',
+      part: { streamTag: toolTrailStatusStreamTag('s1'), label: 'search_workspace', text: '3 matches', toolChainState: 'complete' },
+    };
+    const reply: TurnFeedItem = { kind: 'markdown', text: 'Done.' };
+    const fixture = TestBed.createComponent(StreamTurnFeedComponent);
+    fixture.componentRef.setInput('items', [read, search, { ...read, part: { ...read.part, streamTag: toolTrailStatusStreamTag('r2') } }, reply]);
+    fixture.detectChanges();
+    const pill = (fixture.nativeElement as HTMLElement).querySelector('.stream-turn-feed__activity > app-stream-tool-pill');
+    const glyphs = [...(pill?.querySelectorAll('.stream-tool-pill__icon svg') ?? [])];
+    expect(glyphs.length).toBe(2);
+    expect(glyphs.every((svg) => svg.classList.contains('tool-spinner--still'))).toBe(true);
+    expect(glyphs[0]!.querySelector('.ts-wave')).not.toBeNull();
+    expect(glyphs[1]!.querySelector('.ts-sweep')).not.toBeNull();
+  });
 });

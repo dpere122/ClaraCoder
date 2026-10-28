@@ -1,4 +1,13 @@
-<svg class="tool-spinner" viewBox="0 0 32 32" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<svg
+  class="tool-spinner"
+  [class.tool-spinner--still]="still()"
+  viewBox="0 0 32 32"
+  fill="none"
+  stroke-width="1.8"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  aria-hidden="true"
+>
   @switch (kind()) {
     @case ('think') {
       <!-- Sierpinski triangle turning; its inner triangle pulses. -->
@@ -34,6 +43,287 @@
       <circle class="ts-dot ts-node" cx="10" cy="16" r="1.6" />
       <circle class="ts-dot ts-node" cx="13" cy="10.8" r="1.6" />
       <circle class="ts-dot ts-node" cx="19" cy="10.8" r="1.6" />
+    }
+    <!-- Tool glyphs: still, each is the tool's icon; animated, it is that tool's spinner. -->
+    @case ('read-file') {
+      <!-- Page whose lines light top to bottom. -->
+      <path class="ts-line" d="M9 4h10l5 5v19H9z" />
+      <path class="ts-line" d="M19 4v5h5" />
+      <path class="ts-hi ts-wave" d="M12.5 14h8" />
+      <path class="ts-hi ts-wave ts-d1" d="M12.5 18h8" />
+      <path class="ts-hi ts-wave ts-d2" d="M12.5 22h5" />
+    }
+    @case ('image') {
+      <!-- Picture frame; the sun pops over the hills. -->
+      <rect class="ts-line" x="5" y="7" width="22" height="18" rx="2.5" />
+      <path class="ts-third" d="M7 23l5.5-6 4 4.5 3-3 5.5 4.5" />
+      <circle class="ts-dot ts-node" cx="21" cy="12.5" r="2" />
+    }
+    @case ('list') {
+      <!-- Directory tree; entries light in order. -->
+      <circle class="ts-dot-line" cx="8" cy="6" r="1.8" />
+      <path class="ts-line" d="M8 8v15M8 11h4M8 17h4M8 23h4" />
+      <path class="ts-hi ts-wave" d="M15.5 11h10" />
+      <path class="ts-hi ts-wave ts-d1" d="M15.5 17h7" />
+      <path class="ts-hi ts-wave ts-d2" d="M15.5 23h8.5" />
+    }
+    @case ('search') {
+      <!-- Magnifier sweeping a small arc. -->
+      <g class="ts-sweep">
+        <circle class="ts-line ts-fill" cx="14" cy="14" r="7" />
+        <path class="ts-hi" d="M10.6 12.6a3.8 3.8 0 0 1 2.9-3" />
+        <path class="ts-line ts-bold" d="M19.2 19.2l6.6 6.6" />
+      </g>
+    }
+    @case ('semantic') {
+      <!-- A spark twinkling inside the lens. -->
+      <circle class="ts-line" cx="14" cy="14" r="7.5" />
+      <path class="ts-line ts-bold" d="M19.5 19.5l6.3 6.3" />
+      <path class="ts-hi ts-twinkle" d="M14 10l1.1 2.9L18 14l-2.9 1.1L14 18l-1.1-2.9L10 14l2.9-1.1z" />
+      <circle class="ts-dot-third ts-pulse ts-d2" cx="17.6" cy="10.2" r="0.9" />
+    }
+    @case ('outline') {
+      <!-- Minimap; the viewport scrolls down it. -->
+      <rect class="ts-line" x="8" y="4" width="16" height="24" rx="2" />
+      <path class="ts-third ts-thin" d="M11 8h8M11 11h10M13 14h7M13 17h8M11 20h9M11 23h6" />
+      <g class="ts-scroll"><rect class="ts-hi ts-fill-hi" x="6" y="6.5" width="20" height="8" rx="1.5" /></g>
+    }
+    @case ('tree-search') {
+      <!-- Tree whose nodes light breadth-first. -->
+      <path class="ts-third" d="M16 9v3M16 12l-7 5M16 12l7 5M9 19v3M23 19v3" />
+      <circle class="ts-hi ts-wave" cx="16" cy="7" r="2.4" />
+      <circle class="ts-hi ts-wave ts-d1" cx="9" cy="18" r="2.2" />
+      <circle class="ts-hi ts-wave ts-d1" cx="23" cy="18" r="2.2" />
+      <circle class="ts-dot ts-wave ts-d2" cx="9" cy="24.5" r="1.8" />
+      <circle class="ts-dot ts-wave ts-d2" cx="23" cy="24.5" r="1.8" />
+    }
+    @case ('section') {
+      <!-- Page with one section highlighted. -->
+      <path class="ts-line" d="M9 4h10l5 5v19H9z" />
+      <path class="ts-line" d="M19 4v5h5" />
+      <path class="ts-third" d="M12.5 12h7M12.5 23h5" />
+      <rect class="ts-hi ts-fill-hi ts-pulse" x="11" y="15" width="10.5" height="5.5" rx="1.2" />
+      <path class="ts-hi" d="M13 17.7h6" />
+    }
+    @case ('xml') {
+      <!-- Angle brackets breathing around the slash. -->
+      <path class="ts-line ts-nudge-l" d="M10.5 10l-6 6 6 6" />
+      <path class="ts-line ts-nudge-r" d="M21.5 10l6 6-6 6" />
+      <path class="ts-hi ts-pulse" d="M18.2 8l-4.4 16" />
+    }
+    @case ('json') {
+      <!-- Braces; the colon ticks between them. -->
+      <path class="ts-line ts-nudge-l" d="M11 7c-2 0-3 1-3 3v3c0 1.6-.9 3-2.5 3 1.6 0 2.5 1.4 2.5 3v3c0 2 1 3 3 3" />
+      <path class="ts-line ts-nudge-r" d="M21 7c2 0 3 1 3 3v3c0 1.6.9 3 2.5 3-1.6 0-2.5 1.4-2.5 3v3c0 2-1 3-3 3" />
+      <circle class="ts-dot ts-blink" cx="16" cy="12.5" r="1.7" />
+      <circle class="ts-dot ts-blink ts-d2" cx="16" cy="19.5" r="1.7" />
+    }
+    @case ('wsdl') {
+      <!-- Two endpoints; a packet crosses between them. -->
+      <rect class="ts-line" x="3.5" y="11.5" width="7.5" height="9" rx="1.8" />
+      <rect class="ts-line" x="21" y="11.5" width="7.5" height="9" rx="1.8" />
+      <path class="ts-third" d="M11 16h10" />
+      <circle class="ts-dot ts-packet" cx="16" cy="16" r="1.7" />
+    }
+    @case ('context') {
+      <!-- Stacked layers; the top one drops on. -->
+      <path class="ts-line" d="M6 21l10 5 10-5" />
+      <path class="ts-third" d="M6 16l10 5 10-5" />
+      <path class="ts-hi ts-fill-hi ts-drop" d="M16 6l10 5-10 5-10-5z" />
+    }
+    @case ('diagnostics') {
+      <!-- A squiggle draws under a line of code. -->
+      <path class="ts-third" d="M6 8h14M6 26h9" />
+      <path class="ts-line" d="M6 15h20" />
+      <path class="ts-hi ts-draw" pathLength="1" d="M6 20q1.25-2 2.5 0t2.5 0 2.5 0 2.5 0 2.5 0 2.5 0 2.5 0 2.5 0" />
+    }
+    @case ('hover') {
+      <!-- Cursor; a tooltip pops above it. -->
+      <path class="ts-line ts-fill" d="M8 13v13l3.5-3.2 2.4 5 2.2-1-2.4-5H18z" />
+      <g class="ts-tip">
+        <rect class="ts-hi ts-fill-bg" x="13" y="3.5" width="15" height="8" rx="2" />
+        <path class="ts-third" d="M16 7.5h9" />
+      </g>
+    }
+    @case ('definition') {
+      <!-- Reticle locking onto the target. -->
+      <path class="ts-third" d="M16 3.5v4M16 24.5v4M3.5 16h4M24.5 16h4" />
+      <circle class="ts-line ts-lock" cx="16" cy="16" r="8" />
+      <circle class="ts-hi ts-pulse ts-d1" cx="16" cy="16" r="3" />
+      <circle class="ts-dot" cx="16" cy="16" r="1.1" />
+    }
+    @case ('references') {
+      <!-- Arcs reach out; call sites light one by one. -->
+      <circle class="ts-hi" cx="9" cy="16" r="3" />
+      <path class="ts-third ts-draw" pathLength="1" d="M11.4 14.2Q16 8 22.4 7.6" />
+      <path class="ts-third ts-draw ts-d1" pathLength="1" d="M12 16h10" />
+      <path class="ts-third ts-draw ts-d2" pathLength="1" d="M11.4 17.8Q16 24 22.4 24.4" />
+      <circle class="ts-dot ts-node" cx="25" cy="7.5" r="2" />
+      <circle class="ts-dot ts-node ts-d1" cx="25" cy="16" r="2" />
+      <circle class="ts-dot ts-node ts-d2" cx="25" cy="24.5" r="2" />
+    }
+    @case ('symbols') {
+      <!-- Symbol glyphs pop row by row. -->
+      <circle class="ts-hi ts-node" cx="8" cy="9" r="2.2" />
+      <rect class="ts-line ts-node ts-d1" x="5.8" y="13.8" width="4.4" height="4.4" rx="0.7" />
+      <path class="ts-third ts-node ts-d2" d="M8 20.6l2.4 4.4H5.6z" />
+      <path class="ts-third ts-thin" d="M13.5 9h12.5M13.5 16h9.5M13.5 23h11" />
+    }
+    @case ('write-file') {
+      <!-- Lines draw in as the pencil scribbles. -->
+      <path class="ts-line" d="M6 4h10l5 5v19H6z" />
+      <path class="ts-line" d="M16 4v5h5" />
+      <path class="ts-third ts-draw" pathLength="1" d="M9 14h8" />
+      <path class="ts-third ts-draw ts-d1" pathLength="1" d="M9 18h8" />
+      <path class="ts-third ts-draw ts-d2" pathLength="1" d="M9 22h5" />
+      <g class="ts-scribble"><path class="ts-hi ts-fill-bg" d="M19.5 28.5l-.2-2.6 7.5-7.5 2.8 2.8-7.5 7.5z" /></g>
+    }
+    @case ('edit-lines') {
+      <!-- The highlighted lines are redrawn. -->
+      <path class="ts-third" d="M6 7h20M6 25h13" />
+      <rect class="ts-hi ts-fill-hi ts-pulse" x="4" y="10.5" width="24" height="11" rx="2" />
+      <path class="ts-line ts-draw" pathLength="1" d="M7.5 14h16" />
+      <path class="ts-hi ts-draw ts-d1" pathLength="1" d="M7.5 18h11" />
+    }
+    @case ('edit-snippet') {
+      <!-- A snippet retypes beside the text caret. -->
+      <path class="ts-third" d="M4 16h5.5M25 16h3" />
+      <path class="ts-hi ts-bold ts-draw" pathLength="1" d="M12 16h8" />
+      <path class="ts-line ts-blink" d="M22.5 10.5v11M21 10.5h3M21 21.5h3" />
+    }
+    @case ('format') {
+      <!-- Ragged lines snap into their indent. -->
+      <path class="ts-line ts-snap ts-dx-a" d="M7 7h16" />
+      <path class="ts-third ts-snap ts-dx-b ts-d1" d="M11 12.5h13" />
+      <path class="ts-third ts-snap ts-dx-c ts-d2" d="M11 18h9" />
+      <path class="ts-line ts-snap ts-dx-d ts-d1" d="M7 23.5h18" />
+      <path class="ts-hi ts-thin" d="M7 10v11" />
+    }
+    @case ('copy') {
+      <!-- A duplicate peels off the original. -->
+      <rect class="ts-third" x="5" y="5" width="15" height="15" rx="2.5" />
+      <g class="ts-peel">
+        <rect class="ts-line ts-fill-bg" x="12" y="12" width="15" height="15" rx="2.5" />
+        <path class="ts-hi" d="M19.5 16.5v6M16.5 19.5h6" />
+      </g>
+    }
+    @case ('delete') {
+      <!-- Bin whose lid lifts and settles. -->
+      <path class="ts-line" d="M9 11l1.3 15.2a2 2 0 0 0 2 1.8h7.4a2 2 0 0 0 2-1.8L23 11" />
+      <path class="ts-third" d="M14 15v8M18 15v8" />
+      <g class="ts-lid"><path class="ts-hi" d="M7 8h18M13 8V5.8h6V8" /></g>
+    }
+    @case ('java') {
+      <!-- Steam rising from a cup. -->
+      <path class="ts-line ts-fill" d="M7 14h15v6a6 6 0 0 1-6 6h-3a6 6 0 0 1-6-6z" />
+      <path class="ts-line" d="M22 16h1.5a3 3 0 0 1 0 6H21" />
+      <path class="ts-third" d="M5 29h19" />
+      <path class="ts-hi ts-steam" d="M11 11c-1-1.4 1-2.4 0-4" />
+      <path class="ts-hi ts-steam ts-d1" d="M14.5 11c-1-1.4 1-2.4 0-4" />
+      <path class="ts-hi ts-steam ts-d2" d="M18 11c-1-1.4 1-2.4 0-4" />
+    }
+    @case ('web-search') {
+      <!-- Globe turning on its meridian. -->
+      <circle class="ts-line ts-fill" cx="16" cy="16" r="10" />
+      <path class="ts-third ts-thin" d="M6 16h20M7.6 11h16.8M7.6 21h16.8" />
+      <ellipse class="ts-hi ts-meridian" cx="16" cy="16" rx="4.5" ry="10" />
+    }
+    @case ('fetch') {
+      <!-- Arrow dropping into the tray. -->
+      <path class="ts-line" d="M6 19v4.5A2.5 2.5 0 0 0 8.5 26h15a2.5 2.5 0 0 0 2.5-2.5V19" />
+      <g class="ts-fetch"><path class="ts-hi" d="M16 5v13M11 13l5 5 5-5" /></g>
+    }
+    @case ('command') {
+      <!-- Prompt with a blinking caret. -->
+      <rect class="ts-line ts-fill" x="4" y="6" width="24" height="20" rx="3" />
+      <path class="ts-hi ts-nudge-r" d="M9 13l3.5 3-3.5 3" />
+      <path class="ts-third ts-bold ts-blink" d="M15 19.5h6" />
+    }
+    @case ('wait') {
+      <!-- Hourglass draining, then flipping. -->
+      <g class="ts-mid ts-flip">
+        <path
+          class="ts-line"
+          d="M8 5h16M8 27h16M10.5 5c0 5 5.5 7 5.5 11s-5.5 6-5.5 11M21.5 5c0 5-5.5 7-5.5 11s5.5 6 5.5 11"
+        />
+        <path class="ts-dot ts-sand-top" d="M12.6 9h6.8L16 13z" />
+        <path class="ts-dot ts-sand-bot" d="M12.4 25.5q3.6-4.2 7.2 0z" />
+      </g>
+    }
+    @case ('stop-command') {
+      <!-- Ring draining around a stop square. -->
+      <circle class="ts-third ts-thin" cx="16" cy="16" r="10.5" />
+      <circle class="ts-hi ts-bold ts-drain" pathLength="1" cx="16" cy="16" r="10.5" transform="rotate(-90 16 16)" />
+      <rect class="ts-line ts-fill-hi" x="12" y="12" width="8" height="8" rx="1.5" />
+    }
+    @case ('commands') {
+      <!-- Status lights blinking in turn. -->
+      <rect class="ts-line" x="4" y="4" width="24" height="24" rx="3" />
+      <circle class="ts-dot ts-pulse" cx="9" cy="10" r="1.7" />
+      <circle class="ts-dot ts-pulse ts-d1" cx="9" cy="16" r="1.7" />
+      <circle class="ts-dot ts-pulse ts-d2" cx="9" cy="22" r="1.7" />
+      <path class="ts-third ts-thin" d="M13 10h10M13 16h7.5M13 22h9" />
+    }
+    @case ('terminals') {
+      <!-- Two terminals; the back one pings, the front caret blinks. -->
+      <rect class="ts-third" x="9.5" y="4" width="18.5" height="14" rx="2.5" />
+      <circle class="ts-dot ts-pulse" cx="24.5" cy="7.5" r="1.3" />
+      <rect class="ts-line ts-fill-bg" x="4" y="12" width="19" height="15" rx="2.5" />
+      <path class="ts-hi" d="M8 17.5l2.6 2.2L8 22" />
+      <path class="ts-third ts-blink" d="M13.5 22h4.5" />
+    }
+    @case ('plan') {
+      <!-- Clipboard; a reading bar steps down the list. -->
+      <rect class="ts-line" x="7" y="6" width="18" height="22" rx="2.5" />
+      <rect class="ts-line ts-fill-bg" x="12" y="4" width="8" height="4" rx="1.2" />
+      <path class="ts-third ts-thin" d="M11 12.5h2.4M11 18h2.4M11 23.5h2.4M15.5 12.5h6M15.5 18h4.5M15.5 23.5h5.5" />
+      <g class="ts-rows"><rect class="ts-hi ts-fill-hi" x="9.5" y="10.5" width="13" height="4" rx="1" /></g>
+    }
+    @case ('plan-check') {
+      <!-- A check mark draws into the box. -->
+      <rect class="ts-line ts-fill" x="6" y="6" width="20" height="20" rx="4" />
+      <path class="ts-hi ts-bold ts-draw" pathLength="1" d="M11 16.5l3.5 3.5 7-8" />
+    }
+    @case ('spawn') {
+      <!-- Two children bud off the parent. -->
+      <path class="ts-third ts-draw" pathLength="1" d="M14.2 13l-3.8 6.6M17.8 13l3.8 6.6" />
+      <circle class="ts-line ts-fill" cx="16" cy="9.5" r="3.5" />
+      <circle class="ts-hi ts-emerge ts-emerge-l" cx="9" cy="22.5" r="3" />
+      <circle class="ts-hi ts-emerge ts-emerge-r ts-d1" cx="23" cy="22.5" r="3" />
+    }
+    @case ('agents') {
+      <!-- Agents orbiting the parent. -->
+      <circle class="ts-third ts-thin" cx="16" cy="16" r="9" stroke-dasharray="1.5 3" />
+      <circle class="ts-line ts-fill" cx="16" cy="16" r="3" />
+      <g class="ts-mid ts-orbit">
+        <circle class="ts-dot" cx="16" cy="7" r="2" />
+        <circle class="ts-dot" cx="8.2" cy="20.5" r="2" />
+        <circle class="ts-dot" cx="23.8" cy="20.5" r="2" />
+      </g>
+    }
+    @case ('stop-agent') {
+      <!-- An orbit slowing and going dark. -->
+      <circle class="ts-third ts-thin" cx="16" cy="16" r="9" />
+      <rect class="ts-line ts-fill-hi" x="13.2" y="13.2" width="5.6" height="5.6" rx="1" />
+      <g class="ts-mid ts-halt"><circle class="ts-dot" cx="16" cy="7" r="2.2" /></g>
+    }
+    @case ('theme') {
+      <!-- Swatches turning and trading colours. -->
+      <g class="ts-cw">
+        <circle class="ts-line ts-fill ts-tone" cx="12.5" cy="12.5" r="6" />
+        <circle class="ts-hi ts-tone ts-d1" cx="19.5" cy="12.5" r="6" />
+        <circle class="ts-third ts-tone ts-d2" cx="16" cy="18.8" r="6" />
+      </g>
+    }
+    @case ('plug') {
+      <!-- Plug pushing in; its prongs spark (MCP and unknown tools). -->
+      <path class="ts-third" d="M16 20.5v2.5c0 2.6-1.6 4-4 4H8" />
+      <g class="ts-plug">
+        <rect class="ts-line ts-fill" x="10" y="11" width="12" height="9.5" rx="2" />
+        <path class="ts-hi" d="M13 11V6M19 11V6" />
+      </g>
+      <circle class="ts-dot ts-pulse" cx="13" cy="4" r="1" />
+      <circle class="ts-dot ts-pulse ts-d1" cx="19" cy="4" r="1" />
     }
     @default {
       <!-- write: a fractal tree growing level by level. -->

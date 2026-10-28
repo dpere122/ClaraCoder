@@ -22,6 +22,7 @@ import {
   previewItemLabel,
   previewItemText,
   previewQueueHeader,
+  previewQueueToolGlyph,
   previewQueueToolSpinnerKind,
   previewQueueMeta,
   previewShowsBody,
@@ -217,6 +218,14 @@ describe('previewQueueToolSpinnerKind', () => {
     expect(previewQueueToolSpinnerKind(runningRead, [runningWrite])).toBe('write');
     expect(previewQueueToolSpinnerKind(runningWrite, [runningRead])).toBe('read');
     expect(previewQueueToolSpinnerKind(runningRead, [runningCommand])).toBe('run');
+  });
+
+  it("gives the live pill the running tool's own glyph", () => {
+    expect(previewQueueToolGlyph(runningRead, [])).toBe('read-file');
+    expect(previewQueueToolGlyph(runningWeb, [])).toBe('web-search');
+    expect(previewQueueToolGlyph(runningRead, [runningCommand])).toBe('command');
+    expect(previewQueueToolGlyph(thought, [])).toBe('think');
+    expect(previewQueueToolGlyph(undefined, [])).toBe('plug');
   });
 });
 

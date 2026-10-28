@@ -77,7 +77,8 @@ export function createSettingsWindow(tab?: SettingsWindowTab): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
 
   const notifyVisibility = (isOpen: boolean): void => {
-    if (mainWindow.isDestroyed()) return;
+    // On quit the main window's webContents can be gone before the window itself.
+    if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
     mainWindow.webContents.send('settings-window-visibility-changed', isOpen);
   };
 

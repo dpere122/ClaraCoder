@@ -6,32 +6,56 @@
  * (`npm run dev:bridge`). Every request must:
  *  - reach the loopback listener (127.0.0.1 only) with a loopback `Host` (blocks DNS rebinding);
  *  - come from the dev server origin (CORS is granted to that origin alone);
- *  - carry the per-launch bearer token (32 random bytes, compared in constant time).
+ *  - carry the bearer token (32 random bytes, compared in constant time).
  *
- * Calls run as the main window: handlers see its `webContents` as `event.sender`, so trust checks
- * pass and the browser tab has the main window's full privileges. That is the point (end-to-end
- * testing) and why the token never leaves this machine except in the URL printed to the dev log
- * and `browser-bridge.json` under the dev app-data dir.
+ * The token is kept in `browser-bridge-token` under the dev app-data dir and reused across
+ * launches, so open tabs survive electronmon restarts: each launch has its own instance id
+ * (`X-Clara-Bridge-Instance` on `/events`), and a tab that sees it change reloads itself, as the
+ * Electron windows do. Delete the file to rotate the token; old tabs then get a 401.
+ *
+ * A tab acts as the app window its route belongs to (`#/settings`, `#/dependencies`, `#/health`,
+ * anything else the main window), named by the `X-Clara-Bridge-Window` header. Calls run as that
+ * window: handlers see its `webContents` as `event.sender`, so trust checks pass and the tab has
+ * that window's full privileges. A satellite tab first opens the real window (`POST /window`) and
+ * receives only that window's `webContents.send` pushes. That is the point (end-to-end testing)
+ * and why the token never leaves this machine except in the URLs printed to the dev log and
+ * `browser-bridge.json` under the dev app-data dir.
  */
 import { randomBytes, timingSafeEqual } from 'crypto';
-import { rmSync, writeFileSync } from 'fs';
+import { readFileSync, rmSync, writeFileSync } from 'fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http';
 import type { AddressInfo } from 'net';
 import { join } from 'path';
-import { app, ipcMain, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import {
-  BROWSER_BRIDGE_QUERY_PARAM,
+  app,
+  ipcMain,
+  type BrowserWindow,
+  type IpcMainEvent,
+  type IpcMainInvokeEvent,
+  type WebContents,
+} from 'electron';
+import {
+  BROWSER_BRIDGE_INSTANCE_HEADER,
+  BROWSER_BRIDGE_WINDOW_HEADER,
+  BROWSER_BRIDGE_WINDOWS,
   bridgeParse,
   bridgeStringify,
-  formatBrowserBridgeParam,
+  browserBridgeUrl,
+  isBrowserBridgeToken,
+  parseBrowserBridgeWindow,
   type BridgeBase64,
   type BrowserBridgeCall,
   type BrowserBridgeInvokeResponse,
+  type BrowserBridgeOpenWindow,
+  type BrowserBridgeWindow,
 } from '../../shared/dev/browser-bridge-protocol';
 import { DEV_SERVER_URL } from '../constants';
 import { envClara } from '../env-clara';
 import { getAppDataDir } from '../paths';
 import { mainState } from '../state';
+import { createDependenciesWindow } from '../windows/dependencies-window';
+import { createHealthWindow } from '../windows/health-window';
+import { createSettingsWindow, parseSettingsWindowTab } from '../windows/settings-window';
 
 type InvokeHandler = (event: IpcMainInvokeEvent, ...args: any[]) => unknown;
 type SendListener = (event: IpcMainEvent, ...args: any[]) => void;
@@ -40,8 +64,8 @@ type SendListener = (event: IpcMainEvent, ...args: any[]) => void;
 const MAX_BODY_BYTES = 64 * 1024 * 1024;
 const KEEPALIVE_MS = 15_000;
 /**
- * Fixed so an open tab reaches the restarted app (electronmon) and gets a clear token rejection
- * instead of retrying a dead random port. `CLARA_BROWSER_BRIDGE_PORT` overrides it.
+ * Fixed so an open tab reconnects to the restarted app (electronmon) instead of retrying a dead
+ * random port. `CLARA_BROWSER_BRIDGE_PORT` overrides it.
  */
 const DEFAULT_PORT = 4210;
 
@@ -52,7 +76,8 @@ const NODE_BASE64: BridgeBase64 = {
 
 const invokeHandlers = new Map<string, InvokeHandler>();
 const sendListeners = new Map<string, Set<SendListener>>();
-const eventClients = new Set<ServerResponse>();
+/** Open `GET /events` streams, each with the window its tab acts as. */
+const eventClients = new Map<ServerResponse, BrowserBridgeWindow>();
 const mirroredSenders = new WeakSet<WebContents>();
 let server: Server | null = null;
 
@@ -104,16 +129,18 @@ export async function startBrowserBridge(): Promise<void> {
     return;
   }
   const devServer = new URL(DEV_SERVER_URL);
-  const token = randomBytes(32).toString('base64url');
+  const token = loadOrCreateToken(join(getAppDataDir(), 'browser-bridge-token'));
   const expectedToken = Buffer.from(token);
+  const instanceId = randomBytes(8).toString('hex');
   const portOverride = Number(envClara('BROWSER_BRIDGE_PORT') ?? 0) || 0;
 
-  mirrorMainWindowSends();
-  // The main window can be recreated (macOS activate); `mainState` is set right after creation.
-  app.on('browser-window-created', () => setImmediate(mirrorMainWindowSends));
+  mirrorWindowSends();
+  // Satellites open from the app as well as from tabs, and the main window can be recreated
+  // (macOS activate); `mainState` is set right after construction.
+  app.on('browser-window-created', () => setImmediate(mirrorWindowSends));
 
   const listener = createServer((req, res) => {
-    handleRequest(req, res, devServer.origin, expectedToken).catch((err: unknown) => {
+    handleRequest(req, res, devServer.origin, expectedToken, instanceId).catch((err: unknown) => {
       console.error('[BrowserBridge] Request failed:', err);
       if (!res.headersSent) {
         sendJson(res, 500, { ok: false, error: 'Bridge error' });
@@ -137,19 +164,20 @@ export async function startBrowserBridge(): Promise<void> {
   }
   const { port } = listener.address() as AddressInfo;
 
-  devServer.searchParams.set(BROWSER_BRIDGE_QUERY_PARAM, formatBrowserBridgeParam({ port, token }));
-  devServer.hash = '/';
-  const openUrl = devServer.toString();
+  const windows = Object.fromEntries(
+    BROWSER_BRIDGE_WINDOWS.map((win) => [win, browserBridgeUrl(devServer.toString(), { port, token }, win)]),
+  ) as Record<BrowserBridgeWindow, string>;
+  const openUrl = windows.main;
   const infoPath = join(getAppDataDir(), 'browser-bridge.json');
   try {
-    writeFileSync(infoPath, JSON.stringify({ port, token, url: openUrl, pid: process.pid }, null, 2), {
+    writeFileSync(infoPath, JSON.stringify({ port, token, url: openUrl, windows, pid: process.pid }, null, 2), {
       mode: 0o600,
     });
   } catch (err) {
     console.warn('[BrowserBridge] Could not write', infoPath, err);
   }
   app.once('will-quit', () => {
-    for (const client of eventClients) {
+    for (const client of eventClients.keys()) {
       client.end();
     }
     eventClients.clear();
@@ -158,6 +186,24 @@ export async function startBrowserBridge(): Promise<void> {
     rmSync(infoPath, { force: true });
   });
   console.log(`[BrowserBridge] Listening on 127.0.0.1:${port}. Open in a browser: ${openUrl}`);
+}
+
+function loadOrCreateToken(tokenPath: string): string {
+  try {
+    const saved = readFileSync(tokenPath, 'utf8').trim();
+    if (isBrowserBridgeToken(saved)) {
+      return saved;
+    }
+  } catch {
+    // First launch, or unreadable: mint a new one.
+  }
+  const token = randomBytes(32).toString('base64url');
+  try {
+    writeFileSync(tokenPath, token, { mode: 0o600 });
+  } catch (err) {
+    console.warn('[BrowserBridge] Could not save the token; tabs will need the new URL after a restart.', err);
+  }
+  return token;
 }
 
 function listen(listener: Server, port: number): Promise<void> {
@@ -171,27 +217,74 @@ function listen(listener: Server, port: number): Promise<void> {
   });
 }
 
-function mainWebContents(): WebContents | null {
-  const win = mainState.mainWindow;
-  return win && !win.isDestroyed() ? win.webContents : null;
-}
-
-/** Forwards main-window `webContents.send` pushes to connected browser tabs as well. */
-function mirrorMainWindowSends(): void {
-  const wc = mainWebContents();
-  if (!wc || mirroredSenders.has(wc)) {
-    return;
+function appWindow(win: BrowserBridgeWindow): BrowserWindow | null {
+  switch (win) {
+    case 'main':
+      return mainState.mainWindow;
+    case 'settings':
+      return mainState.settingsWindow;
+    case 'dependencies':
+      return mainState.dependenciesWindow;
+    case 'health':
+      return mainState.healthWindow;
   }
-  mirroredSenders.add(wc);
-  const send = wc.send.bind(wc);
-  wc.send = ((channel: string, ...args: unknown[]) => {
-    send(channel, ...args);
-    broadcast(channel, args);
-  }) as typeof wc.send;
 }
 
-function broadcast(channel: string, args: unknown[]): void {
-  if (eventClients.size === 0) {
+function windowWebContents(win: BrowserBridgeWindow): WebContents | null {
+  const bw = appWindow(win);
+  return bw && !bw.isDestroyed() ? bw.webContents : null;
+}
+
+/** Opens (or focuses) a satellite window the way its titlebar menu entry does. */
+function openAppWindow(win: BrowserBridgeWindow, tab: string | undefined): void {
+  switch (win) {
+    case 'main':
+      break;
+    case 'settings':
+      createSettingsWindow(parseSettingsWindowTab(tab));
+      break;
+    case 'dependencies':
+      createDependenciesWindow();
+      break;
+    case 'health':
+      createHealthWindow();
+      break;
+  }
+  mirrorWindowSends();
+}
+
+/** Forwards each app window's `webContents.send` pushes to the tabs acting as that window. */
+function mirrorWindowSends(): void {
+  for (const win of BROWSER_BRIDGE_WINDOWS) {
+    const wc = windowWebContents(win);
+    if (!wc || mirroredSenders.has(wc)) {
+      continue;
+    }
+    mirroredSenders.add(wc);
+    const send = wc.send.bind(wc);
+    wc.send = ((channel: string, ...args: unknown[]) => {
+      send(channel, ...args);
+      broadcast(win, channel, args);
+    }) as typeof wc.send;
+    if (win !== 'main') {
+      // Ends the tabs' streams; their reconnect gets a 503 and tells the user the window closed.
+      wc.once('destroyed', () => endEventStreams(win));
+    }
+  }
+}
+
+function endEventStreams(win: BrowserBridgeWindow): void {
+  for (const [client, clientWin] of eventClients) {
+    if (clientWin === win) {
+      eventClients.delete(client);
+      client.end();
+    }
+  }
+}
+
+function broadcast(win: BrowserBridgeWindow, channel: string, args: unknown[]): void {
+  const clients = [...eventClients].filter(([, clientWin]) => clientWin === win).map(([client]) => client);
+  if (clients.length === 0) {
     return;
   }
   let line: string;
@@ -201,13 +294,13 @@ function broadcast(channel: string, args: unknown[]): void {
     console.warn(`[BrowserBridge] Dropped '${channel}' event (not serializable):`, err);
     return;
   }
-  for (const client of eventClients) {
+  for (const client of clients) {
     client.write(line);
   }
 }
 
-/** An IPC event that impersonates the main window; `reply` goes to the bridge tab only. */
-function bridgeEvent(wc: WebContents): IpcMainEvent & IpcMainInvokeEvent {
+/** An IPC event that impersonates an app window; `reply` goes to the tabs acting as it only. */
+function bridgeEvent(wc: WebContents, win: BrowserBridgeWindow): IpcMainEvent & IpcMainInvokeEvent {
   return {
     type: 'frame',
     sender: wc,
@@ -218,7 +311,7 @@ function bridgeEvent(wc: WebContents): IpcMainEvent & IpcMainInvokeEvent {
     returnValue: undefined,
     defaultPrevented: false,
     preventDefault: () => undefined,
-    reply: (channel: string, ...args: unknown[]) => broadcast(channel, args),
+    reply: (channel: string, ...args: unknown[]) => broadcast(win, channel, args),
   } as unknown as IpcMainEvent & IpcMainInvokeEvent;
 }
 
@@ -227,6 +320,7 @@ async function handleRequest(
   res: ServerResponse,
   allowedOrigin: string,
   expectedToken: Buffer,
+  instanceId: string,
 ): Promise<void> {
   const port = (server?.address() as AddressInfo | null)?.port;
   const host = req.headers.host ?? '';
@@ -239,11 +333,13 @@ async function handleRequest(
     return;
   }
   res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+  res.setHeader('Access-Control-Expose-Headers', BROWSER_BRIDGE_INSTANCE_HEADER);
+  res.setHeader(BROWSER_BRIDGE_INSTANCE_HEADER, instanceId);
   res.setHeader('Vary', 'Origin');
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Methods': 'GET, POST',
-      'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+      'Access-Control-Allow-Headers': `Authorization, Content-Type, ${BROWSER_BRIDGE_WINDOW_HEADER}`,
       'Access-Control-Max-Age': '600',
     });
     res.end();
@@ -254,9 +350,36 @@ async function handleRequest(
     return;
   }
 
+  const header = req.headers[BROWSER_BRIDGE_WINDOW_HEADER.toLowerCase()];
+  const win = parseBrowserBridgeWindow(Array.isArray(header) ? header[0] : header);
+  if (!win) {
+    sendJson(res, 400, { ok: false, error: `Unknown ${BROWSER_BRIDGE_WINDOW_HEADER}` });
+    return;
+  }
+  const notOpen = `The ${win} window is not open`;
+
   const path = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
   if (req.method === 'GET' && path === '/events') {
-    openEventStream(req, res);
+    // The main tab's stream outlives a main-window restart; a satellite's ends with its window.
+    if (win !== 'main' && !windowWebContents(win)) {
+      sendJson(res, 503, { ok: false, error: notOpen });
+      return;
+    }
+    openEventStream(req, res, win);
+    return;
+  }
+  if (req.method === 'POST' && path === '/window') {
+    const open = parseOpenWindow(await readBody(req));
+    if (!open) {
+      sendJson(res, 400, { ok: false, error: 'Expected { tab? }' });
+      return;
+    }
+    openAppWindow(win, open.tab);
+    if (windowWebContents(win)) {
+      sendJson(res, 200, { ok: true, result: null });
+    } else {
+      sendJson(res, 503, { ok: false, error: notOpen });
+    }
     return;
   }
   if (req.method !== 'POST' || (path !== '/invoke' && path !== '/send')) {
@@ -269,12 +392,12 @@ async function handleRequest(
     sendJson(res, 400, { ok: false, error: 'Expected { channel, args[] }' });
     return;
   }
-  const wc = mainWebContents();
+  const wc = windowWebContents(win);
   if (!wc) {
-    sendJson(res, 503, { ok: false, error: 'Main window is not open' });
+    sendJson(res, 503, { ok: false, error: notOpen });
     return;
   }
-  mirrorMainWindowSends();
+  mirrorWindowSends();
 
   if (path === '/send') {
     const listeners = sendListeners.get(call.channel);
@@ -282,7 +405,7 @@ async function handleRequest(
       sendJson(res, 404, { ok: false, error: `No ipcMain.on listener for '${call.channel}'` });
       return;
     }
-    const event = bridgeEvent(wc);
+    const event = bridgeEvent(wc, win);
     for (const listener of [...listeners]) {
       try {
         listener(event, ...call.args);
@@ -302,7 +425,7 @@ async function handleRequest(
   }
   let response: BrowserBridgeInvokeResponse;
   try {
-    response = { ok: true, result: await handler(bridgeEvent(wc), ...call.args) };
+    response = { ok: true, result: await handler(bridgeEvent(wc, win), ...call.args) };
   } catch (err) {
     response = { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -315,14 +438,14 @@ function hasValidToken(req: IncomingMessage, expected: Buffer): boolean {
   return presented.length === expected.length && timingSafeEqual(presented, expected);
 }
 
-function openEventStream(req: IncomingMessage, res: ServerResponse): void {
+function openEventStream(req: IncomingMessage, res: ServerResponse, win: BrowserBridgeWindow): void {
   res.writeHead(200, {
     'Content-Type': 'application/x-ndjson; charset=utf-8',
     'Cache-Control': 'no-store',
   });
   // Blank lines are keepalives; the client skips them.
   res.write('\n');
-  eventClients.add(res);
+  eventClients.set(res, win);
   const keepalive = setInterval(() => res.write('\n'), KEEPALIVE_MS);
   req.on('close', () => {
     clearInterval(keepalive);
@@ -360,6 +483,20 @@ function parseCall(body: string): BrowserBridgeCall | null {
     return null;
   }
   return { channel: call.channel, args: call.args };
+}
+
+function parseOpenWindow(body: string): BrowserBridgeOpenWindow | null {
+  let parsed: unknown;
+  try {
+    parsed = body ? bridgeParse(body, NODE_BASE64) : {};
+  } catch {
+    return null;
+  }
+  const open = parsed as Partial<BrowserBridgeOpenWindow> | null;
+  if (!open || (open.tab !== undefined && typeof open.tab !== 'string')) {
+    return null;
+  }
+  return { tab: open.tab };
 }
 
 function sendJson(res: ServerResponse, status: number, body: BrowserBridgeInvokeResponse): void {

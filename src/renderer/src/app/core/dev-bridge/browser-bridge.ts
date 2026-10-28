@@ -5,17 +5,26 @@
  *
  * The `<port>.<token>` pair arrives once in the `claraBridge` query parameter, is removed from the
  * address bar immediately, and is kept in sessionStorage so reloads of this tab stay connected.
+ *
+ * A tab on `#/settings`, `#/dependencies` or `#/health` acts as that satellite window: loading it
+ * opens the real window first. Opening a satellite from the app logs the URL of a tab acting as it.
  */
 import {
+  BROWSER_BRIDGE_INSTANCE_HEADER,
   BROWSER_BRIDGE_QUERY_PARAM,
+  BROWSER_BRIDGE_WINDOW_HEADER,
   bridgeParse,
   bridgeStringify,
+  browserBridgeSettingsTabForHash,
+  browserBridgeUrl,
+  browserBridgeWindowForHash,
   formatBrowserBridgeParam,
   parseBrowserBridgeParam,
   type BridgeBase64,
   type BrowserBridgeEndpoint,
   type BrowserBridgeEvent,
   type BrowserBridgeInvokeResponse,
+  type BrowserBridgeWindow,
 } from '@shared/dev/browser-bridge-protocol';
 import { createAppServicesApi } from '../../../../../preload/apis/app-services-api';
 import { createChatApi } from '../../../../../preload/apis/chat-api';
@@ -29,7 +38,15 @@ import type { PreloadIpc } from '../../../../../preload/preload-ipc';
 
 const STORAGE_KEY = 'clara.browserBridge';
 const RECONNECT_MIN_MS = 500;
-const RECONNECT_MAX_MS = 10_000;
+/** Short enough that a tab is back soon after an electronmon restart. */
+const RECONNECT_MAX_MS = 5_000;
+
+/** Renderer `send`s that open a satellite window; the bridge also opens a tab acting as it. */
+const OPEN_WINDOW_CHANNELS: Readonly<Record<string, BrowserBridgeWindow>> = {
+  'open-settings-window': 'settings',
+  'open-dependencies-window': 'dependencies',
+  'open-health-window': 'health',
+};
 
 type Listener = (event: unknown, ...args: unknown[]) => void;
 
@@ -57,7 +74,9 @@ export function installBrowserBridgeFromLocation(): boolean {
   if (!endpoint) {
     return false;
   }
-  const ipc = new BrowserBridgeIpc(endpoint);
+  const hash = window.location.hash;
+  const appWindow = browserBridgeWindowForHash(hash);
+  const ipc = new BrowserBridgeIpc(endpoint, appWindow, browserBridgeSettingsTabForHash(hash));
   const api = {
     ...createChatApi(ipc),
     ...createWorkspaceApi(ipc),
@@ -69,7 +88,9 @@ export function installBrowserBridgeFromLocation(): boolean {
     ...createThemeApi(ipc),
   };
   window.electronAPI = api as unknown as NonNullable<Window['electronAPI']>;
-  console.info(`[BrowserBridge] Connected to the Electron main process on 127.0.0.1:${endpoint.port}`);
+  console.info(
+    `[BrowserBridge] Connected to the Electron main process on 127.0.0.1:${endpoint.port} as the ${appWindow} window`,
+  );
   return true;
 }
 
@@ -133,15 +154,40 @@ function showBridgeNotice(message: string): void {
 class BrowserBridgeIpc implements PreloadIpc {
   private readonly listeners = new Map<string, Set<Listener>>();
   private readonly baseUrl: string;
-  private readonly authHeader: string;
+  private readonly headers: Record<string, string>;
+  /** Resolves once a satellite's real window is open; every request waits for it. */
+  private readonly windowReady: Promise<void>;
   /** Electron delivers `send`s in order; chain them so the HTTP requests keep that order. */
   private sendQueue: Promise<void> = Promise.resolve();
   private streaming = false;
   private revoked = false;
+  /** The main-process launch this page loaded against; set from the first response. */
+  private instanceId: string | null = null;
 
-  constructor(endpoint: BrowserBridgeEndpoint) {
+  constructor(
+    private readonly endpoint: BrowserBridgeEndpoint,
+    private readonly appWindow: BrowserBridgeWindow,
+    settingsTab: string | undefined,
+  ) {
     this.baseUrl = `http://127.0.0.1:${endpoint.port}`;
-    this.authHeader = `Bearer ${endpoint.token}`;
+    this.headers = { Authorization: `Bearer ${endpoint.token}`, [BROWSER_BRIDGE_WINDOW_HEADER]: appWindow };
+    this.windowReady = appWindow === 'main' ? Promise.resolve() : this.openWindow(settingsTab);
+  }
+
+  private async openWindow(tab: string | undefined): Promise<void> {
+    try {
+      const res = await fetch(`${this.baseUrl}/window`, {
+        method: 'POST',
+        headers: { ...this.headers, 'Content-Type': 'application/json' },
+        body: bridgeStringify({ tab }, BROWSER_BASE64),
+      });
+      this.checkInstance(res);
+      if (!res.ok) {
+        console.warn(`[BrowserBridge] Could not open the ${this.appWindow} window: ${await this.httpError(res)}`);
+      }
+    } catch (err) {
+      console.warn(`[BrowserBridge] Could not open the ${this.appWindow} window:`, err);
+    }
   }
 
   async invoke(channel: string, ...args: unknown[]): Promise<unknown> {
@@ -157,6 +203,16 @@ class BrowserBridgeIpc implements PreloadIpc {
   }
 
   send(channel: string, ...args: unknown[]): void {
+    const opens = OPEN_WINDOW_CHANNELS[channel];
+    if (opens) {
+      // Logged, not `window.open`ed: embedded test browsers load popups in the current tab,
+      // which would turn this tab into the satellite.
+      const tab = opens === 'settings' && typeof args[0] === 'string' ? args[0] : undefined;
+      console.info(
+        `[BrowserBridge] Opening the ${opens} window; drive it from a new tab: ` +
+          browserBridgeUrl(window.location.origin, this.endpoint, opens, tab),
+      );
+    }
     this.sendQueue = this.sendQueue
       .then(async () => {
         const res = await this.post('/send', channel, args);
@@ -186,20 +242,44 @@ class BrowserBridgeIpc implements PreloadIpc {
     return this;
   }
 
-  private post(path: string, channel: string, args: unknown[]): Promise<Response> {
+  private async post(path: string, channel: string, args: unknown[]): Promise<Response> {
+    await this.windowReady;
     if (this.revoked) {
-      return Promise.reject(new Error('Browser bridge token was rejected; reopen the URL printed by npm run dev:bridge'));
+      throw new Error('Browser bridge token was rejected; reopen the URL printed by npm run dev:bridge');
     }
-    return fetch(`${this.baseUrl}${path}`, {
+    const res = await fetch(`${this.baseUrl}${path}`, {
       method: 'POST',
-      headers: { Authorization: this.authHeader, 'Content-Type': 'application/json' },
+      headers: { ...this.headers, 'Content-Type': 'application/json' },
       body: bridgeStringify({ channel, args }, BROWSER_BASE64),
     });
+    this.checkInstance(res);
+    return res;
+  }
+
+  /**
+   * A new instance id means the main process restarted (same token, see `browser-bridge.ts` in
+   * main). Its windows start with fresh renderers, so this tab reloads too; a satellite tab then
+   * reopens its window. Returns true when a reload is under way.
+   */
+  private checkInstance(res: Response): boolean {
+    const instanceId = res.headers.get(BROWSER_BRIDGE_INSTANCE_HEADER);
+    if (!instanceId || instanceId === this.instanceId) {
+      return false;
+    }
+    if (this.instanceId === null) {
+      this.instanceId = instanceId;
+      return false;
+    }
+    console.info('[BrowserBridge] The app restarted; reloading this tab.');
+    window.location.reload();
+    return true;
   }
 
   private async httpError(res: Response): Promise<string> {
     if (res.status === 401) {
       this.revoke();
+    } else if (res.status === 503) {
+      this.windowClosed();
     }
     try {
       const body = JSON.parse(await res.text()) as { error?: string };
@@ -209,28 +289,45 @@ class BrowserBridgeIpc implements PreloadIpc {
     }
   }
 
-  /** A restarted main process has a new token: stop retrying and forget the stale one. */
+  /** The token was rotated (its file deleted): stop retrying and forget the stale one. */
   private revoke(): void {
     if (this.revoked) {
       return;
     }
     this.revoked = true;
     writeStoredParam(null);
-    const message = 'Browser bridge disconnected: the app restarted. Reopen the URL printed by npm run dev:bridge.';
+    const message =
+      'Browser bridge disconnected: the bridge token changed. Reopen the URL printed by npm run dev:bridge.';
+    console.error(`[BrowserBridge] ${message}`);
+    showBridgeNotice(message);
+  }
+
+  /** The window this tab acts as is gone (closed in the app, or never opened). */
+  private windowClosed(): void {
+    const message = `Browser bridge: the ${this.appWindow} window is not open. Reload this tab to reopen it.`;
     console.error(`[BrowserBridge] ${message}`);
     showBridgeNotice(message);
   }
 
   private async streamEvents(): Promise<void> {
+    await this.windowReady;
     let delay = RECONNECT_MIN_MS;
     while (!this.revoked) {
       try {
         const res = await fetch(`${this.baseUrl}/events`, {
-          headers: { Authorization: this.authHeader },
+          headers: this.headers,
           cache: 'no-store',
         });
+        if (this.checkInstance(res)) {
+          return;
+        }
         if (res.status === 401) {
           this.revoke();
+          return;
+        }
+        if (res.status === 503) {
+          // Only satellites get this: their window closed, and only a reload reopens it.
+          this.windowClosed();
           return;
         }
         if (!res.ok || !res.body) {

@@ -42,7 +42,7 @@ function fakeWin() {
   return {
     isDestroyed: () => false,
     focus: vi.fn(),
-    webContents: { send },
+    webContents: { send, isDestroyed: () => false },
   };
 }
 
@@ -109,6 +109,30 @@ describe('settings tab delivery', () => {
     handlers.get('closed')!();
     expect(mainState.settingsWindow).toBeNull();
     expect(mainState.mainWindow?.webContents.send).toHaveBeenCalledWith('theme-preview', null);
+  });
+
+  it('closes cleanly on quit, when the main webContents is gone before its window', () => {
+    mainState.settingsWindow = null as never;
+    const handlers = new Map<string, () => void>();
+    const created = {
+      ...fakeWin(),
+      on: vi.fn((event: string, cb: () => void) => void handlers.set(event, cb)),
+      removeMenu: vi.fn(),
+      loadFile: vi.fn(),
+      loadURL: vi.fn(),
+    };
+    vi.mocked(BrowserWindow).mockImplementationOnce(function () {
+      return created as never;
+    });
+
+    createSettingsWindow();
+    const main = mainState.mainWindow as unknown as ReturnType<typeof fakeWin>;
+    main.webContents.isDestroyed = () => true;
+    main.webContents.send.mockImplementation(() => {
+      throw new TypeError('Object has been destroyed');
+    });
+    expect(() => handlers.get('closed')!()).not.toThrow();
+    expect(mainState.settingsWindow).toBeNull();
   });
 });
 

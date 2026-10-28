@@ -80,7 +80,9 @@ export function registerConversationsIpc(): void {
       } catch {
         throw new Error('Untrusted IPC sender');
       }
-      const skipPythonResync = Boolean(options?.skipPythonResync);
+      // `/load` stops a running turn. Another window (or a bridge tab) opening a conversation
+      // that is streaming does not know about that stream, so the check lives here.
+      const skipPythonResync = Boolean(options?.skipPythonResync) || hasActiveChatStream(id);
       const conv = getConversationById(id);
       if (!conv) {
         throw new Error('Conversation not found');

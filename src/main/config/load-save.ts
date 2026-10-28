@@ -51,6 +51,7 @@ import {
   PINNED_LM_STUDIO_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
   PINNED_OPENROUTER_PROVIDER_ID,
+  OPENROUTER_DEFAULT_BASE_URL,
 } from '../../shared';
 import {
   coerceSecretValue,
@@ -926,7 +927,7 @@ function normalizeLlmProvidersTree(providers: LlmProviderConfig[]): boolean {
           : p.provider === 'llamacpp'
             ? 'http://127.0.0.1:8080/v1'
             : p.provider === 'openrouter'
-              ? 'https://openrouter.ai/api/v1'
+              ? OPENROUTER_DEFAULT_BASE_URL
               : '';
       migrated = true;
     }
@@ -1020,15 +1021,23 @@ function ensurePinnedLlamaServerUrlProvider(providers: LlmProviderConfig[]): boo
   return true;
 }
 
-/** Ensure the pinned OpenRouter row exists after the local llama source. Does not change the active model. */
+/**
+ * Ensure the pinned OpenRouter row exists after the local llama source, with its fixed provider
+ * and name (Settings offers no rename). Does not change the active model.
+ */
 function ensurePinnedOpenRouterProvider(providers: LlmProviderConfig[]): boolean {
   const existing = providers.find((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID);
   if (existing) {
+    let changed = false;
     if (existing.provider !== 'openrouter') {
       existing.provider = 'openrouter';
-      return true;
+      changed = true;
     }
-    return false;
+    if (existing.name !== 'OpenRouter') {
+      existing.name = 'OpenRouter';
+      changed = true;
+    }
+    return changed;
   }
   const localIdx = providers.findIndex((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID);
   const insert = localIdx >= 0 ? localIdx + 1 : providers.length;

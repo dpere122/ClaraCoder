@@ -288,6 +288,7 @@ export {
   PINNED_LM_STUDIO_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
   PINNED_OPENROUTER_PROVIDER_ID,
+  OPENROUTER_DEFAULT_BASE_URL,
   isPinnedLmStudioProviderId,
   isPinnedLlamaCppLocalProviderId,
   isPinnedLlamaServerUrlProviderId,
@@ -296,8 +297,13 @@ export {
 } from './llm-provider-ids';
 export { lmStudioOpenAiBaseUrlToRestOrigin } from './lm-studio-url';
 export type { LmStudioModelCard, LmStudioListModelsResult, LmStudioMutationResult } from './lm-studio-ipc';
-export type { OpenRouterCatalogModel, OpenRouterListModelsResult, OpenRouterReasoningInfo } from './openrouter-ipc';
-export { openRouterReasoningCaps } from './openrouter-ipc';
+export type {
+  OpenRouterCatalogModel,
+  OpenRouterListModelsResult,
+  OpenRouterPricing,
+  OpenRouterReasoningInfo,
+} from './openrouter-ipc';
+export { openRouterReasoningCaps, openRouterSourceLabel } from './openrouter-ipc';
 export { coerceLmStudioContextTokens, effectiveLmStudioContextTokens } from './lm-studio-ipc';
 export type {
   ChatStructuredContentPart,

@@ -1,4 +1,9 @@
-import type { OpenRouterCatalogModel, OpenRouterListModelsResult, OpenRouterReasoningInfo } from '../shared';
+import type {
+  OpenRouterCatalogModel,
+  OpenRouterListModelsResult,
+  OpenRouterPricing,
+  OpenRouterReasoningInfo,
+} from '../shared';
 import { parseAllowedHttpUrl } from '../shared/safe-http-url';
 
 /** Stop following ``links.next`` if OpenRouter ever loops. */
@@ -33,6 +38,20 @@ function parseReasoning(raw: unknown): OpenRouterReasoningInfo | undefined {
   return info;
 }
 
+/** A per-token USD price; OpenRouter sends decimal strings, and ``-1`` for variable-priced routers. */
+function parsePrice(v: unknown): number | undefined {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
+/** The ``pricing`` block; ``undefined`` unless both prompt and completion prices parse. */
+function parsePricing(raw: unknown): OpenRouterPricing | undefined {
+  const r = asRecord(raw);
+  const prompt = parsePrice(r?.prompt);
+  const completion = parsePrice(r?.completion);
+  return prompt !== undefined && completion !== undefined ? { prompt, completion } : undefined;
+}
+
 /** Parse one OpenRouter models page. ``next`` is ``links.next`` when present. */
 export function parseOpenRouterModelsPage(body: unknown): { models: OpenRouterCatalogModel[]; next: string | null } {
   const rec = asRecord(body);
@@ -52,8 +71,19 @@ export function parseOpenRouterModelsPage(body: unknown): { models: OpenRouterCa
       typeof r.context_length === 'number' && Number.isFinite(r.context_length) && r.context_length > 0
         ? Math.floor(r.context_length)
         : 0;
+    const model: OpenRouterCatalogModel = { id, name, contextLength };
     const reasoning = parseReasoning(r.reasoning);
-    models.push(reasoning ? { id, name, contextLength, reasoning } : { id, name, contextLength });
+    if (reasoning) {
+      model.reasoning = reasoning;
+    }
+    const pricing = parsePricing(r.pricing);
+    if (pricing) {
+      model.pricing = pricing;
+    }
+    if (typeof r.created === 'number' && Number.isFinite(r.created) && r.created > 0) {
+      model.created = Math.floor(r.created);
+    }
+    models.push(model);
   }
   const links = asRecord(rec?.links);
   const nextRaw = links && typeof links.next === 'string' ? links.next.trim() : '';
@@ -98,7 +128,8 @@ export function resolveOpenRouterNextUrl(currentUrl: string, next: string, allow
 }
 
 /**
- * List tool-capable OpenRouter models (``id``, ``name``, ``context_length``, ``reasoning``), following ``links.next``.
+ * List tool-capable OpenRouter models (``id``, ``name``, ``context_length``, ``reasoning``, ``pricing``, ``created``),
+ * following ``links.next``.
  */
 export async function fetchOpenRouterCatalog(
   openAiBaseUrl: string,

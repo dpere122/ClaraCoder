@@ -336,72 +336,212 @@
                 </div>
               } @else if (connection.provider === 'openrouter') {
                 <div class='form-section'>
-                  <div class='form-section__header'>
+                  <div class='form-section__header openrouter-section-head'>
                     <h5>Connection</h5>
-                  </div>
-                  <div class='form-grid'>
-                    <label class='field field--full'>
-                      <span>Name</span>
-                      <input
-                        type='text'
-                        [ngModel]='s.selectedProvider()!.name'
-                        (ngModelChange)='s.updateSelectedProvider({ name: $event })'
-                      />
-                    </label>
-                    <label class='field field--full'>
-                      <span>Base URL</span>
-                      <input
-                        type='text'
-                        placeholder='https://openrouter.ai/api/v1'
-                        [ngModel]='s.selectedProvider()!.baseUrl'
-                        (ngModelChange)='s.updateSelectedProvider({ baseUrl: $event })'
-                      />
-                    </label>
-                    <label class='field field--full'>
-                      <span>API key</span>
-                      <input
-                        type='password'
-                        [ngModel]='s.selectedProvider()!.apiKey'
-                        (ngModelChange)='s.updateSelectedProvider({ apiKey: $event })'
-                      />
-                    </label>
-                    <div class='field field--full lm-studio-connect-row'>
+                    @if (!openRouterEditing()) {
                       <button
                         type='button'
-                        class='action-button action-button--primary'
-                        [disabled]='s.openRouterModelsListInFlight()'
-                        (click)='s.refreshOpenRouterModels()'
+                        class='action-button action-button--compact'
+                        (click)='beginOpenRouterEdit(s.selectedProvider()!)'
                       >
-                        @if (s.openRouterModelsListInFlight()) {
-                          Connecting…
-                        } @else {
-                          Connect
-                        }
+                        <lucide-icon name='square-pen' [size]='13' />
+                        Edit
                       </button>
-                      @if (s.openRouterModelsListError(); as orErr) {
-                        <span class='lm-studio-status lm-studio-status--err'>{{ orErr }}</span>
+                    }
+                  </div>
+                  @if (openRouterEditing()) {
+                    <form class='form-grid' (ngSubmit)='saveOpenRouterEdit()'>
+                      <label class='field field--full'>
+                        <span>API key</span>
+                        <input
+                          type='password'
+                          name='openRouterApiKey'
+                          autocomplete='off'
+                          spellcheck='false'
+                          placeholder='sk-or-…'
+                          [ngModel]='openRouterKeyDraft()'
+                          (ngModelChange)='openRouterKeyDraft.set($event)'
+                          (keydown.escape)='cancelOpenRouterEdit()'
+                        />
+                      </label>
+                      <label class='field field--full'>
+                        <span>Base URL</span>
+                        <input
+                          type='text'
+                          name='openRouterBaseUrl'
+                          autocomplete='off'
+                          spellcheck='false'
+                          [placeholder]='openRouterDefaultBaseUrl'
+                          [ngModel]='openRouterBaseUrlDraft()'
+                          (ngModelChange)='openRouterBaseUrlDraft.set($event)'
+                          (keydown.escape)='cancelOpenRouterEdit()'
+                        />
+                      </label>
+                      <div class='field field--full openrouter-edit-actions'>
+                        <button type='submit' class='action-button action-button--primary' [disabled]='openRouterSaving()'>
+                          {{ openRouterSaving() ? 'Saving…' : 'Save' }}
+                        </button>
+                        <button type='button' class='action-button' [disabled]='openRouterSaving()' (click)='cancelOpenRouterEdit()'>
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  } @else {
+                    <dl class='openrouter-connection'>
+                      <div>
+                        <dt>API key</dt>
+                        <dd>
+                          @if (openRouterKeyMask(); as mask) {
+                            <code>{{ mask }}</code>
+                          } @else {
+                            <span class='openrouter-muted'>Not set</span>
+                          }
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Base URL</dt>
+                        <dd><code>{{ s.selectedProvider()!.baseUrl || openRouterDefaultBaseUrl }}</code></dd>
+                      </div>
+                    </dl>
+                  }
+                </div>
+
+                <hr class='settings-divider' />
+
+                <div class='form-section'>
+                  <div class='form-section__header openrouter-section-head'>
+                    <h5>Model</h5>
+                    <span class='openrouter-muted'>
+                      @if (s.openRouterModelsListInFlight()) {
+                        Loading catalog…
                       } @else if (s.openRouterModels().length) {
-                        <span class='lm-studio-status lm-studio-status--ok'>{{ s.openRouterModels().length }} models</span>
+                        {{ openRouterResults().length }} of {{ s.openRouterModels().length }} models
                       }
-                    </div>
-                    <label class='field field--full'>
-                      <span>Chat model</span>
+                    </span>
+                  </div>
+
+                  <div class='openrouter-current'>
+                    @if (s.selectedModel()!.model; as modelId) {
+                      <lucide-icon name='check' [size]='14' />
+                      <strong>{{ openRouterCurrent()?.name ?? modelId }}</strong>
+                      <code>{{ modelId }}</code>
+                    } @else {
+                      <span class='openrouter-muted'>No model selected. Pick one below.</span>
+                    }
+                  </div>
+
+                  <div class='openrouter-search'>
+                    <label class='openrouter-search__box'>
+                      <lucide-icon name='search' [size]='14' />
                       <input
-                        type='text'
-                        list='openrouter-chat-models'
-                        placeholder='model id, e.g. anthropic/claude-sonnet-4.5'
+                        type='search'
                         autocomplete='off'
                         spellcheck='false'
-                        [ngModel]='s.selectedModel()!.model'
-                        (ngModelChange)='s.onOpenRouterModelChange($event)'
+                        placeholder='Search name or id'
+                        aria-label='Search OpenRouter models'
+                        [ngModel]='openRouterQuery()'
+                        (ngModelChange)='onOpenRouterQueryChange($event)'
                       />
-                      <datalist id='openrouter-chat-models'>
-                        @for (model of s.openRouterModels(); track model.id) {
-                          <option [value]='model.id'>{{ model.name }}</option>
-                        }
-                      </datalist>
                     </label>
+                    <app-pill-select
+                      ariaLabel='Sort models'
+                      [options]='openRouterSortOptions'
+                      [value]='openRouterSort()'
+                      (valueChange)='openRouterSort.set($any($event))'
+                    />
+                    <button
+                      type='button'
+                      class='action-button action-button--compact'
+                      title='Reload the model catalog'
+                      aria-label='Reload the model catalog'
+                      [disabled]='s.openRouterModelsListInFlight()'
+                      (click)='s.refreshOpenRouterModels()'
+                    >
+                      <lucide-icon name='rotate-ccw' [size]='13' />
+                    </button>
                   </div>
+                  <div class='openrouter-chips' role='group' aria-label='Filter models'>
+                    <button
+                      type='button'
+                      class='hf-filter-chip'
+                      [class.is-active]='openRouterFreeOnly()'
+                      [attr.aria-pressed]='openRouterFreeOnly()'
+                      (click)='toggleOpenRouterFreeOnly()'
+                    >
+                      Free
+                    </button>
+                    <button
+                      type='button'
+                      class='hf-filter-chip'
+                      [class.is-active]='openRouterReasoningOnly()'
+                      [attr.aria-pressed]='openRouterReasoningOnly()'
+                      (click)='toggleOpenRouterReasoningOnly()'
+                    >
+                      Reasoning
+                    </button>
+                  </div>
+
+                  @if (s.openRouterModelsListError(); as orErr) {
+                    <p class='lm-studio-status lm-studio-status--err'>{{ orErr }}</p>
+                  }
+
+                  @if (openRouterCustomId(); as customId) {
+                    <button type='button' class='openrouter-custom' (click)='s.onOpenRouterModelChange(customId)'>
+                      Use <code>{{ customId }}</code> as the model id
+                    </button>
+                  }
+
+                  <div class='openrouter-grid'>
+                    @for (model of openRouterVisible(); track model.id) {
+                      <button
+                        type='button'
+                        class='openrouter-card'
+                        [class.is-selected]='model.id === s.selectedModel()!.model'
+                        [attr.aria-pressed]='model.id === s.selectedModel()!.model'
+                        [title]='model.id'
+                        (click)='s.onOpenRouterModelChange(model.id)'
+                      >
+                        <span class='openrouter-card__head'>
+                          <strong>{{ model.name }}</strong>
+                          @if (model.id === s.selectedModel()!.model) {
+                            <lucide-icon name='check' [size]='14' />
+                          }
+                        </span>
+                        <code class='openrouter-card__id'>{{ model.id }}</code>
+                        <span class='openrouter-card__meta'>
+                          @if (formatContext(model.contextLength); as ctx) {
+                            <span>{{ ctx }} ctx</span>
+                          }
+                          @if (model.pricing; as price) {
+                            @if (isFree(model)) {
+                              <span class='openrouter-badge openrouter-badge--free'>Free</span>
+                            } @else {
+                              <span title='USD per million input / output tokens'>
+                                {{ formatPrice(price.prompt) }} / {{ formatPrice(price.completion) }}
+                              </span>
+                            }
+                          }
+                          @if (model.reasoning) {
+                            <span class='openrouter-badge'>
+                              <lucide-icon name='brain' [size]='11' />
+                              Reasoning
+                            </span>
+                          }
+                        </span>
+                      </button>
+                    } @empty {
+                      @if (!s.openRouterModelsListInFlight() && s.openRouterModels().length) {
+                        <div class='empty-state empty-state--compact openrouter-grid__empty'>
+                          <p>No models match.</p>
+                        </div>
+                      }
+                    }
+                  </div>
+                  @if (openRouterResults().length > openRouterVisible().length) {
+                    <button type='button' class='action-button openrouter-more' (click)='showMoreOpenRouterModels()'>
+                      Show more ({{ openRouterResults().length - openRouterVisible().length }} left)
+                    </button>
+                  }
                 </div>
               } @else {
                 <div class='form-section'>
@@ -458,6 +598,7 @@
                 </div>
               }
 
+              @if (connection.provider !== 'openrouter') {
               <hr class='settings-divider' />
 
               <div class='form-section ready-defaults'>
@@ -1011,6 +1152,7 @@
                 </div>
               </div>
               </details>
+              }
 
             } @else {
               <div class='empty-state'>

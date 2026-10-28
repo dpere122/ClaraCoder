@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { openRouterReasoningCaps } from '../shared';
+import { openRouterReasoningCaps, openRouterSourceLabel, type LlmProviderConfig } from '../shared';
 import { fetchOpenRouterCatalog, parseOpenRouterModelsPage } from './openrouter-models';
 
 describe('parseOpenRouterModelsPage', () => {
@@ -39,6 +39,23 @@ describe('parseOpenRouterModelsPage', () => {
     ]);
     expect('reasoning' in page.models[2]).toBe(false);
   });
+
+  it('reads per-token pricing and created, dropping variable or missing prices', () => {
+    const page = parseOpenRouterModelsPage({
+      data: [
+        { id: 'a/paid', created: 1750000000, pricing: { prompt: '0.000003', completion: '0.000015' } },
+        { id: 'a/free', pricing: { prompt: '0', completion: '0' } },
+        { id: 'openrouter/auto', pricing: { prompt: '-1', completion: '-1' } },
+        { id: 'a/half', pricing: { prompt: '0.000001' } },
+      ],
+    });
+    expect(page.models.map((m) => [m.pricing, m.created])).toEqual([
+      [{ prompt: 0.000003, completion: 0.000015 }, 1750000000],
+      [{ prompt: 0, completion: 0 }, undefined],
+      [undefined, undefined],
+      [undefined, undefined],
+    ]);
+  });
 });
 
 describe('openRouterReasoningCaps', () => {
@@ -63,6 +80,24 @@ describe('openRouterReasoningCaps', () => {
       enableThinking: true,
       reasoningEffortValues: null,
     });
+  });
+});
+
+describe('openRouterSourceLabel', () => {
+  const source = (model: string, name: string) =>
+    ({ id: 'openrouter-default', name: 'OpenRouter', provider: 'openrouter', models: [{ model, name }] }) as unknown as LlmProviderConfig;
+
+  it('appends the catalog name of the chosen model without its vendor prefix', () => {
+    expect(openRouterSourceLabel(source('anthropic/claude-sonnet-4.5', 'Anthropic: Claude Sonnet 4.5'))).toBe(
+      'OpenRouter · Claude Sonnet 4.5',
+    );
+    expect(openRouterSourceLabel(source('openrouter/auto', 'Auto Router'))).toBe('OpenRouter · Auto Router');
+  });
+
+  it('falls back to the model id, and to the source name with no model', () => {
+    expect(openRouterSourceLabel(source('acme/new-model', 'OpenRouter'))).toBe('OpenRouter · acme/new-model');
+    expect(openRouterSourceLabel(source('acme/new-model', ''))).toBe('OpenRouter · acme/new-model');
+    expect(openRouterSourceLabel(source('', 'OpenRouter'))).toBe('OpenRouter');
   });
 });
 

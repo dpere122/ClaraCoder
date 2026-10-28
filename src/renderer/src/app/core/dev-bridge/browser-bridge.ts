@@ -35,6 +35,7 @@ import { createModelManagerApi } from '../../../../../preload/apis/model-manager
 import { createThemeApi } from '../../../../../preload/apis/theme-api';
 import { createWorkspaceApi } from '../../../../../preload/apis/workspace-api';
 import type { PreloadIpc } from '../../../../../preload/preload-ipc';
+import { markBrowserBridgeTab } from './bridge-tab';
 
 const STORAGE_KEY = 'clara.browserBridge';
 const RECONNECT_MIN_MS = 500;
@@ -88,6 +89,7 @@ export function installBrowserBridgeFromLocation(): boolean {
     ...createThemeApi(ipc),
   };
   window.electronAPI = api as unknown as NonNullable<Window['electronAPI']>;
+  markBrowserBridgeTab();
   console.info(
     `[BrowserBridge] Connected to the Electron main process on 127.0.0.1:${endpoint.port} as the ${appWindow} window`,
   );

@@ -247,6 +247,28 @@ describe('MainPanelEmptyStateComponent', () => {
     expect(events).toEqual(['add', 'models', 'deps']);
   });
 
+  it('offers to join the main window\'s workspace first in Start when one is given (bridge tab)', () => {
+    const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
+    let joined = 0;
+    fixture.componentInstance.joinMainWindow.subscribe(() => joined++);
+    fixture.componentRef.setInput('hasWorkspace', false);
+    fixture.componentRef.setInput('mainWindowWorkspace', workspace({ id: 'ws-a', name: 'Alpha', path: 'C:/tmp/alpha' }));
+    fixture.detectChanges();
+
+    const actions = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('.home__action'),
+    ) as HTMLButtonElement[];
+    expect(actions.map((el) => el.textContent?.trim())).toEqual([
+      'Join main window: Alpha',
+      'Add workspace…',
+      'Models',
+      'Dependencies',
+    ]);
+    expect(actions[0].getAttribute('title')).toContain('C:/tmp/alpha');
+    actions[0].click();
+    expect(joined).toBe(1);
+  });
+
   it('shows the etched Clara Coder brand when a workspace is open with no file', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
     fixture.componentRef.setInput('hasWorkspace', true);

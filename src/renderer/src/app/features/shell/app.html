@@ -256,6 +256,8 @@
               [recentWorkspaces]='workspaces()'
               [defaultHomePage]='defaultHomePageOnStart()'
               [appConfig]='appConfig()'
+              [mainWindowWorkspace]='mainWindowWorkspace()'
+              (joinMainWindow)='onJoinMainWindow()'
               (addWorkspace)='onAddWorkspace()'
               (openWorkspace)='onWorkspaceChanged($event)'
               (toggleFavorite)='onToggleWorkspaceFavorite($event)'

@@ -198,6 +198,12 @@ export interface ContextCompressedMessage {
   toolRoundsDropped: number;
 }
 
+/** The workspace and conversation the app's main window has open. */
+export interface MainWindowView {
+  workspaceId: string | null;
+  conversationId: string | null;
+}
+
 export interface AcceptCommandMessage {
   conversationId: string;
   payload: AcceptCommandPayload;
@@ -385,6 +391,7 @@ export class ElectronService {
   private readonly settingsWindowVisibilitySubject = new Subject<boolean>();
   private readonly settingsSelectTabSubject = new Subject<string>();
   private readonly activeConversationChangedSubject = new Subject<string | null>();
+  private readonly mainWindowViewSubject = new Subject<MainWindowView>();
   private readonly conversationWorkspaceChangedSubject = new Subject<ConversationWorkspaceChangedMessage>();
   private readonly workspaceChangedSubject = new Subject<string | null>();
   private readonly workspaceFilesChangedSubject = new Subject<WorkspaceFilesChangedMessage>();
@@ -452,6 +459,8 @@ export class ElectronService {
   readonly settingsWindowVisibility$ = this.settingsWindowVisibilitySubject.asObservable();
   readonly settingsSelectTab$ = this.settingsSelectTabSubject.asObservable();
   readonly activeConversationChanged$ = this.activeConversationChangedSubject.asObservable();
+  /** The app's main window opened another workspace or conversation (see {@link getMainWindowView}). */
+  readonly mainWindowView$ = this.mainWindowViewSubject.asObservable();
   readonly conversationWorkspaceChanged$ = this.conversationWorkspaceChangedSubject.asObservable();
   readonly workspaceChanged$ = this.workspaceChangedSubject.asObservable();
   readonly workspaceFilesChanged$ = this.workspaceFilesChangedSubject.asObservable();
@@ -743,6 +752,9 @@ export class ElectronService {
     });
     this.api?.onActiveConversationChanged((_event, conversationId) => {
       this.zone.run(() => this.activeConversationChangedSubject.next(conversationId));
+    });
+    this.api?.onMainWindowViewChanged?.((_event, view) => {
+      this.zone.run(() => this.mainWindowViewSubject.next(view));
     });
     this.api?.onConversationWorkspaceChanged((_event, data) => {
       this.zone.run(() => this.conversationWorkspaceChangedSubject.next(data));
@@ -1475,6 +1487,11 @@ export class ElectronService {
 
   getActiveConversationId(): Promise<string | null> {
     return this.api?.getActiveConversationId() ?? Promise.resolve(null);
+  }
+
+  /** What the app's own main window has open; a dev bridge tab acting as it does not change this. */
+  async getMainWindowView(): Promise<MainWindowView | null> {
+    return (await this.api?.getMainWindowView?.()) ?? null;
   }
 
   loadConfig(): Promise<AppConfig> {

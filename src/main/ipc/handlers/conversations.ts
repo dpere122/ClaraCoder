@@ -5,6 +5,7 @@ import { promises as fs } from 'fs';
 import type { ConversationFile } from '../../../shared';
 import { FIRST_THEME_ID } from '../../constants';
 import { mainState } from '../../state';
+import { getMainWindowView, noteMainWindowView } from '../../main-window-view';
 import { ensurePythonReady } from '../../python/server';
 import { pythonControlFetch } from '../../python/http-client';
 import { getWorkspaceConversationsDir } from '../../paths';
@@ -95,6 +96,7 @@ export function registerConversationsIpc(): void {
       }
 
       mainState.activeConversationId = id;
+      noteMainWindowView(event, { workspaceId: conv.workspaceId ?? null, conversationId: id });
       const sw = mainState.settingsWindow;
       if (sw && !sw.isDestroyed()) {
         sw.webContents.send('active-conversation-changed', id);
@@ -235,6 +237,7 @@ export function registerConversationsIpc(): void {
     const id = randomUUID();
     mainState.activeConversationId = id;
     mainState.activeConversationWorkspaceId = workspaceId;
+    noteMainWindowView(event, { workspaceId, conversationId: id });
 
     const settingsWin = mainState.settingsWindow;
     if (settingsWin && !settingsWin.isDestroyed()) {
@@ -290,5 +293,14 @@ export function registerConversationsIpc(): void {
       return null;
     }
     return mainState.activeConversationId;
+  });
+
+  ipcMain.handle('get-main-window-view', (event) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return null;
+    }
+    return getMainWindowView();
   });
 }

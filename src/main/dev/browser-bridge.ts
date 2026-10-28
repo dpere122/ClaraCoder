@@ -312,6 +312,8 @@ function bridgeEvent(wc: WebContents, win: BrowserBridgeWindow): IpcMainEvent & 
     defaultPrevented: false,
     preventDefault: () => undefined,
     reply: (channel: string, ...args: unknown[]) => broadcast(win, channel, args),
+    // Lets handlers tell a tab from the real window (see `main-window-view.ts`).
+    fromBrowserBridge: true,
   } as unknown as IpcMainEvent & IpcMainInvokeEvent;
 }
 

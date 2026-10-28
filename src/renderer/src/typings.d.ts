@@ -468,6 +468,11 @@ declare global {
     notifySettingsWindowReady: () => void;
     closeSettingsWindow: () => void;
     onActiveConversationChanged: (callback: (event: unknown, conversationId: string) => void) => void;
+    /** What the app's own main window has open (not a dev bridge tab acting as it). */
+    getMainWindowView: () => Promise<{ workspaceId: string | null; conversationId: string | null } | null>;
+    onMainWindowViewChanged: (
+      callback: (event: unknown, view: { workspaceId: string | null; conversationId: string | null }) => void,
+    ) => void;
     onConversationWorkspaceChanged: (
       callback: (event: unknown, data: { id: string; workspacePath: string }) => void,
     ) => void;

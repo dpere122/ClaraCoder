@@ -139,7 +139,8 @@ import { ImageViewerComponent } from '../workspace/image-viewer/image-viewer';
 import { isViewableImagePath } from '../workspace/image-viewer/image-viewer-formats';
 import { planOpenWorkspaceImageTab } from './app-image-file-tabs';
 import { WorkspaceTerminalDockComponent } from '../workspace-terminal/workspace-terminal-dock';
-import { ElectronService } from '../../core/electron.service';
+import { isBrowserBridgeTab } from '../../core/dev-bridge/bridge-tab';
+import { ElectronService, type MainWindowView } from '../../core/electron.service';
 import { TtsPlaybackService } from '../../core/tts-playback.service';
 import { ThemedConfirmDialogService } from '../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { ThemedConfirmDialogComponent } from '../../shared/themed-confirm-dialog/themed-confirm-dialog';
@@ -349,6 +350,13 @@ export class App implements OnInit, OnDestroy {
   // Workspace management
   protected readonly workspaces = signal<Workspace[]>([]);
   protected readonly currentWorkspaceId = signal<string | null>(null);
+  /** Dev bridge tab only: what the app's own main window has open (tabs do not change it). */
+  private readonly mainWindowView = signal<MainWindowView | null>(null);
+  /** The main window's workspace, offered on a bridge tab's home page as "Join main window". */
+  protected readonly mainWindowWorkspace = computed(() => {
+    const id = this.mainWindowView()?.workspaceId;
+    return (id && this.workspaces().find((ws) => ws.id === id)) || null;
+  });
   /** Welcome-screen preference: skip restoring the last workspace on launch. */
   protected readonly defaultHomePageOnStart = signal(false);
   /**
@@ -868,6 +876,11 @@ export class App implements OnInit, OnDestroy {
       }
       this.setMeasuredPromptTokensForConversation(conversationId, inputTokens);
     });
+
+    if (isBrowserBridgeTab()) {
+      this.electron.mainWindowView$.pipe(takeUntilDestroyed()).subscribe((view) => this.mainWindowView.set(view));
+      void this.electron.getMainWindowView().then((view) => this.mainWindowView.set(view));
+    }
 
     this.electron.contextCompressed$.pipe(takeUntilDestroyed()).subscribe(
       ({ conversationId, tokensBefore, tokensAfter }) => {
@@ -1863,6 +1876,23 @@ export class App implements OnInit, OnDestroy {
 
     // Load conversations for the new workspace
     await this.loadConversationsForWorkspace();
+  }
+
+  /** Dev bridge tab: open the main window's workspace and the conversation it is on. */
+  protected async onJoinMainWindow(): Promise<void> {
+    const view = await this.electron.getMainWindowView();
+    const ws = view?.workspaceId ? this.workspaces().find((w) => w.id === view.workspaceId) : undefined;
+    if (!view || !ws) {
+      return;
+    }
+    await this.onWorkspaceChanged(ws.id);
+    if (this.currentWorkspaceId() !== ws.id) {
+      return;
+    }
+    const conversationId = view.conversationId;
+    if (conversationId && this.conversationSession.conversations().some((c) => c.id === conversationId)) {
+      await this.onSelectConversation(conversationId);
+    }
   }
 
   async onAddWorkspace(): Promise<void> {

@@ -202,6 +202,10 @@ export interface ContextCompressedMessage {
 export interface MainWindowView {
   workspaceId: string | null;
   conversationId: string | null;
+  /** Bumped when the main window creates, saves, renames or deletes a conversation. */
+  conversationsRevision: number;
+  /** Its composer mode, Auto Run and Admin (model and effort are config, which tabs already get). */
+  composer: { mode: string; autoApply: boolean; admin: boolean } | null;
 }
 
 export interface AcceptCommandMessage {
@@ -1487,6 +1491,11 @@ export class ElectronService {
 
   getActiveConversationId(): Promise<string | null> {
     return this.api?.getActiveConversationId() ?? Promise.resolve(null);
+  }
+
+  /** Report the composer mode, Auto Run and Admin; main keeps the app window's for bridge tabs. */
+  noteMainWindowComposer(composer: { mode: string; autoApply: boolean; admin: boolean }): void {
+    this.api?.noteMainWindowComposer?.(composer);
   }
 
   /** What the app's own main window has open; a dev bridge tab acting as it does not change this. */

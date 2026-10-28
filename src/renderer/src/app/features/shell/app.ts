@@ -31,6 +31,7 @@ import {
   DEFAULT_KOKORO_TTS_VOICE,
   DEFAULT_OPENAI_TTS_VOICE,
   DEFAULT_TTS_PROVIDER,
+  COMPOSER_RUN_MODES,
   composerApplyMode,
   composerModeForBackend,
   effectiveLmStudioContextTokens,
@@ -352,6 +353,12 @@ export class App implements OnInit, OnDestroy {
   protected readonly currentWorkspaceId = signal<string | null>(null);
   /** Dev bridge tab only: what the app's own main window has open (tabs do not change it). */
   private readonly mainWindowView = signal<MainWindowView | null>(null);
+  /** After Join, the tab follows the main window until it picks a workspace or conversation itself. */
+  private followingMainWindow = false;
+  /** True while the tab applies a main-window change (it is not the tab's own pick). */
+  private applyingMainWindowView = false;
+  /** Main-window changes are applied one at a time, in order. */
+  private mainWindowFollow: Promise<void> = Promise.resolve();
   /** The main window's workspace, offered on a bridge tab's home page as "Join main window". */
   protected readonly mainWindowWorkspace = computed(() => {
     const id = this.mainWindowView()?.workspaceId;
@@ -750,6 +757,15 @@ export class App implements OnInit, OnDestroy {
     });
 
     effect(() => {
+      // Main keeps the app window's composer (not a bridge tab's) for tabs that join that window.
+      this.electron.noteMainWindowComposer({
+        mode: this.composerMode(),
+        autoApply: this.autoApplyMode(),
+        admin: this.adminElevationGranted(),
+      });
+    });
+
+    effect(() => {
       this.activeModelKey();
       untracked(() => {
         this.editorSelectionChip.set(null);
@@ -878,7 +894,12 @@ export class App implements OnInit, OnDestroy {
     });
 
     if (isBrowserBridgeTab()) {
-      this.electron.mainWindowView$.pipe(takeUntilDestroyed()).subscribe((view) => this.mainWindowView.set(view));
+      this.electron.mainWindowView$.pipe(takeUntilDestroyed()).subscribe((view) => {
+        this.mainWindowView.set(view);
+        if (this.followingMainWindow) {
+          this.queueFollowMainWindow(view);
+        }
+      });
       void this.electron.getMainWindowView().then((view) => this.mainWindowView.set(view));
     }
 
@@ -1520,6 +1541,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   async onNewConversation(): Promise<void> {
+    this.stopFollowingMainWindowUnlessApplying();
     await this.conversationSession.onNewConversation(this.currentWorkspaceId());
   }
 
@@ -1745,6 +1767,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   async onSelectConversation(id: string): Promise<void> {
+    this.stopFollowingMainWindowUnlessApplying();
     await this.conversationSession.onSelectConversation(id, this.currentWorkspaceId());
   }
 
@@ -1855,6 +1878,7 @@ export class App implements OnInit, OnDestroy {
   // Workspace management
   async onWorkspaceChanged(workspaceId: string | null): Promise<void> {
     console.log('[App] onWorkspaceChanged:', workspaceId);
+    this.stopFollowingMainWindowUnlessApplying();
     if (workspaceId === this.currentWorkspaceId()) {
       return;
     }
@@ -1878,20 +1902,70 @@ export class App implements OnInit, OnDestroy {
     await this.loadConversationsForWorkspace();
   }
 
-  /** Dev bridge tab: open the main window's workspace and the conversation it is on. */
+  /**
+   * Dev bridge tab: open the main window's workspace and the conversation it is on, then keep
+   * following it (workspace, selected conversation, conversation list) until the tab picks its own.
+   */
   protected async onJoinMainWindow(): Promise<void> {
     const view = await this.electron.getMainWindowView();
-    const ws = view?.workspaceId ? this.workspaces().find((w) => w.id === view.workspaceId) : undefined;
-    if (!view || !ws) {
+    if (!view?.workspaceId) {
       return;
     }
-    await this.onWorkspaceChanged(ws.id);
-    if (this.currentWorkspaceId() !== ws.id) {
+    this.followingMainWindow = true;
+    this.queueFollowMainWindow(view);
+    await this.mainWindowFollow;
+  }
+
+  private queueFollowMainWindow(view: MainWindowView): void {
+    this.mainWindowFollow = this.mainWindowFollow
+      .then(() => this.followMainWindow(view))
+      .catch((err) => console.error('[App] Failed to follow the main window:', err));
+  }
+
+  /** Apply one main-window view to this tab; the main window going home leaves the tab as it is. */
+  private async followMainWindow(view: MainWindowView): Promise<void> {
+    const workspaceId = view.workspaceId;
+    if (!this.followingMainWindow || !workspaceId || !this.workspaces().some((w) => w.id === workspaceId)) {
       return;
     }
-    const conversationId = view.conversationId;
-    if (conversationId && this.conversationSession.conversations().some((c) => c.id === conversationId)) {
-      await this.onSelectConversation(conversationId);
+    this.applyingMainWindowView = true;
+    try {
+      await this.onWorkspaceChanged(workspaceId);
+      if (this.currentWorkspaceId() !== workspaceId) {
+        return;
+      }
+      await this.conversationSession.refreshConversationList(workspaceId);
+      const conversationId = view.conversationId;
+      if (
+        conversationId &&
+        conversationId !== this.activeConversationId() &&
+        this.conversationSession.conversations().some((c) => c.id === conversationId)
+      ) {
+        await this.onSelectConversation(conversationId);
+      }
+      this.applyMainWindowComposer(view);
+    } finally {
+      this.applyingMainWindowView = false;
+    }
+  }
+
+  /** Mirror the main window's mode and Auto Run, and its Admin when both are on its conversation. */
+  private applyMainWindowComposer(view: MainWindowView): void {
+    const composer = view.composer;
+    if (!composer || !(COMPOSER_RUN_MODES as readonly string[]).includes(composer.mode)) {
+      return;
+    }
+    this.composerMode.set(composer.mode as ComposerRunMode);
+    this.autoApplyMode.set(composer.autoApply);
+    if (view.conversationId && view.conversationId === this.activeConversationId()) {
+      this.adminElevationGranted.set(composer.admin);
+    }
+  }
+
+  /** A workspace or conversation the tab picks itself ends following the main window. */
+  private stopFollowingMainWindowUnlessApplying(): void {
+    if (!this.applyingMainWindowView) {
+      this.followingMainWindow = false;
     }
   }
 

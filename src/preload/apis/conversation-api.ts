@@ -16,8 +16,10 @@ export const createConversationApi = (ipcRenderer: PreloadIpc) => ({
   setConversationTheme: (id: string, themeId: string) => ipcRenderer.invoke('set-conversation-theme', id, themeId),
   getActiveConversationId: () => ipcRenderer.invoke('get-active-conversation-id'),
   getMainWindowView: () => ipcRenderer.invoke('get-main-window-view'),
+  noteMainWindowComposer: (composer: { mode: string; autoApply: boolean; admin: boolean }) =>
+    ipcRenderer.send('note-main-window-composer', composer),
   onMainWindowViewChanged: (
-    callback: (event: unknown, view: { workspaceId: string | null; conversationId: string | null }) => void,
+    callback: (event: unknown, view: { workspaceId: string | null; conversationId: string | null; conversationsRevision: number; composer: { mode: string; autoApply: boolean; admin: boolean } | null }) => void,
   ) => ipcRenderer.on('main-window-view-changed', callback),
   onActiveConversationChanged: (callback: (event: unknown, conversationId: string) => void) =>
     ipcRenderer.on('active-conversation-changed', callback),

@@ -1,8 +1,8 @@
 # Clara Coder
 
-Electron desktop app with an Angular UI and a Python (FastAPI) backend for AI-assisted coding: chat, workspace tools, LSP integration, transcription, and local Kokoro TTS.
+Electron desktop app with an Angular UI and a Python (FastAPI + LangGraph) backend for AI-assisted coding: an agent with workspace read/edit tools and approved shell commands, LSP integration, a semantic workspace index, MCP servers, build plans, speech transcription, and local Kokoro TTS. Models come from OpenAI, OpenRouter, LM Studio, or a managed local `llama-server` (llama.cpp).
 
-For the dual-stack backend map (Electron IPC + FastAPI/LangGraph, tools, persistence), see [docs/backend-architecture.md](docs/backend-architecture.md). For Python API details, env vars, and layout, see [python/README.md](python/README.md).
+For Python API details, env vars, and layout, see [python/README.md](python/README.md). For how agent tools are written, see [python/TOOLS.md](python/TOOLS.md).
 
 ## First-time build
 
@@ -16,13 +16,13 @@ These steps get a fresh clone running in development. Allow roughly 5–15 minut
 | **Node.js + npm**    | Required for Electron, Angular, and native addon rebuilds. The repo pins `npm@11.9.0`; any recent npm 11.x is fine.                                                                                                           |
 | **Python 3.10–3.13** | One system Python is enough. `npm run setup:python` creates the repo-root `.venv` for you — you do **not** need a separate 3.12 install.                                                                                        |
 | **Git**              | Needed when Kokoro cannot install from PyPI (today: Python 3.13+); `setup:python` falls back to GitHub for misaki/kokoro.                                                                                                      |
-| **Build toolchain**  | Linux/macOS: compiler + Python headers for `node-pty` / `better-sqlite3` rebuilds (`build-essential`, `python3-venv`, etc.). Windows: Visual Studio Build Tools; see [node-pty / Spectre note](#windows-native-modules) below. |
+| **Build toolchain**  | Linux/macOS: compiler + Python headers for `node-pty` / `better-sqlite3` rebuilds (`build-essential`, `python3-venv`, etc.). Windows: Visual Studio Build Tools; see [node-pty / Spectre note](#native-modules-better-sqlite3--node-pty) below. |
 
 
 Optional:
 
 - **espeak-ng** — improves Kokoro English fallback for out-of-vocabulary words ([Kokoro docs](https://pypi.org/project/kokoro/)).
-- **OpenAI API key** or **LM Studio** — configured in the app after launch, not at build time.
+- **An LLM connection** — an OpenAI or OpenRouter API key, a running LM Studio, or a GGUF model for the managed `llama-server`. All are configured in the app after launch, not at build time.
 
 
 
@@ -93,18 +93,21 @@ Stop dev with **Ctrl+C** in the terminal running `npm run dev`.
 .venv/bin/python -c "from kokoro import KPipeline; print('Kokoro OK')"
 ```
 
+On Windows, use `.venv\Scripts\python` in place of `.venv/bin/python` here and below.
+
 **GPU PyTorch (NVIDIA)**
 
 ```bash
 .venv/bin/python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu')"
 ```
 
-Expect `2.13.0+cu129` and your GPU name. RTX 50-series (Blackwell) needs `cu129`; if you see a CPU build (`+cpu`) or sm_120 warnings, re-run `npm run setup:python` (not `setup:python:cpu`).
+Expect a `+cu129` version, `True`, and your GPU name. RTX 50-series (Blackwell) needs `cu129`; if you see a CPU build (`+cpu`) or sm_120 warnings, re-run `npm run setup:python` (not `setup:python:cpu`).
 
-**Renderer tests**
+**Tests**
 
 ```bash
-npm test
+npm test            # renderer (Angular + Vitest)
+npm run test:node   # Electron main / preload / shared / scripts
 ```
 
 **Production-style build**
@@ -113,7 +116,7 @@ npm test
 npm run pack:dir
 ```
 
-`pack` / `pack:dir` run `bundle:python` first (downloads a portable CPython into `runtime-bundle/python/`, installs `python/requirements.txt` into that interpreter, and writes `.clara-runtime-manifest.json`), then compile and invoke electron-builder. After a successful pack, `scripts/verify-packed-runtime.mjs` checks the unpacked resources (interpreter, manifest, backend sources, vtsls). Packaged output lands under `release/` (or `release-pack-<timestamp>/` if the folder is locked on Windows).
+`pack` / `pack:dir` run three bundling steps first: `bundle:python` (downloads a portable CPython into `runtime-bundle/python/`, installs `python/requirements.txt` into that interpreter, and writes `.clara-runtime-manifest.json`), `bundle:vtsls` (the TypeScript/JavaScript language server), and `bundle:rg` (a pinned ripgrep for workspace search). They then compile and invoke electron-builder. After a successful pack, `scripts/verify-packed-runtime.mjs` checks the unpacked resources (interpreter, manifest, backend sources, vtsls). Packaged output lands under `release/` (or `release-pack-<timestamp>/` if the folder is locked on Windows).
 
 In packaged builds only the bundled runtime is used. `CLARA_PYTHON`, the repo-root `.venv`, and system Python apply to development only.
 
@@ -141,6 +144,7 @@ After install (or in dev), open **Dependencies** to download optional runtime pi
 | llama-server | Managed local llama.cpp binary (no system install required) |
 | Java LSP (JDT LS) | Eclipse JDT Language Server for Java |
 | Kokoro TTS | Local neural TTS (CPU PyTorch + kokoro) |
+| Whisper STT | Local speech-to-text (faster-whisper, CPU CTranslate2) |
 
 Heavy pieces are on-demand; the packaged app ships a portable Python with core backend packages plus the backend sources.
 
@@ -187,7 +191,11 @@ Managed chat servers are started with `--cache-ram 0` unless the run command alr
 | `npm run dev`               | Development (UI + Electron + Python backend)           |
 | `npm run build`             | Compile main process + Angular for production          |
 | `npm run pack`              | Bundle portable Python + core deps, verify unpacked runtime, build installer (`.exe`, `.dmg`, Linux `.deb`/AppImage)|
+| `npm run pack:dir`          | Same as `pack`, but stops at the unpacked app directory (no installer) |
 | `npm run bundle:python`     | Fetch portable CPython, install requirements into the bundle, write runtime manifest |
+| `npm run bundle:vtsls`      | Assemble the bundled TypeScript/JavaScript language server into `vtsls-bundle/` |
+| `npm run bundle:rg`         | Fetch the pinned ripgrep binary into `runtime-bundle/ripgrep/` |
+| `npm run rebuild:sqlite` / `rebuild:pty` | Force-rebuild `better-sqlite3` / `node-pty` for the pinned Electron |
 | `npm run setup:python`      | Create `.venv` if needed; install deps + GPU PyTorch + Kokoro |
 | `npm run setup:python:cpu`  | Same without CUDA — CPU-only PyTorch                   |
 | `npm run check:python-deps` | Lint Python dependency graph (`deptry`)                |
@@ -317,9 +325,9 @@ These addons must match this repo's Electron ABI, not system Node. If you see `N
 
 ### Kokoro / TTS errors at runtime
 
-Confirm Kokoro imports in your venv (see step 5 above). For English OOD fallback, install **espeak-ng** on your OS.
+Confirm Kokoro imports in your venv (see step 4 above). For English OOD fallback, install **espeak-ng** on your OS.
 
-On NVIDIA GPUs, Kokoro uses CUDA via PyTorch. If TTS is slow or falls back to CPU, verify the GPU check in step 5 and reinstall with `npm run setup:python`.
+On NVIDIA GPUs, Kokoro uses CUDA via PyTorch. If TTS is slow or falls back to CPU, verify the GPU check in step 4 and reinstall with `npm run setup:python`.
 
 ## Project layout (short)
 
@@ -327,10 +335,12 @@ On NVIDIA GPUs, Kokoro uses CUDA via PyTorch. If TTS is slow or falls back to CP
 | Path                       | Role                                                         |
 | -------------------------- | ------------------------------------------------------------ |
 | `src/main/`                | Electron main process (TypeScript)                           |
-| `src/renderer/`            | Angular UI                                                   |
-| `src/shared/theme/`        | Theme schema, token catalog, generated group registry, built-in themes |
+| `src/preload/`             | Preload bridge between the renderer and main process         |
+| `src/renderer/`            | Angular UI ([src/renderer/README.md](src/renderer/README.md)) |
+| `src/shared/`              | Types shared by main and renderer; `theme/` holds the theme schema, token catalog, generated group registry, and built-in themes |
 | `python/`                  | FastAPI backend (`server.py`, `clara_coder_backend/`)               |
 | `.venv/`                   | Project Python environment (gitignored; created by `setup:python`) |
-| `scripts/setup-python.mjs` | Creates `.venv`, installs PyTorch + deps + Kokoro             |
+| `scripts/`                 | Build, bundling, native-rebuild, and theme-registry scripts (`setup-python.mjs` creates `.venv` and installs PyTorch + deps + Kokoro) |
+| `tests/branch-smoke/`      | Local, gitignored smoke scripts for a branch ([README](tests/branch-smoke/README.md)) |
 
 

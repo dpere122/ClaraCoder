@@ -1,59 +1,42 @@
 # Renderer
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 21.2.5.
+The Clara Coder UI: an Angular 21 app (standalone components, Vitest unit tests) that runs inside the Electron window. It talks to the Electron main process only through the `window.electronAPI` bridge exposed by [`src/preload/preload.ts`](../preload/preload.ts); main in turn talks to the Python sidecar.
 
-## Development server
+There is no separate `node_modules` here. Dependencies live in the repo-root `package.json`, and the root scripts run the Angular CLI with this folder as its working directory (`scripts/run-ng.mjs`). Run everything from the **repository root**.
 
-To start a local development server, run:
-
-```bash
-ng serve
-```
-
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
-
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+## Development
 
 ```bash
-ng generate component component-name
+npm run dev
 ```
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+This serves the UI at `http://127.0.0.1:4200`, watches the main process, and opens Electron. Use the Electron window: opened in a plain browser tab, the UI has no `electronAPI` and most features do not work.
+
+To drive the full app from a plain browser (for example in automated UI checks), use `npm run dev:bridge`. In that mode `core/dev-bridge/browser-bridge.ts` installs a `window.electronAPI` that forwards calls to the main process over a local, token-protected bridge.
+
+## Tests and build
 
 ```bash
-ng generate --help
+npm test                 # renderer unit tests (ng test → Vitest)
+npm run build            # main process + production UI build into dist/renderer/
 ```
 
-## Building
-
-To build the project run:
+Other Angular CLI commands go through the root `ng` script, for example:
 
 ```bash
-ng build
+npm run ng -- generate component features/chat/my-widget
 ```
 
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
+## Layout
 
-## Running unit tests
+| Path                   | Role |
+| ---------------------- | ---- |
+| `src/app/core/`        | App-wide services: the Electron bridge (`electron.service.ts`), theme engine (`theme/`), TTS playback, stream batching, dev browser bridge |
+| `src/app/features/`    | Feature areas: `chat`, `workspace`, `workspace-terminal`, `shell`, `diff`, `settings`, `dependencies`, `speech`, `health`, `status`, `layout` |
+| `src/app/shared/`      | Reusable UI pieces (themed dialogs, pill select) |
+| `src/app/utils/`       | Pure helpers |
+| `public/`              | Static assets copied into the build |
 
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
+## Themes
 
-```bash
-ng test
-```
-
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
-
-```bash
-ng e2e
-```
-
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+Components that should be themeable carry a `data-theme-group="<category>.<name>"` attribute on their root element. After adding or renaming one, run `npm run gen:theme-registry` (it also runs before `dev`, `build`, and `test`). See [Themes](../../README.md#themes) in the root README for the full workflow.

@@ -1,6 +1,6 @@
 import { Component, ViewEncapsulation, computed, input, output } from '@angular/core';
 import type { ToolTrailPillState } from '@shared/index';
-import type { PillSpinnerKind } from '../tool-spinner-kind';
+import type { PillGlyph, ToolGlyph } from '../tool-spinner-kind';
 import { ToolSpinnerComponent } from '../tool-spinner/tool-spinner';
 
 @Component({
@@ -28,12 +28,10 @@ export class StreamToolPillComponent {
   readonly live = input(false);
   /** Tool spinner inside the pill while this tool batch is the live preview. */
   readonly spinner = input(false);
-  /**
-   * Nested squares for reads, hex core for commands, branching signal for web tools, fractal
-   * tree for everything else;
-   * `think` for the compact thinking pill.
-   */
-  readonly spinnerKind = input<PillSpinnerKind>('write');
+  /** The running tool's own glyph, animated; `think` for the compact thinking pill. */
+  readonly spinnerKind = input<PillGlyph>('plug');
+  /** Tool glyphs drawn still in the spinner's slot when no spinner shows (finished rows, closed blocks). */
+  readonly icons = input<readonly ToolGlyph[]>([]);
 
   /** Glow the name letter by letter (like the thinking preview header) while calls are active. */
   readonly shimmer = input(false);

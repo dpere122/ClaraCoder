@@ -13,12 +13,16 @@
   (click)="onClick()"
 >
   @if (spinner()) {
-    <span
-      class="stream-tool-pill__spinner"
-      [class]="'stream-tool-pill__spinner--' + spinnerKind()"
-      aria-hidden="true"
-    >
+    <span class="stream-tool-pill__spinner" aria-hidden="true">
       <app-tool-spinner class="stream-tool-pill__spinner-img" [kind]="spinnerKind()" />
+    </span>
+  } @else if (icons().length) {
+    <span class="stream-tool-pill__icons" aria-hidden="true">
+      @for (glyph of icons(); track glyph) {
+        <span class="stream-tool-pill__icon">
+          <app-tool-spinner class="stream-tool-pill__icon-img" [kind]="glyph" [still]="true" />
+        </span>
+      }
     </span>
   }
   @if (shimmer()) {

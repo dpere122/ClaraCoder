@@ -1,10 +1,11 @@
 import { Component, ViewEncapsulation, input } from '@angular/core';
-import type { SpinnerKind } from '../tool-spinner-kind';
+import type { SpinnerKind, ToolGlyph } from '../tool-spinner-kind';
 
 /**
- * Live activity spinner (fractal set), drawn inline so it takes the theme's colours: the line
- * work in `--t-primary`, highlights in `--t-secondary`, and a third tone from `--t-hljs-number`.
- * Sizes to its host; motion stops under reduced motion.
+ * Live activity spinner, drawn inline so it takes the theme's colours: the line work in
+ * `--t-primary`, highlights in `--t-secondary`, and a third tone from `--t-hljs-number`. Draws
+ * the turn-activity set (fractal) or a tool's own {@link ToolGlyph}; `still` freezes a glyph on
+ * its icon frame. Sizes to its host; motion stops under reduced motion.
  */
 @Component({
   selector: 'app-tool-spinner',
@@ -14,5 +15,7 @@ import type { SpinnerKind } from '../tool-spinner-kind';
   encapsulation: ViewEncapsulation.None,
 })
 export class ToolSpinnerComponent {
-  readonly kind = input.required<SpinnerKind>();
+  readonly kind = input.required<SpinnerKind | ToolGlyph>();
+  /** Draw without motion: a finished tool's icon. */
+  readonly still = input(false);
 }

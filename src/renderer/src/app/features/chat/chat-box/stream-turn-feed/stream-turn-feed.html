@@ -78,7 +78,7 @@
               [live]="true"
               [shimmer]="spinnerHost() === 'pill'"
               [spinner]="spinnerHost() === 'pill'"
-              [spinnerKind]="previewToolSpinnerKind()"
+              [spinnerKind]="previewToolGlyph()"
             />
           </div>
         }
@@ -112,6 +112,7 @@
         <app-stream-tool-pill
           [name]="activityName(working, summary)"
           [nameTitle]="summary?.title ?? ''"
+          [icons]="activityGlyphs().get($index) ?? []"
           [meta]="activityMeta(activityBaseMeta(working, summary), open, members)"
           [duration]="summary?.duration ?? ''"
           durationTitle="Time spent thinking and running tools"
@@ -121,7 +122,7 @@
           [live]="live()"
           [shimmer]="working && live()"
           [spinner]="!open && spinnerHost() === 'pill' && activityHostsPreview(members)"
-          [spinnerKind]="hostedSpinnerKind() ?? 'think'"
+          [spinnerKind]="hostedSpinnerGlyph()"
           (toggle)="toggleActivity($index, members)"
         />
         @if (!open && previewShowsBody() && activityHostsPreview(members)) {

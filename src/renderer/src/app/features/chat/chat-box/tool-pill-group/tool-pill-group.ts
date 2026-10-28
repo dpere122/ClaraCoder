@@ -17,6 +17,7 @@ import {
 } from '../aux-stream-tool-part/aux-stream-tool-part';
 import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
 import { ToolPillExpansion } from '../tool-pill-expansion';
+import { toolGlyph } from '../tool-spinner-kind';
 
 /** One pill for back-to-back tool calls of a kind (`Read · 3 files · a.ts, b.ts`); expands to each call. */
 @Component({
@@ -39,6 +40,11 @@ export class ToolPillGroupComponent implements OnInit {
   private readonly states = computed(() => this.parts().map((part) => auxStreamToolPartPillState(part, this.live())));
 
   readonly group = computed(() => toolPillGroupLabel(this.labels()));
+  /** The lead call's glyph; a group's calls share a verb, so they read as one tool. */
+  readonly icons = computed(() => {
+    const lead = this.parts()[0];
+    return lead ? [toolGlyph(lead.label, lead.streamTag)] : [];
+  });
 
   /**
    * Calls cut off when their turn was stopped or interrupted: they did not fail, they never

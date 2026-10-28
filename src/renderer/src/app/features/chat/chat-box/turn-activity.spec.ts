@@ -1,7 +1,7 @@
 import type { StreamPart, TurnFeedItem } from '@shared/index';
 import { toolTrailStatusStreamTag } from '@shared/index';
 import { inFlightToolSpinnerKind, resolveTurnActivity, turnActivitySpinnerKind } from './chat-box-display';
-import { toolSpinnerKind } from './tool-spinner-kind';
+import { toolGlyph, toolSpinnerKind } from './tool-spinner-kind';
 
 describe('resolveTurnActivity', () => {
   const thought: TurnFeedItem = {
@@ -71,6 +71,63 @@ describe('toolSpinnerKind', () => {
     expect(toolSpinnerKind('web_search', '')).toBe('web');
     expect(toolSpinnerKind('fetch_url', '')).toBe('web');
     expect(toolSpinnerKind('replace_workspace_snippet', '')).toBe('write');
+  });
+});
+
+describe('toolGlyph', () => {
+  it('gives every agent tool its own glyph', () => {
+    const tools = [
+      'read_workspace_file',
+      'read_workspace_image',
+      'list_workspace_directory',
+      'search_workspace',
+      'retrieve_workspace_semantic',
+      'structured_overview',
+      'search_structured',
+      'read_structured_section',
+      'activate_context',
+      'lsp_get_diagnostics',
+      'lsp_hover',
+      'lsp_find_definition',
+      'lsp_find_references',
+      'lsp_get_document_symbols',
+      'write_workspace_file',
+      'replace_workspace_lines',
+      'replace_workspace_snippet',
+      'format_workspace_file',
+      'copy_workspace_files',
+      'delete_workspace_entries',
+      'java_bootstrap_project',
+      'web_search',
+      'fetch_url',
+      'run_command',
+      'wait_for_command',
+      'kill_background_command',
+      'list_background_commands',
+      'check_user_terminals',
+      'read_build_plan',
+      'mark_build_plan_steps_complete',
+      'spawn_subagent',
+      'wait_for_subagents',
+      'stop_subagent',
+      'propose_theme',
+    ];
+    const glyphs = tools.map((name) => toolGlyph(name, ''));
+    expect(glyphs).not.toContain('plug');
+    expect(new Set(glyphs).size).toBe(tools.length);
+  });
+
+  it('matches tool families by prefix and language-routed LSP writes', () => {
+    expect(toolGlyph('xml_overview', '')).toBe('xml');
+    expect(toolGlyph('json_get_path', '')).toBe('json');
+    expect(toolGlyph('wsdl_list_operations', '')).toBe('wsdl');
+    expect(toolGlyph('lsp_update_typescript_file', '')).toBe('write-file');
+  });
+
+  it('falls back on the stream tag, then the plug', () => {
+    expect(toolGlyph('npm test', 'run-command:abc')).toBe('command');
+    expect(toolGlyph('mcp__blender__get_objects_summary', '')).toBe('plug');
+    expect(toolGlyph('', '')).toBe('plug');
   });
 });
 

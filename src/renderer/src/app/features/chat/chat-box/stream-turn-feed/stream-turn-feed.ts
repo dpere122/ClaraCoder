@@ -22,7 +22,7 @@ import { StreamThoughtPillComponent } from '../stream-thought-pill/stream-though
 import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
 import { ToolPillExpansion } from '../tool-pill-expansion';
 import { ToolPillGroupComponent } from '../tool-pill-group/tool-pill-group';
-import type { PillSpinnerKind } from '../tool-spinner-kind';
+import type { PillGlyph, PillSpinnerKind, ToolGlyph } from '../tool-spinner-kind';
 import { ToolSpinnerComponent } from '../tool-spinner/tool-spinner';
 import {
   committedItemIndices,
@@ -34,6 +34,7 @@ import {
   previewCommitCount,
   previewItemText,
   previewQueueHeader,
+  previewQueueToolGlyph,
   previewQueueToolSpinnerKind,
   previewQueueMeta,
   previewShowsBody as previewItemShowsBody,
@@ -43,7 +44,7 @@ import {
   queueableItems,
   splitQueuedFeed,
 } from './stream-preview-queue';
-import { activityLayout, activitySummary, type ActivitySummary } from './activity-blocks';
+import { activityGlyphs, activityLayout, activitySummary, type ActivitySummary } from './activity-blocks';
 import { settlingChipIndices, toolChipGroupParts, toolChipLayout } from './tool-chip-groups';
 
 /** How long chips that just left the live preview play their settle animation (see the CSS). */
@@ -163,6 +164,17 @@ export class StreamTurnFeedComponent {
     return out;
   });
 
+  /** Still glyphs of the tools each closed activity pill ran, by block lead index. */
+  readonly activityGlyphs = computed(() => {
+    const items = this.items();
+    const roles = this.displayRoles();
+    const out = new Map<number, ToolGlyph[]>();
+    for (const [lead, members] of this.activityLayout().blocks) {
+      out.set(lead, activityGlyphs(items, members.filter((index) => roles[index] === 'chip')));
+    }
+    return out;
+  });
+
   private readonly toolPillExpansion = inject(ToolPillExpansion);
   /** Activity blocks the user opened or closed, by lead item key (see {@link trackItem}). */
   private readonly activityOverride = signal<ReadonlyMap<string, boolean>>(new Map());
@@ -193,6 +205,12 @@ export class StreamTurnFeedComponent {
   readonly previewToolSpinnerKind = computed(() => {
     const split = this.split();
     return previewQueueToolSpinnerKind(split.current, split.inbound);
+  });
+
+  /** The running tool's own glyph, animated in the live tool pill. */
+  readonly previewToolGlyph = computed(() => {
+    const split = this.split();
+    return previewQueueToolGlyph(split.current, split.inbound);
   });
 
   readonly previewShowsBody = computed(() => {
@@ -241,6 +259,11 @@ export class StreamTurnFeedComponent {
     }
     return null;
   });
+
+  /** Glyph the hosting pill animates: the running tool's own, or `think` for a thought. */
+  readonly hostedSpinnerGlyph = computed<PillGlyph>(() =>
+    this.spinnerHost() === 'pill' ? this.previewToolGlyph() : 'think',
+  );
 
   /** Header label letters for the shimmer animation while the spinner sits in the preview. */
   readonly previewHeaderChars = computed(() => Array.from(this.previewHeader()));

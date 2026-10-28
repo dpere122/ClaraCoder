@@ -373,12 +373,12 @@ def test_chat_model_stream_splits_gemma_channel_to_reasoning(mock_conn: MagicMoc
         llm_log_context='test',
         stream_tag='agent',
     )
-    # Primary and reasoning both stream live (main first, then reasoning).
+    # Primary and reasoning both stream live, in the order the model wrote them.
     assert len(lines) == 2
-    assert 'Hello!' in lines[0]
-    assert '"stream_tag": "agent"' in lines[0]
-    assert "I'm" in lines[1]
-    assert '"stream_tag": "reasoning"' in lines[1]
+    assert "I'm" in lines[0]
+    assert '"stream_tag": "reasoning"' in lines[0]
+    assert 'Hello!' in lines[1]
+    assert '"stream_tag": "agent"' in lines[1]
     assert state.deferred_agent_text == 'Hello!'
     assert state.reasoning_emitted_this_step is True
 
@@ -722,11 +722,12 @@ def test_chat_model_stream_emits_reasoning_tag_for_reasoning_chunk() -> None:
         llm_log_context='test',
         stream_tag='agent',
     )
+    # A chunk that ends the thought and starts the answer: reasoning first.
     assert len(lines) == 2
-    assert '"delta": "Hi"' in lines[0]
-    assert '"stream_tag": "agent"' in lines[0]
-    assert '"delta": "think"' in lines[1]
-    assert '"stream_tag": "reasoning"' in lines[1]
+    assert '"delta": "think"' in lines[0]
+    assert '"stream_tag": "reasoning"' in lines[0]
+    assert '"delta": "Hi"' in lines[1]
+    assert '"stream_tag": "agent"' in lines[1]
     assert state.deferred_agent_text == 'Hi'
     assert state.stream_chunks == 1
     assert state.stream_chars == len('Hi') + len('think')
@@ -1374,6 +1375,55 @@ def test_native_tool_call_chunks_parallel_calls_get_distinct_previews() -> None:
         **kwargs,
     )
     assert [_sse_json(ln)['status']['id'] for ln in bound_b if '"type": "status"' in ln] == [rows[1]['id']]
+
+
+def _stream_line_kinds(lines: list[str]) -> list[tuple[str, str]]:
+    kinds: list[tuple[str, str]] = []
+    for ln in lines:
+        row = _sse_json(ln)
+        if row['type'] == 'chunk':
+            kinds.append(('chunk', row['delta']))
+        elif row['type'] == 'status':
+            kinds.append(('status', row['status']['label']))
+    return kinds
+
+
+def test_native_tool_preview_follows_reasoning_tail_in_the_same_chunk() -> None:
+    """A thought's last words and the first tool call delta can share one provider chunk."""
+    state = GraphStreamState()
+    lines = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {
+                'chunk': AIMessageChunk(
+                    content='',
+                    additional_kwargs={'reasoning': ' inspect.'},
+                    tool_call_chunks=[{'name': 'read_workspace_file', 'args': '', 'id': 'c1', 'index': 0}],
+                ),
+            },
+        },
+        state,
+        **_sse_kwargs(),
+    )
+    assert _stream_line_kinds(lines) == [('chunk', ' inspect.'), ('status', 'read_workspace_file')]
+
+
+def test_native_tool_preview_follows_prose_tail_in_the_same_chunk() -> None:
+    state = GraphStreamState()
+    lines = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {
+                'chunk': AIMessageChunk(
+                    content=' spawn code.',
+                    tool_call_chunks=[{'name': 'search_workspace', 'args': '', 'id': 'c1', 'index': 0}],
+                ),
+            },
+        },
+        state,
+        **_sse_kwargs(),
+    )
+    assert _stream_line_kinds(lines) == [('chunk', ' spawn code.'), ('status', 'search_workspace')]
 
 
 def test_native_preview_reset_per_llm_step_and_completed_when_no_tool_calls() -> None:

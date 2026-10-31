@@ -157,6 +157,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     compaction = asyncio.create_task(_compact_checkpoints())
     yield
     compaction.cancel()
+    await asyncio.gather(compaction, return_exceptions=True)
     try:
         # Detached turns outlive their requests: stop them first, while their checkpointer,
         # language servers and MCP clients are still up.

@@ -40,6 +40,7 @@ from clara_coder_backend.lang_agent.loop import AgentLoopOutcome, DEFAULT_AGENT_
 from clara_coder_backend.session.checkpointing import (
     delete_outer_thread,
     delete_outer_threads_for_session,
+    forget_outer_thread_sync,
     settle_outer_thread,
 )
 from clara_coder_backend.lang_agent.context_compression import maybe_compact_outer_checkpoint
@@ -188,7 +189,13 @@ async def stream_agent_reply(
             return
 
         mode = (composer_mode or 'agent').strip().lower()
-        stream_fn = stream_plan_execute_langgraph if mode == 'plan' else stream_single_agent_langgraph
+        if not is_subagent:
+            try:
+                # Until this turn settles, ``/load`` must not keep a thread on its old sync row.
+                await forget_outer_thread_sync(session_id)
+            except Exception:
+                logger.warning('clearing the outer checkpoint sync failed session=%s', session_id, exc_info=True)
+        stream_fn =stream_plan_execute_langgraph if mode == 'plan' else stream_single_agent_langgraph
         stream_kwargs: dict[str, Any] = {
             'session': session,
             'user_message': user_message,

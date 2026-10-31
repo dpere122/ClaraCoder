@@ -90,9 +90,10 @@ async def init_graph_checkpointing() -> None:
 async def compact_checkpoint_db() -> None:
     """Drop every thread's older checkpoints, then VACUUM when that freed a large share of the file.
 
-    Run once at startup, before any turn: older checkpoints are never read (turns, compaction and
-    interrupted-call repairs read the latest), and the file grew without bound before pruning
-    existed. The VACUUM holds the connection while it runs.
+    Run once at startup, in the background: older checkpoints are never read (turns, compaction
+    and interrupted-call repairs read the latest), and the file grew without bound before pruning
+    existed. A turn's own latest checkpoint always survives. The VACUUM holds the connection while
+    it runs.
     """
     if _conn is None:
         return
@@ -221,6 +222,19 @@ async def settle_outer_thread(
     await _prune_thread(tid)
     await _conn.commit()
     await delete_outer_thread(session_id, 'single', apply_mode=not apply_mode)
+
+
+async def forget_outer_thread_sync(session_id: str) -> None:
+    """A turn starts: drop both ``single`` threads' sync rows until :func:`settle_outer_thread`.
+
+    A turn that never settles (the app quits or the process dies mid-turn) leaves its thread ahead
+    of the old row, so ``/load`` must not keep it on that row's match.
+    """
+    if _conn is None:
+        return
+    tids = [outer_agent_thread_id(session_id, 'single', apply_mode=mode) for mode in (True, False)]
+    await _conn.execute(f'DELETE FROM {SYNC_TABLE} WHERE thread_id IN (?, ?)', tids)
+    await _conn.commit()
 
 
 async def _last_prompt_tokens(thread_id: str) -> int:

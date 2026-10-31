@@ -292,6 +292,38 @@ async def test_load_keeps_a_settled_checkpoint_that_matches(monkeypatch: pytest.
 
 
 @pytest.mark.asyncio(loop_scope='function')
+async def test_load_drops_a_thread_whose_turn_never_settled(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """A turn that started but never settled (the app quit mid-turn) leaves no row to match."""
+    monkeypatch.setenv('CLARA_CHECKPOINT_DB', str(tmp_path / 'unsettled.sqlite'))
+    from clara_coder_backend.routes.session import load_session
+    from clara_coder_backend.session.checkpointing import (
+        forget_outer_thread_sync,
+        init_graph_checkpointing,
+        outer_agent_thread_id,
+        settle_outer_thread,
+        shutdown_graph_checkpointing,
+    )
+    from clara_coder_backend.session.schemas import LoadRequest
+
+    await init_graph_checkpointing()
+    try:
+        g = _agent_with_usage(['r1', 'partial'], input_tokens=50)
+        cfg = {'configurable': {'thread_id': outer_agent_thread_id('s-uns', 'single', apply_mode=True)}}
+        await g.ainvoke({'messages': [HumanMessage('one')]}, cfg)
+        await settle_outer_thread('s-uns', apply_mode=True, history=_history('one'))
+        await forget_outer_thread_sync('s-uns')
+        await g.ainvoke({'messages': [HumanMessage('unsaved')]}, cfg)
+
+        result = await load_session(
+            LoadRequest(session_id='s-uns', messages=_history('one'), keep_matching_checkpoint=True)
+        )
+        assert result == {'ok': True}
+        assert not (await g.aget_state(cfg)).values.get('messages')
+    finally:
+        await shutdown_graph_checkpointing()
+
+
+@pytest.mark.asyncio(loop_scope='function')
 async def test_load_without_keep_flag_still_deletes(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     """A timeline restore resyncs without the flag: even a matching checkpoint goes."""
     monkeypatch.setenv('CLARA_CHECKPOINT_DB', str(tmp_path / 'nokeep.sqlite'))

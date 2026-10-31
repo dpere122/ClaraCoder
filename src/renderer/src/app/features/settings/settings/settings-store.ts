@@ -38,7 +38,7 @@ import {
   DEFAULT_CHAT_CONTAINER_SIZE,
   DEFAULT_CHAT_THINKING_DISPLAY,
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
-  DEFAULT_MANAGED_LLAMA_SOURCE_NAME,
+  uniqueManagedLlamaSourceName,
   getDefaultContextCompression,
   DEFAULT_KOKORO_TTS_VOICE,
   DEFAULT_OPENAI_TRANSCRIBE_MODEL,
@@ -3170,7 +3170,7 @@ export class SettingsStore {
     const firstModel = this.buildNewModel(1, 'llamacpp');
     return {
       id: crypto.randomUUID(),
-      name: DEFAULT_MANAGED_LLAMA_SOURCE_NAME,
+      name: uniqueManagedLlamaSourceName(this.llmProviders().map((p) => p.name)),
       provider: 'llamacpp',
       baseUrl: defaults.baseUrl,
       apiKey: defaults.apiKey,

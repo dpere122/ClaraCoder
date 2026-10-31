@@ -1,5 +1,12 @@
 import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
-import { DEPENDENCY_LABELS, type DependencyId, type DependencyInfo } from '@shared/index';
+import {
+  DEPENDENCY_LABELS,
+  findLlmModelLocation,
+  findManagedLocalLlamaLocation,
+  type AppConfig,
+  type DependencyId,
+  type DependencyInfo,
+} from '@shared/index';
 import { ElectronService } from './electron.service';
 
 /**
@@ -7,6 +14,18 @@ import { ElectronService } from './electron.service';
  * Python isn't listed: it ships with the app.
  */
 export const CORE_DEPENDENCY_IDS: readonly DependencyId[] = ['llama-server'];
+
+/**
+ * Whether the selected source needs the core dependencies: no model picked yet, or a managed
+ * local llama-server model. LM Studio, OpenRouter and remote URLs run without them.
+ */
+export function coreDependenciesNeeded(config: AppConfig | null): boolean {
+  const mid = config?.activeLlmModelId?.trim();
+  if (!config || !mid || !findLlmModelLocation(config.llmProviders, mid)) {
+    return true;
+  }
+  return findManagedLocalLlamaLocation(config) !== null;
+}
 
 /** Core dependencies not on disk yet, in {@link CORE_DEPENDENCY_IDS} order. */
 export function missingCoreDependencies(deps: readonly DependencyInfo[]): DependencyId[] {

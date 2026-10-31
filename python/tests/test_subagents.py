@@ -310,6 +310,35 @@ async def test_spawn_follows_the_spawning_streams_mode_not_the_composer_toggle(
     assert [run.apply_mode for run in started] == [False, True]
 
 
+async def test_spawn_from_a_read_only_stream_stays_read_only_while_an_editor_stream_overlaps(
+    parent_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``worker_apply_mode`` is session-wide; the spawning stream's own mode wins."""
+    from clara_coder_backend.tools import spawn_subagent as spawn_module
+
+    sid, parent = parent_session
+    started: list[subagents.SubagentRun] = []
+
+    def fake_start(run: subagents.SubagentRun) -> asyncio.Task:
+        started.append(run)
+        return asyncio.get_running_loop().create_future()  # type: ignore[return-value]
+
+    monkeypatch.setattr(spawn_module, 'start_subagent', fake_start)
+    parent.worker_apply_mode = True  # Another stream in the session runs as Editor.
+    sid_token = state.current_session_id.set(sid)
+    mode_token = state.current_stream_apply_mode.set(False)
+    try:
+        await spawn_module.spawn_subagent_tool.coroutine(
+            task='look around', name='scout', tool_call_id='c1', config={}, background=True
+        )
+    finally:
+        state.current_stream_apply_mode.reset(mode_token)
+        state.current_session_id.reset(sid_token)
+        for run in started:
+            subagents.forget_subagent_run(run)
+    assert [run.apply_mode for run in started] == [False]
+
+
 async def test_plan_discovery_subagents_are_read_only_and_report_into_the_summary(
     checkpoints, parent_session, bus, use_model
 ) -> None:

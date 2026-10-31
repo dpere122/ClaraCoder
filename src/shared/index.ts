@@ -257,6 +257,7 @@ export {
   buildLlamaServerArgv,
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   DEFAULT_MANAGED_LLAMA_SOURCE_NAME,
+  uniqueManagedLlamaSourceName,
   defaultLlamaCppManaged,
   detectShellQuotingPlatform,
   isLegacyLlamaCppManagedShape,

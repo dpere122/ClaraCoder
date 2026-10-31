@@ -471,14 +471,14 @@ describe('migrateConfig openrouter pin', () => {
 });
 
 describe('migrateConfig managed llama source names', () => {
-  it('renames old default names on local sources to Local Model', () => {
+  it('renames old default names on local sources to numbered Local Model names', () => {
     const cfg = sampleConfig();
     const local = cfg.llmProviders.find((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID)!;
     local.name = 'Llama server (local)';
     cfg.llmProviders.push({ ...structuredClone(local), id: 'extra-local', name: 'Llama Server 2' });
     const migrated = migrateConfig(cfg);
     expect(migrated.llmProviders.find((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID)?.name).toBe('Local Model');
-    expect(migrated.llmProviders.find((p) => p.id === 'extra-local')?.name).toBe('Local Model');
+    expect(migrated.llmProviders.find((p) => p.id === 'extra-local')?.name).toBe('Local Model 2');
   });
 
   it('keeps the remote URL source name', () => {

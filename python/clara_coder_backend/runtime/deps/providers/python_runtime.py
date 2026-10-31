@@ -33,7 +33,6 @@ from clara_coder_backend.config import env_clara
 logger = logging.getLogger('clara.runtime.deps.python_runtime')
 
 DEP_ID = 'python-runtime'
-SIZE_HINT = '~150 MB (venv + core packages)'
 REQ_HASH_MARKER = '.clara-requirements-hash'
 
 # Cached ``_base_has_core`` result for the bundled interpreter (status() polls often).
@@ -233,90 +232,35 @@ def _core_packages_importable(python_exe: Path) -> bool:
         return False
 
 
+def _status(state: str, *, path: str | None, version: str | None, error: str | None = None) -> dict:
+    return {'id': DEP_ID, 'state': state, 'path': path, 'version': version, 'error': error}
+
+
 def status() -> dict:
+    """State of the runtime venv for the Kokoro / Whisper installs (``installed`` when usable).
+
+    ``error`` means :func:`install` must repair it; the sidecar skips a stale isolated venv meanwhile.
+    """
     venv = get_runtime_python_dir()
     bundled = bundled_python_executable()
     if bundled is not None and venv_python(venv) is None and _bundled_core_importable(str(bundled)):
         manifest = read_bundled_runtime_manifest() or {}
         version = manifest.get('pythonVersion') or _interpreter_version(str(bundled))
-        return {
-            'id': DEP_ID,
-            'label': 'Python runtime',
-            'description': (
-                'Bundled with Clara Coder (core packages); optional packages install into an overlay venv.'
-            ),
-            'version': version,
-            'state': 'installed',
-            'path': str(bundled),
-            'sizeHint': SIZE_HINT,
-            'canDelete': False,
-            'error': None,
-        }
+        return _status('installed', path=str(bundled), version=version)
     py = venv_python(venv)
     version = read_ready_marker(venv)
     if py and version:
-        if _core_packages_importable(py):
-            if not _requirements_current(venv):
-                return {
-                    'id': DEP_ID,
-                    'label': 'Python runtime',
-                    'description': 'App-managed virtualenv with Clara backend packages.',
-                    'version': version,
-                    'state': 'error',
-                    'path': str(py),
-                    'sizeHint': SIZE_HINT,
-                    'canDelete': True,
-                    'error': 'requirements.txt changed; use Download to update packages.',
-                }
-            return {
-                'id': DEP_ID,
-                'label': 'Python runtime',
-                'description': 'App-managed virtualenv with Clara backend packages.',
-                'version': version,
-                'state': 'installed',
-                'path': str(py),
-                'sizeHint': SIZE_HINT,
-                'canDelete': True,
-                'error': None,
-            }
-        return {
-            'id': DEP_ID,
-            'label': 'Python runtime',
-            'description': 'App-managed virtualenv with Clara backend packages.',
-            'version': version,
-            'state': 'error',
-            'path': str(py),
-            'sizeHint': SIZE_HINT,
-            'canDelete': True,
-            'error': 'Venv present but core packages missing.',
-        }
-    # pyvenv.cfg exists but its base interpreter is gone (e.g. previous app install
-    # removed). Tell the user why instead of silently reporting "missing".
+        if not _core_packages_importable(py):
+            return _status('error', path=str(py), version=version, error='Venv present but core packages missing.')
+        if not _requirements_current(venv):
+            return _status('error', path=str(py), version=version, error='requirements.txt changed since setup.')
+        return _status('installed', path=str(py), version=version)
+    # pyvenv.cfg exists but its base interpreter is gone (e.g. previous app install removed).
     if (venv / 'pyvenv.cfg').is_file():
         reason = venv_unusable_reason(venv)
         if reason:
-            return {
-                'id': DEP_ID,
-                'label': 'Python runtime',
-                'description': 'App-managed virtualenv with Clara backend packages.',
-                'version': read_ready_marker(venv),
-                'state': 'error',
-                'path': str(venv),
-                'sizeHint': SIZE_HINT,
-                'canDelete': True,
-                'error': f'Runtime venv is unusable ({reason}); use Download to recreate it.',
-            }
-    return {
-        'id': DEP_ID,
-        'label': 'Python runtime',
-        'description': 'App-managed virtualenv with Clara backend packages.',
-        'version': None,
-        'state': 'missing',
-        'path': None,
-        'sizeHint': SIZE_HINT,
-        'canDelete': True,
-        'error': None,
-    }
+            return _status('error', path=str(venv), version=version, error=f'Runtime venv is unusable ({reason}).')
+    return _status('missing', path=None, version=None)
 
 
 def install(*, dep_id: str, force: bool = False) -> dict:

@@ -48,6 +48,12 @@ current_tool_batch_id: contextvars.ContextVar[str] = contextvars.ContextVar('cur
 # Id of the tool call now running (the model's ``tool_call_id``); empty outside a tool call.
 current_tool_call_id: contextvars.ContextVar[str] = contextvars.ContextVar('current_tool_call_id', default='')
 
+# Editor mode of the agent stream whose tools are running (None outside one). Unlike the session's
+# ``worker_apply_mode``, a read-only stream sees False while an Editor stream overlaps it.
+current_stream_apply_mode: contextvars.ContextVar[bool | None] = contextvars.ContextVar(
+    'current_stream_apply_mode', default=None
+)
+
 # All known sessions; created on demand via get_session().
 sessions: dict[str, SessionState] = {}
 

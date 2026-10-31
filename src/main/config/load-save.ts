@@ -24,6 +24,7 @@ import type {
 import {
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   DEFAULT_MANAGED_LLAMA_SOURCE_NAME,
+  uniqueManagedLlamaSourceName,
   defaultLlamaCppManaged,
   DEFAULT_KOKORO_TTS_VOICE,
   DEFAULT_OPENAI_TRANSCRIBE_MODEL,
@@ -1058,7 +1059,8 @@ function renameLegacyManagedLlamaSourceNames(providers: LlmProviderConfig[]): bo
       continue;
     }
     if (p.name === 'Llama server (local)' || /^Llama Server \d+$/.test(p.name)) {
-      p.name = DEFAULT_MANAGED_LLAMA_SOURCE_NAME;
+      // Numbered past the first so renamed sources stay distinguishable.
+      p.name = uniqueManagedLlamaSourceName(providers.filter((o) => o !== p).map((o) => o.name));
       changed = true;
     }
   }

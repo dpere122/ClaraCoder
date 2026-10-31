@@ -1,7 +1,18 @@
 import { TestBed } from '@angular/core/testing';
-import { defaultDependencyCatalog, type DependencyInfo, type DependencyProgressEvent } from '@shared/index';
+import {
+  PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
+  PINNED_OPENROUTER_PROVIDER_ID,
+  defaultDependencyCatalog,
+  type AppConfig,
+  type DependencyInfo,
+  type DependencyProgressEvent,
+} from '@shared/index';
 import { describe, expect, it, vi } from 'vitest';
-import { CoreDependenciesStatusService, missingCoreDependencies } from './core-dependencies-status.service';
+import {
+  CoreDependenciesStatusService,
+  coreDependenciesNeeded,
+  missingCoreDependencies,
+} from './core-dependencies-status.service';
 import { ElectronService } from './electron.service';
 
 function catalog(installed: readonly string[]): DependencyInfo[] {
@@ -40,6 +51,35 @@ describe('missingCoreDependencies', () => {
       dep.id === 'llama-server' ? { ...dep, state: 'updating' as const } : { ...dep, state: 'error' as const },
     );
     expect(missingCoreDependencies(deps)).toEqual([]);
+  });
+});
+
+describe('coreDependenciesNeeded', () => {
+  function config(activeLlmModelId: string): AppConfig {
+    const source = (id: string, provider: string, modelId: string) => ({
+      id,
+      name: id,
+      provider,
+      baseUrl: '',
+      models: [{ id: modelId, name: modelId, model: modelId }],
+    });
+    return {
+      activeLlmModelId,
+      llmProviders: [
+        source(PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID, 'llamacpp', 'local-1'),
+        source(PINNED_OPENROUTER_PROVIDER_ID, 'openrouter', 'remote-1'),
+      ],
+    } as unknown as AppConfig;
+  }
+
+  it('needs them for a managed local model or before a model is picked', () => {
+    expect(coreDependenciesNeeded(null)).toBe(true);
+    expect(coreDependenciesNeeded(config(''))).toBe(true);
+    expect(coreDependenciesNeeded(config('local-1'))).toBe(true);
+  });
+
+  it('does not need them for a remote source', () => {
+    expect(coreDependenciesNeeded(config('remote-1'))).toBe(false);
   });
 });
 

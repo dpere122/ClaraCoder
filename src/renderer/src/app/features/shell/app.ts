@@ -139,7 +139,7 @@ import { ImageViewerComponent } from '../workspace/image-viewer/image-viewer';
 import { isViewableImagePath } from '../workspace/image-viewer/image-viewer-formats';
 import { planOpenWorkspaceImageTab } from './app-image-file-tabs';
 import { WorkspaceTerminalDockComponent } from '../workspace-terminal/workspace-terminal-dock';
-import { CoreDependenciesStatusService } from '../../core/core-dependencies-status.service';
+import { CoreDependenciesStatusService, coreDependenciesNeeded } from '../../core/core-dependencies-status.service';
 import { ElectronService } from '../../core/electron.service';
 import { TtsPlaybackService } from '../../core/tts-playback.service';
 import { ThemedConfirmDialogService } from '../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
@@ -596,7 +596,11 @@ export class App implements OnInit, OnDestroy {
     return resolveActiveLlmConnection(config);
   });
   /** Flags the title-bar and home-screen Dependencies entries while core runtimes are missing. */
-  protected readonly coreDependencies = inject(CoreDependenciesStatusService);
+  private readonly coreDependencies = inject(CoreDependenciesStatusService);
+  /** Missing core dependencies, or '' when none are missing or the selected source doesn't need them. */
+  protected readonly coreDependenciesAlert = computed(() =>
+    coreDependenciesNeeded(this.appConfig()) ? this.coreDependencies.missingSummary() : '',
+  );
   private readonly llamaServerNctxByModel = toSignal(inject(ElectronService).llamaServerNctx$, {
     initialValue: {} as Readonly<Record<string, number>>,
   });

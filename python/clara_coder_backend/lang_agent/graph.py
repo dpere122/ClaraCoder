@@ -72,7 +72,7 @@ from clara_coder_backend.llm.messages import (
     compose_outer_turn_human_content,
     session_to_messages,
 )
-from clara_coder_backend.session.state import get_session
+from clara_coder_backend.session.state import current_stream_apply_mode, get_session
 from clara_coder_backend.hitl.tool_registry import worker_tools_and_map
 
 logger = logging.getLogger('clara.agent.langgraph')
@@ -628,7 +628,10 @@ async def _stream_langgraph_tool_agent(
     session.planning_nested_events_q = nested_stream_q
     session.planning_nested_events_loop = asyncio.get_running_loop()
 
+    # The task copies the context here, so this stream's tools see its own mode.
+    mode_token = current_stream_apply_mode.set(bool(apply_mode))
     pump_task = asyncio.create_task(pump_events())
+    current_stream_apply_mode.reset(mode_token)
 
     queues = (events_q, hitl_q, nested_stream_q)
     queue_labels = ('ev', 'hitl', 'nested')

@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { existsSync, mkdirSync, renameSync, cpSync, rmSync, readdirSync, readFileSync } from 'fs';
 import { app } from 'electron';
 import path = require('path');
@@ -260,8 +261,8 @@ export function getBundledRipgrep(): string | null {
   return existsSync(binary) ? binary : null;
 }
 
-/** ``home = …`` from ``<root>/pyvenv.cfg`` (base interpreter directory), or null when absent. */
-export function readPyvenvHome(root: string): string | null {
+/** ``key = …`` from ``<root>/pyvenv.cfg``, or null when absent. */
+function readPyvenvValue(root: string, key: string): string | null {
   let text: string;
   try {
     text = readFileSync(path.join(root, 'pyvenv.cfg'), 'utf8');
@@ -271,11 +272,48 @@ export function readPyvenvHome(root: string): string | null {
   for (const raw of text.split(/\r?\n/)) {
     const eq = raw.indexOf('=');
     if (eq < 0) continue;
-    if (raw.slice(0, eq).trim().toLowerCase() !== 'home') continue;
+    if (raw.slice(0, eq).trim().toLowerCase() !== key) continue;
     const value = raw.slice(eq + 1).trim();
     return value || null;
   }
   return null;
+}
+
+/** ``home = …`` from ``<root>/pyvenv.cfg`` (base interpreter directory), or null when absent. */
+export function readPyvenvHome(root: string): string | null {
+  return readPyvenvValue(root, 'home');
+}
+
+/** Requirements SHA the Python provider writes to ``.clara-requirements-hash`` ('' when unknown). */
+export function expectedRequirementsHash(): string {
+  if (getBundledPythonExecutable()) {
+    const manifest = readBundledRuntimeManifest();
+    if (manifest) return manifest.requirementsSha256 ?? '';
+  }
+  try {
+    const req = path.join(path.dirname(getPythonServerScriptPath()), 'requirements.txt');
+    return createHash('sha256').update(readFileSync(req)).digest('hex');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Why an isolated runtime venv (its own core packages, no bundled overlay) is out of date with
+ * ``requirements.txt``, or null. Nothing lists the venv any more, so a sidecar started from it
+ * would fail on a missing package with no way to repair it; Kokoro / Whisper installs update it.
+ */
+export function isolatedVenvStaleReason(root: string): string | null {
+  if (readPyvenvValue(root, 'include-system-site-packages')?.toLowerCase() !== 'false') return null;
+  const expected = expectedRequirementsHash();
+  if (!expected) return null;
+  let stored = '';
+  try {
+    stored = readFileSync(path.join(root, '.clara-requirements-hash'), 'utf8').trim();
+  } catch {
+    /* no marker: treat as stale */
+  }
+  return stored === expected ? null : 'packages out of date with requirements.txt';
 }
 
 function stripTrailingSeps(p: string): string {
@@ -353,6 +391,11 @@ function runtimeVenvPython(opts: { packaged: boolean; bundledExe: string | null 
   const reason = pythonVenvUnusableReason(root);
   if (reason) {
     notePythonResolution(`Ignoring unusable runtime venv at ${root} (${reason})`);
+    return null;
+  }
+  const stale = isolatedVenvStaleReason(root);
+  if (stale) {
+    notePythonResolution(`Ignoring runtime venv at ${root} (${stale})`);
     return null;
   }
   if (opts.packaged) {

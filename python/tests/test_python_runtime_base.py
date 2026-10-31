@@ -240,7 +240,7 @@ def test_status_reports_error_when_base_interpreter_gone(tmp_path: Path, monkeyp
     st = pr.status()
     assert st['state'] == 'error'
     assert 'base interpreter missing' in (st.get('error') or '')
-    assert 'Download' in (st.get('error') or '')
+    assert 'Download' not in (st.get('error') or '')  # No Dependencies row offers it any more.
 
 
 def test_install_recreates_venv_when_base_interpreter_gone(
@@ -467,9 +467,7 @@ def test_status_bundled_installed_without_overlay_venv(
     st = pr.status()
     assert st['state'] == 'installed'
     assert st['path'] == str(bundled)
-    assert st['canDelete'] is False
     assert st.get('error') is None
-    assert 'Bundled with Clara Coder' in (st.get('description') or '')
     assert st['version'] == '3.12.11'
 
 

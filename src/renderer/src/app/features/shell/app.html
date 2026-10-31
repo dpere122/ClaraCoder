@@ -10,17 +10,17 @@
         <button
           type='button'
           class='chrome-menu-btn'
-          [class.chrome-menu-btn--attention]='coreDependencies.hasMissing()'
-          [attr.title]='coreDependencies.missingSummary() || null'
+          [class.chrome-menu-btn--attention]='!!coreDependenciesAlert()'
+          [attr.title]='coreDependenciesAlert() || null'
           (click)='onChromeDependencies()'
         >
-          @if (coreDependencies.hasMissing()) {
+          @if (coreDependenciesAlert()) {
             <lucide-icon
               name='triangle-alert'
               [size]='11'
               class='chrome-menu-btn-alert'
               role='img'
-              [attr.aria-label]='coreDependencies.missingSummary()'
+              [attr.aria-label]='coreDependenciesAlert()'
             ></lucide-icon>
           }
           Dependencies
@@ -273,7 +273,7 @@
               [recentWorkspaces]='workspaces()'
               [defaultHomePage]='defaultHomePageOnStart()'
               [appConfig]='appConfig()'
-              [missingDependencies]='coreDependencies.missingSummary()'
+              [missingDependencies]='coreDependenciesAlert()'
               (addWorkspace)='onAddWorkspace()'
               (openWorkspace)='onWorkspaceChanged($event)'
               (toggleFavorite)='onToggleWorkspaceFavorite($event)'

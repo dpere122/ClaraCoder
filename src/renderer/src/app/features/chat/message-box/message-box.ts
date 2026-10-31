@@ -9,6 +9,7 @@ import {
   formatTokensPerSecond,
   llmComposerEffortOptions,
   llmComposerEffortValue,
+  llmEffortSelectOptionsFromCaps,
   llmThinkingControlVisible,
   resolveActiveLlmConnection,
   turnTokensPerSecond,
@@ -151,15 +152,28 @@ export class MessageBox {
     llmThinkingControlVisible(this.activeConnection()?.optimizationPreset, this.liveCaps()),
   );
   /** Only the efforts the model's template advertised; no preset guesses or Default/on/off. */
-  protected readonly reasoningEffortOptions = computed(() => llmComposerEffortOptions(this.liveCaps()));
+  private readonly scannedEffortOptions = computed(() => llmComposerEffortOptions(this.liveCaps()));
+  /**
+   * Scanned efforts; for an unscanned source, Settings' list while an effort is saved (it is still
+   * sent, so it stays visible and can be set back to Default).
+   */
+  protected readonly reasoningEffortOptions = computed(() => {
+    const scanned = this.scannedEffortOptions();
+    if (scanned.length || !this.activeConnection()?.reasoningEffort) {
+      return scanned;
+    }
+    return llmEffortSelectOptionsFromCaps(this.liveCaps(), this.activeConnection()?.optimizationPreset);
+  });
   protected readonly effortVisible = computed(() => this.reasoningEffortOptions().length > 0);
   protected readonly showReasoningCluster = computed(() => this.thinkingVisible() || this.effortVisible());
   protected readonly thinkingMode = computed(() => this.activeConnection()?.thinkingMode || 'default');
   /** Brain toggle: anything except explicit ``off`` counts as reasoning enabled. */
   protected readonly reasoningEnabled = computed(() => this.thinkingMode() !== 'off');
-  protected readonly reasoningEffort = computed(() =>
-    llmComposerEffortValue(this.reasoningEffortOptions(), this.activeConnection()?.reasoningEffort),
-  );
+  protected readonly reasoningEffort = computed(() => {
+    const saved = this.activeConnection()?.reasoningEffort || '';
+    const scanned = this.scannedEffortOptions();
+    return scanned.length ? llmComposerEffortValue(scanned, saved) : saved;
+  });
   readonly usedTokens = input(0);
   readonly maxTokens = input(128_000);
   readonly remainingTokens = input(128_000);

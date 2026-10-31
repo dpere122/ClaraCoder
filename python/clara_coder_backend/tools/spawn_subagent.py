@@ -44,7 +44,7 @@ from clara_coder_backend.lang_agent.subagents import (
     wait_for_runs,
 )
 from clara_coder_backend.session import state
-from clara_coder_backend.session.state import current_session_id
+from clara_coder_backend.session.state import current_session_id, current_stream_apply_mode
 from clara_coder_backend.tools.tool_conventions import describe
 
 logger = logging.getLogger('clara.tools.spawn_subagent')
@@ -107,6 +107,7 @@ async def spawn_subagent_tool(
 
     child_id = uuid.uuid4().hex
     child = fork_subagent_session(sid, parent, child_id, label)
+    stream_mode = current_stream_apply_mode.get()
     run = SubagentRun(
         parent_session_id=sid,
         parent=parent,
@@ -118,7 +119,7 @@ async def spawn_subagent_tool(
         parent_turn_id=parent.current_user_message_id,
         # The spawning stream's mode, not the composer toggle: plan discovery runs read-only and plan
         # execution runs as Editor whatever the toolbar says.
-        apply_mode=bool(parent.worker_apply_mode),
+        apply_mode=bool(stream_mode if stream_mode is not None else parent.worker_apply_mode),
     )
     artifact = {'subagent': {'conversation_id': child_id, 'name': label}}
     # Findable before the start event is dispatched: the parent stream may map it right away.

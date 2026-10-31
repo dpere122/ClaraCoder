@@ -216,11 +216,33 @@
   color: #fff;
 }
 
+/* Update button + version sit at the right, just before the window controls. */
+.chrome-update-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+
+.chrome-update-icon {
+  display: inline-flex;
+}
+
+.chrome-version {
+  flex-shrink: 0;
+  padding: 0 0.45rem 0 0.2rem;
+  color: color-mix(in srgb, var(--t-titlebar-text) 70%, transparent);
+  font-family: var(--t-font-mono, inherit);
+  font-size: 0.66rem;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: default;
+}
+
 .chrome-pin-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-left: auto;
 }
 
 .chrome-pin-btn .chrome-pin-icon {

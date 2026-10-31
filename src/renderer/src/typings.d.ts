@@ -847,6 +847,21 @@ declare global {
     offDepsProgress: (
       callback: (event: unknown, data: import('@shared/index').DependencyProgressEvent) => void,
     ) => void;
+    appVersion: () => Promise<string>;
+    updaterListReleases: (force?: boolean) => Promise<import('@shared/app-updater').AppReleaseListResult>;
+    updaterGetState: () => Promise<import('@shared/app-updater').AppUpdateState | null>;
+    updaterDownload: (version: string) => Promise<import('@shared/app-updater').AppUpdateActionResult>;
+    updaterCancel: () => Promise<import('@shared/app-updater').AppUpdateActionResult>;
+    updaterInstallNow: () => Promise<import('@shared/app-updater').AppUpdateActionResult>;
+    updaterInstallOnQuit: () => Promise<import('@shared/app-updater').AppUpdateActionResult>;
+    openUpdaterWindow: () => void;
+    closeUpdaterWindow: () => void;
+    onUpdaterState: (
+      callback: (event: unknown, state: import('@shared/app-updater').AppUpdateState) => void,
+    ) => void;
+    offUpdaterState: (
+      callback: (event: unknown, state: import('@shared/app-updater').AppUpdateState) => void,
+    ) => void;
     openSettingsWindow: (tab?: string) => void;
     openDocumentation: () => void;
     windowMinimize: () => void;

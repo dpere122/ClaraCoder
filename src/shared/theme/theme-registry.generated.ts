@@ -356,7 +356,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Right-hand column containing the conversation hub and chat.",
     selector: "[data-theme-group=\"shell.sidebar\"]",
     component: "app/features/shell",
-    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-fg-muted", "--t-font", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-muted", "--t-primary", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text", "--t-warn"],
+    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-fg-muted", "--t-font", "--t-font-mono", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-muted", "--t-primary", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -367,7 +367,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Main column that hosts file tabs, the editor grid, and the expanded chat overlay.",
     selector: "[data-theme-group=\"shell.stage\"]",
     component: "app/features/shell",
-    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-fg-muted", "--t-font", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-muted", "--t-primary", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text", "--t-warn"],
+    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-fg-muted", "--t-font", "--t-font-mono", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-muted", "--t-primary", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -400,7 +400,18 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Frameless window chrome: app title, menu buttons, and window controls.",
     selector: "[data-theme-group=\"shell.titlebar\"]",
     component: "app/features/shell",
-    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-fg-muted", "--t-font", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-muted", "--t-primary", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text", "--t-warn"],
+    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-fg-muted", "--t-font", "--t-font-mono", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-muted", "--t-primary", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text", "--t-warn"],
+    supportsBackground: false,
+  },
+  {
+    id: "updater.window",
+    label: "Window",
+    category: "updater",
+    categoryLabel: "Updater",
+    description: "Updates window: version list, release notes, and install footer.",
+    selector: "[data-theme-group=\"updater.window\"]",
+    component: "app/features/updater/updater",
+    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-caution", "--t-code-bg", "--t-code-inline-bg", "--t-code-text", "--t-danger", "--t-error", "--t-fg", "--t-font", "--t-font-mono", "--t-heading", "--t-hover-bg", "--t-on-primary", "--t-primary", "--t-progress-fill", "--t-progress-track", "--t-selection-bg", "--t-success", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -422,7 +433,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Left column hosting the file tree.",
     selector: "[data-theme-group=\"workspace.panel\"]",
     component: "app/features/shell",
-    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-danger", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-fg-muted", "--t-font", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-muted", "--t-primary", "--t-secondary", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text", "--t-warn"],
+    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-danger", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-fg-muted", "--t-font", "--t-font-mono", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-muted", "--t-primary", "--t-secondary", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -447,6 +458,7 @@ export const THEME_GROUP_CATEGORIES: readonly ThemeGroupCategoryDef[] = [
   { id: "hitl", label: "Review cards" },
   { id: "settings", label: "Settings window" },
   { id: "shell", label: "Shell & layout" },
+  { id: "updater", label: "Updater" },
   { id: "workspace", label: "Workspace" },
 ];
 
@@ -487,6 +499,7 @@ export type ThemeGroupId =
   | "shell.status-bar"
   | "shell.tab-strip"
   | "shell.titlebar"
+  | "updater.window"
   | "workspace.footer"
   | "workspace.panel"
   | "workspace.tree";

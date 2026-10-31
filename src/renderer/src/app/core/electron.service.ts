@@ -2300,6 +2300,53 @@ export class ElectronService {
     return () => this.api?.offDepsProgress?.(handler);
   }
 
+  appVersion(): Promise<string> {
+    return this.api?.appVersion?.() ?? Promise.resolve('');
+  }
+
+  updaterListReleases(force = false): Promise<import('@shared/app-updater').AppReleaseListResult> {
+    return (
+      this.api?.updaterListReleases(force) ??
+      Promise.resolve({ ok: false, currentVersion: '', releases: [], error: 'No Electron API' })
+    );
+  }
+
+  updaterGetState(): Promise<import('@shared/app-updater').AppUpdateState | null> {
+    return this.api?.updaterGetState() ?? Promise.resolve(null);
+  }
+
+  updaterDownload(version: string): Promise<import('@shared/app-updater').AppUpdateActionResult> {
+    return this.api?.updaterDownload(version) ?? Promise.resolve({ ok: false, error: 'No Electron API' });
+  }
+
+  updaterCancel(): Promise<import('@shared/app-updater').AppUpdateActionResult> {
+    return this.api?.updaterCancel() ?? Promise.resolve({ ok: false, error: 'No Electron API' });
+  }
+
+  updaterInstallNow(): Promise<import('@shared/app-updater').AppUpdateActionResult> {
+    return this.api?.updaterInstallNow() ?? Promise.resolve({ ok: false, error: 'No Electron API' });
+  }
+
+  updaterInstallOnQuit(): Promise<import('@shared/app-updater').AppUpdateActionResult> {
+    return this.api?.updaterInstallOnQuit() ?? Promise.resolve({ ok: false, error: 'No Electron API' });
+  }
+
+  openUpdaterWindow(): void {
+    this.api?.openUpdaterWindow();
+  }
+
+  closeUpdaterWindow(): void {
+    this.api?.closeUpdaterWindow();
+  }
+
+  onUpdaterState(callback: (state: import('@shared/app-updater').AppUpdateState) => void): () => void {
+    const handler = (_event: unknown, state: import('@shared/app-updater').AppUpdateState) => {
+      this.zone.run(() => callback(state));
+    };
+    this.api?.onUpdaterState?.(handler);
+    return () => this.api?.offUpdaterState?.(handler);
+  }
+
   windowMinimize(): void {
     this.api?.windowMinimize();
   }

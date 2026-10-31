@@ -1,0 +1,11 @@
+{
+  "categories": {
+    "updater": "Updater"
+  },
+  "groups": {
+    "updater.window": {
+      "label": "Window",
+      "description": "Updates window: version list, release notes, and install footer."
+    }
+  }
+}

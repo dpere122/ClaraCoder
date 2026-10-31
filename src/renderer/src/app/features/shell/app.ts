@@ -601,6 +601,8 @@ export class App implements OnInit, OnDestroy {
   protected readonly coreDependenciesAlert = computed(() =>
     coreDependenciesNeeded(this.appConfig()) ? this.coreDependencies.missingSummary() : '',
   );
+  /** Running app version, shown at the right of the title bar. */
+  protected readonly appVersion = signal('');
   private readonly llamaServerNctxByModel = toSignal(inject(ElectronService).llamaServerNctx$, {
     initialValue: {} as Readonly<Record<string, number>>,
   });
@@ -1006,6 +1008,7 @@ export class App implements OnInit, OnDestroy {
 
     if (this.electron.isElectron) {
       this.windowMaximized.set(await this.electron.windowIsMaximized());
+      void this.electron.appVersion().then((v) => this.appVersion.set(v));
     }
 
     this.syncSidebarWidthFromEffectivePercent();
@@ -2403,6 +2406,11 @@ export class App implements OnInit, OnDestroy {
   protected onChromeHealth(): void {
     this.closeChromeMenu();
     this.electron.openHealthWindow();
+  }
+
+  protected onChromeUpdates(): void {
+    this.closeChromeMenu();
+    this.electron.openUpdaterWindow();
   }
 
   /** @param slotId slot the close came from; defaults to the focused slot. */

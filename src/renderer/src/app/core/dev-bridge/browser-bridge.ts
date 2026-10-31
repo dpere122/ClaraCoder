@@ -6,7 +6,7 @@
  * The `<port>.<token>` pair arrives once in the `claraBridge` query parameter, is removed from the
  * address bar immediately, and is kept in sessionStorage so reloads of this tab stay connected.
  *
- * A tab on `#/settings`, `#/dependencies` or `#/health` acts as that satellite window: loading it
+ * A tab on `#/settings`, `#/dependencies`, `#/health` or `#/updater` acts as that satellite window: loading it
  * opens the real window first. Opening a satellite from the app logs the URL of a tab acting as it.
  */
 import {
@@ -33,6 +33,7 @@ import { createDependenciesApi } from '../../../../../preload/apis/dependencies-
 import { createLspHealthApi } from '../../../../../preload/apis/lsp-health-api';
 import { createModelManagerApi } from '../../../../../preload/apis/model-manager-api';
 import { createThemeApi } from '../../../../../preload/apis/theme-api';
+import { createUpdaterApi } from '../../../../../preload/apis/updater-api';
 import { createWorkspaceApi } from '../../../../../preload/apis/workspace-api';
 import type { PreloadIpc } from '../../../../../preload/preload-ipc';
 
@@ -46,6 +47,7 @@ const OPEN_WINDOW_CHANNELS: Readonly<Record<string, BrowserBridgeWindow>> = {
   'open-settings-window': 'settings',
   'open-dependencies-window': 'dependencies',
   'open-health-window': 'health',
+  'open-updater-window': 'updater',
 };
 
 type Listener = (event: unknown, ...args: unknown[]) => void;
@@ -86,6 +88,7 @@ export function installBrowserBridgeFromLocation(): boolean {
     ...createLspHealthApi(ipc),
     ...createDependenciesApi(ipc),
     ...createThemeApi(ipc),
+    ...createUpdaterApi(ipc),
   };
   window.electronAPI = api as unknown as NonNullable<Window['electronAPI']>;
   console.info(

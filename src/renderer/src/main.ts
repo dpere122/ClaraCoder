@@ -7,6 +7,7 @@ import { AppShell } from './app/features/shell/app-shell';
 import { Settings } from './app/features/settings/settings/settings';
 import { HealthMonitor } from './app/features/health/health-monitor/health-monitor';
 import { Dependencies } from './app/features/dependencies/dependencies/dependencies';
+import { Updater } from './app/features/updater/updater/updater';
 import { provideRouter, withHashLocation } from '@angular/router';
 import { builtInThemeForMode } from '@shared/theme';
 import { applyBuiltInThemeSync, browserModeStorage, readCachedThemeMode } from './app/core/theme/theme-dom';
@@ -21,6 +22,7 @@ const routes = [
   { path: 'settings', component: Settings },
   { path: 'health', component: HealthMonitor },
   { path: 'dependencies', component: Dependencies },
+  { path: 'updater', component: Updater },
 ];
 
 // Dev builds in a plain browser tab: attach to the main process if `npm run dev:bridge` handed

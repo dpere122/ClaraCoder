@@ -28,6 +28,18 @@
         <button type='button' class='chrome-menu-btn' (click)='onChromeHealth()'>Health</button>
         <button
           type='button'
+          class='chrome-menu-btn chrome-update-btn'
+          (click)='onChromeUpdates()'
+          title='Check for updates'
+        >
+          <lucide-icon name='circle-arrow-up' [size]='11' class='chrome-update-icon' aria-hidden='true'></lucide-icon>
+          Update
+        </button>
+        @if (appVersion()) {
+          <span class='chrome-version' [attr.title]='"Clara Coder " + appVersion()'>v{{ appVersion() }}</span>
+        }
+        <button
+          type='button'
           class='chrome-win-btn chrome-pin-btn'
           [class.chrome-pin-btn--active]='pinned()'
           (click)='togglePinned()'

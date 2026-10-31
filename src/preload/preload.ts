@@ -11,6 +11,7 @@ import { createModelManagerApi } from './apis/model-manager-api';
 import { createWorkspaceApi } from './apis/workspace-api';
 import { createDependenciesApi } from './apis/dependencies-api';
 import { createThemeApi } from './apis/theme-api';
+import { createUpdaterApi } from './apis/updater-api';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   ...createChatApi(ipcRenderer),
@@ -21,4 +22,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   ...createLspHealthApi(ipcRenderer),
   ...createDependenciesApi(ipcRenderer),
   ...createThemeApi(ipcRenderer),
+  ...createUpdaterApi(ipcRenderer),
 });

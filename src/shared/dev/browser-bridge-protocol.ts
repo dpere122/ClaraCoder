@@ -15,7 +15,7 @@ export interface BrowserBridgeEndpoint {
 }
 
 /** App windows a bridge tab can act as; each satellite is the real BrowserWindow of that route. */
-export const BROWSER_BRIDGE_WINDOWS = ['main', 'settings', 'dependencies', 'health'] as const;
+export const BROWSER_BRIDGE_WINDOWS = ['main', 'settings', 'dependencies', 'health', 'updater'] as const;
 export type BrowserBridgeWindow = (typeof BROWSER_BRIDGE_WINDOWS)[number];
 
 /** Request header naming the window a tab acts as; absent means the main window. */

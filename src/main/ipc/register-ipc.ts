@@ -24,6 +24,7 @@ import { registerListSystemFontsIpc } from './handlers/list-system-fonts';
 import { registerDependenciesIpc } from './handlers/dependencies';
 import { registerThemesIpc } from './handlers/themes';
 import { registerMcpIpc } from './handlers/mcp';
+import { registerUpdaterIpc } from './handlers/updater';
 
 /** Registers all `ipcMain` handlers used by the preload `electronAPI` surface. */
 export function registerAllIpc(): void {
@@ -53,4 +54,5 @@ export function registerAllIpc(): void {
   registerListSystemFontsIpc();
   registerThemesIpc();
   registerMcpIpc();
+  registerUpdaterIpc();
 }

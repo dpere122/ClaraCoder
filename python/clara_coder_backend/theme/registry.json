@@ -3293,6 +3293,7 @@
         "home__heading",
         "home__list",
         "home__action",
+        "home__section--scroll",
         "home__list--rows",
         "home__row",
         "home__row-lead",
@@ -3649,6 +3650,7 @@
         "home__heading",
         "home__list",
         "home__action",
+        "home__section--scroll",
         "home__list--rows",
         "home__row",
         "home__row-lead",
@@ -3816,8 +3818,7 @@
         "is-up",
         "is-disabled",
         "pill-select__trigger",
-        "pill-select__label",
-        "pill-select__chevron"
+        "pill-select__label"
       ]
     },
     {

@@ -1,6 +1,6 @@
 {
   "name": "clara-coder",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Clara Coder — Electron desktop app for AI-assisted coding",
   "main": "dist/main/index.js",
   "private": true,

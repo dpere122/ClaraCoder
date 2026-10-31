@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { pythonHistoryFromMessages } from './python-history';
+import { keptCheckpointContextTokens, pythonHistoryFromMessages } from './python-history';
 
 describe('pythonHistoryFromMessages', () => {
   it('keeps user and assistant rows only, with structured content', () => {
@@ -28,5 +28,15 @@ describe('pythonHistoryFromMessages', () => {
       { role: 'assistant', content: 'Half\n\n[Interrupted by the user]' },
       { role: 'assistant', content: '[This reply failed before it finished]' },
     ]);
+  });
+});
+
+describe('keptCheckpointContextTokens', () => {
+  it('reads the meter reading only from a load that kept the checkpoint', () => {
+    expect(keptCheckpointContextTokens({ ok: true, kept_checkpoint: true, context_tokens: 1234.7 })).toBe(1234);
+    expect(keptCheckpointContextTokens({ ok: true })).toBe(0);
+    expect(keptCheckpointContextTokens({ ok: true, kept_checkpoint: true, context_tokens: 0 })).toBe(0);
+    expect(keptCheckpointContextTokens({ ok: true, kept_checkpoint: false, context_tokens: 50 })).toBe(0);
+    expect(keptCheckpointContextTokens(null)).toBe(0);
   });
 });

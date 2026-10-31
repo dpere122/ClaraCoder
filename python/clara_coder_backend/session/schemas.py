@@ -192,6 +192,8 @@ class LoadRequest(BaseModel):
     session_id: str
     #: Each item should include ``role`` and either ``content`` or ``message`` / structured fields.
     messages: list[dict[str, Any]]
+    #: Reopening an unchanged conversation: keep a checkpoint whose sync row matches ``messages``.
+    keep_matching_checkpoint: bool = False
 
 
 class ClearRequest(BaseModel):

@@ -838,6 +838,13 @@ export class App implements OnInit, OnDestroy {
         speed: this.ttsSpeechSpeed(),
       }),
       onPlannerComplete: (conversationId) => this.setBuildPlanTabInactive(conversationId),
+      onConversationLoaded: (conversationId, contextTokens) => {
+        // A reopened conversation whose checkpoint Python kept: resume its last measured reading
+        // (this window has none yet) rather than the transcript estimate.
+        if (contextTokens && !(conversationId in this.measuredPromptTokensByConversation())) {
+          this.setMeasuredPromptTokensForConversation(conversationId, contextTokens);
+        }
+      },
     });
 
     // Sub-agents outlive the turn that started them: when their reports land with no turn running,

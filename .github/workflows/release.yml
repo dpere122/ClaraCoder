@@ -74,11 +74,8 @@ jobs:
           path: runtime-bundle/python
           key: runtime-python-${{ runner.os }}-${{ hashFiles('python/requirements.txt', 'python/requirements.lock', 'scripts/bundle-portable-python.mjs') }}
 
-      # package-lock.json is gitignored today, so release builds resolve dependency ranges
-      # fresh each run. Commit the lockfile to make them reproducible; `npm ci` is used once it exists.
       - name: Install dependencies
-        run: |
-          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+        run: npm ci
 
       - name: Stamp version
         run: npm version "$VERSION" --no-git-tag-version --allow-same-version

@@ -14,7 +14,7 @@ These steps get a fresh clone running in development. Allow roughly 5–15 minut
 | Tool                 | Notes                                                                                                                                                                                                                          |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Node.js + npm**    | Required for Electron, Angular, and native addon rebuilds. The repo pins `npm@11.9.0`; any recent npm 11.x is fine.                                                                                                           |
-| **Python 3.10–3.13** | One system Python is enough. `npm run setup:python` creates the repo-root `.venv` for you — you do **not** need a separate 3.12 install.                                                                                        |
+| **Python 3.10–3.13** | Development only (packaged builds ship their own CPython 3.12.11). One system Python is enough. `npm run setup:python` creates the repo-root `.venv` for you — you do **not** need a separate 3.12 install.                       |
 | **Git**              | Needed when Kokoro cannot install from PyPI (today: Python 3.13+); `setup:python` falls back to GitHub for misaki/kokoro.                                                                                                      |
 | **Build toolchain**  | Linux/macOS: compiler + Python headers for `node-pty` / `better-sqlite3` rebuilds (`build-essential`, `python3-venv`, etc.). Windows: Visual Studio Build Tools; see [node-pty / Spectre note](#native-modules-better-sqlite3--node-pty) below. |
 
@@ -53,7 +53,7 @@ From the repo root:
 npm run setup:python
 ```
 
-This creates the repo-root `.venv/` if missing, then installs PyTorch, `python/requirements.txt`, and Kokoro. In dev, the app auto-detects that interpreter.
+This creates the repo-root `.venv/` if missing, then installs PyTorch, `python/requirements.txt`, and Kokoro. In dev, the app auto-detects that interpreter unless one higher in the [dev lookup order](#backend-uses-the-wrong-python) exists.
 
 Use `setup:python` when you have an NVIDIA GPU (installs CUDA PyTorch `cu129`, required for RTX 50-series / Blackwell). Use `npm run setup:python:cpu` on machines without CUDA.
 
@@ -116,9 +116,9 @@ npm run test:node   # Electron main / preload / shared / scripts
 npm run pack:dir
 ```
 
-`pack` / `pack:dir` run three bundling steps first: `bundle:python` (downloads a portable CPython into `runtime-bundle/python/`, installs `python/requirements.txt` into that interpreter, and writes `.clara-runtime-manifest.json`), `bundle:vtsls` (the TypeScript/JavaScript language server), and `bundle:rg` (a pinned ripgrep for workspace search). They then compile and invoke electron-builder. After a successful pack, `scripts/verify-packed-runtime.mjs` checks the unpacked resources (interpreter, manifest, backend sources, vtsls). Packaged output lands under `release/` (or `release-pack-<timestamp>/` if the folder is locked on Windows).
+`pack` / `pack:dir` run three bundling steps first: `bundle:python` (downloads a portable CPython into `runtime-bundle/python/`, installs `python/requirements.lock` into that interpreter, or `python/requirements.txt` when there is no lock, and writes `.clara-runtime-manifest.json`), `bundle:vtsls` (the TypeScript/JavaScript language server), and `bundle:rg` (a pinned ripgrep for workspace search). They then compile and invoke electron-builder. After a successful pack, `scripts/verify-packed-runtime.mjs` checks the unpacked resources (interpreter, manifest, backend sources, vtsls). Packaged output lands under `release/` (or `release-pack-<timestamp>/` if the folder is locked on Windows).
 
-In packaged builds only the bundled runtime is used. `CLARA_PYTHON`, the repo-root `.venv`, and system Python apply to development only.
+The bundled interpreter is **CPython 3.12.11** from [python-build-standalone](https://github.com/astral-sh/python-build-standalone) release `20250630`, pinned with SHA-256 checksums in `scripts/bundle-portable-python.mjs` (`PY_VER` / `RELEASE`). Packaged builds run the backend from that interpreter, or from the app-data venv layered on it (`runtime/python-venv`) once Kokoro or Whisper is installed; a venv created from another interpreter is ignored. `CLARA_PYTHON`, the repo-root `.venv`, and system Python apply to development only.
 
 To regenerate `python/requirements.lock` from the bundled interpreter:
 
@@ -145,7 +145,7 @@ After install (or in dev), open **Dependencies** to download optional runtime pi
 | Kokoro TTS | Local neural TTS (CPU PyTorch + kokoro) |
 | Whisper STT | Local speech-to-text (faster-whisper, CPU CTranslate2) |
 
-Heavy pieces are on-demand; the packaged app ships a portable Python with core backend packages plus the backend sources. Kokoro and Whisper install into an app-data venv layered on that Python (`runtime/python-venv`), which their installs create when needed.
+Heavy pieces are on-demand; the packaged app ships a portable Python (CPython 3.12.11) with core backend packages plus the backend sources. Kokoro and Whisper install into an app-data venv layered on that Python (`runtime/python-venv`), which their installs create when needed.
 
 #### llama-server GPU acceleration (auto-detected)
 
@@ -314,7 +314,15 @@ To recreate from scratch: `rm -rf .venv && npm run setup:python`.
 
 ### Backend uses the wrong Python
 
-Dev mode prefers `<repo>/.venv/bin/python` (or `.venv\Scripts\python.exe`). If that venv is missing, it falls back to system `python3`. Run `npm run setup:python` or set `CLARA_PYTHON`. Packaged builds use only the bundled runtime.
+Dev mode uses the first of these that exists:
+
+1. `CLARA_PYTHON`
+2. The dev app-data venv `<appData>/clara-coder-dev/runtime/python-venv` (created when you install Kokoro or Whisper from **Dependencies**)
+3. The portable bundle in `runtime-bundle/python/` (after `npm run bundle:python` or `npm run pack`)
+4. `<repo>/.venv/bin/python` (or `.venv\Scripts\python.exe`)
+5. System `python3` (`python` on Windows)
+
+The app-data venv is skipped when its base interpreter is gone, or when it holds its own packages and they are out of date with `python/requirements.txt` (reinstalling Kokoro or Whisper updates it). To force the repo venv, set `CLARA_PYTHON` or delete `runtime-bundle/python/` and the app-data venv. Packaged builds use only the bundled runtime and the app-data venv layered on it.
 
 ### Native modules (`better-sqlite3` / `node-pty`)
 

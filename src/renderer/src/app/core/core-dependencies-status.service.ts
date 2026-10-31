@@ -33,6 +33,7 @@ export class CoreDependenciesStatusService {
   private static readonly FOCUS_REFRESH_MIN_MS = 5_000;
 
   private inFlight: Promise<void> | null = null;
+  private reloadQueued = false;
   private lastRefreshAt = 0;
 
   constructor() {
@@ -57,11 +58,23 @@ export class CoreDependenciesStatusService {
     void this.refresh();
   }
 
+  /** A refresh asked for mid-load runs once more after it: that load may predate the change. */
   refresh(): Promise<void> {
-    this.inFlight ??= this.load().finally(() => {
+    if (this.inFlight) {
+      this.reloadQueued = true;
+      return this.inFlight;
+    }
+    this.inFlight = this.loadUntilCurrent().finally(() => {
       this.inFlight = null;
     });
     return this.inFlight;
+  }
+
+  private async loadUntilCurrent(): Promise<void> {
+    do {
+      this.reloadQueued = false;
+      await this.load();
+    } while (this.reloadQueued);
   }
 
   private async load(): Promise<void> {

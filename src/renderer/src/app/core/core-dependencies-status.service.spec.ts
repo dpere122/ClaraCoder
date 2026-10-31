@@ -10,6 +10,9 @@ function catalog(installed: readonly string[]): DependencyInfo[] {
   );
 }
 
+/** Lets the startup check (or any pending one) finish. */
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve));
+
 function setup(deps: DependencyInfo[]) {
   let progress: ((event: DependencyProgressEvent) => void) | null = null;
   const electron = {
@@ -43,7 +46,7 @@ describe('missingCoreDependencies', () => {
 describe('CoreDependenciesStatusService', () => {
   it('flags missing core deps on startup with a summary naming them', async () => {
     const { service } = setup(catalog(['java-lsp']));
-    await service.refresh();
+    await settle();
     expect(service.hasMissing()).toBe(true);
     expect(service.missingSummary()).toBe('Not downloaded: llama-server');
   });
@@ -51,15 +54,36 @@ describe('CoreDependenciesStatusService', () => {
   it('clears the flag after an install finishes', async () => {
     const deps = catalog(['java-lsp']);
     const { service, electron, emitProgress } = setup(deps);
-    await service.refresh();
+    await settle();
     expect(service.missing()).toEqual(['llama-server']);
 
     electron.depsList.mockResolvedValue({ ok: true, dependencies: catalog(['java-lsp', 'llama-server']) });
     emitProgress({ depId: 'llama-server', phase: 'downloading' });
     expect(electron.depsList).toHaveBeenCalledTimes(1);
     emitProgress({ depId: 'llama-server', phase: 'done' });
-    await service.refresh();
+    await settle();
+    expect(electron.depsList).toHaveBeenCalledTimes(2);
     expect(service.hasMissing()).toBe(false);
     expect(service.missingSummary()).toBe('');
+  });
+
+  it('re-reads when an install finishes during an in-flight check', async () => {
+    const { service, electron, emitProgress } = setup(catalog(['java-lsp']));
+    await settle();
+
+    let releaseStale!: () => void;
+    electron.depsList.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseStale = () => resolve({ ok: true, dependencies: catalog(['java-lsp']) });
+        }),
+    );
+    electron.depsList.mockResolvedValue({ ok: true, dependencies: catalog(['java-lsp', 'llama-server']) });
+    const pending = service.refresh();
+    emitProgress({ depId: 'llama-server', phase: 'done' });
+    releaseStale();
+    await pending;
+    expect(electron.depsList).toHaveBeenCalledTimes(3);
+    expect(service.hasMissing()).toBe(false);
   });
 });

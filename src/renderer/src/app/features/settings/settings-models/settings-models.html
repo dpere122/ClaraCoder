@@ -634,7 +634,7 @@
                       <app-pill-select
                         [options]='reasoningEffortOptions()'
                         valueKey='value'
-                        [value]='connection.reasoningEffort || ""'
+                        [value]='reasoningEffortValue()'
                         (valueChange)='s.updateSelectedModel({ reasoningEffort: $any($event) })'
                       />
                     </label>

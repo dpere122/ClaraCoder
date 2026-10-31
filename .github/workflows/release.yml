@@ -1,0 +1,134 @@
+# Builds installers and publishes them as GitHub Releases, which the in-app updater
+# (electron-updater, GitHub provider) reads.
+#
+#   beta:   Actions → Release → Run workflow (pick a branch). Publishes v<next>-beta.<run>
+#           as a pre-release right away; only users who opted into beta updates get it.
+#   stable: push a tag matching package.json, e.g. `git tag v0.2.0 && git push origin v0.2.0`.
+#           Creates a DRAFT release. Updaters ignore drafts, so smoke-test the installer
+#           and then publish the draft to ship it. Afterwards bump package.json to the next version.
+#
+# Version rules live in scripts/release-version.mjs.
+name: Release
+
+on:
+  push:
+    # Plain X.Y.Z only. Beta tags (v0.2.0-beta.3) are created by this workflow and must not
+    # re-trigger it (tags pushed with GITHUB_TOKEN don't start runs anyway).
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            node scripts/release-version.mjs --channel stable --tag "$GITHUB_REF_NAME"
+          else
+            node scripts/release-version.mjs --channel beta --build "$GITHUB_RUN_NUMBER"
+          fi
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: true
+      matrix:
+        # Add macos-latest / ubuntu-latest here once those targets are release-ready
+        # (macOS auto-update additionally requires a signed and notarized app).
+        os: [windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # node-gyp (native addon rebuilds) needs a system Python; the app's own runtime is the
+      # portable CPython that bundle:python downloads.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache portable Python runtime
+        uses: actions/cache@v4
+        with:
+          path: runtime-bundle/python
+          key: runtime-python-${{ runner.os }}-${{ hashFiles('python/requirements.txt', 'python/requirements.lock', 'scripts/bundle-portable-python.mjs') }}
+
+      # package-lock.json is gitignored today, so release builds resolve dependency ranges
+      # fresh each run. Commit the lockfile to make them reproducible; `npm ci` is used once it exists.
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+
+      - name: Stamp version
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      # --publish never: electron-builder would otherwise auto-publish on a CI tag build.
+      # The publish job below creates the release so the tag is pinned to this commit.
+      - name: Build installer
+        run: npm run pack -- --publish never
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.zip
+            release/*.AppImage
+            release/*.deb
+            release/*.blockmap
+            release/latest*.yml
+
+  publish:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.version.outputs.tag }}
+      VERSION: ${{ needs.version.outputs.version }}
+      PRERELEASE: ${{ needs.version.outputs.prerelease }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: assets
+          merge-multiple: true
+
+      - name: Create GitHub release
+        run: |
+          ls -la assets
+          if [ "$PRERELEASE" = "true" ]; then
+            flags=(--prerelease --target "$GITHUB_SHA")
+          else
+            flags=(--draft --verify-tag)
+          fi
+          gh release create "$TAG" assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Clara Coder $VERSION" \
+            --generate-notes \
+            "${flags[@]}"

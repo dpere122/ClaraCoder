@@ -89,15 +89,20 @@
  * Home (no workspace, IDE flat): a start page instead of the centered logo card. Title row,
  * then two columns: Start / Favorites / Recent lists on the left, Runtime on the right.
  * Rows are full-width with hover fills; section headings are small muted caps.
+ * The page itself never scrolls: it fills the panel height, and the Favorites and Recent
+ * lists share what is left of the main column, each scrolling on its own.
  */
 .main-panel-empty--home {
-  align-items: flex-start;
+  align-items: stretch;
   justify-content: center;
-  overflow-y: auto;
 }
 
 .home {
+  container: home / inline-size;
+  display: flex;
+  flex-direction: column;
   width: min(100%, 60rem);
+  min-height: 0;
   box-sizing: border-box;
   padding: clamp(2rem, 9vh, 5.5rem) 1.5rem 3rem;
   color: var(--t-fg);
@@ -106,6 +111,7 @@
 
 .home__header {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 1rem;
 }
@@ -136,14 +142,26 @@
 
 .home__columns {
   display: flex;
-  flex-wrap: wrap;
+  flex: 1 1 auto;
+  min-height: 0;
   gap: 0 3.5rem;
   margin-top: 0.75rem;
 }
 
+/*
+ * Start keeps its height; the rows after it (Favorites, Recent) grow evenly up to their content,
+ * so a short list stays whole and a long one takes the rest and scrolls. The column track is
+ * minmax(0, 1fr) so long nowrap paths ellipsize instead of widening the rows past the column.
+ */
 .home__col--main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto;
+  grid-auto-rows: minmax(0, max-content);
+  align-content: start;
   flex: 1 1 22rem;
   min-width: 0;
+  min-height: 0;
 }
 
 .home__col--side {
@@ -151,8 +169,39 @@
   min-width: 0;
 }
 
+/* Too narrow for two columns (22rem + 17rem + gap): Runtime drops below the lists. */
+@container home (width < 42.5rem) {
+  .home__columns {
+    flex-direction: column;
+  }
+
+  .home__col--main {
+    flex: 1 1 auto;
+  }
+
+  .home__col--side {
+    flex: 0 0 auto;
+  }
+}
+
 .home__section {
   margin-top: 1.75rem;
+}
+
+/* Favorites / Recent: fill their grid row and scroll their rows; the heading stays put. */
+.home__section--scroll {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.home__section--scroll .home__heading {
+  flex-shrink: 0;
+}
+
+.home__section--scroll .home__list {
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .home__heading {

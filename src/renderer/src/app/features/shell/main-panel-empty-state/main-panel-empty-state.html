@@ -36,7 +36,7 @@
           </section>
 
           @if (favoriteWorkspaces().length > 0) {
-            <section class="home__section" aria-labelledby="home-favorites">
+            <section class="home__section home__section--scroll" aria-labelledby="home-favorites">
               <h2 class="home__heading" id="home-favorites">Favorites</h2>
               <ul
                 class="home__list home__list--rows"
@@ -76,7 +76,7 @@
           }
 
           @if (recentOnlyWorkspaces().length > 0) {
-            <section class="home__section" aria-labelledby="home-recent">
+            <section class="home__section home__section--scroll" aria-labelledby="home-recent">
               <h2 class="home__heading" id="home-recent">Recent</h2>
               <ul class="home__list home__list--rows">
                 @for (ws of recentOnlyWorkspaces(); track ws.id) {

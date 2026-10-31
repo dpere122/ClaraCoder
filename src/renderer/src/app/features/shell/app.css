@@ -71,6 +71,20 @@
   color: var(--t-primary);
 }
 
+/* Core runtime dependencies still need downloading. */
+.chrome-menu-btn--attention {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-color: color-mix(in srgb, var(--t-warn) 55%, transparent);
+  background: color-mix(in srgb, var(--t-warn) 12%, transparent);
+  color: var(--t-warn);
+}
+
+.chrome-menu-btn-alert {
+  display: inline-flex;
+}
+
 .chrome-dropdown-menu {
   position: fixed;
   z-index: 10000;

@@ -169,11 +169,14 @@ def _load_message_content(item: dict[str, Any], role: str) -> str | list[dict[st
 
 
 @router.post('/load')
-async def load_session(request: LoadRequest) -> dict[str, bool]:
+async def load_session(request: LoadRequest) -> dict[str, Any]:
     """Bulk-restore messages into a session (typically after app restart or conversation switch).
 
     Replaces slim history from Electron SQLite and clears outer LangGraph checkpoints so the
-    next model turn rebuilds from loaded history (SQLite is authoritative after resync).
+    next model turn rebuilds from loaded history (SQLite is authoritative after resync). With
+    ``keep_matching_checkpoint``, a checkpoint that covers exactly this history stays, and the
+    next turn continues from it (tool calls and results included); the response then carries
+    ``kept_checkpoint`` and the context meter's last reading, ``context_tokens``.
     Live HITL/pause fields are abandoned; workspace/LSP attachment is preserved. A running
     turn is stopped first; the conversation's sub-agents keep running and their waiting reports
     stay (``subagent_results_ready`` goes out if some wait). Sub-agent conversations are never loaded.
@@ -189,10 +192,14 @@ async def load_session(request: LoadRequest) -> dict[str, bool]:
         if content is None:
             continue
         restored.append({'role': role, 'content': content})
-    await delete_outer_threads_for_session(request.session_id)
+    kept_context = await delete_outer_threads_for_session(
+        request.session_id,
+        keep_matching=restored if request.keep_matching_checkpoint else None,
+    )
     clear_session_hitl_fields(sess)
-    # Results for spawn calls of a checkpoint that is gone now.
-    sess.subagent_interrupted_reports.clear()
+    if kept_context is None:
+        # Results for spawn calls of a checkpoint that is gone now.
+        sess.subagent_interrupted_reports.clear()
     sess.history = restored
     if live_subagent_runs(sess) or sess.subagent_pending_reports:
         logger.info(
@@ -202,7 +209,10 @@ async def load_session(request: LoadRequest) -> dict[str, bool]:
             request.session_id,
         )
     maybe_publish_results_ready(request.session_id)
-    return {'ok': True}
+    if kept_context is None:
+        return {'ok': True}
+    # The meter's last reading for the kept checkpoint (0 when the model reported no usage).
+    return {'ok': True, 'kept_checkpoint': True, 'context_tokens': kept_context}
 
 
 @router.post('/workspace-system-prompt')

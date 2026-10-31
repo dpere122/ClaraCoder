@@ -1084,7 +1084,10 @@ async def test_load_keeps_running_subagents_and_their_reports(bus, monkeypatch) 
     from clara_coder_backend.routes.session import load_session
     from clara_coder_backend.session.schemas import LoadRequest
 
-    monkeypatch.setattr('clara_coder_backend.routes.session.delete_outer_threads_for_session', AsyncMock())
+    # Returns None: no checkpoint kept, so the stashed spawn results go.
+    monkeypatch.setattr(
+        'clara_coder_backend.routes.session.delete_outer_threads_for_session', AsyncMock(return_value=None)
+    )
     parent = state.get_session('load-parent')
     child = fork_subagent_session('load-parent', parent, 'load-child', 'scout')
     task = asyncio.get_running_loop().create_task(child.abort_event.wait())

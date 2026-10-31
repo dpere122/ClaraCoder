@@ -7,7 +7,8 @@ This module is the thin orchestrator above the graph runners:
    - ``composer_mode == 'plan'`` → :func:`stream_plan_execute_langgraph`
    - otherwise → :func:`stream_single_agent_langgraph` (``lang_agent.graph``)
 3. It relays SSE lines to the Electron renderer, then handles post-stream chores
-   (checkpoint compact / cleanup, in-memory history commit, ``final_text``, ``[DONE]``).
+   (checkpoint compact / cleanup, in-memory history commit, checkpoint sync record for ``/load``,
+   ``final_text``, ``[DONE]``).
 
 HITL pauses (diff / copy / delete / accept-command review) happen *inside* the graph
 runners via middleware. While paused, this generator simply does not yield until the
@@ -36,7 +37,11 @@ from fastapi import HTTPException
 from clara_coder_backend.lang_agent.graph import stream_single_agent_langgraph
 from clara_coder_backend.plan.plan_execute import stream_plan_execute_langgraph, PLAN_EXECUTE_APPLY_MODE
 from clara_coder_backend.lang_agent.loop import AgentLoopOutcome, DEFAULT_AGENT_LOOP_POLICY, LangGraphWorkerOutcome
-from clara_coder_backend.session.checkpointing import delete_outer_thread
+from clara_coder_backend.session.checkpointing import (
+    delete_outer_thread,
+    delete_outer_threads_for_session,
+    settle_outer_thread,
+)
 from clara_coder_backend.lang_agent.context_compression import maybe_compact_outer_checkpoint
 from clara_coder_backend.lang_agent.streaming import model_chunk_sse_line, sse_line, status_event
 from clara_coder_backend.config import MAX_TOOL_STATUS_LINE
@@ -209,6 +214,7 @@ async def stream_agent_reply(
                 yield line
 
         # --- Post-stream: compact / drop checkpoints based on outcome ---
+        compact_freed = 0
         if (
             graph_outcome.state == AgentLoopOutcome.COMPLETED
             and mode != 'plan'
@@ -218,6 +224,7 @@ async def stream_agent_reply(
             # Shrink outer checkpoint when the single-agent turn finished cleanly.
             compact_stats = await maybe_compact_outer_checkpoint(session_id, apply_mode, session)
             if compact_stats is not None and compact_stats.changed:
+                compact_freed = max(0, compact_stats.tokens_before - compact_stats.tokens_after)
                 yield sse_line(compact_stats.to_sse_payload())
 
         # A stopped agent turn keeps its thread: the next turn repairs its open tool calls instead.
@@ -240,6 +247,25 @@ async def stream_agent_reply(
             session.history.append({'role': 'user', 'content': user_message})
             session.history.append({'role': 'assistant', 'content': graph_outcome.best_available_text()})
 
+        if not is_subagent and session.active_langgraph_agent_streams == 0:
+            try:
+                if mode == 'plan':
+                    # Plan turns run on their own threads: the agent's threads no longer cover history.
+                    await delete_outer_threads_for_session(session_id, 'single')
+                elif graph_outcome.state == AgentLoopOutcome.COMPLETED or kept_interrupted:
+                    # The thread now covers this turn: record that for ``/load``, prune it.
+                    await settle_outer_thread(
+                        session_id,
+                        apply_mode=apply_mode,
+                        history=session.history,
+                        freed_tokens=compact_freed,
+                    )
+                else:
+                    # This thread is gone; the other Editor mode's one does not have this turn either.
+                    await delete_outer_thread(session_id, 'single', apply_mode=not apply_mode)
+            except Exception:
+                logger.warning('settling the outer checkpoint failed session=%s', session_id, exc_info=True)
+
         # Clean final assistant text for the UI (distinct from streamed token chunks).
         final_text = graph_outcome.final_text.strip()
         if final_text:
@@ -257,6 +283,8 @@ async def stream_agent_reply(
             thread_kind = 'plan' if (composer_mode or 'agent').strip().lower() == 'plan' else 'single'
             ck_apply = PLAN_EXECUTE_APPLY_MODE if thread_kind == 'plan' else apply_mode
             await delete_outer_thread(session_id, thread_kind, apply_mode=ck_apply)
+            if thread_kind == 'single' and not is_subagent:
+                await delete_outer_thread(session_id, 'single', apply_mode=not apply_mode)
         except Exception:
             logger.debug('checkpoint cleanup after agent error failed', exc_info=True)
         yield sse_line(

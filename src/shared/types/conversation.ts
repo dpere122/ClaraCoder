@@ -194,6 +194,8 @@ export interface Conversation extends ConversationMeta {
   messages: ConversationMessage[];
   workspaceId: string | null;
   themeId: string;
+  /** From `load-conversation` only (see {@link ConversationFile.contextTokens}). */
+  contextTokens?: number;
 }
 
 /** On-disk / IPC chat row — same shape as the renderer conversation message. */
@@ -217,6 +219,11 @@ export interface ConversationFile {
   parentConversationId?: string | null;
   /** Sub-agent conversations: the parent user message whose turn spawned this one. */
   parentTurnId?: string | null;
+  /**
+   * Not stored. Set by `load-conversation` when Python kept the conversation's checkpoint: the
+   * context meter's last measured reading for it, so the meter resumes instead of estimating.
+   */
+  contextTokens?: number;
 }
 
 /** Result of IPC `maybe-auto-title-conversation` (model-generated sidebar title). */

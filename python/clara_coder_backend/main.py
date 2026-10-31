@@ -10,6 +10,7 @@ Or use the repo-level :file:`python/server.py` shim for Electron (it reads
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import logging
 import os
@@ -24,7 +25,11 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from clara_coder_backend.logging.app_logging import configure_logging
 from clara_coder_backend.config import env_clara
-from clara_coder_backend.session.checkpointing import init_graph_checkpointing, shutdown_graph_checkpointing
+from clara_coder_backend.session.checkpointing import (
+    compact_checkpoint_db,
+    init_graph_checkpointing,
+    shutdown_graph_checkpointing,
+)
 from clara_coder_backend.session.turns import stop_all_turns
 from clara_coder_backend.lsp.manager import shutdown_all_lsp_managers
 from clara_coder_backend.routes.audio import router as audio_router
@@ -137,10 +142,21 @@ class SidecarBearerAuthMiddleware:
         await self.app(scope, receive, send)
 
 
+async def _compact_checkpoints() -> None:
+    try:
+        await compact_checkpoint_db()
+    except Exception:
+        _logger.exception('Checkpoint db compaction failed')
+
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await init_graph_checkpointing()
+    # In the background: the first run on an old, unpruned file can take a while (a turn started
+    # meanwhile waits on the shared connection), and it must not hold up Electron's health probe.
+    compaction = asyncio.create_task(_compact_checkpoints())
     yield
+    compaction.cancel()
     try:
         # Detached turns outlive their requests: stop them first, while their checkpointer,
         # language servers and MCP clients are still up.

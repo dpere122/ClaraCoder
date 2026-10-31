@@ -151,7 +151,8 @@ export interface ConversationSessionHooks {
   getCurrentWorkspaceId: () => string | null;
   getSpeechSettings: () => { enabled: boolean; voice: string; speed: number };
   onPlannerComplete?: (conversationId: string) => void;
-  onConversationLoaded?: (conversationId: string) => void;
+  /** `contextTokens`: the meter's last reading, when Python kept the conversation's checkpoint. */
+  onConversationLoaded?: (conversationId: string, contextTokens?: number) => void;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -1120,7 +1121,7 @@ export class ConversationSessionService {
     }
     // After transcript + stream signals match this conversation, so load hooks do not
     // observe the previous chat's messages under the new id.
-    this.hooks.onConversationLoaded?.(conv.id);
+    this.hooks.onConversationLoaded?.(conv.id, conv.contextTokens);
 
     await this.rememberLastActiveForWorkspace(conv);
   }

@@ -20,7 +20,7 @@ import {
   updateConversationTitleAndLock,
   upsertConversation,
 } from '../../conversations-db';
-import { pythonHistoryFromMessages } from '../../python-history';
+import { keptCheckpointContextTokens, pythonHistoryFromMessages } from '../../python-history';
 import { abortChatStream, hasActiveChatStream } from './chat-stream-state';
 import { forgetConversationRenderer } from './conversation-renderers';
 
@@ -111,11 +111,22 @@ export function registerConversationsIpc(): void {
       if (!skipPythonResync) {
         try {
           await ensurePythonReady();
-          await pythonControlFetch('/load', {
+          const res = await pythonControlFetch('/load', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session_id: id, messages: pythonHistoryFromMessages(conv.messages) }),
+            // The transcript is unchanged since its last turn (a restore goes through its own
+            // resync), so Python keeps a checkpoint that still matches it: the model gets the
+            // turn's tool calls and results back, not only the text.
+            body: JSON.stringify({
+              session_id: id,
+              messages: pythonHistoryFromMessages(conv.messages),
+              keep_matching_checkpoint: true,
+            }),
           });
+          const contextTokens = res.ok ? keptCheckpointContextTokens(await res.json()) : 0;
+          if (contextTokens > 0) {
+            conv.contextTokens = contextTokens;
+          }
         } catch (err) {
           console.error('Failed to sync history with Python:', err);
         }

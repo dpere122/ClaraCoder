@@ -573,8 +573,8 @@ async def _stream_langgraph_tool_agent(
     prior = await graph.aget_state(config)
     vals = getattr(prior, 'values', None) or {}
     existing = vals.get('messages') if isinstance(vals, dict) else None
-    # Checkpoint wins only within a continuous process lifetime after the last /load or /clear.
-    # Those routes delete outer threads so a resync always rebuilds from session.history (SQLite).
+    # Checkpoint wins when it exists: /clear and /load delete outer threads (so a resync rebuilds
+    # from session.history, SQLite) except a /load reopen whose history the thread still matches.
     has_checkpoint_messages = bool(existing)
 
     human_content = compose_outer_turn_human_content(session, apply_mode, user_message)

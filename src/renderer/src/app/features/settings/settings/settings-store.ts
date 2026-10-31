@@ -38,6 +38,7 @@ import {
   DEFAULT_CHAT_CONTAINER_SIZE,
   DEFAULT_CHAT_THINKING_DISPLAY,
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
+  DEFAULT_MANAGED_LLAMA_SOURCE_NAME,
   getDefaultContextCompression,
   DEFAULT_KOKORO_TTS_VOICE,
   DEFAULT_OPENAI_TRANSCRIBE_MODEL,
@@ -1341,8 +1342,7 @@ export class SettingsStore {
   }
 
   addProvider(): void {
-    const idx = this.llmProviders().filter((p) => !isPinnedLlmSourceId(p.id)).length;
-    const nextProvider = this.buildNewLlamacppProvider(idx + 1);
+    const nextProvider = this.buildNewLlamacppProvider();
     this.llmProviders.update((p) => [...p, nextProvider]);
     const firstId = nextProvider.models[0]?.id ?? null;
     this.selectedModelId.set(firstId);
@@ -3165,12 +3165,12 @@ export class SettingsStore {
     return base;
   }
 
-  private buildNewLlamacppProvider(index: number): LlmProviderConfig {
+  private buildNewLlamacppProvider(): LlmProviderConfig {
     const defaults = this.getProviderDefaults('llamacpp');
     const firstModel = this.buildNewModel(1, 'llamacpp');
     return {
       id: crypto.randomUUID(),
-      name: `Llama Server ${index}`,
+      name: DEFAULT_MANAGED_LLAMA_SOURCE_NAME,
       provider: 'llamacpp',
       baseUrl: defaults.baseUrl,
       apiKey: defaults.apiKey,

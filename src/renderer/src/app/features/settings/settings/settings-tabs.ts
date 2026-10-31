@@ -39,7 +39,7 @@ export function settingsTabFromHash(hash: string): SettingsTab | null {
   return isSettingsTab(tab) ? tab : null;
 }
 
-/** Pane to show on first paint: hash `tab=` when valid, otherwise Models. */
+/** Pane to show on first paint: hash `tab=` when valid, otherwise Sources. */
 export function initialSettingsTab(hash = globalThis.location?.hash ?? ''): SettingsTab {
   return settingsTabFromHash(hash) ?? 'models';
 }

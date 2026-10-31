@@ -5,7 +5,7 @@
 export const SETTINGS_TAB_ENTRIES = [
   { id: 'general', label: 'General' },
   { id: 'themes', label: 'Themes' },
-  { id: 'models', label: 'Models' },
+  { id: 'models', label: 'Sources' },
   { id: 'modelManager', label: 'Model Manager' },
   { id: 'tools', label: 'Tools' },
   { id: 'mcp', label: 'MCP' },

@@ -108,7 +108,7 @@ export function coerceSecretValue(value: unknown): SecretValue<string> {
   return SecretValue.of(String(value));
 }
 
-/** Family-specific tuning template from Settings → Models (synced to Python). */
+/** Family-specific tuning template from Settings → Sources (synced to Python). */
 export type LlmOptimizationPreset = 'generic' | 'qwen' | 'gemma';
 
 /** Gemma 4 / LM Studio thinking: boolean-style control (not OpenAI reasoning_effort tiers). */
@@ -369,6 +369,30 @@ export function llmEffortSelectOptionsFromCaps(
     return effortOptionsFromValues(caps.reasoningEffortValues);
   }
   return llmReasoningSelectOptions(preset === 'gemma' ? 'generic' : preset);
+}
+
+/**
+ * Composer effort dropdown: only the efforts the live scan retrieved, with no Default/on/off
+ * aliases. Empty (dropdown hidden) until a scan advertises an effort allow-list.
+ */
+export function llmComposerEffortOptions(
+  caps: ChatTemplateReasoningCaps | null | undefined,
+): readonly { value: string; label: string }[] {
+  return caps?.reasoningEffortValues ? effortOptionsFromValues(caps.reasoningEffortValues).slice(1) : [];
+}
+
+/**
+ * Effort the composer shows and keeps: the saved one when the model offers it, otherwise
+ * ``medium`` when offered, otherwise the first offered effort. ``''`` when nothing is offered.
+ */
+export function llmComposerEffortValue(
+  options: readonly { value: string }[],
+  saved: string | undefined,
+): string {
+  if (options.some((o) => o.value === saved)) {
+    return saved as string;
+  }
+  return options.find((o) => o.value === 'medium')?.value ?? options[0]?.value ?? '';
 }
 
 /** Default Kokoro voice when assistant speech is enabled (American English). */

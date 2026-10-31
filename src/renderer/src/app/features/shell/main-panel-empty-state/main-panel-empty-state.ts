@@ -30,10 +30,13 @@ export class MainPanelEmptyStateComponent {
   readonly defaultHomePage = input(false);
   /** Drives the Runtime panel (source picker, Start/Stop, model and embeddings status). */
   readonly appConfig = input<AppConfig | null>(null);
+  /** Names core dependencies that still need downloading; non-empty flags the Dependencies action. */
+  readonly missingDependencies = input('');
   readonly addWorkspace = output<void>();
   readonly openWorkspace = output<string>();
   readonly toggleFavorite = output<string>();
   readonly reorderFavorites = output<string[]>();
+  readonly openSources = output<void>();
   readonly openModelManager = output<void>();
   readonly openDependencies = output<void>();
   readonly defaultHomePageChange = output<boolean>();

@@ -240,6 +240,17 @@
   background: var(--t-hover-bg);
 }
 
+/* Core runtime dependencies still need downloading. */
+.home__action--attention {
+  color: var(--t-warn);
+  background: color-mix(in srgb, var(--t-warn) 10%, transparent);
+}
+
+.home__action-alert {
+  margin-left: auto;
+  color: var(--t-warn);
+}
+
 .home__action:focus-visible,
 .home__row-main:focus-visible,
 .home__row-action:focus-visible,

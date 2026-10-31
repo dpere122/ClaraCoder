@@ -8,7 +8,9 @@ slot). There are no follow-ups: a sub-agent ends after its report.
 
 A sub-agent belongs to the conversation, not to this call: when the turn ends while the call waits
 (interrupt, Stop), the sub-agent keeps running and its report is delivered when it finishes. Bound for
-main agent-mode sessions only (never for sub-agents, never in plan mode); see
+main sessions only (agent-mode turns, plan discovery and plan execution; never for sub-agents). A
+sub-agent gets the Editor mode of the stream that spawned it, so plan discovery's sub-agents are
+read-only; see
 :mod:`clara_coder_backend.lang_agent.subagents` for the session fork, ownership and event contract.
 
 The result's artifact (``{'subagent': {conversation_id, name}}``) links the spawn pill to the child
@@ -42,7 +44,7 @@ from clara_coder_backend.lang_agent.subagents import (
     wait_for_runs,
 )
 from clara_coder_backend.session import state
-from clara_coder_backend.session.state import current_session_id
+from clara_coder_backend.session.state import current_session_id, current_stream_apply_mode
 from clara_coder_backend.tools.tool_conventions import describe
 
 logger = logging.getLogger('clara.tools.spawn_subagent')
@@ -105,6 +107,7 @@ async def spawn_subagent_tool(
 
     child_id = uuid.uuid4().hex
     child = fork_subagent_session(sid, parent, child_id, label)
+    stream_mode = current_stream_apply_mode.get()
     run = SubagentRun(
         parent_session_id=sid,
         parent=parent,
@@ -114,7 +117,9 @@ async def spawn_subagent_tool(
         task_text=task_text,
         background=bool(background),
         parent_turn_id=parent.current_user_message_id,
-        apply_mode=bool(parent.last_stream_apply_mode),
+        # The spawning stream's mode, not the composer toggle: plan discovery runs read-only and plan
+        # execution runs as Editor whatever the toolbar says.
+        apply_mode=bool(stream_mode if stream_mode is not None else parent.worker_apply_mode),
     )
     artifact = {'subagent': {'conversation_id': child_id, 'name': label}}
     # Findable before the start event is dispatched: the parent stream may map it right away.

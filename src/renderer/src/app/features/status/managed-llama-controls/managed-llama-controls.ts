@@ -87,7 +87,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
    *  switches re-broadcast config and would otherwise re-trigger the spinner). */
   protected readonly customModelsDir = computed(() => this.appConfig()?.modelManager.customModelsDir?.trim() ?? '');
 
-  /** Sources listed in the dropdown, pinned rows first (same order as Settings → Models). */
+  /** Sources listed in the dropdown, pinned rows first (same order as Settings → Sources). */
   protected readonly sources = computed<LlmProviderConfig[]>(() => {
     const cfg = this.appConfig();
     if (!cfg) {

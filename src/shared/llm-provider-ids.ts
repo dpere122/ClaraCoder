@@ -1,4 +1,4 @@
-/** Stable id for the pinned LM Studio row in Settings → Models (never deleted, provider fixed). */
+/** Stable id for the pinned LM Studio row in Settings → Sources (never deleted, provider fixed). */
 export const PINNED_LM_STUDIO_PROVIDER_ID = 'lm-studio-default';
 
 /** Pinned “remote llama-server” row (URL + optional key; no managed Start). */

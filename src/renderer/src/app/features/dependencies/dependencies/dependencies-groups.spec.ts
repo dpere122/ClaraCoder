@@ -18,9 +18,9 @@ function dep(id: string, extra: Partial<DependencyInfo> = {}): DependencyInfo {
 
 describe('groupDependencies', () => {
   it('orders rows into Required, Language servers, and Voice', () => {
-    const groups = groupDependencies([dep('whisper'), dep('java-lsp'), dep('llama-server'), dep('python-runtime'), dep('kokoro')]);
+    const groups = groupDependencies([dep('whisper'), dep('java-lsp'), dep('llama-server'), dep('kokoro')]);
     expect(groups.map((g) => [g.label, g.deps.map((d) => d.id)])).toEqual([
-      ['Required', ['python-runtime', 'llama-server']],
+      ['Required', ['llama-server']],
       ['Language servers', ['java-lsp']],
       ['Voice', ['kokoro', 'whisper']],
     ]);
@@ -28,7 +28,7 @@ describe('groupDependencies', () => {
   });
 
   it('drops empty groups and keeps unknown ids under Other', () => {
-    const groups = groupDependencies([dep('python-runtime'), dep('future-thing')]);
+    const groups = groupDependencies([dep('llama-server'), dep('future-thing')]);
     expect(groups.map((g) => g.label)).toEqual(['Required', 'Other']);
   });
 });

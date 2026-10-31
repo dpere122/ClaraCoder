@@ -57,8 +57,6 @@ export function dependencyDeletePrompt(args: {
   path: string | null;
 }): ThemedConfirmOpenOptions {
   const impact: Record<string, string> = {
-    'python-runtime':
-      "Clara's backend runs from this environment. Chat, tools, and indexing stop working until you reinstall it.",
     'llama-server': 'Managed local models stop working until you download llama-server again.',
     'java-lsp': 'Java diagnostics and navigation stop working until you download it again.',
   };

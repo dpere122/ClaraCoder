@@ -140,13 +140,12 @@ After install (or in dev), open **Dependencies** to download optional runtime pi
 
 | Dependency | Purpose |
 | ---------- | ------- |
-| Python runtime | App-managed venv + core backend packages |
 | llama-server | Managed local llama.cpp binary (no system install required) |
 | Java LSP (JDT LS) | Eclipse JDT Language Server for Java |
 | Kokoro TTS | Local neural TTS (CPU PyTorch + kokoro) |
 | Whisper STT | Local speech-to-text (faster-whisper, CPU CTranslate2) |
 
-Heavy pieces are on-demand; the packaged app ships a portable Python with core backend packages plus the backend sources.
+Heavy pieces are on-demand; the packaged app ships a portable Python with core backend packages plus the backend sources. Kokoro and Whisper install into an app-data venv layered on that Python (`runtime/python-venv`), which their installs create when needed.
 
 #### llama-server GPU acceleration (auto-detected)
 

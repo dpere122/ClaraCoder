@@ -40,7 +40,7 @@ describe('settingsTabFromHash', () => {
 });
 
 describe('initialSettingsTab', () => {
-  it('uses a valid hash tab so the first paint is not Models', () => {
+  it('uses a valid hash tab so the first paint is not Sources', () => {
     expect(initialSettingsTab('#/settings?tab=audio')).toBe('audio');
   });
 

@@ -23,6 +23,8 @@ import type {
 } from '../../shared';
 import {
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
+  DEFAULT_MANAGED_LLAMA_SOURCE_NAME,
+  uniqueManagedLlamaSourceName,
   defaultLlamaCppManaged,
   DEFAULT_KOKORO_TTS_VOICE,
   DEFAULT_OPENAI_TRANSCRIBE_MODEL,
@@ -1045,6 +1047,26 @@ function ensurePinnedOpenRouterProvider(providers: LlmProviderConfig[]): boolean
   return true;
 }
 
+/**
+ * Rename managed local ``llama-server`` sources still carrying an old default name
+ * (``Llama server (local)``, ``Llama Server N``). Settings has no rename for these
+ * (``customName`` is the user's label), so ``name`` is only the no-model fallback.
+ */
+function renameLegacyManagedLlamaSourceNames(providers: LlmProviderConfig[]): boolean {
+  let changed = false;
+  for (const p of providers) {
+    if (p.provider !== 'llamacpp' || p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID) {
+      continue;
+    }
+    if (p.name === 'Llama server (local)' || /^Llama Server \d+$/.test(p.name)) {
+      // Numbered past the first so renamed sources stay distinguishable.
+      p.name = uniqueManagedLlamaSourceName(providers.filter((o) => o !== p).map((o) => o.name));
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 /** Ensure pinned managed local ``llama-server`` row exists (after LM Studio + remote URL). */
 function ensurePinnedLocalManagedLlamaProvider(providers: LlmProviderConfig[]): boolean {
   if (providers.some((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID)) {
@@ -1096,7 +1118,7 @@ function migrateLlmProvidersToThreePinnedSources(
   }
   local.id = PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID;
   if (!local.name?.trim()) {
-    local.name = 'Llama server (local)';
+    local.name = DEFAULT_MANAGED_LLAMA_SOURCE_NAME;
   }
   local.provider = 'llamacpp';
   used.add(local.id);
@@ -1294,6 +1316,10 @@ export function migrateConfig(config: AppConfig): AppConfig {
   }
 
   if (ensurePinnedOpenRouterProvider(newConfig.llmProviders)) {
+    migrated = true;
+  }
+
+  if (renameLegacyManagedLlamaSourceNames(newConfig.llmProviders)) {
     migrated = true;
   }
 

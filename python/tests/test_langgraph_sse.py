@@ -1377,6 +1377,22 @@ def test_native_tool_call_chunks_parallel_calls_get_distinct_previews() -> None:
     assert [_sse_json(ln)['status']['id'] for ln in bound_b if '"type": "status"' in ln] == [rows[1]['id']]
 
 
+def test_native_tool_previews_stay_distinct_across_streams_of_one_turn() -> None:
+    """Plan discovery then execution each stream with a fresh state; the renderer keys rows by id."""
+    kwargs = _sse_kwargs()
+    event = {
+        'event': 'on_chat_model_stream',
+        'data': {'chunk': _native_tool_chunk(index=0, name='read_workspace_file', args='', call_id='c1')},
+    }
+    ids = []
+    for state in (GraphStreamState(), GraphStreamState()):
+        lines = sse_lines_for_graph_event(event, state, **kwargs)
+        ids += [_sse_json(ln)['status']['id'] for ln in lines if '"type": "status"' in ln]
+    assert len(ids) == 2
+    assert all(i.startswith('native-tool-preview-') for i in ids)
+    assert ids[0] != ids[1]
+
+
 def _stream_line_kinds(lines: list[str]) -> list[tuple[str, str]]:
     kinds: list[tuple[str, str]] = []
     for ln in lines:

@@ -240,7 +240,7 @@ def test_status_reports_error_when_base_interpreter_gone(tmp_path: Path, monkeyp
     st = pr.status()
     assert st['state'] == 'error'
     assert 'base interpreter missing' in (st.get('error') or '')
-    assert 'Download' in (st.get('error') or '')
+    assert 'Download' not in (st.get('error') or '')  # No Dependencies row offers it any more.
 
 
 def test_install_recreates_venv_when_base_interpreter_gone(
@@ -259,7 +259,7 @@ def test_install_recreates_venv_when_base_interpreter_gone(
     monkeypatch.setattr(pr, 'get_runtime_python_dir', lambda: venv)
     monkeypatch.setattr(pr, '_base_python', lambda _v: str(durable))
     monkeypatch.setattr(pr, '_base_has_core', lambda _base: False)
-    monkeypatch.setattr(pr, '_pip_install_requirements', lambda _py: None)
+    monkeypatch.setattr(pr, '_pip_install_requirements', lambda _py, _dep_id: None)
     monkeypatch.setattr(pr, '_write_requirements_hash', lambda _v: None)
     monkeypatch.setattr(pr, '_interpreter_version', lambda _py: '3.12.11')
     monkeypatch.setattr(pr, 'write_ready_marker', lambda _v, _ver: None)
@@ -284,9 +284,12 @@ def test_install_recreates_venv_when_base_interpreter_gone(
         return subprocess.CompletedProcess(args, 0, '', '')
 
     monkeypatch.setattr(pr, 'run_streaming', fake_run_streaming)
-    result = pr.install(force=False)
+    events = _capture_progress(monkeypatch)
+    result = pr.install(dep_id='kokoro')
     assert saw_venv_create['ok'] is True
     assert result['state'] == 'installed'
+    # Progress belongs to the calling install, which keeps going after the venv step.
+    assert events and all(e['depId'] == 'kokoro' and e['phase'] == 'installing' for e in events)
 
 
 def test_install_wipes_incomplete_venv_missing_pyvenv_cfg(
@@ -306,7 +309,7 @@ def test_install_wipes_incomplete_venv_missing_pyvenv_cfg(
     monkeypatch.setattr(pr, '_base_has_core', lambda _base: False)
     pip_called = {'ok': False}
 
-    def fake_pip(_py: Path) -> None:
+    def fake_pip(_py: Path, _dep_id: str) -> None:
         pip_called['ok'] = True
 
     monkeypatch.setattr(pr, '_pip_install_requirements', fake_pip)
@@ -330,7 +333,7 @@ def test_install_wipes_incomplete_venv_missing_pyvenv_cfg(
         return subprocess.CompletedProcess(args, 0, '', '')
 
     monkeypatch.setattr(pr, 'run_streaming', fake_run_streaming)
-    result = pr.install(force=False)
+    result = pr.install(dep_id='kokoro')
     assert saw_venv_create['ok'] is True
     assert pip_called['ok'] is True
     assert result['state'] == 'installed'
@@ -421,7 +424,7 @@ def test_install_bundled_mode_uses_system_site_packages_and_skips_pip(
     monkeypatch.setattr(
         pr,
         '_pip_install_requirements',
-        lambda _py: pytest.fail('must not pip-install core packages in bundled mode'),
+        lambda _py, _dep_id: pytest.fail('must not pip-install core packages in bundled mode'),
     )
     monkeypatch.setattr(pr, '_write_requirements_hash', lambda _v: None)
     monkeypatch.setattr(pr, '_interpreter_version', lambda _py: '3.12.11')
@@ -443,7 +446,7 @@ def test_install_bundled_mode_uses_system_site_packages_and_skips_pip(
         return subprocess.CompletedProcess(args, 0, '', '')
 
     monkeypatch.setattr(pr, 'run_streaming', fake_run_streaming)
-    result = pr.install(force=False)
+    result = pr.install(dep_id='kokoro')
     assert saw_venv_create['ok'] is True
     assert result['state'] == 'installed'
 
@@ -464,9 +467,7 @@ def test_status_bundled_installed_without_overlay_venv(
     st = pr.status()
     assert st['state'] == 'installed'
     assert st['path'] == str(bundled)
-    assert st['canDelete'] is False
     assert st.get('error') is None
-    assert 'Bundled with Clara Coder' in (st.get('description') or '')
     assert st['version'] == '3.12.11'
 
 
@@ -495,51 +496,26 @@ def test_expected_requirements_hash_uses_manifest_when_bundled(
     assert pr._requirements_fingerprint() != digest
 
 
-def test_requirement_names_strips_specifiers_comments_and_options() -> None:
-    text = (
-        '# Interpreter: Python 3.10–3.13\n'
-        'fastapi>=0.135,<1\n'
-        'typing-extensions>=4.12,<5  # inline comment\n'
-        'uvicorn[standard]>=0.42\n'
-        '--extra-index-url https://example.invalid/simple\n'
-        '-r other.txt\n'
-        'pkg @ https://example.invalid/pkg.whl\n'
-        'markered==1.0; python_version < "3.13"\n'
-        '\n'
-        'fastapi\n'  # duplicate collapses
-    )
-    assert pr.requirement_names(text) == [
-        'fastapi',
-        'typing-extensions',
-        'uvicorn',
-        'pkg',
-        'markered',
-    ]
+def test_registry_does_not_list_the_python_runtime() -> None:
+    from clara_coder_backend.runtime.deps import registry
 
-
-def test_components_lists_venv_pip_then_requirements(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    req = tmp_path / 'requirements.txt'
-    req.write_text('fastapi>=0.1\nuvicorn\n', encoding='utf-8')
-    monkeypatch.setattr(pr, 'requirements_txt', lambda: req)
-    assert pr.components() == ['venv', 'pip', 'fastapi', 'uvicorn']
-
-    monkeypatch.setattr(pr, 'requirements_txt', lambda: tmp_path / 'missing.txt')
-    assert pr.components() == ['venv', 'pip']
+    assert 'python-runtime' not in registry.DEPENDENCY_IDS
+    assert set(registry._providers()) == set(registry.DEPENDENCY_IDS)
 
 
 def test_registry_attaches_components_to_status(monkeypatch: pytest.MonkeyPatch) -> None:
     from clara_coder_backend.runtime.deps import registry
 
     class FakeProvider:
-        DEP_ID = 'python-runtime'
+        DEP_ID = 'kokoro'
 
         @staticmethod
         def status() -> dict:
-            return {'id': 'python-runtime', 'state': 'missing'}
+            return {'id': 'kokoro', 'state': 'missing'}
 
         @staticmethod
         def components() -> list[str]:
-            return ['venv', 'pip', '', 'fastapi']
+            return ['torch (CPU)', '', 'kokoro']
 
     class NoComponentsProvider:
         @staticmethod
@@ -549,9 +525,9 @@ def test_registry_attaches_components_to_status(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(
         registry,
         '_providers',
-        lambda: {'python-runtime': FakeProvider, 'java-lsp': NoComponentsProvider},
+        lambda: {'kokoro': FakeProvider, 'java-lsp': NoComponentsProvider},
     )
-    assert registry.get_dependency('python-runtime')['components'] == ['venv', 'pip', 'fastapi']
+    assert registry.get_dependency('kokoro')['components'] == ['torch (CPU)', 'kokoro']
     assert registry.get_dependency('java-lsp')['components'] == []
 
 
@@ -634,9 +610,9 @@ def test_pip_install_requirements_streams_via_run_streaming(
         return subprocess.CompletedProcess(args, 0, '', '')
 
     monkeypatch.setattr(pr, 'run_streaming', fake_run_streaming)
-    pr._pip_install_requirements(tmp_path / 'python')
+    pr._pip_install_requirements(tmp_path / 'python', 'whisper')
 
     assert len(calls) == 1
     assert calls[0]['args'][1:] == ['-m', 'pip', 'install', '-r', str(req)]
-    assert calls[0]['dep_id'] == 'python-runtime'
+    assert calls[0]['dep_id'] == 'whisper'
 

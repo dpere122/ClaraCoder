@@ -15,6 +15,7 @@ import {
   DEFAULT_CHAT_CONTAINER_SIZE,
   DEFAULT_CHAT_THINKING_DISPLAY,
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
+  DEFAULT_MANAGED_LLAMA_SOURCE_NAME,
   DEFAULT_KOKORO_TTS_VOICE,
   DEFAULT_OPENAI_TTS_BASE_URL,
   DEFAULT_TTS_PROVIDER,
@@ -75,7 +76,7 @@ export function createPinnedLocalManagedLlamaProvider(): LlmProviderConfig {
   const embeddingRunCommand = process.env.LLAMACPP_EMBEDDING_RUN_COMMAND || '';
   return {
     id: PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
-    name: 'Llama server (local)',
+    name: DEFAULT_MANAGED_LLAMA_SOURCE_NAME,
     provider: 'llamacpp',
     baseUrl: process.env.LLAMACPP_BASE_URL || 'http://127.0.0.1:8080/v1',
     apiKey: SecretValue.of(process.env.LLAMACPP_API_KEY || ''),

@@ -21,15 +21,36 @@
                 </button>
               </li>
               <li>
-                <button type="button" class="home__action" (click)="openModelManager.emit()">
-                  <lucide-icon name="cpu" [size]="15" />
-                  <span>Models</span>
+                <button type="button" class="home__action" (click)="openSources.emit()">
+                  <lucide-icon name="server" [size]="15" />
+                  <span>Sources</span>
                 </button>
               </li>
               <li>
-                <button type="button" class="home__action" (click)="openDependencies.emit()">
+                <button type="button" class="home__action" (click)="openModelManager.emit()">
+                  <lucide-icon name="cpu" [size]="15" />
+                  <span>Model Manager</span>
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  class="home__action"
+                  [class.home__action--attention]="missingDependencies()"
+                  [attr.title]="missingDependencies() || null"
+                  (click)="openDependencies.emit()"
+                >
                   <lucide-icon name="package" [size]="15" />
                   <span>Dependencies</span>
+                  @if (missingDependencies()) {
+                    <lucide-icon
+                      name="triangle-alert"
+                      [size]="14"
+                      class="home__action-alert"
+                      role="img"
+                      [attr.aria-label]="missingDependencies()"
+                    />
+                  }
                 </button>
               </li>
             </ul>
@@ -117,7 +138,7 @@
                 <span class="home__runtime-label">Source</span>
                 <app-managed-llama-controls class="home__runtime-controls" [appConfig]="appConfig()" />
                 @if (!hasSources()) {
-                  <button type="button" class="home__link" (click)="openModelManager.emit()">Add a model source…</button>
+                  <button type="button" class="home__link" (click)="openSources.emit()">Add a model source…</button>
                 }
               </div>
               <app-llama-status-indicator layout="rows" [appConfig]="appConfig()" />

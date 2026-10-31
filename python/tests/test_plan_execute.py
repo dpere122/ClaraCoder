@@ -23,8 +23,10 @@ from clara_coder_backend.plan.plan_confirm import (
     stage_plan_confirm_request,
 )
 from clara_coder_backend.plan.plan_execute import (
+    PLAN_AUTHORING_GUIDELINES,
     PLAN_DRAFTING_OVERRIDE,
     PLAN_EXECUTE_APPLY_MODE,
+    PLAN_MARKDOWN_TEMPLATE_EXAMPLE,
     _bind_answers_into_prior_plan,
     _build_discovery_preamble,
     _coerce_planner_model,
@@ -1148,6 +1150,46 @@ def test_build_build_plan_executor_prompt_omits_empty_blocks() -> None:
     prompt = build_build_plan_executor_prompt('.clara/build-plans/plan-abc.md')
     assert 'Approved plan' not in prompt
     assert 'Discovery findings' not in prompt
+    assert 'spawn_subagent' not in prompt
+
+
+def test_build_build_plan_executor_prompt_lists_open_delegated_steps() -> None:
+    plan_md = (
+        '# Build Plan: Plane\n\n## Action Steps\n'
+        '<!-- step-id: step-1 -->\n- [ ] Build the model\n'
+        '<!-- step-id: step-2 -->\n- [ ] Engine sounds\n  - **Sub-agent:** plane-audio\n'
+        '<!-- step-id: step-3 -->\n- [x] Old delegated step\n  - **Sub-agent:** done-already\n'
+    )
+    prompt = build_build_plan_executor_prompt('.clara/build-plans/plan-abc.md', plan_md=plan_md)
+    assert '`step-2` → sub-agent `plane-audio`: Engine sounds' in prompt
+    assert 'done-already' not in prompt.split('Steps assigned to sub-agents:')[1].split('Start these')[0]
+    assert 'spawn_subagent' in prompt and 'background=true' in prompt
+
+
+def test_plan_execute_tools_bind_subagent_tools_on_request() -> None:
+    family = {'spawn_subagent', 'wait_for_subagents', 'stop_subagent'}
+    with_flag = {t.name for t in plan_execute_tools_and_map(session=SessionState(), include_subagent_tool=True)[0]}
+    without = {t.name for t in plan_execute_tools_and_map(session=SessionState())[0]}
+    assert family <= with_flag and 'mark_build_plan_steps_complete' in with_flag
+    assert not family & without
+
+
+def test_plan_graph_builders_allow_subagents() -> None:
+    from clara_coder_backend.plan import plan_execute as pe
+
+    with patch.object(pe, 'build_clara_single_outer_graph') as build:
+        pe._plan_discovery_outer_graph_builder(object(), SessionState(), False, None)
+        pe._plan_execute_outer_graph_builder(object(), SessionState(), True, None)
+    discover, execute = build.call_args_list
+    assert discover.args[2] is False and discover.kwargs['allow_subagents'] is True
+    assert 'tools_provider' not in discover.kwargs
+    assert execute.kwargs['allow_subagents'] is True
+    assert execute.kwargs['tools_provider'] is plan_execute_tools_and_map
+
+
+def test_planner_guidelines_and_template_describe_subagent_steps() -> None:
+    assert '**Sub-agent:** short-label' in PLAN_MARKDOWN_TEMPLATE_EXAMPLE
+    assert 'Sub-agent' in PLAN_AUTHORING_GUIDELINES
 
 
 def _two_run_exec(prompts: list[str]):

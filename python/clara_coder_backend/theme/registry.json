@@ -1636,7 +1636,6 @@
         "deps-details",
         "deps-details__section",
         "deps-details__label",
-        "deps-chip--link",
         "deps-chip--ok",
         "deps-location",
         "deps-path",
@@ -3273,7 +3272,8 @@
         "--t-fg",
         "--t-hover-bg",
         "--t-primary",
-        "--t-text-muted"
+        "--t-text-muted",
+        "--t-warn"
       ],
       "supportsBackground": false,
       "description": "Home panel shown when no file is open.",
@@ -3293,6 +3293,9 @@
         "home__heading",
         "home__list",
         "home__action",
+        "home__action--attention",
+        "home__action-alert",
+        "home__section--scroll",
         "home__list--rows",
         "home__row",
         "home__row-lead",
@@ -3380,7 +3383,8 @@
         "--t-text-muted",
         "--t-titlebar-end",
         "--t-titlebar-start",
-        "--t-titlebar-text"
+        "--t-titlebar-text",
+        "--t-warn"
       ],
       "supportsBackground": false,
       "description": "Right-hand column containing the conversation hub and chat.",
@@ -3613,7 +3617,8 @@
         "--t-text-muted",
         "--t-titlebar-end",
         "--t-titlebar-start",
-        "--t-titlebar-text"
+        "--t-titlebar-text",
+        "--t-warn"
       ],
       "supportsBackground": false,
       "description": "Main column that hosts file tabs, the editor grid, and the expanded chat overlay.",
@@ -3649,6 +3654,9 @@
         "home__heading",
         "home__list",
         "home__action",
+        "home__action--attention",
+        "home__action-alert",
+        "home__section--scroll",
         "home__list--rows",
         "home__row",
         "home__row-lead",
@@ -3814,10 +3822,7 @@
         "pill-select",
         "is-open",
         "is-up",
-        "is-disabled",
-        "pill-select__trigger",
-        "pill-select__label",
-        "pill-select__chevron"
+        "is-disabled"
       ]
     },
     {
@@ -3851,7 +3856,8 @@
         "--t-text-muted",
         "--t-titlebar-end",
         "--t-titlebar-start",
-        "--t-titlebar-text"
+        "--t-titlebar-text",
+        "--t-warn"
       ],
       "supportsBackground": false,
       "description": "Bottom footer with model status and language-server chips.",
@@ -3953,7 +3959,8 @@
         "--t-text-muted",
         "--t-titlebar-end",
         "--t-titlebar-start",
-        "--t-titlebar-text"
+        "--t-titlebar-text",
+        "--t-warn"
       ],
       "supportsBackground": false,
       "description": "Frameless window chrome: app title, menu buttons, and window controls.",
@@ -3963,6 +3970,8 @@
         "chrome-title",
         "chrome-title-icon",
         "chrome-menu-btn",
+        "chrome-menu-btn--attention",
+        "chrome-menu-btn-alert",
         "chrome-win-btn",
         "chrome-pin-btn",
         "chrome-pin-btn--active",
@@ -4057,7 +4066,8 @@
         "--t-text-muted",
         "--t-titlebar-end",
         "--t-titlebar-start",
-        "--t-titlebar-text"
+        "--t-titlebar-text",
+        "--t-warn"
       ],
       "supportsBackground": false,
       "description": "Left column hosting the file tree.",

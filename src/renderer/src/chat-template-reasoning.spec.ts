@@ -4,6 +4,8 @@ import {
   LLM_REASONING_EFFORT_OPTIONS,
   LLM_THINKING_MODE_OPTIONS,
   formatChatTemplateReasoningSummary,
+  llmComposerEffortOptions,
+  llmComposerEffortValue,
   llmEffortControlVisible,
   llmEffortSelectOptionsFromCaps,
   llmThinkingControlVisible,
@@ -229,6 +231,22 @@ describe('llm thinking/effort visibility from caps', () => {
   it('falls back to the generic effort list when caps are absent', () => {
     expect(llmEffortSelectOptionsFromCaps(undefined)).toBe(LLM_REASONING_EFFORT_OPTIONS);
     expect(LLM_THINKING_MODE_OPTIONS.map((o) => o.value)).toEqual(['default', 'on', 'off']);
+  });
+
+  it('offers the composer only the scanned efforts, without Default or on/off', () => {
+    const caps = { enableThinking: true, reasoningEffortValues: ['xhigh', 'medium', 'low'] };
+    expect(llmComposerEffortOptions(caps).map((o) => o.value)).toEqual(['xhigh', 'medium', 'low']);
+    expect(llmComposerEffortOptions(undefined)).toEqual([]);
+    expect(llmComposerEffortOptions({ enableThinking: true, reasoningEffortValues: null })).toEqual([]);
+  });
+
+  it('keeps a saved composer effort only when it is offered', () => {
+    const opts = llmComposerEffortOptions({ enableThinking: false, reasoningEffortValues: ['low', 'medium', 'xhigh'] });
+    expect(llmComposerEffortValue(opts, 'xhigh')).toBe('xhigh');
+    expect(llmComposerEffortValue(opts, '')).toBe('medium');
+    expect(llmComposerEffortValue(opts, 'on')).toBe('medium');
+    expect(llmComposerEffortValue(llmComposerEffortOptions({ enableThinking: false, reasoningEffortValues: ['high'] }), '')).toBe('high');
+    expect(llmComposerEffortValue([], 'low')).toBe('');
   });
 
   it('falls back to low/medium/xhigh for the Qwen preset when caps are absent', () => {

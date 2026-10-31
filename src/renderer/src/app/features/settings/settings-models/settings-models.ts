@@ -4,6 +4,8 @@ import { FormsModule } from '@angular/forms';
 import {
   LLM_THINKING_MODE_OPTIONS,
   OPENROUTER_DEFAULT_BASE_URL,
+  llmComposerEffortOptions,
+  llmComposerEffortValue,
   llmEffortControlVisible,
   llmEffortSelectOptionsFromCaps,
   llmThinkingControlVisible,
@@ -53,9 +55,20 @@ export class SettingsModels {
   protected readonly effortVisible = computed(() =>
     llmEffortControlVisible(this.s.selectedModel()?.optimizationPreset, this.liveCaps()),
   );
-  protected readonly reasoningEffortOptions = computed(() =>
-    llmEffortSelectOptionsFromCaps(this.liveCaps(), this.s.selectedModel()?.optimizationPreset),
-  );
+  /** Scanned efforts only, as in the composer (which would revert a Default picked here). */
+  private readonly scannedEffortOptions = computed(() => llmComposerEffortOptions(this.liveCaps()));
+  protected readonly reasoningEffortOptions = computed(() => {
+    const scanned = this.scannedEffortOptions();
+    return scanned.length
+      ? scanned
+      : llmEffortSelectOptionsFromCaps(this.liveCaps(), this.s.selectedModel()?.optimizationPreset);
+  });
+  /** Effort the dropdown shows: the composer's pick when the model was scanned, else the saved one. */
+  protected readonly reasoningEffortValue = computed(() => {
+    const saved = this.s.selectedResolved()?.reasoningEffort || '';
+    const scanned = this.scannedEffortOptions();
+    return scanned.length ? llmComposerEffortValue(scanned, saved) : saved;
+  });
   protected readonly builtinEmbeddingsOptions = [{ id: '', label: 'Built-in CPU embeddings' }];
 
   protected readonly openRouterDefaultBaseUrl = OPENROUTER_DEFAULT_BASE_URL;

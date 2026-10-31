@@ -72,7 +72,7 @@ from clara_coder_backend.llm.messages import (
     compose_outer_turn_human_content,
     session_to_messages,
 )
-from clara_coder_backend.session.state import get_session
+from clara_coder_backend.session.state import current_stream_apply_mode, get_session
 from clara_coder_backend.hitl.tool_registry import worker_tools_and_map
 
 logger = logging.getLogger('clara.agent.langgraph')
@@ -116,11 +116,12 @@ def build_clara_single_outer_graph(
 ) -> Any:
     """Same ``create_agent`` shape as the live Clara stream (checkpoint-compatible).
 
-    ``allow_subagents`` binds the sub-agent tools and report delivery (main agent-mode sessions only;
-    sub-agents never get them).
+    ``allow_subagents`` binds the sub-agent tools and report delivery (main sessions' chat turns, plan
+    discovery and plan execution; sub-agents never get them). A ``tools_provider`` takes it as
+    ``include_subagent_tool``.
     """
     if tools_provider is not None:
-        tools, _ = tools_provider(apply_mode, session=session)
+        tools, _ = tools_provider(apply_mode, session=session, include_subagent_tool=allow_subagents)
     else:
         tools, _ = worker_tools_and_map(apply_mode, session=session, include_subagent_tool=allow_subagents)
     system_prompt = build_system_prompt(session, apply_mode)
@@ -171,7 +172,8 @@ def _chat_outer_graph_builder(
 ) -> Any:
     """The chat turn's graph: the default one plus the sub-agent tools.
 
-    Plan discovery shares :func:`_default_outer_graph_builder`, so the flag cannot live there.
+    Other callers of :func:`_default_outer_graph_builder` run without sub-agents, so the flag cannot
+    live there (plan mode has its own builders).
     """
     return build_clara_single_outer_graph(
         llm, session, apply_mode, extra_middleware=extra_middleware, allow_subagents=True
@@ -626,7 +628,10 @@ async def _stream_langgraph_tool_agent(
     session.planning_nested_events_q = nested_stream_q
     session.planning_nested_events_loop = asyncio.get_running_loop()
 
+    # The task copies the context here, so this stream's tools see its own mode.
+    mode_token = current_stream_apply_mode.set(bool(apply_mode))
     pump_task = asyncio.create_task(pump_events())
+    current_stream_apply_mode.reset(mode_token)
 
     queues = (events_q, hitl_q, nested_stream_q)
     queue_labels = ('ev', 'hitl', 'nested')

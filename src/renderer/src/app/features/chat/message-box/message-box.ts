@@ -7,7 +7,8 @@ import {
   DEFAULT_COMPOSER_RUN_MODE,
   findManagedLocalLlamaLocation,
   formatTokensPerSecond,
-  llmEffortControlVisible,
+  llmComposerEffortOptions,
+  llmComposerEffortValue,
   llmEffortSelectOptionsFromCaps,
   llmThinkingControlVisible,
   resolveActiveLlmConnection,
@@ -150,17 +151,29 @@ export class MessageBox {
   protected readonly thinkingVisible = computed(() =>
     llmThinkingControlVisible(this.activeConnection()?.optimizationPreset, this.liveCaps()),
   );
-  protected readonly effortVisible = computed(() =>
-    llmEffortControlVisible(this.activeConnection()?.optimizationPreset, this.liveCaps()),
-  );
+  /** Only the efforts the model's template advertised; no preset guesses or Default/on/off. */
+  private readonly scannedEffortOptions = computed(() => llmComposerEffortOptions(this.liveCaps()));
+  /**
+   * Scanned efforts; for an unscanned source, Settings' list while an effort is saved (it is still
+   * sent, so it stays visible and can be set back to Default).
+   */
+  protected readonly reasoningEffortOptions = computed(() => {
+    const scanned = this.scannedEffortOptions();
+    if (scanned.length || !this.activeConnection()?.reasoningEffort) {
+      return scanned;
+    }
+    return llmEffortSelectOptionsFromCaps(this.liveCaps(), this.activeConnection()?.optimizationPreset);
+  });
+  protected readonly effortVisible = computed(() => this.reasoningEffortOptions().length > 0);
   protected readonly showReasoningCluster = computed(() => this.thinkingVisible() || this.effortVisible());
-  protected readonly reasoningEffortOptions = computed(() =>
-    llmEffortSelectOptionsFromCaps(this.liveCaps(), this.activeConnection()?.optimizationPreset),
-  );
   protected readonly thinkingMode = computed(() => this.activeConnection()?.thinkingMode || 'default');
   /** Brain toggle: anything except explicit ``off`` counts as reasoning enabled. */
   protected readonly reasoningEnabled = computed(() => this.thinkingMode() !== 'off');
-  protected readonly reasoningEffort = computed(() => this.activeConnection()?.reasoningEffort || '');
+  protected readonly reasoningEffort = computed(() => {
+    const saved = this.activeConnection()?.reasoningEffort || '';
+    const scanned = this.scannedEffortOptions();
+    return scanned.length ? llmComposerEffortValue(scanned, saved) : saved;
+  });
   readonly usedTokens = input(0);
   readonly maxTokens = input(128_000);
   readonly remainingTokens = input(128_000);
@@ -246,6 +259,16 @@ export class MessageBox {
       void this.probeLlamaLive(cfg, loc.model.id);
     });
 
+    // A saved effort the model does not offer (Default, on/off, another model's) would still be
+    // sent; persist the effort the dropdown shows instead.
+    effect(() => {
+      const shown = this.reasoningEffort();
+      const saved = this.activeConnection()?.reasoningEffort || '';
+      if (shown && shown !== saved) {
+        this.reasoningEffortChange.emit({ field: 'reasoningEffort', value: shown as LlmReasoningEffort });
+      }
+    });
+
     effect(() => {
       if (this.composerDraft().includes('\n') && !this.multilineMode()) {
         this.multilineMode.set(true);
@@ -282,8 +305,9 @@ export class MessageBox {
   /** Forwards the composer Reasoning dropdown to {@link reasoningEffortChange}. */
   onReasoningEffortChange(value: string): void {
     const allowed = new Set(this.reasoningEffortOptions().map((o) => o.value));
-    const effort = (allowed.has(value) ? value : '') as LlmReasoningEffort;
-    this.reasoningEffortChange.emit({ field: 'reasoningEffort', value: effort });
+    if (allowed.has(value)) {
+      this.reasoningEffortChange.emit({ field: 'reasoningEffort', value: value as LlmReasoningEffort });
+    }
   }
 
   /**

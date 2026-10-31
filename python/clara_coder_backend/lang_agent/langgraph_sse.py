@@ -105,6 +105,9 @@ class GraphStreamState:
     #: OpenAI-style streamed tool calls for the current LLM step, keyed by ``tool_call_chunks[].index``.
     native_tool_drafts: dict[int | str, NativeToolCallDraft] = field(default_factory=dict)
     native_preview_seq: int = 0
+    #: Keeps preview ids unique across the streams of one turn (plan discovery then execution, nested
+    #: specialists): the renderer keys tool rows by status id, so a repeated id overwrites an earlier row.
+    preview_id_tag: str = field(default_factory=lambda: uuid.uuid4().hex[:6])
 
 
 #: Re-announce a streaming native tool call each time its argument buffer grows by this many chars.
@@ -364,7 +367,7 @@ def _emit_gemma_native_tool_previews(
                 target['args'] = args
             continue
         state.gemma_preview_seq += 1
-        preview_id = f'gemma-tool-preview-{state.gemma_preview_seq}'
+        preview_id = f'gemma-tool-preview-{state.preview_id_tag}-{state.gemma_preview_seq}'
         state.gemma_native_previews.append(
             {'id': preview_id, 'name': name, 'args': args, 'consumed': False}
         )
@@ -482,7 +485,7 @@ def _emit_native_tool_call_previews(
             if not clean_name:
                 continue
             state.native_preview_seq += 1
-            preview_id = f'native-tool-preview-{state.native_preview_seq}'
+            preview_id = f'native-tool-preview-{state.preview_id_tag}-{state.native_preview_seq}'
             draft = NativeToolCallDraft(preview_id=preview_id, name=clean_name)
             if isinstance(args_delta, str):
                 draft.args_text = args_delta

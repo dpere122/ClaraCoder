@@ -5,7 +5,7 @@ import type { LlmModelProfile, LlmProviderConfig } from './types/app-config';
 function managedSource(chatRunCommand: string, customName?: string): LlmProviderConfig {
   return {
     id: 'src-1',
-    name: 'Llama Server 1',
+    name: 'Local Model',
     ...(customName !== undefined ? { customName } : {}),
     provider: 'llamacpp',
     baseUrl: 'http://127.0.0.1:8080/v1',
@@ -22,7 +22,7 @@ describe('managedLlamaSourceDisplayName', () => {
   });
 
   it('falls back to the stored name when no model is selected', () => {
-    expect(managedLlamaSourceDisplayName(managedSource(''), [])).toBe('Llama Server 1');
+    expect(managedLlamaSourceDisplayName(managedSource(''), [])).toBe('Local Model');
   });
 
   it('prefers a custom name over the model label', () => {

@@ -221,12 +221,15 @@
   fill: none;
 }
 
+/* Sized to its label: a fixed width clipped the longer efforts (MEDIUM, XHIGH). */
 .composer-reasoning-select {
-  width: 5rem;
-  min-width: 5rem;
-  max-width: 5rem;
-  text-transform: none;
-  letter-spacing: 0.02em;
+  width: auto;
+  flex-shrink: 0;
+}
+
+:host ::ng-deep app-pill-select.composer-reasoning-select .pill-select__label {
+  overflow: visible;
+  text-overflow: clip;
 }
 
 :host ::ng-deep app-pill-select.composer-mode-select .pill-select__trigger:disabled {
@@ -542,12 +545,6 @@
 }
 
 @container composer (max-width: 440px) {
-  .composer-options-row .composer-reasoning-select {
-    width: 4.25rem;
-    min-width: 4.25rem;
-    max-width: 4.25rem;
-  }
-
   :host ::ng-deep app-pill-select.composer-mode-select .pill-select__trigger {
     min-width: 0;
     padding-inline: 0.4rem 0.55rem;

@@ -64,6 +64,19 @@ export function defaultLlamaCppManaged(): LlamaCppManaged {
   };
 }
 
+/** Fallback name of a managed local llama-server source before it has a model or custom name. */
+export const DEFAULT_MANAGED_LLAMA_SOURCE_NAME = 'Local Model';
+
+/** {@link DEFAULT_MANAGED_LLAMA_SOURCE_NAME}, numbered (``Local Model 2``…) when ``taken`` has it. */
+export function uniqueManagedLlamaSourceName(taken: readonly string[]): string {
+  const used = new Set(taken);
+  let name = DEFAULT_MANAGED_LLAMA_SOURCE_NAME;
+  for (let n = 2; used.has(name); n++) {
+    name = `${DEFAULT_MANAGED_LLAMA_SOURCE_NAME} ${n}`;
+  }
+  return name;
+}
+
 const PORT_TOKEN = '{{PORT}}';
 /** Baseline managed chat command template used in defaults and Settings placeholders. */
 export const DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND =

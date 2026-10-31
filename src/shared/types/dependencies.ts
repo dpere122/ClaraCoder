@@ -1,9 +1,9 @@
 /**
  * Shared types for the runtime dependency download framework
- * (Python runtime, llama-server, Java LSP, Kokoro, Whisper).
+ * (llama-server, Java LSP, Kokoro, Whisper).
  */
 
-export type DependencyId = 'python-runtime' | 'llama-server' | 'java-lsp' | 'kokoro' | 'whisper';
+export type DependencyId = 'llama-server' | 'java-lsp' | 'kokoro' | 'whisper';
 
 export type DependencyState = 'missing' | 'installed' | 'updating' | 'error';
 
@@ -91,7 +91,6 @@ export interface DependencyActionResult {
 }
 
 export const DEPENDENCY_IDS: readonly DependencyId[] = [
-  'python-runtime',
   'llama-server',
   'java-lsp',
   'kokoro',
@@ -99,7 +98,6 @@ export const DEPENDENCY_IDS: readonly DependencyId[] = [
 ] as const;
 
 export const DEPENDENCY_LABELS: Record<DependencyId, string> = {
-  'python-runtime': 'Python runtime',
   'llama-server': 'llama-server',
   'java-lsp': 'Java LSP (JDT LS)',
   kokoro: 'Kokoro TTS',
@@ -107,7 +105,6 @@ export const DEPENDENCY_LABELS: Record<DependencyId, string> = {
 };
 
 export const DEPENDENCY_DESCRIPTIONS: Record<DependencyId, string> = {
-  'python-runtime': 'App-managed virtualenv with Clara backend packages.',
   'llama-server': 'llama.cpp server binary for managed local models.',
   'java-lsp': 'Eclipse JDT Language Server for Java diagnostics and navigation.',
   kokoro: 'Local neural TTS (CPU PyTorch + kokoro).',
@@ -115,7 +112,6 @@ export const DEPENDENCY_DESCRIPTIONS: Record<DependencyId, string> = {
 };
 
 export const DEPENDENCY_SIZE_HINTS: Record<DependencyId, string> = {
-  'python-runtime': '~150 MB (venv + core packages)',
   'llama-server': '~40–400 MB (CPU ~40 MB; CUDA build + cudart DLLs up to ~400 MB)',
   'java-lsp': '~50–80 MB',
   kokoro: '~1–2 GB (CPU PyTorch + Kokoro)',
@@ -124,10 +120,9 @@ export const DEPENDENCY_SIZE_HINTS: Record<DependencyId, string> = {
 
 /**
  * Static fallback for {@link DependencyInfo.components}; the Python providers report
- * the authoritative list (python-runtime reads it from ``requirements.txt``).
+ * the authoritative list.
  */
 export const DEPENDENCY_COMPONENTS: Record<DependencyId, readonly string[]> = {
-  'python-runtime': ['venv', 'pip', 'fastapi', 'uvicorn', 'langchain', 'langgraph', 'openai', 'llama-index', 'fastembed', 'onnxruntime', 'basedpyright', 'black'],
   'llama-server': ['llama-server', 'ggml / llama shared libs', 'cudart DLLs (CUDA builds)'],
   'java-lsp': ['Eclipse JDT LS', 'Equinox launcher', 'JDT plugins'],
   kokoro: ['torch (CPU)', 'kokoro', 'misaki', 'spacy'],
@@ -171,18 +166,6 @@ export interface DependencySource {
  * Whisper's model repo depends on the chosen size; see {@link whisperModelSource}.
  */
 export const DEPENDENCY_SOURCES: Record<DependencyId, readonly DependencySource[]> = {
-  'python-runtime': [
-    {
-      label: 'CPython (python-build-standalone)',
-      url: 'https://github.com/astral-sh/python-build-standalone',
-      detail: 'Portable interpreter bundled with packaged builds; the virtualenv is created from it.',
-    },
-    {
-      label: 'Python packages',
-      url: 'https://pypi.org/',
-      detail: 'Installed with pip from PyPI, as listed in python/requirements.txt.',
-    },
-  ],
   'llama-server': [
     {
       label: 'llama.cpp',
@@ -245,10 +228,4 @@ export function whisperModelSource(size: string, repoId: string): DependencySour
     url: `https://huggingface.co/${repoId}`,
     detail: `Model weights from Hugging Face (${repoId}).`,
   };
-}
-
-/** PyPI page for a package the Python runtime installs (`venv` is part of CPython itself). */
-export function pythonPackageUrl(name: string): string | null {
-  if (!name || name === 'venv') return null;
-  return `https://pypi.org/project/${encodeURIComponent(name)}/`;
 }

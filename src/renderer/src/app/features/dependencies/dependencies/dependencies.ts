@@ -33,7 +33,6 @@ import {
   WHISPER_MODEL_OPTIONS,
   WHISPER_SIZE_REPOS,
   dependencyComponents,
-  pythonPackageUrl,
   whisperModelSource,
 } from '@shared/index';
 import { applyAppFontOverrides } from '../../../core/theme/app-font-overrides';
@@ -83,7 +82,7 @@ export interface DependencyGroup {
 }
 
 const DEPENDENCY_GROUPS: readonly DependencyGroupDef[] = [
-  { id: 'required', label: 'Required', ids: ['python-runtime', 'llama-server'] },
+  { id: 'required', label: 'Required', ids: ['llama-server'] },
   { id: 'lsp', label: 'Language servers', ids: ['java-lsp'] },
   { id: 'voice', label: 'Voice', ids: ['kokoro', 'whisper'], comingSoon: true },
 ];
@@ -348,18 +347,6 @@ export class Dependencies implements OnInit, OnDestroy {
    */
   protected async cancelInstall(dep: DependencyInfo): Promise<void> {
     if (this.isCancelling(dep.id)) return;
-    if (dep.id === 'python-runtime') {
-      const proceed =
-        (await this.themedConfirm.open({
-          title: 'Cancel the Python runtime install?',
-          message:
-            "Clara's backend runs from this environment. The partly built environment is removed, and chat, tools, and indexing won't work until you download it again.",
-          cancelText: 'Keep installing',
-          confirmText: 'Cancel install',
-          variant: 'warning',
-        })) === 'confirm';
-      if (!proceed) return;
-    }
     this.cancellingIds.update((s) => new Set(s).add(dep.id));
     const res = await this.electron.depsCancel(dep.id);
     if (!res.ok) {
@@ -422,11 +409,6 @@ export class Dependencies implements OnInit, OnDestroy {
   /** Sub-dependencies the install drops on disk (provider list, else static catalog). */
   protected componentsFor(dep: DependencyInfo): string[] {
     return dependencyComponents(dep);
-  }
-
-  /** PyPI page for Python runtime packages; other components have no per-item page. */
-  protected componentUrl(dep: DependencyInfo, component: string): string | null {
-    return dep.id === 'python-runtime' ? pythonPackageUrl(component) : null;
   }
 
   /** Upstream origins for the Details section; Whisper adds a model repo per downloaded/selected size. */

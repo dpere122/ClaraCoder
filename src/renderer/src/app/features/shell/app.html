@@ -7,7 +7,24 @@
         </h1>
         <button type='button' class='chrome-menu-btn' (click)='onChromeFileMenu($event)'>File</button>
         <button type='button' class='chrome-menu-btn' (click)='onChromeSettingsMenu($event)'>Settings</button>
-        <button type='button' class='chrome-menu-btn' (click)='onChromeDependencies()'>Dependencies</button>
+        <button
+          type='button'
+          class='chrome-menu-btn'
+          [class.chrome-menu-btn--attention]='!!coreDependenciesAlert()'
+          [attr.title]='coreDependenciesAlert() || null'
+          (click)='onChromeDependencies()'
+        >
+          @if (coreDependenciesAlert()) {
+            <lucide-icon
+              name='triangle-alert'
+              [size]='11'
+              class='chrome-menu-btn-alert'
+              role='img'
+              [attr.aria-label]='coreDependenciesAlert()'
+            ></lucide-icon>
+          }
+          Dependencies
+        </button>
         <button type='button' class='chrome-menu-btn' (click)='onChromeHealth()'>Health</button>
         <button
           type='button'
@@ -256,10 +273,12 @@
               [recentWorkspaces]='workspaces()'
               [defaultHomePage]='defaultHomePageOnStart()'
               [appConfig]='appConfig()'
+              [missingDependencies]='coreDependenciesAlert()'
               (addWorkspace)='onAddWorkspace()'
               (openWorkspace)='onWorkspaceChanged($event)'
               (toggleFavorite)='onToggleWorkspaceFavorite($event)'
               (reorderFavorites)='onReorderWorkspaceFavorites($event)'
+              (openSources)='onChromeMenuSettingsTab("models")'
               (openModelManager)='onChromeMenuSettingsTab("modelManager")'
               (openDependencies)='onChromeDependencies()'
               (defaultHomePageChange)='onDefaultHomePageChange($event)'

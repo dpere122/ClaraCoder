@@ -53,6 +53,7 @@ from clara_coder_backend.plan.build_plan_store import (
     complete_build_plan,
     create_build_plan_draft,
     finalize_build_plan_draft,
+    parse_action_steps,
     parse_build_plan_md,
     planner_progress_payload_from_parsed,
     read_build_plan_md,
@@ -143,7 +144,13 @@ PLAN_MARKDOWN_TEMPLATE_EXAMPLE = render_build_plan_md(
                 verification='Command or check to run (e.g. `pytest tests/x`).',
                 risks=['Risk or caveat for this step.'],
             ),
-            ActionStep(id='step-2', goal='Second milestone'),
+            ActionStep(
+                id='step-2',
+                goal='Independent milestone a sub-agent can do on its own',
+                files_touched=['src/other.ts'],
+                subagent='short-label',
+            ),
+            ActionStep(id='step-3', goal='Final milestone'),
         ],
     )
 )
@@ -176,6 +183,13 @@ PLAN_AUTHORING_GUIDELINES = (
     'exists, take it and record it under assumptions instead of asking. If you have enough context to '
     'proceed, omit open_questions entirely.\n'
     '- Definition of done: list plan-level outcomes that prove the whole objective is met.\n'
+    '- Sub-agents: the executor can hand a step to a sub-agent (an independent copy of itself with '
+    'the same editing tools, running in parallel with it). Assign one with a `Sub-agent:` detail '
+    'holding a short label when the user asks for sub-agents, or when a step is self-contained work '
+    'on its own files. A delegated step must not need another step\'s unfinished output and must not '
+    'share files with any other step; give it complete Files, Approach and Acceptance criteria, since '
+    'the sub-agent sees only what the executor passes on. Keep integration across steps and the final '
+    'validation step with the main agent (no Sub-agent detail). Omit Sub-agent on every other step.\n'
     '- Completion: the final action step must validate the whole objective (run the test suite / smoke check).'
 )
 
@@ -190,7 +204,7 @@ PLAN_MARKDOWN_STREAM_INSTRUCTIONS = (
     'Markdown rules:\n'
     '- Replace placeholder content with facts grounded in discovery.\n'
     '- Include `<!-- step-id: step-N -->` immediately before each `- [ ]` action step line.\n'
-    '- Nest per-step details (Files, Approach, Acceptance criteria, Verification, Risks) as indented '
+    '- Nest per-step details (Files, Approach, Acceptance criteria, Verification, Risks, Sub-agent) as indented '
     '`- **Key:**` bullets under each step checkbox. Put acceptance criteria and risks items as '
     '4-space-indented `- item` sub-bullets.\n'
     '- Mark each open question with `<!-- q-id: q-N -->` and list its suggested options as indented bullets.\n'
@@ -628,6 +642,25 @@ def _steps_from_texts(
     return out
 
 
+def _delegated_steps_block(plan_md: str) -> str:
+    """How to run the steps the approved plan assigns to sub-agents ('' when it assigns none)."""
+    delegated = [step for step in parse_action_steps(plan_md) if step.get('subagent') and not step.get('complete')]
+    if not delegated:
+        return ''
+    rows = '\n'.join(f'- `{step["id"]}` → sub-agent `{step["subagent"]}`: {step["text"]}' for step in delegated)
+    return (
+        'Steps assigned to sub-agents:\n'
+        f'{rows}\n'
+        'Start these first with `spawn_subagent` (`background=true`, one call per step, all in one turn so '
+        'they run in parallel), naming each with its label. A sub-agent sees none of this conversation: its '
+        "`task` must carry the step's goal, Files, Approach, Acceptance criteria and Verification, the "
+        'relevant discovery facts, and the files it must not touch (the other steps\' files). Do the other '
+        'steps yourself meanwhile; reports arrive by themselves (or call `wait_for_subagents` when you '
+        "need one). Before marking a delegated step complete, read the files its report says changed and "
+        "run the step's verification; fix or finish it yourself if the sub-agent fell short.\n\n"
+    )
+
+
 def build_build_plan_executor_prompt(
     build_plan_path: str,
     *,
@@ -659,6 +692,7 @@ def build_build_plan_executor_prompt(
         f'Implement the build plan at `{path}`.\n\n'
         f'{plan_block}'
         f'{findings_block}'
+        f'{_delegated_steps_block(plan_text)}'
         'Work at your own pace — action steps need not be completed in strict order. '
         'Use `read_build_plan` only if you need the latest plan text from disk. '
         'When you finish one or more milestones, call `mark_build_plan_steps_complete` with their '
@@ -688,18 +722,36 @@ def emit_planner_progress_from_md(session: SessionState, *, phase: str = 'execut
         pass
 
 
+def _plan_discovery_outer_graph_builder(
+    llm: Any,
+    session: SessionState,
+    apply_mode: bool,
+    extra_middleware: list[Any] | None,
+) -> Any:
+    """Read-only discovery plus the sub-agent tools (its sub-agents are read-only too).
+
+    The results middleware keeps discovery going until every sub-agent reported, so their findings
+    land in the summary the planner reads.
+    """
+    return build_clara_single_outer_graph(
+        llm, session, apply_mode, extra_middleware=extra_middleware, allow_subagents=True
+    )
+
+
 def _plan_execute_outer_graph_builder(
     llm: Any,
     session: SessionState,
     apply_mode: bool,
     extra_middleware: list[Any] | None,
 ) -> Any:
+    """Plan execution: editor tools, build-plan helpers and the sub-agent tools for delegated steps."""
     return build_clara_single_outer_graph(
         llm,
         session,
         apply_mode,
         extra_middleware=extra_middleware,
         tools_provider=plan_execute_tools_and_map,
+        allow_subagents=True,
     )
 
 
@@ -918,6 +970,7 @@ async def _stream_plan_discovery_phase(
                 discovery_prompt,
                 cfg=discover_cfg,
                 outcome=discover_outcome,
+                outer_graph_builder=_plan_discovery_outer_graph_builder,
             )
         ) as lines:
             async for line in lines:

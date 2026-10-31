@@ -6,6 +6,7 @@ import type { AppConfig, McpServerConfig } from '../../shared';
 import { createEmptyMcpServer, unwrapSecret } from '../../shared';
 import {
   PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
+  PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
   PINNED_OPENROUTER_PROVIDER_ID,
 } from '../../shared';
 import { APP_CONFIG_SCHEMA_VERSION, createDefaultConfig } from './defaults';
@@ -466,5 +467,24 @@ describe('migrateConfig openrouter pin', () => {
     expect(openrouter?.baseUrl).toBe('https://openrouter.ai/api');
     expect(openrouter?.models[0]?.model).toBe('anthropic/claude-sonnet-4.5');
     expect(migrated.activeLlmModelId).toBe(active);
+  });
+});
+
+describe('migrateConfig managed llama source names', () => {
+  it('renames old default names on local sources to numbered Local Model names', () => {
+    const cfg = sampleConfig();
+    const local = cfg.llmProviders.find((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID)!;
+    local.name = 'Llama server (local)';
+    cfg.llmProviders.push({ ...structuredClone(local), id: 'extra-local', name: 'Llama Server 2' });
+    const migrated = migrateConfig(cfg);
+    expect(migrated.llmProviders.find((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID)?.name).toBe('Local Model');
+    expect(migrated.llmProviders.find((p) => p.id === 'extra-local')?.name).toBe('Local Model 2');
+  });
+
+  it('keeps the remote URL source name', () => {
+    const migrated = migrateConfig(sampleConfig());
+    expect(migrated.llmProviders.find((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID)?.name).toBe(
+      'Llama server (URL)',
+    );
   });
 });

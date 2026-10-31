@@ -36,7 +36,7 @@ describe('MainPanelEmptyStateComponent', () => {
     expect(host.querySelector('h1.home__title')?.textContent?.trim()).toBe('Clara Coder');
     expect(host.textContent).not.toContain('> Clara Coder_');
     const actions = Array.from(host.querySelectorAll('.home__action')).map((el) => el.textContent?.trim());
-    expect(actions).toEqual(['Add workspace…', 'Models', 'Dependencies']);
+    expect(actions).toEqual(['Add workspace…', 'Sources', 'Model Manager', 'Dependencies']);
     expect(Array.from(host.querySelectorAll('.home__heading')).map((el) => el.textContent?.trim())).toEqual([
       'Start',
       'Runtime',
@@ -66,7 +66,7 @@ describe('MainPanelEmptyStateComponent', () => {
   it('offers to add a model source when none are configured', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
     const events: string[] = [];
-    fixture.componentInstance.openModelManager.subscribe(() => events.push('models'));
+    fixture.componentInstance.openSources.subscribe(() => events.push('sources'));
     fixture.componentRef.setInput('hasWorkspace', false);
     fixture.detectChanges();
 
@@ -75,7 +75,7 @@ describe('MainPanelEmptyStateComponent', () => {
       | null;
     expect(link?.textContent).toContain('Add a model source');
     link?.click();
-    expect(events).toEqual(['models']);
+    expect(events).toEqual(['sources']);
   });
 
   it('renders recent workspaces with their path and emits openWorkspace on click', () => {
@@ -231,10 +231,11 @@ describe('MainPanelEmptyStateComponent', () => {
     expect(changes).toEqual([false]);
   });
 
-  it('emits addWorkspace, openModelManager and openDependencies from the Start actions', () => {
+  it('emits addWorkspace, openSources, openModelManager and openDependencies from the Start actions', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
     const events: string[] = [];
     fixture.componentInstance.addWorkspace.subscribe(() => events.push('add'));
+    fixture.componentInstance.openSources.subscribe(() => events.push('sources'));
     fixture.componentInstance.openModelManager.subscribe(() => events.push('models'));
     fixture.componentInstance.openDependencies.subscribe(() => events.push('deps'));
     fixture.componentRef.setInput('hasWorkspace', false);
@@ -244,7 +245,28 @@ describe('MainPanelEmptyStateComponent', () => {
       (fixture.nativeElement as HTMLElement).querySelectorAll('.home__action'),
     ) as HTMLButtonElement[];
     actions.forEach((button) => button.click());
-    expect(events).toEqual(['add', 'models', 'deps']);
+    expect(events).toEqual(['add', 'sources', 'models', 'deps']);
+  });
+
+  it('flags the Dependencies action while core dependencies are missing', () => {
+    const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
+    fixture.componentRef.setInput('hasWorkspace', false);
+    fixture.detectChanges();
+
+    const deps = () =>
+      Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('.home__action')).find((el) =>
+        el.textContent?.includes('Dependencies'),
+      ) as HTMLButtonElement;
+    expect(deps().classList).not.toContain('home__action--attention');
+    expect(deps().querySelector('.home__action-alert')).toBeNull();
+
+    fixture.componentRef.setInput('missingDependencies', 'Not downloaded: llama-server');
+    fixture.detectChanges();
+    expect(deps().classList).toContain('home__action--attention');
+    expect(deps().title).toBe('Not downloaded: llama-server');
+    expect(deps().querySelector('.home__action-alert')?.getAttribute('aria-label')).toBe(
+      'Not downloaded: llama-server',
+    );
   });
 
   it('shows the etched Clara Coder brand when a workspace is open with no file', () => {

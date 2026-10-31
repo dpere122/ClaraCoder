@@ -4,7 +4,6 @@ node_modules/
 /release-pack-*
 /runtime-bundle/
 /vtsls-bundle/
-package-lock.json
 __pycache__/
 *.pyc
 *.egg-info/

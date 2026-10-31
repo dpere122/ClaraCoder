@@ -192,6 +192,8 @@ export {
   LLM_REASONING_EFFORT_OPTIONS,
   LLM_QWEN_REASONING_EFFORT_OPTIONS,
   LLM_THINKING_MODE_OPTIONS,
+  llmComposerEffortOptions,
+  llmComposerEffortValue,
   llmEffortControlVisible,
   llmEffortSelectOptionsFromCaps,
   llmReasoningSelectChange,

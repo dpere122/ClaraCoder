@@ -371,6 +371,30 @@ export function llmEffortSelectOptionsFromCaps(
   return llmReasoningSelectOptions(preset === 'gemma' ? 'generic' : preset);
 }
 
+/**
+ * Composer effort dropdown: only the efforts the live scan retrieved, with no Default/on/off
+ * aliases. Empty (dropdown hidden) until a scan advertises an effort allow-list.
+ */
+export function llmComposerEffortOptions(
+  caps: ChatTemplateReasoningCaps | null | undefined,
+): readonly { value: string; label: string }[] {
+  return caps?.reasoningEffortValues ? effortOptionsFromValues(caps.reasoningEffortValues).slice(1) : [];
+}
+
+/**
+ * Effort the composer shows and keeps: the saved one when the model offers it, otherwise
+ * ``medium`` when offered, otherwise the first offered effort. ``''`` when nothing is offered.
+ */
+export function llmComposerEffortValue(
+  options: readonly { value: string }[],
+  saved: string | undefined,
+): string {
+  if (options.some((o) => o.value === saved)) {
+    return saved as string;
+  }
+  return options.find((o) => o.value === 'medium')?.value ?? options[0]?.value ?? '';
+}
+
 /** Default Kokoro voice when assistant speech is enabled (American English). */
 export const DEFAULT_KOKORO_TTS_VOICE = 'af_heart';
 

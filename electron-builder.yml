@@ -6,6 +6,15 @@ icon: build/icon.png
 directories:
   output: release
 
+# Auto-update feed. Embedded in the packaged app as resources/app-update.yml, which
+# electron-updater reads. Releases are created by .github/workflows/release.yml with
+# `gh release create`, not by electron-builder (`--publish never`), so the tag is pinned
+# to the built commit. GitHub ignores channels: every release carries plain latest*.yml.
+publish:
+  provider: github
+  owner: dpere122
+  repo: ClaraCoder
+
 # dist/ is gitignored; list it explicitly so it is still shipped.
 files:
   - dist/**/*
@@ -60,13 +69,15 @@ asarUnpack:
   - "**/node_modules/@huggingface/xetchunk-wasm/**/*"
   - "**/node_modules/@huggingface/blake3-jit/**/*"
 
+# artifactName: no spaces. GitHub turns spaces in asset names into dots, so the file name
+# latest.yml records would no longer match the uploaded asset.
 win:
   icon: build/icon.ico
   target:
     - target: nsis
       arch:
         - x64
-  artifactName: ${productName}-${version}-Windows-${arch}.${ext}
+  artifactName: Clara-Coder-${version}-Windows-${arch}.${ext}
 
 nsis:
   oneClick: false
@@ -83,7 +94,7 @@ mac:
         - x64
         - arm64
   category: public.app-category.developer-tools
-  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+  artifactName: Clara-Coder-${version}-mac-${arch}.${ext}
 
 linux:
   # .deb installs without FUSE. AppImage needs libfuse.so.2 (Debian/Ubuntu: libfuse2t64).
@@ -96,7 +107,7 @@ linux:
   # Required by fpm for .deb (package.json author is empty).
   maintainer: Clara Coder <dev@clara.coder>
   syncDesktopName: true
-  artifactName: ${productName}-${version}-Linux-${arch}.${ext}
+  artifactName: Clara-Coder-${version}-Linux-${arch}.${ext}
 
 # Package was renamed from nemo-wrapper → clara-coder; both ship
 # /usr/share/applications/clara-coder.desktop and /opt/Clara Coder/.

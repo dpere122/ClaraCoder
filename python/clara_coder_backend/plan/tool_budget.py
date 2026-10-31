@@ -8,9 +8,9 @@ from clara_coder_backend.plan.plan_tools_registry import plan_execute_tools_and_
 
 
 def measure_plan_mode(*, session: SessionState | None = None) -> dict:
-    """Measure the bound tool schema token cost for plan execution mode."""
+    """Measure the bound tool schema token cost for plan execution mode (with the sub-agent tools)."""
     sess = session or SessionState()
-    tools, _ = plan_execute_tools_and_map(True, session=sess)
+    tools, _ = plan_execute_tools_and_map(True, session=sess, include_subagent_tool=True)
     return measure_tools(tools)
 
 

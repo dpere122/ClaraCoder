@@ -95,7 +95,7 @@ def worker_tools_and_map(
 
     ``edit_tools_strict_override`` — when set, drives the snippet-tool omission instead of runtime Settings.
     ``include_subagent_tool`` — bind the sub-agent tools (``spawn_subagent``, ``wait_for_subagents``,
-    ``stop_subagent``; the chat turn of a main session, plan mode never). A sub-agent ``session`` never gets
+    ``stop_subagent``; a main session's chat turn, plan discovery and plan execution). A sub-agent ``session`` never gets
     them or ``propose_theme``.
     The bound set never depends on Auto Run: that toggle only skips command approval cards.
     """

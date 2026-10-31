@@ -11,6 +11,7 @@ import asyncio
 import json
 import re
 from collections.abc import AsyncIterator, Callable
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -278,6 +279,71 @@ async def test_tool_sets_bind_the_subagent_tools_for_main_chat_only() -> None:
         assert family | {'propose_theme'} <= names(apply_mode, main, True)
         assert not family & names(apply_mode, main, False)
         assert not (family | {'propose_theme'}) & names(apply_mode, child, True)
+
+
+async def test_spawn_follows_the_spawning_streams_mode_not_the_composer_toggle(
+    parent_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Plan discovery streams read-only and plan execution as Editor, whatever the toolbar says."""
+    from clara_coder_backend.tools import spawn_subagent as spawn_module
+
+    sid, parent = parent_session
+    started: list[subagents.SubagentRun] = []
+
+    def fake_start(run: subagents.SubagentRun) -> asyncio.Task:
+        started.append(run)
+        return asyncio.get_running_loop().create_future()  # type: ignore[return-value]
+
+    monkeypatch.setattr(spawn_module, 'start_subagent', fake_start)
+    token = state.current_session_id.set(sid)
+    try:
+        for stream_mode in (False, True):
+            parent.worker_apply_mode = stream_mode
+            parent.last_stream_apply_mode = not stream_mode
+            await spawn_module.spawn_subagent_tool.coroutine(
+                task='look around', name=f'scout-{stream_mode}', tool_call_id='c1', config={}, background=True
+            )
+    finally:
+        state.current_session_id.reset(token)
+        for run in started:
+            subagents.forget_subagent_run(run)
+    assert [run.apply_mode for run in started] == [False, True]
+
+
+async def test_plan_discovery_subagents_are_read_only_and_report_into_the_summary(
+    checkpoints, parent_session, bus, use_model
+) -> None:
+    from clara_coder_backend.plan.plan_execute import _stream_plan_discovery_phase
+
+    sid, parent = parent_session
+    parent.last_stream_apply_mode = True  # Editor on in the toolbar: discovery must still be read-only
+    write = _call('w1', 'write_workspace_file', relative_path='notes.txt', content='hi\n')
+    use_model(
+        ScriptedChatModel(
+            scripts={
+                'parent': [
+                    AIMessage(content='', tool_calls=[_spawn('s1', 'scout', 'map the audio code')]),
+                    AIMessage(content='Relevant files: audio.ts (scout).'),
+                ],
+                'scout': [AIMessage(content='', tool_calls=[write]), AIMessage(content='audio.ts plays sounds.')],
+            }
+        )
+    )
+    summary: list[str] = ['']
+    token = state.current_session_id.set(sid)
+    try:
+        lines = [
+            line
+            async for line in _stream_plan_discovery_phase(parent, 'add plane sounds', session_id=sid, summary_out=summary)
+        ]
+    finally:
+        state.current_session_id.reset(token)
+
+    assert bus.finished('scout') == 'completed'
+    assert not (Path(parent.workspace_path) / 'notes.txt').exists()
+    assert 'audio.ts plays sounds.' in bus.child_text('scout')
+    assert summary == ['Relevant files: audio.ts (scout).']
+    assert _pill(lines, 'spawn_subagent')
 
 
 async def test_subagent_prompt_has_role_block() -> None:

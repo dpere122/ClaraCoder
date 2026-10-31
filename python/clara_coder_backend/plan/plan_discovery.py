@@ -2,7 +2,7 @@
 
 The model explores the workspace with read-only tools and decides its own next
 action at each step — it does NOT draft an up-front checklist of discovery
-actions. Only the implementation plan is planned ahead of time (see
+actions. It may split the exploration across read-only sub-agents. Only the implementation plan is planned ahead of time (see
 :mod:`clara_coder_backend.plan.plan_execute`). The discovery summary produced here feeds the
 implementation planner.
 """
@@ -17,6 +17,14 @@ _DISCOVERY_PACING_RULES = (
     'those tools together in one turn instead of one per turn.\n'
     '- Prefer targeted search over reading whole directories; read a file only when its contents '
     'change the plan.\n'
+)
+
+# Discovery's sub-agents are read-only (they inherit this phase's mode) and must finish before planning.
+_DISCOVERY_SUBAGENT_RULES = (
+    '- Sub-agents: when the user asks for them, or the objective spans several independent areas, '
+    'split the exploration with `spawn_subagent` (several calls in one turn run in parallel). They '
+    'are read-only here: give each one area and ask for facts back (paths, symbols, patterns), not '
+    'changes. Fold their reports into your summary; the planner sees only your summary.\n'
 )
 
 # A fixed shape lets the planner ground files_to_change and turn Unknowns into open questions.
@@ -43,6 +51,7 @@ def build_freeform_discovery_prompt(objective: str) -> str:
         '- Gather concrete facts: file paths, symbols, existing patterns, and constraints relevant '
         'to the objective.\n'
         f'{_DISCOVERY_PACING_RULES}'
+        f'{_DISCOVERY_SUBAGENT_RULES}'
         '- Stop once you have enough context to plan the implementation.\n\n'
         'When finished, output a concise factual summary of your findings. This summary feeds the '
         f'implementation planner.\n{_DISCOVERY_SUMMARY_SHAPE}'
@@ -76,6 +85,7 @@ def build_followup_discovery_prompt(
         'run mutating commands.\n'
         '- Focus on facts that change the implementation plan given the answers above.\n'
         f'{_DISCOVERY_PACING_RULES}'
+        f'{_DISCOVERY_SUBAGENT_RULES}'
         '- If the answers need no new facts, stop immediately and say so.\n'
         '- Stop once you have enough context to rewrite the implementation plan.\n\n'
         'When finished, output a concise factual summary of the NEW findings only. This summary '

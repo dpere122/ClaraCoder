@@ -116,11 +116,12 @@ def build_clara_single_outer_graph(
 ) -> Any:
     """Same ``create_agent`` shape as the live Clara stream (checkpoint-compatible).
 
-    ``allow_subagents`` binds the sub-agent tools and report delivery (main agent-mode sessions only;
-    sub-agents never get them).
+    ``allow_subagents`` binds the sub-agent tools and report delivery (main sessions' chat turns, plan
+    discovery and plan execution; sub-agents never get them). A ``tools_provider`` takes it as
+    ``include_subagent_tool``.
     """
     if tools_provider is not None:
-        tools, _ = tools_provider(apply_mode, session=session)
+        tools, _ = tools_provider(apply_mode, session=session, include_subagent_tool=allow_subagents)
     else:
         tools, _ = worker_tools_and_map(apply_mode, session=session, include_subagent_tool=allow_subagents)
     system_prompt = build_system_prompt(session, apply_mode)
@@ -171,7 +172,8 @@ def _chat_outer_graph_builder(
 ) -> Any:
     """The chat turn's graph: the default one plus the sub-agent tools.
 
-    Plan discovery shares :func:`_default_outer_graph_builder`, so the flag cannot live there.
+    Other callers of :func:`_default_outer_graph_builder` run without sub-agents, so the flag cannot
+    live there (plan mode has its own builders).
     """
     return build_clara_single_outer_graph(
         llm, session, apply_mode, extra_middleware=extra_middleware, allow_subagents=True

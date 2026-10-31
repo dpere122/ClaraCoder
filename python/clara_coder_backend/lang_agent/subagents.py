@@ -111,7 +111,7 @@ class SubagentRun:
     background: bool = False
     #: The parent turn (``current_user_message_id``) that spawned it; its edits are journaled under it.
     parent_turn_id: str = ''
-    #: Editor mode of the spawning turn (a queued sub-agent may start after the parent's next turn began).
+    #: Editor mode of the spawning stream (a queued sub-agent may start after the parent's next turn began).
     apply_mode: bool = False
     started_at: float = field(default_factory=time.monotonic)
     outcome: LangGraphWorkerOutcome = field(default_factory=LangGraphWorkerOutcome)

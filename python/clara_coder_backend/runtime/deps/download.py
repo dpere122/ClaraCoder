@@ -107,7 +107,7 @@ def run_streaming(
     child_env.setdefault('PYTHONUNBUFFERED', '1')
     child_env.setdefault('PYTHONIOENCODING', 'utf-8')
 
-    # Cancel follows the install that is running (Kokoro's pip step is labelled python-runtime).
+    # Cancel follows the install that is running, whatever ``dep_id`` labels this step.
     cancel_id = current() or dep_id
     raise_if_cancelled(cancel_id)
     try:

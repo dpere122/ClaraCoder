@@ -592,6 +592,5 @@ export {
   LLAMA_SERVER_VARIANT_LABELS,
   defaultDependencyCatalog,
   dependencyComponents,
-  pythonPackageUrl,
   whisperModelSource,
 } from './types/dependencies';

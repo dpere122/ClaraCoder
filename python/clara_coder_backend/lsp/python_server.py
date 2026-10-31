@@ -123,6 +123,6 @@ def build_python_lsp_command(workspace_root: Path) -> list[str]:
 
     raise RuntimeError(
         'basedpyright is not installed on the Clara backend interpreter '
-        f'({backend_python}). Reinstall the Python runtime dependency, or run: '
+        f'({backend_python}). Reinstall Clara Coder, or run: '
         f'{backend_python} -m pip install "basedpyright>=1.29,<1.40"'
     )

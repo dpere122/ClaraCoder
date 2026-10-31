@@ -23,7 +23,7 @@ function rendererIndexHtml(): string {
 
 /**
  * Non-modal Dependencies manager (`#/dependencies`). Theme + install UI for
- * Python runtime, llama-server, Java LSP, Kokoro, and Whisper.
+ * llama-server, Java LSP, Kokoro, and Whisper.
  */
 export function createDependenciesWindow(): void {
   const mainWindow = mainState.mainWindow;

@@ -8,5 +8,5 @@ Modules
 ``subprocess_smoke`` — short subprocess smoke checks
 ``http_url_normalize`` — normalize OpenAI-compatible base URLs
 ``admin_exec`` / ``admin_broker`` — elevated ``run_command`` helper (Windows UAC / Linux pkexec)
-``deps`` — managed app dependencies (Python runtime, llama-server, JDT LS, Kokoro)
+``deps`` — managed app dependencies (llama-server, JDT LS, Kokoro, Whisper)
 """

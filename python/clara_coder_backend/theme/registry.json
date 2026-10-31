@@ -1636,7 +1636,6 @@
         "deps-details",
         "deps-details__section",
         "deps-details__label",
-        "deps-chip--link",
         "deps-chip--ok",
         "deps-location",
         "deps-path",

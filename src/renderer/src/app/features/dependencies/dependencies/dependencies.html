@@ -229,11 +229,7 @@
                         <span class='deps-details__label'>Installs</span>
                         <div class='deps-components'>
                           @for (c of componentsFor(dep); track c) {
-                            @if (componentUrl(dep, c); as url) {
-                              <a class='deps-chip deps-chip--link' [href]='url' target='_blank' rel='noopener' [attr.title]="url">{{ c }}</a>
-                            } @else {
-                              <span class='deps-chip'>{{ c }}</span>
-                            }
+                            <span class='deps-chip'>{{ c }}</span>
                           }
                         </div>
                       </div>

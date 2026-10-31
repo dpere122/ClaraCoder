@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { dependencyDeletePrompt } from './format-delete-prompt';
 
 describe('dependencyDeletePrompt', () => {
-  it('warns that deleting the Python runtime stops the backend', () => {
-    const p = dependencyDeletePrompt({ id: 'python-runtime', label: 'Python runtime', path: 'C:\venv' });
-    expect(p.title).toBe('Delete Python runtime?');
-    expect(p.message).toContain("Clara's backend");
-    expect(p.detail).toContain('C:\venv');
+  it('says what stops working when llama-server is deleted', () => {
+    const p = dependencyDeletePrompt({ id: 'llama-server', label: 'llama-server', path: 'C:/runtime/bin' });
+    expect(p.title).toBe('Delete llama-server?');
+    expect(p.message).toContain('Managed local models');
+    expect(p.detail).toContain('C:/runtime/bin');
     expect(p).toMatchObject({ confirmText: 'Delete', cancelText: 'Cancel', variant: 'warning' });
   });
 

@@ -129,7 +129,7 @@ def _load_text_embedding(model_name: str, cache_dir: Path) -> Any:
     except ImportError as exc:
         raise RuntimeError(
             'CPU embeddings require fastembed and onnxruntime in the Clara Python runtime. '
-            'Open Dependencies and update Python runtime, or pip install fastembed onnxruntime.'
+            'Reinstall Clara Coder, or pip install fastembed onnxruntime.'
         ) from exc
 
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -363,7 +363,7 @@ def build_fastembed_embedding() -> tuple[BaseEmbedding | None, str]:
         return (
             None,
             f'Semantic index unavailable (CPU FastEmbed {type(exc).__name__}: {exc}). '
-            'Install fastembed/onnxruntime in the Clara Python runtime (Dependencies).',
+            'Install fastembed/onnxruntime in the Clara Python runtime (reinstall Clara Coder).',
         )
     logger.info('Using CPU FastEmbed embeddings (primary) model=%s cache_dir=%s', model_name, cache_dir)
     return embed, ''

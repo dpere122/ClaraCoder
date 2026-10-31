@@ -336,8 +336,13 @@ export async function verifyArchiveSha256(archive, asset) {
 
 function extractTarGz(archive, dest) {
   mkdirSync(dest, { recursive: true });
-  // Prefer system tar (handles strip consistently).
-  const r = spawnSync('tar', ['-xzf', archive, '-C', dest, '--strip-components=1'], {
+  // Windows ships bsdtar; name it so a GNU tar earlier on PATH (Git Bash, as in CI) cannot win.
+  // GNU tar reads `D:\…` as a remote `host:path` and fails with "Cannot connect to D".
+  const tar =
+    process.platform === 'win32'
+      ? path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe')
+      : 'tar';
+  const r = spawnSync(tar, ['-xzf', archive, '-C', dest, '--strip-components=1'], {
     stdio: 'inherit',
   });
   if (r.status !== 0) {

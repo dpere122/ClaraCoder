@@ -147,7 +147,11 @@ import {
 import { ElectronService } from '../../../core/electron.service';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { ThemedPromptDialogService } from '../../../shared/themed-prompt-dialog/themed-prompt-dialog.service';
-import { activeStreamWorkspaceSwitchPrompt, unsavedWorkspaceSwitchPrompt } from '../../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
+import {
+  activeStreamWorkspaceSwitchPrompt,
+  discardSettingsChangesPrompt,
+  unsavedWorkspaceSwitchPrompt,
+} from '../../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
 import { customModelDeletePrompt, workspaceRemovePrompt } from '../../../shared/themed-confirm-dialog/format-delete-prompt';
 import { DEFAULT_THEME_ID, resolveLegacyThemeId } from '@shared/theme';
 import { applyAppFontOverrides } from '../../../core/theme/app-font-overrides';
@@ -792,12 +796,8 @@ export class SettingsStore {
     this.subscription?.unsubscribe();
     this.settingsSelectTabSubscription?.unsubscribe();
     this.hfDownloadSubscription?.unsubscribe();
-    if (this.configSnapshot && this.settingsDirty()) {
-      void this.enqueuePersist();
-    } else {
-      // Nothing to save: make every window drop the live preview.
-      this.themes$.cancelPreview();
-    }
+    // Only Apply persists; closing the window discards unapplied edits and drops the live preview.
+    this.themes$.cancelPreview();
   }
 
   selectSettingsSubTab(tab: SettingsTab, id: string): void {
@@ -936,9 +936,25 @@ export class SettingsStore {
     }
   }
 
-  /** Persist dirty settings (if any), then close the settings window. */
-  async okSettings(): Promise<void> {
+  /** Close from the top-bar exit button; unapplied edits are discarded after a confirmation. */
+  async closeSettings(): Promise<void> {
     if (this.settingsSaveAction() !== null) {
+      return;
+    }
+    if (this.settingsDirty()) {
+      const proceed = (await this.themedConfirm.open(discardSettingsChangesPrompt())) === 'confirm';
+      if (!proceed) {
+        return;
+      }
+      this.settingsDirty.set(false);
+    }
+    this.themes$.cancelPreview();
+    this.electron.closeSettingsWindow();
+  }
+
+  /** Close the settings window once changes are applied; OK stays disabled while edits are pending. */
+  async okSettings(): Promise<void> {
+    if (this.settingsSaveAction() !== null || this.settingsDirty()) {
       return;
     }
     this.settingsSaveAction.set('ok');

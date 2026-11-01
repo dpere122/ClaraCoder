@@ -345,6 +345,7 @@ export class SettingsStore {
   readonly searxngBaseUrl = signal('');
   readonly extraUserPath = signal('');
   readonly enableAgentFormatters = signal(false);
+  readonly confirmMove = signal(true);
   readonly contextCompressionEnabled = signal(false);
   readonly contextCompressionTriggerRatio = signal(0.7);
   readonly contextCompressionTargetRatio = signal(0.55);
@@ -671,6 +672,12 @@ export class SettingsStore {
   private settingsSelectTabSubscription: Subscription | null = null;
   private hfDownloadSubscription: Subscription | null = null;
   private configSnapshot: AppConfig | null = null;
+  /**
+   * True once the user toggled "Confirm before moving files and folders" in this window. While
+   * false, a `config-updated` broadcast (e.g. the dialog's "Don't ask again") wins, so a later
+   * Apply cannot write a stale value back over it.
+   */
+  private confirmMoveTouched = false;
 
   constructor(
     private electron: ElectronService,
@@ -830,6 +837,9 @@ export class SettingsStore {
           const sizeLabel =
             CHAT_CONTAINER_SIZE_OPTIONS.find((opt) => opt.value === this.chatContainerSize())?.label ?? 'Standard';
           return `${sizeLabel} · UI ${this.uiFontSizeRem()} · chat ${this.chatFontSizeRem()}rem`;
+        }
+        if (id === 'behavior') {
+          return this.confirmMove() ? 'Confirm moves' : 'No move prompt';
         }
         break;
       case 'tools':
@@ -2965,6 +2975,12 @@ export class SettingsStore {
     this.markSettingsDirty();
   }
 
+  onConfirmMoveChange(enabled: boolean): void {
+    this.confirmMove.set(!!enabled);
+    this.confirmMoveTouched = true;
+    this.markSettingsDirty();
+  }
+
   updateContextCompression(changes: Partial<ContextCompressionConfig>): void {
     if (changes.enabled !== undefined) {
       this.contextCompressionEnabled.set(!!changes.enabled);
@@ -3337,6 +3353,7 @@ export class SettingsStore {
     }
     this.configSnapshot = structuredClone(saved);
     this.settingsDirty.set(false);
+    this.confirmMoveTouched = false;
     this.themes$.afterPersist();
     // Disk-owned workspace registry may differ from the client payload; skip
     // forceFull hydrate so Apply does not re-list llama/HF models after save.
@@ -3396,6 +3413,7 @@ export class SettingsStore {
         extraUserPath: this.extraUserPath(),
         enableAgentFormatters: this.enableAgentFormatters(),
       },
+      confirmMove: this.confirmMove(),
       contextCompression: {
         enabled: this.contextCompressionEnabled(),
         triggerRatio: this.contextCompressionTriggerRatio(),
@@ -3477,6 +3495,12 @@ export class SettingsStore {
         this.configSnapshot.chatSidebarCollapsed = config.chatSidebarCollapsed;
         this.configSnapshot.chatExpandedToMainPanel = config.chatExpandedToMainPanel;
         this.configSnapshot.defaultHomePageOnStart = config.defaultHomePageOnStart;
+        this.configSnapshot.confirmMove = config.confirmMove;
+      }
+      // The move prompt's "Don't ask again" lands here while this window is dirty. Adopt it unless
+      // the user changed the toggle themselves, otherwise Apply would re-enable the prompt.
+      if (!this.confirmMoveTouched) {
+        this.confirmMove.set(config.confirmMove !== false);
       }
       this.themeId.set(resolveLegacyThemeId(config.themeId || DEFAULT_THEME_ID));
       const at = config.audioTranscription;
@@ -3511,6 +3535,7 @@ export class SettingsStore {
     }
 
     this.configSnapshot = structuredClone(config);
+    this.confirmMoveTouched = false;
     this.workspaces.set(config.workspaces);
 
     const currentWorkspace = config.workspaces.find((workspace) => workspace.id === config.currentWorkspaceId) ?? null;
@@ -3579,6 +3604,7 @@ export class SettingsStore {
     this.searxngBaseUrl.set((wt.searxngBaseUrl ?? '').trim());
     this.extraUserPath.set(wt.extraUserPath ?? '');
     this.enableAgentFormatters.set(!!(wt.enableAgentFormatters ?? false));
+    this.confirmMove.set(config.confirmMove !== false);
 
     const cc = config.contextCompression ?? getDefaultContextCompression();
     this.contextCompressionEnabled.set(!!cc.enabled);

@@ -399,6 +399,7 @@ declare global {
     ) => Promise<void>;
     setActiveLlmModel: (modelId: string) => Promise<AppConfig>;
     patchHealthMonitor: (patch: Partial<HealthMonitorConfig>) => Promise<AppConfig>;
+    setConfirmMove: (enabled: boolean) => Promise<AppConfig>;
     llamaServerStart: (payload: { modelId: string; config: AppConfig }) => Promise<LlamaServerStartResult>;
     llamaServerStop: (payload: { modelId: string; config: AppConfig }) => Promise<{ ok: true }>;
     llamaServerStatus: (payload: { modelId: string; config: AppConfig }) => Promise<LlamaServerStatusResult>;

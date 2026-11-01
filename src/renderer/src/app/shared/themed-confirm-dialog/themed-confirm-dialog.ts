@@ -32,6 +32,16 @@ import { ThemedConfirmDialogService } from './themed-confirm-dialog.service';
           @if (req.detail?.trim()) {
             <pre class="tcd-detail">{{ req.detail }}</pre>
           }
+          @if (req.checkbox) {
+            <label class="tcd-checkbox">
+              <input
+                type="checkbox"
+                [checked]="dialog.checkboxChecked()"
+                (change)="dialog.setCheckboxChecked($any($event.target).checked)"
+              />
+              <span>{{ req.checkboxLabel }}</span>
+            </label>
+          }
           <div class="tcd-actions">
             <button type="button" class="tcd-btn tcd-btn--secondary" (click)="dialog.close('cancel')">
               {{ req.cancelText }}
@@ -142,6 +152,23 @@ import { ThemedConfirmDialogService } from './themed-confirm-dialog.service';
       word-break: break-word;
       max-height: 12rem;
       overflow: auto;
+    }
+
+    .tcd-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      margin: 0 0.9rem 0.25rem;
+      font-size: 0.76rem;
+      color: var(--t-text-muted, #00ff4199);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .tcd-checkbox input {
+      margin: 0;
+      accent-color: var(--t-primary, #00ff41);
+      cursor: pointer;
     }
 
     .tcd-actions {

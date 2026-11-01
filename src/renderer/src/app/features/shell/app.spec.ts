@@ -29,6 +29,7 @@ interface StubRefs {
   configUpdatedHandler: ((event: unknown, config: unknown) => void) | null;
   saveConversation: Mock;
   saveConfig: Mock;
+  setConfirmMove: Mock;
   patchWorkspaceOpenTabs: Mock;
   loadedConfig: Record<string, unknown>;
 }
@@ -45,6 +46,7 @@ function stubElectronApi(
     configUpdatedHandler: null,
     saveConversation: vi.fn(async () => noop()),
     saveConfig: vi.fn(async (c: unknown) => c),
+    setConfirmMove: vi.fn(async (enabled: boolean) => ({ ...defaultConfig, confirmMove: enabled !== false })),
     patchWorkspaceOpenTabs: vi.fn(async () => undefined),
     loadedConfig: {},
   };
@@ -187,6 +189,7 @@ function stubElectronApi(
     setAlwaysOnTop: noop,
     loadConfig: async () => ({ ...loadedConfig }),
     saveConfig: refs.saveConfig,
+    setConfirmMove: refs.setConfirmMove,
     modelManagerListCustomModels: async () => ({ ok: true, models: [] }),
     setLastActiveConversation: async (_workspaceKey: string, _conversationId: string) => ({ ...defaultConfig }),
     patchWorkspaceMonacoScroll: async () => {},
@@ -337,6 +340,35 @@ describe('App', () => {
     expect(refs.saveConfig).toHaveBeenCalled();
     const saved = refs.saveConfig.mock.calls.at(-1)?.[0] as { defaultHomePageOnStart?: boolean };
     expect(saved.defaultHomePageOnStart).toBe(true);
+  });
+
+  it('persists "Don\'t ask again" through the targeted confirm-move IPC', async () => {
+    refs = stubElectronApi(undefined, { confirmMove: true });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+
+    const app = fixture.componentInstance as unknown as {
+      onMoveConfirmDisabled: () => Promise<void>;
+      appConfig: () => { confirmMove?: boolean } | null;
+    };
+    refs.saveConfig.mockClear();
+    await app.onMoveConfirmDisabled();
+
+    // A whole-config save here would revert anything another window saved after this snapshot.
+    expect(refs.saveConfig).not.toHaveBeenCalled();
+    expect(refs.setConfirmMove).toHaveBeenCalledWith(false);
+    expect(app.appConfig()?.confirmMove).toBe(false);
+  });
+
+  it('skips the confirm-move write when the prompt is already off', async () => {
+    refs = stubElectronApi(undefined, { confirmMove: false });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+
+    const app = fixture.componentInstance as unknown as { onMoveConfirmDisabled: () => Promise<void> };
+    await app.onMoveConfirmDisabled();
+
+    expect(refs.setConfirmMove).not.toHaveBeenCalled();
   });
 
   it('does not restore the last workspace from a config broadcast after a home-on-start launch', async () => {

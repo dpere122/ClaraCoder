@@ -1578,6 +1578,11 @@ export interface AppConfig {
   chatContainerSize?: ChatContainerSize;
   /** Live reasoning as the streaming preview box or a compact timed pill. Client-only; default `preview`. */
   chatThinkingDisplay?: ChatThinkingDisplay;
+  /**
+   * When true (default), moving a file or folder into another folder asks for confirmation.
+   * Client-only UI preference; the dialog's "Don't ask again" checkbox sets it false.
+   */
+  confirmMove?: boolean;
   /** Workspace Monaco editor options (client-only). */
   monacoWorkspaceEditor?: MonacoWorkspaceEditorSettings;
   /** Per-workspace Monaco scroll positions for open file tabs (client-only). */

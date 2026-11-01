@@ -1521,6 +1521,13 @@ export class ElectronService {
     );
   }
 
+  setConfirmMove(enabled: boolean): Promise<AppConfig> {
+    return (
+      this.api?.setConfirmMove(enabled) ??
+      Promise.resolve({ ...structuredClone(FALLBACK_APP_CONFIG), confirmMove: enabled !== false })
+    );
+  }
+
   llamaServerStart(payload: { modelId: string; config: AppConfig }): Promise<LlamaServerStartResult> {
     return this.api?.llamaServerStart(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
   }

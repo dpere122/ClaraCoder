@@ -82,6 +82,11 @@ export const SETTINGS_SUB_TAB_CATALOG: Partial<Record<SettingsTab, SettingsSubTa
       description:
         'App UI scale, chat font size, expanded chat width, thinking display, app-wide UI font, and code font for message text.',
     },
+    {
+      id: 'behavior',
+      label: 'Behavior',
+      description: 'Confirmation prompts for workspace actions such as moving files and folders.',
+    },
   ],
   themes: buildThemesSubTabs(),
   tools: [

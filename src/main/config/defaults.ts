@@ -260,6 +260,7 @@ export function createDefaultConfig(): AppConfig {
     chatExpandedToMainPanel: false,
     chatContainerSize: DEFAULT_CHAT_CONTAINER_SIZE,
     chatThinkingDisplay: DEFAULT_CHAT_THINKING_DISPLAY,
+    confirmMove: true,
     uiFontFamily: '',
     codeFontFamily: '',
     monacoWorkspaceEditor: defaultMonacoWorkspaceEditorSettings(),

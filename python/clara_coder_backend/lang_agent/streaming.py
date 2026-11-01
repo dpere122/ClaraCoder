@@ -294,6 +294,11 @@ def tool_running_detail(tool_name: str, tool_args: Any) -> str:
     tid = tool_args.get('terminal_id')
     if isinstance(tid, str) and tid.strip():
         return truncate_text(tid.strip(), MAX_TOOL_STATUS_LINE)
+    if tool_name == 'run_command':
+        # One-line command preview for the running pill (`Running · npm test`).
+        cmd = tool_args.get('command')
+        if isinstance(cmd, str) and cmd.strip():
+            return truncate_text(' '.join(cmd.split()), MAX_TOOL_STATUS_LINE)
     if tool_name in ('spawn_subagent', 'stop_subagent'):
         # The sub-agent's label (``name``); its task is shown in the child conversation.
         label = tool_args.get('name')

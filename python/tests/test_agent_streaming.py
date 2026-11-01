@@ -7,6 +7,7 @@ from clara_coder_backend.lang_agent.streaming import (
     aimessage_chunk_sse_delta,
     status_detail_one_line,
     status_event,
+    tool_running_detail,
 )
 
 
@@ -74,3 +75,9 @@ def test_status_detail_one_line_collapses_newlines() -> None:
 def test_status_event_detail_is_one_line() -> None:
     payload = status_event('id-1', 'Planner', detail='line one\nline two', state='complete')
     assert payload['status']['detail'] == 'line one line two'
+
+
+def test_tool_running_detail_previews_run_command() -> None:
+    assert tool_running_detail('run_command', {'command': 'npm run build'}) == 'npm run build'
+    assert tool_running_detail('run_command', {'command': 'npm test\n  --watch=false'}) == 'npm test --watch=false'
+    assert tool_running_detail('run_command', {'command': '   '}) == ''

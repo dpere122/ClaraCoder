@@ -102,6 +102,8 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
   private readonly llamaBacklogByTab = new Map<string, string>();
   /** Pending run_command bytes keyed by agent tab id until xterm mounts. */
   private readonly agentCommandBacklogByTab = new Map<string, string>();
+  /** run_command tabs the user selected themselves (auto-focus on open does not count). */
+  private readonly userSelectedAgentCommandTabIds = new Set<string>();
   /** PTY bytes keyed by tab id until xterm mounts. */
   private readonly ptyBacklogByTab = new Map<string, string>();
   /** run_command bytes that arrived before backgroundCommandOpen created the tab. */
@@ -381,6 +383,11 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       if (!tab) {
         return;
       }
+      // A clean exit nobody is looking at needs no tab; failures and kills stay for review.
+      if (msg.exitCode === 0 && !this.isAgentCommandTabWatched(tab)) {
+        this.dismissAgentCommandTab(tab.id);
+        return;
+      }
       this.markAgentCommandComplete(tab.id, msg.exitCode ?? null);
     });
 
@@ -642,6 +649,9 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
 
   selectTab(tabId: string): void {
     this.activeTabId.set(tabId);
+    if (this.isAgentCommandTabId(tabId)) {
+      this.userSelectedAgentCommandTabIds.add(tabId);
+    }
     this.queueSafe(() => {
       if (tabId === PROBLEMS_TAB_ID) {
         this.teardownResizeTracking();
@@ -1288,19 +1298,43 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       return;
     }
     await this.electron.notifyBackgroundCommandTerminalClosed(tab.conversationId, tab.commandId);
-    this.disposeXterm(tabId);
-    this.agentCommandBacklogByTab.delete(tabId);
-    this.forgetUnseenAgentCommandTabs([tabId]);
-    const remainingAll = this.agentCommandTabs().filter((t) => t.id !== tabId);
-    this.agentCommandTabs.set(remainingAll);
-    const remainingVisible = remainingAll.filter((t) => t.conversationId === this.conversationId().trim());
-    if (this.activeTabId() === tabId) {
-      this.activeTabId.set(
-        this.ptyTabs()[0]?.id
-          ?? remainingVisible[0]?.id
-          ?? this.llamaTabs()[0]?.id
-          ?? (this.showProblemsTab() ? PROBLEMS_TAB_ID : null),
-      );
+    const wasActive = this.activeTabId() === tabId;
+    this.settleDockAfterAgentCommandTabRemoved(this.removeAgentCommandTab(tabId), wasActive);
+  }
+
+  /**
+   * True while the expanded dock shows this tab for the active chat and the user picked it.
+   * A tab the agent auto-focused on open is not watched until the user selects it.
+   */
+  private isAgentCommandTabWatched(tab: AgentCommandTab): boolean {
+    return (
+      this.expanded()
+      && this.activeTabId() === tab.id
+      && this.userSelectedAgentCommandTabIds.has(tab.id)
+      && this.conversationId().trim() === tab.conversationId
+    );
+  }
+
+  /**
+   * Drops a run_command tab without telling the backend: the job stays tracked so the agent can
+   * still read its output, and no "user closed the tab" note is queued for the agent.
+   */
+  private dismissAgentCommandTab(tabId: string): void {
+    const wasActive = this.activeTabId() === tabId;
+    const remainingVisible = this.removeAgentCommandTab(tabId);
+    // An auto-focused tab can be dismissed while showing; a background one leaves the dock as is.
+    if (wasActive) {
+      this.settleDockAfterAgentCommandTabRemoved(remainingVisible, true);
+    }
+  }
+
+  /** Picks the next tab after a run_command tab is removed, or settles an emptied dock. */
+  private settleDockAfterAgentCommandTabRemoved(
+    remainingVisible: readonly AgentCommandTab[],
+    wasActive: boolean,
+  ): void {
+    if (wasActive) {
+      this.activeTabId.set(this.fallbackTabIdAfterAgentClose(remainingVisible));
     }
     if (
       this.ptyTabs().length === 0
@@ -1322,6 +1356,26 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       void this.ensureActiveTabSession();
       this.fitActive();
     });
+  }
+
+  /** Disposes a run_command tab's UI state; returns the active chat's remaining command tabs. */
+  private removeAgentCommandTab(tabId: string): AgentCommandTab[] {
+    this.disposeXterm(tabId);
+    this.agentCommandBacklogByTab.delete(tabId);
+    this.userSelectedAgentCommandTabIds.delete(tabId);
+    this.forgetUnseenAgentCommandTabs([tabId]);
+    const remainingAll = this.agentCommandTabs().filter((t) => t.id !== tabId);
+    this.agentCommandTabs.set(remainingAll);
+    return remainingAll.filter((t) => t.conversationId === this.conversationId().trim());
+  }
+
+  private fallbackTabIdAfterAgentClose(remainingVisible: readonly AgentCommandTab[]): string | null {
+    return (
+      this.ptyTabs()[0]?.id
+      ?? remainingVisible[0]?.id
+      ?? this.llamaTabs()[0]?.id
+      ?? (this.showProblemsTab() ? PROBLEMS_TAB_ID : null)
+    );
   }
 
   private mountAgentCommandXtermsIfNeeded(): void {

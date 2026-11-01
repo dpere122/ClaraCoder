@@ -423,6 +423,7 @@ export {
   isStoppedToolCall,
   isSubagentSpawnCall,
   plural,
+  isRunCommandLaneRunning,
   runCommandIdFromReport,
   runCommandLaneId,
   formatThoughtDuration,

@@ -1000,6 +1000,8 @@ describe('WorkspaceTerminalDockComponent', () => {
     it('closes exited agent tab without confirm', async () => {
       fixture.componentRef.setInput('conversationId', 'conv-1');
       fixture.detectChanges();
+      // Watched tab: a clean exit keeps it open for the user to close.
+      component.expanded.set(true);
 
       backgroundCommandOpenSubject.next({
         conversationId: 'conv-1',
@@ -1012,6 +1014,7 @@ describe('WorkspaceTerminalDockComponent', () => {
       await flushMicrotasks();
 
       const tabId = component.agentCommandTabsForConversation()[0].id;
+      component.selectTab(tabId);
       toolExecCompleteSubject.next({
         conversationId: 'conv-1',
         streamTag: 'run-command:abc12345',
@@ -1032,6 +1035,110 @@ describe('WorkspaceTerminalDockComponent', () => {
         'abc12345',
       );
       expect(component.agentCommandTabsForConversation().length).toBe(0);
+    });
+
+    const completeCommand = (conversationId: string, commandId: string, exitCode: number | null) =>
+      toolExecCompleteSubject.next({
+        conversationId,
+        streamTag: `run-command:${commandId}`,
+        label: 'npm run build',
+        exitCode,
+      });
+
+    it('auto-closes an unwatched tab whose command exits cleanly', async () => {
+      fixture.componentRef.setInput('conversationId', 'conv-1');
+      fixture.detectChanges();
+
+      openCommand('conv-1', 'abc12345', 'npm run build');
+      await flushMicrotasks();
+      expect(component.unseenAgentCommandCount()).toBe(1);
+
+      completeCommand('conv-1', 'abc12345', 0);
+      await flushMicrotasks();
+
+      expect(component.agentCommandTabs().length).toBe(0);
+      expect(component.unseenAgentCommandTabIds()).toEqual([]);
+      expect(mockElectronService.notifyBackgroundCommandTerminalClosed).not.toHaveBeenCalled();
+    });
+
+    it('auto-closes a clean exit behind another tab in the open dock', async () => {
+      fixture.componentRef.setInput('conversationId', 'conv-1');
+      fixture.detectChanges();
+      component.expanded.set(true);
+
+      openCommand('conv-1', 'aaa11111', 'npm run build');
+      openCommand('conv-1', 'bbb22222', 'npm run dev');
+      await flushMicrotasks();
+      expect(component.activeTabId()).toBe('agent-command-tab-bbb22222');
+
+      completeCommand('conv-1', 'aaa11111', 0);
+      await flushMicrotasks();
+
+      expect(component.agentCommandTabs().map((t) => t.commandId)).toEqual(['bbb22222']);
+      expect(component.activeTabId()).toBe('agent-command-tab-bbb22222');
+    });
+
+    it('keeps an unwatched tab when the command fails or is killed', async () => {
+      fixture.componentRef.setInput('conversationId', 'conv-1');
+      fixture.detectChanges();
+
+      openCommand('conv-1', 'aaa11111', 'npm test');
+      openCommand('conv-1', 'bbb22222', 'npm run dev');
+      await flushMicrotasks();
+
+      completeCommand('conv-1', 'aaa11111', 1);
+      completeCommand('conv-1', 'bbb22222', null);
+      await flushMicrotasks();
+
+      const tabs = component.agentCommandTabs();
+      expect(tabs.map((t) => t.status)).toEqual(['exited', 'killed']);
+      expect(component.unseenAgentCommandCount()).toBe(2);
+    });
+
+    it('auto-closes a clean exit that was only auto-focused in the open dock', async () => {
+      fixture.componentRef.setInput('conversationId', 'conv-1');
+      fixture.detectChanges();
+      component.expanded.set(true);
+
+      openCommand('conv-1', 'abc12345', 'npm run build');
+      await flushMicrotasks();
+      expect(component.activeTabId()).toBe('agent-command-tab-abc12345');
+
+      completeCommand('conv-1', 'abc12345', 0);
+      await flushMicrotasks();
+
+      expect(component.agentCommandTabs().length).toBe(0);
+      expect(component.activeTabId()).not.toBe('agent-command-tab-abc12345');
+    });
+
+    it('collapses the dock when an auto-focused clean exit was its only tab', async () => {
+      fixture.componentRef.setInput('conversationId', 'conv-1');
+      fixture.detectChanges();
+      component.expanded.set(true);
+
+      openCommand('conv-1', 'abc12345', 'npm run build');
+      await flushMicrotasks();
+      completeCommand('conv-1', 'abc12345', 0);
+      await flushMicrotasks();
+
+      expect(component.agentCommandTabs().length).toBe(0);
+      expect(component.expanded()).toBe(false);
+      expect(component.activeTabId()).toBeNull();
+    });
+    it('keeps a clean exit open while the user is watching it', async () => {
+      fixture.componentRef.setInput('conversationId', 'conv-1');
+      fixture.detectChanges();
+      component.expanded.set(true);
+
+      openCommand('conv-1', 'abc12345', 'npm run build');
+      await flushMicrotasks();
+      component.selectTab('agent-command-tab-abc12345');
+      completeCommand('conv-1', 'abc12345', 0);
+      await flushMicrotasks();
+
+      expect(component.agentCommandTabs().length).toBe(1);
+      expect(component.agentCommandTabs()[0]!.status).toBe('exited');
+      expect(component.activeTabId()).toBe('agent-command-tab-abc12345');
     });
 
     it('buffers run_command chunks that arrive before the tab opens', async () => {

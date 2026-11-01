@@ -344,6 +344,22 @@ function delegatedLaneDetail(part: StreamPart, live: boolean): string {
   return condenseToolTrailText(part.text.split(/\r?\n/).filter((l) => l.trim()).pop() ?? '', 40);
 }
 
+/** Pill verb for a `run_command` call (or its output lane) while the command is still running. */
+const RUNNING_COMMAND_VERB = 'Running';
+
+/** Live verb for a running call: `run_command` reads `Running · npm test`; other tools keep theirs. */
+function liveRunningVerb(name: string, verb: string): string {
+  return name === 'run_command' ? RUNNING_COMMAND_VERB : verb;
+}
+
+/**
+ * True while a live `run-command:*` output lane is still running. The lane has no `runComplete`
+ * until `tool_exec_complete` stamps it `true`, so "not complete yet" is the running state.
+ */
+export function isRunCommandLaneRunning(part: Pick<StreamPart, 'streamTag' | 'runComplete'>, live: boolean): boolean {
+  return live && !part.runComplete && isRunCommandStreamTag(part.streamTag);
+}
+
 /**
  * Human label for a tool row in the turn feed. Tool-trail status rows map their tool name to a
  * verb and pull the target and a short outcome out of the result text; subprocess lanes
@@ -353,8 +369,14 @@ export function toolPillLabel(part: StreamPart, live = false): ToolPillLabel {
   if (!isToolTrailStatusStreamTag(part.streamTag) && !isHitlTrailStreamTag(part.streamTag)) {
     const verb = delegatedLaneVerb(part.streamTag);
     if (verb) {
-      const category: ToolPillCategory = isRunCommandStreamTag(part.streamTag) ? 'run' : 'other';
-      return { category, verb, target: part.label.trim(), detail: delegatedLaneDetail(part, live) };
+      const target = part.label.trim();
+      if (isRunCommandStreamTag(part.streamTag)) {
+        // `Running · npm test` says it all; a trailing `· running` would repeat it.
+        return isRunCommandLaneRunning(part, live)
+          ? { category: 'run', verb: RUNNING_COMMAND_VERB, target, detail: '' }
+          : { category: 'run', verb, target, detail: delegatedLaneDetail(part, live) };
+      }
+      return { category: 'other', verb, target, detail: delegatedLaneDetail(part, live) };
     }
     return { category: 'other', verb: humanizeToolName(part.label || 'Tool'), target: '', detail: '' };
   }
@@ -387,7 +409,7 @@ export function toolPillLabel(part: StreamPart, live = false): ToolPillLabel {
     const current = toolTargetFromRunningDetail(readToolStatusHeadline(text));
     // Out-of-band progress (write-job phases) replaces the running detail once the target is kept.
     const progress = target && current && current !== target ? condenseToolTrailText(current, 48) : '';
-    return { category, verb, target: target || current, detail: progress };
+    return { category, verb: live ? liveRunningVerb(name, verb) : verb, target: target || current, detail: progress };
   }
   if (state === 'error' || /^Tool error:/.test(text)) {
     const message = text.replace(/^Tool error:\s*/, '');
@@ -586,7 +608,7 @@ function headlineAction(label: ToolPillLabel): HeadlineAction {
     case 'edit':
       return { key: 'edit', verb: 'edited', attempt: 'tried to edit', noun: ['file', 'files'], rank: 0 };
     case 'run':
-      return label.verb === 'Run'
+      return label.verb === 'Run' || label.verb === RUNNING_COMMAND_VERB
         ? { key: 'run', verb: 'ran', noun: ['command', 'commands'], rank: 1, target: (t) => cut(t, 40) }
         : fixed('run-status', 'checked commands', 8);
     case 'web':

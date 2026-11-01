@@ -114,6 +114,31 @@ describe('previewQueueHeader', () => {
     expect(previewQueueHeader(tool, [tool, tool2])).toBe('Read — Search');
     expect(previewQueueHeader(tool, [tool])).toBe('Read');
   });
+
+  it('reads one Running category for a command call and its output lane', () => {
+    const call: TurnFeedItem = {
+      kind: 'tool',
+      part: { streamTag: toolTrailStatusStreamTag('run-c'), label: 'run_command', text: 'npm run build', toolChainState: 'running' },
+    };
+    const lane: TurnFeedItem = {
+      kind: 'tool',
+      part: { streamTag: 'run-command:abc12345', label: 'npm run build', text: '> build\n' },
+    };
+    expect(previewQueueHeader(call, [lane])).toBe('Running');
+    expect(previewQueueHeader(lane, [])).toBe('Running');
+    expect(previewQueueHeader(call, [lane, tool2])).toBe('Running — Search');
+  });
+});
+
+describe('previewQueueMeta for run_command', () => {
+  it('shows the command of a running output lane', () => {
+    const lane: TurnFeedItem = {
+      kind: 'tool',
+      part: { streamTag: 'run-command:abc12345', label: 'npm run build', text: '> build\n' },
+    };
+    expect(previewQueueMeta(lane, [])).toBe('npm run build');
+    expect(previewQueueMeta({ ...lane, part: { ...lane.part, runComplete: true, exitCode: 0 } }, [])).toBe('');
+  });
 });
 
 describe('previewQueueMeta', () => {

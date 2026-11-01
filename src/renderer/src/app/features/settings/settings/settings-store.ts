@@ -672,6 +672,12 @@ export class SettingsStore {
   private settingsSelectTabSubscription: Subscription | null = null;
   private hfDownloadSubscription: Subscription | null = null;
   private configSnapshot: AppConfig | null = null;
+  /**
+   * True once the user toggled "Confirm before moving files and folders" in this window. While
+   * false, a `config-updated` broadcast (e.g. the dialog's "Don't ask again") wins, so a later
+   * Apply cannot write a stale value back over it.
+   */
+  private confirmMoveTouched = false;
 
   constructor(
     private electron: ElectronService,
@@ -2971,6 +2977,7 @@ export class SettingsStore {
 
   onConfirmMoveChange(enabled: boolean): void {
     this.confirmMove.set(!!enabled);
+    this.confirmMoveTouched = true;
     this.markSettingsDirty();
   }
 
@@ -3346,6 +3353,7 @@ export class SettingsStore {
     }
     this.configSnapshot = structuredClone(saved);
     this.settingsDirty.set(false);
+    this.confirmMoveTouched = false;
     this.themes$.afterPersist();
     // Disk-owned workspace registry may differ from the client payload; skip
     // forceFull hydrate so Apply does not re-list llama/HF models after save.
@@ -3487,6 +3495,12 @@ export class SettingsStore {
         this.configSnapshot.chatSidebarCollapsed = config.chatSidebarCollapsed;
         this.configSnapshot.chatExpandedToMainPanel = config.chatExpandedToMainPanel;
         this.configSnapshot.defaultHomePageOnStart = config.defaultHomePageOnStart;
+        this.configSnapshot.confirmMove = config.confirmMove;
+      }
+      // The move prompt's "Don't ask again" lands here while this window is dirty. Adopt it unless
+      // the user changed the toggle themselves, otherwise Apply would re-enable the prompt.
+      if (!this.confirmMoveTouched) {
+        this.confirmMove.set(config.confirmMove !== false);
       }
       this.themeId.set(resolveLegacyThemeId(config.themeId || DEFAULT_THEME_ID));
       const at = config.audioTranscription;
@@ -3521,6 +3535,7 @@ export class SettingsStore {
     }
 
     this.configSnapshot = structuredClone(config);
+    this.confirmMoveTouched = false;
     this.workspaces.set(config.workspaces);
 
     const currentWorkspace = config.workspaces.find((workspace) => workspace.id === config.currentWorkspaceId) ?? null;

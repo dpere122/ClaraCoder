@@ -32,7 +32,7 @@ import { ThemedConfirmDialogService } from './themed-confirm-dialog.service';
           @if (req.detail?.trim()) {
             <pre class="tcd-detail">{{ req.detail }}</pre>
           }
-          @if (req.checkboxLabel) {
+          @if (req.checkbox) {
             <label class="tcd-checkbox">
               <input
                 type="checkbox"

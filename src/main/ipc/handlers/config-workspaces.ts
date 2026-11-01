@@ -440,6 +440,23 @@ export function registerConfigWorkspacesIpc(): void {
     return config;
   });
 
+  /**
+   * Client-only UI preference. Mutated on disk instead of round-tripping the renderer's whole
+   * config, so a stale renderer snapshot cannot revert settings saved from another window.
+   */
+  ipcMain.handle('set-confirm-move', async (event, enabled: boolean) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return null;
+    }
+    const config = await updateConfig((cfg) => {
+      cfg.confirmMove = enabled !== false;
+    });
+    broadcastConfig(config);
+    return config;
+  });
+
   ipcMain.handle('get-workspaces', async (event) => {
     try {
       assertTrustedAppRenderer(event);

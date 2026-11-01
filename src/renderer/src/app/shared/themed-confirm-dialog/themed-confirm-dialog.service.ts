@@ -22,6 +22,12 @@ interface ActiveConfirm extends ThemedConfirmOpenOptions {
   cancelText: string;
   middleText?: string;
   variant: ThemedConfirmVariant;
+  /**
+   * Mutable per-dialog checkbox state. Present only for
+   * {@link ThemedConfirmDialogService.openWithCheckbox}, so a dialog that replaces this one can
+   * never read the other dialog's tick.
+   */
+  checkbox?: { checked: boolean };
   resolve: (result: ThemedConfirmResult) => void;
 }
 
@@ -70,19 +76,28 @@ export class ThemedConfirmDialogService {
     }
     this.checkboxChecked.set(false);
     return new Promise((resolve) => {
-      this.active.set({
+      const entry: ActiveConfirm = {
         ...opts,
         confirmText: opts.confirmText?.trim() || 'OK',
         cancelText: opts.cancelText?.trim() || 'Cancel',
         middleText: opts.middleText?.trim() || undefined,
         variant: opts.variant ?? 'default',
-        resolve: (result) => resolve({ result, checked: this.checkboxChecked() }),
-      });
+        checkbox: { checked: false },
+        // Read this dialog's own tick, never the shared signal: a dialog opened later resets the
+        // signal before this promise's continuation runs.
+        resolve: (result) => resolve({ result, checked: entry.checkbox?.checked === true }),
+      };
+      this.active.set(entry);
     });
   }
 
   setCheckboxChecked(checked: boolean): void {
-    this.checkboxChecked.set(!!checked);
+    const next = !!checked;
+    this.checkboxChecked.set(next);
+    const cur = this.active();
+    if (cur?.checkbox) {
+      cur.checkbox.checked = next;
+    }
   }
 
   /** @deprecated Prefer {@link open} which returns {@link ThemedConfirmResult}. */

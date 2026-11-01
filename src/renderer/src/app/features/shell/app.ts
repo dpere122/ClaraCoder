@@ -1250,16 +1250,16 @@ export class App implements OnInit, OnDestroy {
 
   /** Persist the "Don't ask again" choice from the move confirmation dialog. */
   protected async onMoveConfirmDisabled(): Promise<void> {
-    const config = this.appConfig();
-    if (!config || config.confirmMove === false) {
+    if (this.appConfig()?.confirmMove === false) {
       return;
     }
     try {
-      const saved = await this.electron.saveConfig({
-        ...config,
-        confirmMove: false,
-      });
-      this.applyIncomingAppConfig(saved);
+      // Targeted main-process mutation: sending the whole renderer config here would revert
+      // anything another window saved after this snapshot was taken.
+      const saved = await this.electron.setConfirmMove(false);
+      if (saved) {
+        this.applyIncomingAppConfig(saved);
+      }
     } catch (err) {
       console.error('[App] persist confirmMove failed', err);
     }

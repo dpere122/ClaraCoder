@@ -58,6 +58,7 @@ import {
 import { workspaceTreeTextHintsPython } from './workspace-python-hints';
 import {
   populateWorkspacePathDragData,
+  WORKSPACE_TREE_DRAG_IS_DIRECTORY_MIME,
   WORKSPACE_TREE_INTERNAL_MOVE_MIME,
 } from '../../chat/chat-context-bar/chat-context-file';
 
@@ -234,6 +235,9 @@ export class WorkspaceComponent implements OnDestroy {
 
   private diskOpFallbackTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private static readonly DISK_OP_FALLBACK_RELOAD_MS = 2_000;
+
+  /** Normalized source paths with a move in flight (prompt open or `moveWorkspaceEntry` running). */
+  private readonly pendingMoveSources = new Set<string>();
 
   constructor(protected electron: ElectronService) {
     effect(() => {
@@ -1003,15 +1007,25 @@ export class WorkspaceComponent implements OnDestroy {
       if (normalizePathSlashes(parentDirectoryPath(internalSource)) === normalizePathSlashes(destParentDir)) {
         return;
       }
-      if (!(await this.confirmMoveIfNeeded(internalSource, destParentDir))) {
+      // One move per source at a time: a second drop (or a drop while the prompt is open) must not
+      // race the first `moveWorkspaceEntry` and surface a spurious ENOENT alert.
+      const sourceKey = normalizeTreeAbsolutePath(internalSource);
+      if (this.pendingMoveSources.has(sourceKey)) {
         return;
       }
-      this.markDiskOpPending(internalSource, destParentDir);
-      const res = await this.electron.moveWorkspaceEntry(workspaceRoot, internalSource, destParentDir);
-      if (!res.ok) {
-        this.clearDiskOpPending(internalSource, destParentDir);
-        window.alert(res.error ?? 'Failed to move item.');
-        return;
+      this.pendingMoveSources.add(sourceKey);
+      try {
+        if (!(await this.confirmMoveIfNeeded(internalSource, destParentDir, this.internalDragIsDirectory(event)))) {
+          return;
+        }
+        this.markDiskOpPending(internalSource, destParentDir);
+        const res = await this.electron.moveWorkspaceEntry(workspaceRoot, internalSource, destParentDir);
+        if (!res.ok) {
+          this.clearDiskOpPending(internalSource, destParentDir);
+          window.alert(res.error ?? 'Failed to move item.');
+        }
+      } finally {
+        this.pendingMoveSources.delete(sourceKey);
       }
       return;
     }
@@ -1031,13 +1045,19 @@ export class WorkspaceComponent implements OnDestroy {
   /**
    * Ask before moving a file or folder into another folder, unless the user disabled the prompt.
    * Returns false when the user cancels the move.
+   *
+   * `isDirectory` comes from the drag payload; the tree lookup is only a fallback for drags that
+   * predate the flag (the source row may already be gone from `flatTree` by drop time).
    */
-  private async confirmMoveIfNeeded(sourceAbs: string, destParentAbs: string): Promise<boolean> {
+  private async confirmMoveIfNeeded(
+    sourceAbs: string,
+    destParentAbs: string,
+    isDirectory?: boolean | null,
+  ): Promise<boolean> {
     if (this.appConfig()?.confirmMove === false) {
       return true;
     }
-    const isDirectory = this.isDirectoryPath(sourceAbs);
-    const kind = isDirectory ? 'folder' : 'file';
+    const kind = (isDirectory ?? this.isDirectoryPath(sourceAbs)) ? 'folder' : 'file';
     const sourceName = workspaceFileBasename(sourceAbs);
     const destName = workspaceFileBasename(destParentAbs);
     const { result, checked } = await this.themedConfirm.openWithCheckbox({
@@ -1054,6 +1074,18 @@ export class WorkspaceComponent implements OnDestroy {
       this.moveConfirmDisabled.emit();
     }
     return true;
+  }
+
+  /** `isDirectory` recorded on the drag payload, or null when the drag did not carry it. */
+  private internalDragIsDirectory(event: DragEvent): boolean | null {
+    const raw = event.dataTransfer?.getData(WORKSPACE_TREE_DRAG_IS_DIRECTORY_MIME)?.trim();
+    if (raw === '1') {
+      return true;
+    }
+    if (raw === '0') {
+      return false;
+    }
+    return null;
   }
 
   private isDirectoryPath(absPath: string): boolean {

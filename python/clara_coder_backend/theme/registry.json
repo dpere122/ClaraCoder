@@ -2985,6 +2985,7 @@
         "--t-log-level-warning",
         "--t-muted",
         "--t-on-primary",
+        "--t-panel-bg",
         "--t-primary",
         "--t-progress-fill",
         "--t-progress-track",

@@ -309,7 +309,7 @@ Managed chat servers are started with `--cache-ram 0` unless the run command alr
 
 The UI is painted by a theme engine (`src/renderer/src/app/core/theme`, shared schema in `src/shared/theme`).
 A theme is a JSON document — global design tokens (`--t-*`), per-element-group overrides, optional
-background images, and an optional Monaco palette. Read-only built-ins ship (`default`, `clara-dark`, `clara-light`);
+background images, and an optional Monaco palette. Read-only built-ins ship (`clara-dark` — Clara Dark Royal Ocean, the default, `clara-dark-cadmium-lantern` — Clara Dark Cadmium Lantern, `clara-dark-cadmium-orange` — Clara Dark Cadmium Orange, `clara-light` — Clara Light Mint, `clara-light-iris` — Clara Light Iris, `clara-light-ochre` — Clara Light Ochre);
 user themes live under `{userData}/themes/<id>/theme.json` with images in `assets/`.
 
 ### Using themes

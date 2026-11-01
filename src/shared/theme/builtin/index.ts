@@ -1,21 +1,38 @@
 import type { ClaraThemeDocument, ThemeMode } from '../theme-document';
 import { CLARA_DARK_THEME } from './clara-dark';
+import { CLARA_DARK_CADMIUM_LANTERN_THEME } from './clara-dark-cadmium-lantern';
+import { CLARA_DARK_CADMIUM_ORANGE_THEME } from './clara-dark-cadmium-orange';
 import { CLARA_LIGHT_THEME } from './clara-light';
-import { DEFAULT_THEME } from './default';
+import { CLARA_LIGHT_IRIS_THEME } from './clara-light-iris';
+import { CLARA_LIGHT_OCHRE_THEME } from './clara-light-ochre';
 
 export { CLARA_DARK_THEME } from './clara-dark';
+export { CLARA_DARK_CADMIUM_LANTERN_THEME } from './clara-dark-cadmium-lantern';
+export { CLARA_DARK_CADMIUM_ORANGE_THEME } from './clara-dark-cadmium-orange';
 export { CLARA_LIGHT_THEME } from './clara-light';
-export { DEFAULT_THEME } from './default';
+export { CLARA_LIGHT_IRIS_THEME } from './clara-light-iris';
+export { CLARA_LIGHT_OCHRE_THEME } from './clara-light-ochre';
+
+/** First-run selection and fallback when a theme id cannot be resolved. */
+export const DEFAULT_THEME: ClaraThemeDocument = CLARA_DARK_THEME;
 
 /** Bundled, read-only themes. Users duplicate these to start their own. */
-export const BUILTIN_THEMES: readonly ClaraThemeDocument[] = [DEFAULT_THEME, CLARA_DARK_THEME, CLARA_LIGHT_THEME];
+export const BUILTIN_THEMES: readonly ClaraThemeDocument[] = [
+  CLARA_DARK_THEME,
+  CLARA_DARK_CADMIUM_LANTERN_THEME,
+  CLARA_DARK_CADMIUM_ORANGE_THEME,
+  CLARA_LIGHT_THEME,
+  CLARA_LIGHT_IRIS_THEME,
+  CLARA_LIGHT_OCHRE_THEME,
+];
 
 export const DEFAULT_THEME_ID = DEFAULT_THEME.id;
 
 export const BUILTIN_THEME_IDS: readonly string[] = BUILTIN_THEMES.map((t) => t.id);
 
-/** Pre-engine theme ids (`config.json` before schema 8) → built-in replacement. */
+/** Retired theme ids (pre-engine `config.json` ids and the former `default` built-in) → built-in replacement. */
 export const LEGACY_THEME_ID_MAP: Readonly<Record<string, string>> = {
+  default: CLARA_DARK_THEME.id,
   woodland: CLARA_DARK_THEME.id,
   'dark-classical': CLARA_DARK_THEME.id,
   classical: CLARA_LIGHT_THEME.id,

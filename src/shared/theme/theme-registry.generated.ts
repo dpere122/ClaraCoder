@@ -323,7 +323,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Settings window frame and title bar.",
     selector: "[data-theme-group=\"settings.window\"]",
     component: "app/features/settings/settings",
-    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-code-inline-bg", "--t-danger", "--t-edge-darkest", "--t-elev-shadow", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-muted", "--t-on-primary", "--t-primary", "--t-progress-fill", "--t-progress-track", "--t-success", "--t-text-muted", "--t-warn"],
+    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-code-inline-bg", "--t-danger", "--t-edge-darkest", "--t-elev-shadow", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-muted", "--t-on-primary", "--t-panel-bg", "--t-primary", "--t-progress-fill", "--t-progress-track", "--t-success", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {

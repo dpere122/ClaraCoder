@@ -14,8 +14,14 @@ from langchain_core.tools import tool
 
 from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
 from clara_coder_backend.tools.http_guards import normalize_http_base_url
-from clara_coder_backend.tools.metasearch import ENGINE_NAMES, MetasearchOutcome, metasearch
+from clara_coder_backend.tools.metasearch import (
+    DEFAULT_USER_AGENT,
+    ENGINE_NAMES,
+    MetasearchOutcome,
+    metasearch,
+)
 from clara_coder_backend.tools.metasearch.cache import get_cached, put_cached
+from clara_coder_backend.tools.redact import redact_emails
 from clara_coder_backend.tools.tool_conventions import describe
 from clara_coder_backend.tools.workspace import truncate_text_head_tail
 
@@ -32,10 +38,15 @@ _DEFAULT_LIMIT = 8
 #: ``searxng`` — always the configured SearXNG instance.
 _PROVIDERS = ('auto', 'internal', 'searxng')
 
+_MAX_USER_AGENT_LEN = 512
+_DEFAULT_COOLDOWN_SEC = 300.0
+_MAX_COOLDOWN_SEC = 3600.0
+
 __all__ = [
     'WEB_SEARCH_NAME',
     'format_search_report',
     'format_searxng_search_report',
+    'outbound_user_agent',
     'search_searxng',
     'web_search_tool',
 ]
@@ -89,6 +100,29 @@ def _enabled_engines() -> tuple[str, ...]:
     return selected or ENGINE_NAMES
 
 
+def outbound_user_agent() -> str:
+    """User-Agent sent with built-in engine requests: the configured one, or the default.
+
+    Also read by the accept-command card, so the user sees the exact header before
+    approving a search.
+    """
+
+    raw = str(getattr(runtime_config.tools, 'web_search_user_agent', '') or '').strip()
+    if not raw or len(raw) > _MAX_USER_AGENT_LEN or re.search(r'[\x00-\x1f\x7f]', raw):
+        return DEFAULT_USER_AGENT
+    return raw
+
+
+def _cooldown_seconds() -> float:
+    """How long a blocked engine is parked; ``0`` disables cooldowns entirely."""
+
+    try:
+        value = float(getattr(runtime_config.tools, 'web_search_cooldown_seconds', _DEFAULT_COOLDOWN_SEC))
+    except (TypeError, ValueError):
+        return _DEFAULT_COOLDOWN_SEC
+    return min(max(value, 0.0), _MAX_COOLDOWN_SEC)
+
+
 def _normalize_limit(limit: int) -> tuple[int | None, str | None]:
     try:
         value = int(limit)
@@ -140,6 +174,9 @@ def format_search_report(
     source: str = 'SearXNG',
     engines_ok: list[str] | None = None,
     engines_failed: dict[str, str] | None = None,
+    engines_skipped: dict[str, float] | None = None,
+    degraded: bool = False,
+    redacted_count: int = 0,
 ) -> str:
     lines: list[str] = [
         f'Web search results ({source}):',
@@ -150,6 +187,15 @@ def format_search_report(
         lines.append(f'- Engines: {", ".join(engines_ok)}')
     if engines_failed:
         lines.append(f'- Unavailable: {", ".join(sorted(engines_failed))}')
+    if engines_skipped:
+        cooling = ', '.join(
+            f'{name} ({int(seconds)}s)' for name, seconds in sorted(engines_skipped.items())
+        )
+        lines.append(f'- Cooling down: {cooling}')
+    if degraded:
+        lines.append('- Note: every engine was cooling down; retried them anyway.')
+    if redacted_count:
+        lines.append(f'- Email addresses redacted from the query: {redacted_count}')
     if not rows:
         lines.append('- Matches: none')
     else:
@@ -181,19 +227,33 @@ def format_searxng_search_report(*, query: str, rows: list[dict[str, Any]]) -> s
     return format_search_report(query=query, rows=rows, source='SearXNG')
 
 
-async def _internal_search(query: str, limit: int) -> str:
+async def _internal_search(query: str, limit: int, redacted_count: int = 0) -> str:
     engines = _enabled_engines()
-    key = ('internal', query.strip().lower(), limit, engines)
+    user_agent = outbound_user_agent()
+    cooldown = _cooldown_seconds()
+    key = ('internal', query.strip().lower(), limit, engines, user_agent)
     outcome: MetasearchOutcome | None = get_cached(key)
     if outcome is None:
         try:
-            outcome = await asyncio.to_thread(metasearch, query, limit=limit, engines=engines)
+            outcome = await asyncio.to_thread(
+                metasearch,
+                query,
+                limit=limit,
+                engines=engines,
+                user_agent=user_agent,
+                cooldown_seconds=cooldown,
+            )
         except Exception as exc:  # noqa: BLE001 - surface a tool error, never a traceback
             return f'Tool error: built-in search failed ({exc.__class__.__name__}).'
         put_cached(key, outcome)
 
-    if not outcome.rows and outcome.engines_failed:
+    if not outcome.rows and outcome.engines_failed and not outcome.engines_ok:
         detail = '; '.join(f'{name}: {err}' for name, err in sorted(outcome.engines_failed.items()))
+        if outcome.engines_skipped:
+            cooling = ', '.join(
+                f'{name} ({int(seconds)}s)' for name, seconds in sorted(outcome.engines_skipped.items())
+            )
+            detail += f'; cooling down: {cooling}'
         return f'Tool error: every built-in search engine failed ({detail}).'
 
     return format_search_report(
@@ -202,6 +262,9 @@ async def _internal_search(query: str, limit: int) -> str:
         source='built-in',
         engines_ok=outcome.engines_ok,
         engines_failed=outcome.engines_failed,
+        engines_skipped=outcome.engines_skipped,
+        degraded=outcome.degraded,
+        redacted_count=redacted_count,
     )
 
 
@@ -252,8 +315,12 @@ async def web_search_tool(query: str, limit: int = _DEFAULT_LIMIT) -> str:
     if pending:
         return pending
 
+    # Redact after the approval card: the card shows what will actually be sent, and
+    # the request itself never carries an address the model put in the query.
+    q, redacted_count = redact_emails(q)
+
     if provider == 'internal':
-        return await _internal_search(q, limit_value)
+        return await _internal_search(q, limit_value, redacted_count)
 
     base, base_err = _searxng_base()
     if base_err:
@@ -271,4 +338,4 @@ async def web_search_tool(query: str, limit: int = _DEFAULT_LIMIT) -> str:
     except json.JSONDecodeError:
         return 'Tool error: SearXNG returned invalid JSON.'
 
-    return format_search_report(query=q, rows=rows, source='SearXNG')
+    return format_search_report(query=q, rows=rows, source='SearXNG', redacted_count=redacted_count)

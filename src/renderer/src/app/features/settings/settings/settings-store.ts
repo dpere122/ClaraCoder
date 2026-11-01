@@ -346,6 +346,8 @@ export class SettingsStore {
   readonly searxngBaseUrl = signal('');
   readonly webSearchProvider = signal<'auto' | 'internal' | 'searxng'>('auto');
   readonly webSearchEngines = signal<string[]>([]);
+  readonly webSearchUserAgent = signal('');
+  readonly webSearchCooldownSeconds = signal(300);
   readonly extraUserPath = signal('');
   readonly enableAgentFormatters = signal(false);
   readonly confirmMove = signal(true);
@@ -2903,6 +2905,12 @@ export class SettingsStore {
     if (changes.webSearchEngines !== undefined) {
       this.webSearchEngines.set(normalizeWebSearchEngines(changes.webSearchEngines));
     }
+    if (changes.webSearchUserAgent !== undefined) {
+      this.webSearchUserAgent.set((changes.webSearchUserAgent || '').trim());
+    }
+    if (changes.webSearchCooldownSeconds !== undefined) {
+      this.webSearchCooldownSeconds.set(changes.webSearchCooldownSeconds ?? 300);
+    }
     if (changes.extraUserPath !== undefined) {
       this.extraUserPath.set(changes.extraUserPath || '');
     }
@@ -2987,6 +2995,20 @@ export class SettingsStore {
       current.delete(id);
     }
     this.webSearchEngines.set(normalizeWebSearchEngines([...current]));
+    this.markSettingsDirty();
+  }
+
+  onWebSearchUserAgentChange(value: string): void {
+    this.webSearchUserAgent.set((value || '').trim());
+    this.markSettingsDirty();
+  }
+
+  onWebSearchCooldownSecondsChange(raw: string | number): void {
+    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+    if (Number.isNaN(n)) {
+      return;
+    }
+    this.webSearchCooldownSeconds.set(Math.min(3600, Math.max(0, n)));
     this.markSettingsDirty();
   }
 
@@ -3437,6 +3459,8 @@ export class SettingsStore {
         searxngBaseUrl: this.searxngBaseUrl(),
         webSearchProvider: this.webSearchProvider(),
         webSearchEngines: this.webSearchEngines(),
+        webSearchUserAgent: this.webSearchUserAgent(),
+        webSearchCooldownSeconds: this.webSearchCooldownSeconds(),
         extraUserPath: this.extraUserPath(),
         enableAgentFormatters: this.enableAgentFormatters(),
       },
@@ -3631,6 +3655,8 @@ export class SettingsStore {
     this.searxngBaseUrl.set((wt.searxngBaseUrl ?? '').trim());
     this.webSearchProvider.set(wt.webSearchProvider ?? 'auto');
     this.webSearchEngines.set(normalizeWebSearchEngines(wt.webSearchEngines));
+    this.webSearchUserAgent.set((wt.webSearchUserAgent ?? '').trim());
+    this.webSearchCooldownSeconds.set(wt.webSearchCooldownSeconds ?? 300);
     this.extraUserPath.set(wt.extraUserPath ?? '');
     this.enableAgentFormatters.set(!!(wt.enableAgentFormatters ?? false));
     this.confirmMove.set(config.confirmMove !== false);

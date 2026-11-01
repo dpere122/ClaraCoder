@@ -1643,6 +1643,28 @@ export function migrateConfig(config: AppConfig): AppConfig {
       wt.webSearchEngines = engines;
       migrated = true;
     }
+    const uaRaw = (wt as unknown as { webSearchUserAgent?: unknown }).webSearchUserAgent;
+    if (typeof uaRaw !== 'string') {
+      wt.webSearchUserAgent = '';
+      migrated = true;
+    } else {
+      const trimmed = uaRaw.trim();
+      if (trimmed !== uaRaw) {
+        wt.webSearchUserAgent = trimmed;
+        migrated = true;
+      }
+    }
+    const cooldownRaw = (wt as unknown as { webSearchCooldownSeconds?: unknown }).webSearchCooldownSeconds;
+    if (typeof cooldownRaw !== 'number' || !Number.isFinite(cooldownRaw)) {
+      wt.webSearchCooldownSeconds = 300;
+      migrated = true;
+    } else {
+      const clamped = Math.min(3600, Math.max(0, Math.round(cooldownRaw)));
+      if (clamped !== cooldownRaw) {
+        wt.webSearchCooldownSeconds = clamped;
+        migrated = true;
+      }
+    }
     const extraPathRaw = (wt as unknown as { extraUserPath?: unknown }).extraUserPath;
     if (typeof extraPathRaw !== 'string') {
       wt.extraUserPath = '';

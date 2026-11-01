@@ -366,6 +366,8 @@ async function postRuntimeConfigToPython(
           searxngBaseUrl: (config.workspaceTools.searxngBaseUrl ?? '').trim(),
           webSearchProvider: config.workspaceTools.webSearchProvider ?? 'auto',
           webSearchEngines: normalizeWebSearchEngines(config.workspaceTools.webSearchEngines),
+          webSearchUserAgent: (config.workspaceTools.webSearchUserAgent ?? '').trim(),
+          webSearchCooldownSeconds: config.workspaceTools.webSearchCooldownSeconds ?? 300,
           extraUserPath: config.workspaceTools.extraUserPath ?? '',
           enableAgentFormatters: config.workspaceTools.enableAgentFormatters ?? false,
         },

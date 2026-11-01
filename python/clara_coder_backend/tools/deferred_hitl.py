@@ -47,11 +47,18 @@ def _presentation(tool_name: str, tool_input: dict[str, Any]) -> tuple[str, str,
             details,
         )
     if tool_name == 'web_search':
-        query = str(tool_input.get('query') or '').strip()
+        from clara_coder_backend.tools.redact import redact_emails
+        from clara_coder_backend.tools.web_search import outbound_user_agent
+
+        # Show what will actually leave the machine, not the raw tool call.
+        query, redacted = redact_emails(str(tool_input.get('query') or '').strip())
         limit = tool_input.get('limit')
         details = [f'Query: `{query}`'] if query else []
         if limit is not None:
             details.append(f'Limit: `{limit}`')
+        details.append(f'User-Agent: `{outbound_user_agent()}`')
+        if redacted:
+            details.append(f'Email addresses redacted: `{redacted}`')
         return (
             'Web search',
             'Search the web with the configured search backend.',

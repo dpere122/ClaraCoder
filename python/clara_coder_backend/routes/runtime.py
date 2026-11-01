@@ -176,6 +176,8 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             searxng_base_url=(request.tools.searxngBaseUrl or '').strip().rstrip('/'),
             web_search_provider=request.tools.webSearchProvider,
             web_search_engines=list(request.tools.webSearchEngines),
+            web_search_user_agent=request.tools.webSearchUserAgent,
+            web_search_cooldown_seconds=request.tools.webSearchCooldownSeconds,
             extra_user_path=(request.tools.extraUserPath or '').strip(),
             enable_agent_formatters=request.tools.enableAgentFormatters,
         )

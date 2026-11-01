@@ -283,3 +283,38 @@ def test_web_search_engines_normalized_to_known_names() -> None:
     r = RuntimeConfigRequest.model_validate(body)
     assert r.tools is not None
     assert r.tools.webSearchEngines == []
+
+
+def test_web_search_user_agent_and_cooldown_normalized() -> None:
+    body = {
+        'activeConnectionId': 'x',
+        'connections': [_CONN],
+        'audio': {'provider': 'openai', 'baseUrl': '', 'model': 'whisper-1', 'apiKey': ''},
+        'tools': {
+            'editToolsStrict': False,
+            'maxFileReadLines': 400,
+            'maxSearchResults': 40,
+            'defaultWorkspaceEncoding': 'utf-8',
+            'defaultWorkspaceNewline': 'lf',
+            'webSearchUserAgent': '  ClaraCoder/1.0  ',
+            'webSearchCooldownSeconds': 9999,
+        },
+    }
+    r = RuntimeConfigRequest.model_validate(body)
+    assert r.tools is not None
+    assert r.tools.webSearchUserAgent == 'ClaraCoder/1.0'
+    assert r.tools.webSearchCooldownSeconds == 3600
+
+    body['tools']['webSearchUserAgent'] = 'bad\x00ua'
+    body['tools']['webSearchCooldownSeconds'] = -5
+    r = RuntimeConfigRequest.model_validate(body)
+    assert r.tools is not None
+    assert r.tools.webSearchUserAgent == ''
+    assert r.tools.webSearchCooldownSeconds == 0
+
+    body['tools'].pop('webSearchUserAgent')
+    body['tools'].pop('webSearchCooldownSeconds')
+    r = RuntimeConfigRequest.model_validate(body)
+    assert r.tools is not None
+    assert r.tools.webSearchUserAgent == ''
+    assert r.tools.webSearchCooldownSeconds == 300

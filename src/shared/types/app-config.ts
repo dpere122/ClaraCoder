@@ -681,6 +681,16 @@ export interface WorkspaceToolsConfig {
    */
   webSearchEngines?: string[];
   /**
+   * User-Agent sent with built-in engine requests. Empty uses the built-in default.
+   * Shown on the approval card when Auto Run is off.
+   */
+  webSearchUserAgent?: string;
+  /**
+   * Seconds an engine is skipped after a blocker (rate limit, challenge page).
+   * `0` disables cooldowns. Default 300.
+   */
+  webSearchCooldownSeconds?: number;
+  /**
    * Extra directories prepended onto agent `run_command` PATH (one per line).
    * Login-shell PATH and common user bins (`~/.local/bin`, `~/.cargo/bin`, …) are
    * included automatically on packaged GUI launches.

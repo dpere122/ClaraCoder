@@ -114,6 +114,35 @@
                   engines means faster searches. Ignored when the provider is a SearXNG instance.
                 </p>
               </div>
+              <div class='field field--hint'>
+                <span>Search User-Agent</span>
+                <input
+                  type='text'
+                  [ngModel]='s.webSearchUserAgent()'
+                  (ngModelChange)='s.onWebSearchUserAgentChange($event)'
+                  placeholder='Mozilla/5.0 (Windows NT 10.0; Win64; x64) …'
+                  autocomplete='off'
+                  spellcheck='false'
+                />
+                <p class='settings-field-hint'>
+                  Sent with every built-in engine request. Leave empty for the default browser string. Shown on the
+                  approval card when Auto Run is off.
+                </p>
+              </div>
+              <div class='field field--hint'>
+                <span>Engine cooldown (seconds)</span>
+                <input
+                  type='number'
+                  min='0'
+                  max='3600'
+                  [ngModel]='s.webSearchCooldownSeconds()'
+                  (ngModelChange)='s.onWebSearchCooldownSecondsChange($event)'
+                />
+                <p class='settings-field-hint'>
+                  After a rate limit or captcha, that engine is skipped for this long and the search cycles through
+                  the others. 0 disables cooldowns.
+                </p>
+              </div>
               <label class='field'>
                 <span>SearXNG base URL</span>
                 <input

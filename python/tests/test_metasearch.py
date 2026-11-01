@@ -133,8 +133,8 @@ def test_unknown_engine_raises() -> None:
 
 
 def test_metasearch_dedupes_and_ranks_by_agreement() -> None:
-    def fake_engine(name: str, query: str, limit: int) -> list[RawResult]:
-        del query, limit
+    def fake_engine(name: str, query: str, limit: int, user_agent: str) -> list[RawResult]:
+        del query, limit, user_agent
         if name == 'a':
             return [
                 RawResult('X', 'https://example.com/x?utm_source=1', 'x snippet'),
@@ -157,8 +157,8 @@ def test_metasearch_dedupes_and_ranks_by_agreement() -> None:
 
 
 def test_metasearch_isolates_engine_failure() -> None:
-    def fake_engine(name: str, query: str, limit: int) -> list[RawResult]:
-        del query, limit
+    def fake_engine(name: str, query: str, limit: int, user_agent: str) -> list[RawResult]:
+        del query, limit, user_agent
         if name == 'bad':
             raise RuntimeError('HTTP 503')
         return [RawResult('Good', 'https://good.example/page', 'ok')]
@@ -172,8 +172,8 @@ def test_metasearch_isolates_engine_failure() -> None:
 
 
 def test_metasearch_respects_limit() -> None:
-    def fake_engine(name: str, query: str, limit: int) -> list[RawResult]:
-        del name, query, limit
+    def fake_engine(name: str, query: str, limit: int, user_agent: str) -> list[RawResult]:
+        del name, query, limit, user_agent
         return [RawResult(f'T{i}', f'https://example.com/{i}', '') for i in range(10)]
 
     with patch('clara_coder_backend.tools.metasearch.aggregate.run_engine', side_effect=fake_engine):
@@ -201,3 +201,123 @@ def test_shared_engine_list_matches_backend() -> None:
     assert tuple(ids) == ENGINE_NAMES
     clear_cache()
     assert get_cached(('k',)) is None
+
+
+class _FakeResponse:
+    def __init__(self, body: bytes) -> None:
+        self._body = body
+
+    def __enter__(self) -> '_FakeResponse':
+        return self
+
+    def __exit__(self, *args: object) -> bool:
+        return False
+
+    def read(self, n: int = -1) -> bytes:
+        return self._body if n < 0 else self._body[:n]
+
+
+def test_engine_blocked_on_rate_limit() -> None:
+    import urllib.error
+
+    from clara_coder_backend.tools.metasearch.engines import EngineBlocked
+
+    err = urllib.error.HTTPError('https://x', 429, 'Too Many Requests', {'Retry-After': '120'}, None)
+    with patch('clara_coder_backend.tools.metasearch.engines._OPENER.open', side_effect=err):
+        with pytest.raises(EngineBlocked) as excinfo:
+            run_engine('bing', 'q', 5)
+    assert excinfo.value.retry_after == 120.0
+    assert 'HTTP 429' in excinfo.value.reason
+
+
+def test_engine_blocked_on_challenge_page() -> None:
+    from clara_coder_backend.tools.metasearch.engines import EngineBlocked
+
+    body = b'<html><body><div class="anomaly-modal">Are you a robot?</div></body></html>'
+    with patch(
+        'clara_coder_backend.tools.metasearch.engines._OPENER.open',
+        return_value=_FakeResponse(body),
+    ):
+        with pytest.raises(EngineBlocked) as excinfo:
+            run_engine('duckduckgo', 'q', 5)
+    assert 'challenge page' in excinfo.value.reason
+
+
+def test_cooldown_marks_and_clears() -> None:
+    from clara_coder_backend.tools.metasearch import cooldown
+
+    cooldown.clear_cooldowns()
+    assert cooldown.cooldown_remaining('bing') == 0.0
+    cooldown.mark_blocked('bing', seconds=60, reason='HTTP 429')
+    assert cooldown.is_cooling('bing')
+    assert 0.0 < cooldown.cooldown_remaining('bing') <= 60.0
+    assert cooldown.snapshot()['bing'] > 0.0
+    cooldown.clear_cooldowns()
+    assert not cooldown.is_cooling('bing')
+
+
+def test_metasearch_skips_cooling_engines() -> None:
+    from clara_coder_backend.tools.metasearch import cooldown
+
+    cooldown.clear_cooldowns()
+    cooldown.mark_blocked('bing', seconds=60, reason='HTTP 429')
+    calls: list[str] = []
+
+    def fake_engine(name: str, query: str, limit: int, user_agent: str) -> list[RawResult]:
+        del query, limit, user_agent
+        calls.append(name)
+        return [RawResult('T', f'https://example.com/{name}', '')]
+
+    try:
+        with patch('clara_coder_backend.tools.metasearch.aggregate.run_engine', side_effect=fake_engine):
+            outcome = metasearch('q', limit=5, engines=('bing', 'mojeek'))
+    finally:
+        cooldown.clear_cooldowns()
+
+    assert calls == ['mojeek']
+    assert 'bing' in outcome.engines_skipped
+    assert outcome.engines_ok == ['mojeek']
+
+
+def test_metasearch_marks_cooldown_on_blocker() -> None:
+    from clara_coder_backend.tools.metasearch import cooldown
+    from clara_coder_backend.tools.metasearch.engines import EngineBlocked
+
+    cooldown.clear_cooldowns()
+
+    def fake_engine(name: str, query: str, limit: int, user_agent: str) -> list[RawResult]:
+        del query, limit, user_agent
+        if name == 'bing':
+            raise EngineBlocked('bing', 'HTTP 429', retry_after=90.0)
+        return [RawResult('T', 'https://example.com/ok', '')]
+
+    try:
+        with patch('clara_coder_backend.tools.metasearch.aggregate.run_engine', side_effect=fake_engine):
+            outcome = metasearch('q', limit=5, engines=('bing', 'mojeek'), cooldown_seconds=300.0)
+        assert outcome.engines_failed == {'bing': 'HTTP 429'}
+        assert cooldown.is_cooling('bing')
+        assert cooldown.cooldown_remaining('bing') <= 90.0
+    finally:
+        cooldown.clear_cooldowns()
+
+
+def test_metasearch_retries_when_every_engine_is_cooling() -> None:
+    from clara_coder_backend.tools.metasearch import cooldown
+
+    cooldown.clear_cooldowns()
+    cooldown.mark_blocked('bing', seconds=60)
+    cooldown.mark_blocked('mojeek', seconds=60)
+
+    def fake_engine(name: str, query: str, limit: int, user_agent: str) -> list[RawResult]:
+        del query, limit, user_agent
+        return [RawResult('T', f'https://example.com/{name}', '')]
+
+    try:
+        with patch('clara_coder_backend.tools.metasearch.aggregate.run_engine', side_effect=fake_engine):
+            outcome = metasearch('q', limit=5, engines=('bing', 'mojeek'))
+    finally:
+        cooldown.clear_cooldowns()
+
+    assert outcome.degraded is True
+    assert outcome.engines_skipped == {}
+    assert sorted(outcome.engines_ok) == ['bing', 'mojeek']

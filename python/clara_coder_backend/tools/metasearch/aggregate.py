@@ -14,7 +14,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-from clara_coder_backend.tools.metasearch.engines import ENGINE_NAMES, run_engine
+from clara_coder_backend.tools.metasearch.cooldown import cooldown_remaining, mark_blocked
+from clara_coder_backend.tools.metasearch.engines import (
+    DEFAULT_USER_AGENT,
+    ENGINE_NAMES,
+    EngineBlocked,
+    run_engine,
+)
 
 __all__ = ['MetasearchOutcome', 'metasearch', 'normalize_url']
 
@@ -53,6 +59,10 @@ class MetasearchOutcome:
     rows: list[dict[str, Any]] = field(default_factory=list)
     engines_ok: list[str] = field(default_factory=list)
     engines_failed: dict[str, str] = field(default_factory=dict)
+    #: Engine -> seconds left on its cooldown; these were skipped, not queried.
+    engines_skipped: dict[str, float] = field(default_factory=dict)
+    #: True when every engine was cooling down and they were retried anyway.
+    degraded: bool = False
 
 
 def normalize_url(raw: str) -> str:
@@ -82,30 +92,67 @@ def _query_terms(query: str) -> list[str]:
     return [term for term in re.split(r'\W+', query.lower()) if len(term) > 2]
 
 
+def _cooldown_for(exc: EngineBlocked, default_seconds: float) -> float:
+    """Honor ``Retry-After`` when the engine sent one, clamped to a sane window."""
+
+    seconds = exc.retry_after if exc.retry_after is not None else default_seconds
+    return min(max(seconds, 1.0), 3600.0)
+
+
 def metasearch(
     query: str,
     *,
     limit: int = 8,
     engines: Iterable[str] | None = None,
+    user_agent: str = DEFAULT_USER_AGENT,
+    cooldown_seconds: float = 0.0,
 ) -> MetasearchOutcome:
-    """Query every engine concurrently and return merged, ranked rows."""
+    """Query every engine concurrently and return merged, ranked rows.
+
+    Engines parked by a previous blocker are skipped, so a rate-limited engine is
+    cycled past instead of retried. When every engine is parked they are retried
+    anyway (``degraded``) rather than leaving the tool dead for the whole window.
+    """
 
     names = tuple(engines) if engines is not None else ENGINE_NAMES
     if not names:
         return MetasearchOutcome()
 
+    outcome = MetasearchOutcome()
+    active: list[str] = []
+    for name in names:
+        remaining = cooldown_remaining(name)
+        if remaining > 0.0:
+            outcome.engines_skipped[name] = remaining
+        else:
+            active.append(name)
+    if not active:
+        outcome.degraded = True
+        outcome.engines_skipped.clear()
+        active = list(names)
+
     # Ask each engine for more than we need: dedupe across engines eats the surplus.
     per_engine = max(limit * 2, 10)
     merged: dict[str, dict[str, Any]] = {}
     scores: dict[str, float] = {}
-    outcome = MetasearchOutcome()
 
-    with ThreadPoolExecutor(max_workers=len(names)) as pool:
-        futures = {pool.submit(run_engine, name, query, per_engine): name for name in names}
+    with ThreadPoolExecutor(max_workers=len(active)) as pool:
+        futures = {
+            pool.submit(run_engine, name, query, per_engine, user_agent): name for name in active
+        }
         for future in as_completed(futures):
             name = futures[future]
             try:
                 hits = future.result()
+            except EngineBlocked as exc:
+                outcome.engines_failed[name] = exc.reason
+                if cooldown_seconds > 0.0:
+                    mark_blocked(
+                        name,
+                        seconds=_cooldown_for(exc, cooldown_seconds),
+                        reason=exc.reason,
+                    )
+                continue
             except Exception as exc:  # noqa: BLE001 - one engine must not sink the search
                 outcome.engines_failed[name] = str(exc) or exc.__class__.__name__
                 continue

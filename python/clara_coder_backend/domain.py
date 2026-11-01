@@ -395,6 +395,10 @@ class RuntimeToolsConfig:
     #: Built-in metasearch engines to query (``duckduckgo``, ``bing``, ``mojeek``, ``wikipedia``).
     #: Empty means every engine (Settings → Tools).
     web_search_engines: list[str] = field(default_factory=list)
+    #: User-Agent sent with built-in engine requests; empty uses the built-in default.
+    web_search_user_agent: str = ''
+    #: Seconds an engine is skipped after a blocker (rate limit, challenge page). 0 disables.
+    web_search_cooldown_seconds: int = 300
     #: Extra directories prepended onto agent ``run_command`` PATH (Settings → Tools).
     extra_user_path: str = ''
     #: When True, auto-run Black/Prettier after edits and bind format_* tools (Settings → Tools).

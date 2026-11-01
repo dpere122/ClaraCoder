@@ -344,3 +344,92 @@ async def test_web_search_empty_engine_list_means_all(enable_web) -> None:
     finally:
         current_session_id.reset(token)
     assert ms.call_args.kwargs['engines'] == ENGINE_NAMES
+
+
+def test_redact_emails() -> None:
+    from clara_coder_backend.tools.redact import redact_emails
+
+    text, count = redact_emails('contact daniel.perez@codebydp.com about asyncio')
+    assert count == 1
+    assert 'daniel.perez@codebydp.com' not in text
+    assert '[email redacted]' in text
+    assert redact_emails('no address here') == ('no address here', 0)
+
+
+@pytest.mark.asyncio
+async def test_web_search_redacts_email_before_request(enable_web) -> None:
+    enable_web.web_search_provider = 'internal'
+    enable_web.searxng_base_url = ''
+    sid = 'web-search-redact'
+    token = current_session_id.set(sid)
+    session = get_session(sid)
+    session.auto_apply_mode = True
+    outcome = MetasearchOutcome(rows=[], engines_ok=['wikipedia'])
+    try:
+        with patch('clara_coder_backend.tools.web_search.metasearch', return_value=outcome) as ms:
+            out = await web_search_tool.ainvoke({'query': 'daniel.perez@codebydp.com asyncio'})
+    finally:
+        current_session_id.reset(token)
+    sent = ms.call_args.args[0]
+    assert 'daniel.perez@codebydp.com' not in sent
+    assert '[email redacted]' in sent
+    assert 'Email addresses redacted' in out
+
+
+@pytest.mark.asyncio
+async def test_web_search_uses_configured_user_agent(enable_web) -> None:
+    enable_web.web_search_provider = 'internal'
+    enable_web.searxng_base_url = ''
+    enable_web.web_search_user_agent = 'ClaraCoder/1.0 (+https://example.com)'
+    sid = 'web-search-ua'
+    token = current_session_id.set(sid)
+    session = get_session(sid)
+    session.auto_apply_mode = True
+    outcome = MetasearchOutcome(rows=[], engines_ok=['wikipedia'])
+    try:
+        with patch('clara_coder_backend.tools.web_search.metasearch', return_value=outcome) as ms:
+            await web_search_tool.ainvoke({'query': 'guide'})
+    finally:
+        current_session_id.reset(token)
+    assert ms.call_args.kwargs['user_agent'] == 'ClaraCoder/1.0 (+https://example.com)'
+
+
+def test_web_search_user_agent_falls_back_to_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    from clara_coder_backend.tools.metasearch import DEFAULT_USER_AGENT
+    from clara_coder_backend.tools.web_search import outbound_user_agent
+
+    monkeypatch.setattr(runtime_config, 'tools', RuntimeToolsConfig(web_search_user_agent=''))
+    assert outbound_user_agent() == DEFAULT_USER_AGENT
+    monkeypatch.setattr(runtime_config, 'tools', RuntimeToolsConfig(web_search_user_agent='bad\x00ua'))
+    assert outbound_user_agent() == DEFAULT_USER_AGENT
+
+
+def test_web_search_hitl_card_shows_user_agent() -> None:
+    session = get_session('web-hitl-ua')
+    session.auto_apply_mode = False
+    session.pending_accept_command_request = None
+    msg = maybe_await_hitl_for_deferred_tool(
+        session,
+        tool_name='web_search',
+        tool_input={'query': 'q', 'limit': 5},
+    )
+    assert msg is not None
+    pending = session.pending_accept_command_request
+    assert pending is not None
+    assert any('User-Agent' in detail for detail in pending['details'])
+
+
+def test_web_search_hitl_card_redacts_email() -> None:
+    session = get_session('web-hitl-redact')
+    session.auto_apply_mode = False
+    session.pending_accept_command_request = None
+    msg = maybe_await_hitl_for_deferred_tool(
+        session,
+        tool_name='web_search',
+        tool_input={'query': 'mail daniel.perez@codebydp.com', 'limit': 5},
+    )
+    assert msg is not None
+    pending = session.pending_accept_command_request
+    assert pending is not None
+    assert 'daniel.perez@codebydp.com' not in pending['command_text']
+    assert any('Email addresses redacted' in detail for detail in pending['details'])

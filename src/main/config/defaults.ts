@@ -206,6 +206,8 @@ export function getDefaultWorkspaceTools(): WorkspaceToolsConfig {
     searxngBaseUrl: '',
     webSearchProvider: 'auto',
     webSearchEngines: [],
+    webSearchUserAgent: '',
+    webSearchCooldownSeconds: 300,
     extraUserPath: '',
     enableAgentFormatters: false,
   };

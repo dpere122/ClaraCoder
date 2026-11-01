@@ -20,6 +20,7 @@ DEFERRED_HITL_TOOL_NAMES: frozenset[str] = frozenset(
         'run_command',
         'web_search',
         'fetch_url',
+        'screenshot_webpage',
     }
 )
 
@@ -71,6 +72,23 @@ def _presentation(tool_name: str, tool_input: dict[str, Any]) -> tuple[str, str,
         return (
             'Fetch URL',
             'Download a public http(s) page and return truncated text.',
+            url or '(empty url)',
+            details,
+        )
+    if tool_name == 'screenshot_webpage':
+        from clara_coder_backend.tools.screenshot_webpage import screenshot_user_agent
+
+        url = str(tool_input.get('url') or '')
+        user_agent, error = screenshot_user_agent()
+        details = [
+            f'URL: `{url}`',
+            f'Viewport: `{tool_input.get("width", 1280)} × {tool_input.get("height", 800)}`',
+            f'User-Agent: `{user_agent}`' if not error else 'User-Agent: invalid (capture will be blocked)',
+            'Sandbox: isolated, static capture of public HTTP(S) pages/images; no interactive browsing.',
+        ]
+        return (
+            'Screenshot webpage',
+            'Capture a public webpage or direct online image for display in the reply.',
             url or '(empty url)',
             details,
         )

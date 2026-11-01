@@ -681,7 +681,7 @@ export interface WorkspaceToolsConfig {
    */
   webSearchEngines?: string[];
   /**
-   * User-Agent sent with built-in engine requests. Empty uses the built-in default.
+   * User-Agent sent with built-in search and screenshot requests. Empty uses the built-in default.
    * Shown on the approval card when Auto Run is off.
    */
   webSearchUserAgent?: string;

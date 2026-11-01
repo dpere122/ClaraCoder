@@ -1,9 +1,9 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
-import { toolTrailStatusStreamTag } from '@shared/index';
+import { toolPillLabel, toolPillVerb, toolTrailStatusStreamTag } from '@shared/index';
 import { AuxStreamToolPartComponent } from '../aux-stream-tool-part/aux-stream-tool-part';
 import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
-import { TOOL_GLYPH_IDS } from '../tool-spinner-kind';
+import { TOOL_GLYPH_IDS, toolGlyph, toolSpinnerKind } from '../tool-spinner-kind';
 import { ToolSpinnerComponent } from './tool-spinner';
 
 function renderSpinner(kind: string, still = false): SVGSVGElement {
@@ -31,6 +31,23 @@ describe('ToolSpinnerComponent', () => {
 });
 
 describe('tool pill glyphs', () => {
+  it('labels webpage screenshots as web tools and draws their camera glyph', () => {
+    const streamTag = toolTrailStatusStreamTag('capture');
+    const label = toolPillLabel({
+      streamTag,
+      label: 'screenshot_webpage',
+      text: 'Screenshot captured',
+      toolTarget: 'https://example.com',
+      toolChainState: 'complete',
+    });
+    expect(label.category).toBe('web');
+    expect(label.verb).toBe('Screenshot');
+    expect(toolPillVerb('screenshot_webpage')).toBe('Screenshot');
+    expect(toolSpinnerKind('screenshot_webpage', streamTag)).toBe('web');
+    expect(toolGlyph('screenshot_webpage', streamTag)).toBe('screenshot');
+    expect(renderSpinner('screenshot').querySelector('circle.ts-pulse')).not.toBeNull();
+  });
+
   it("animates the running tool's glyph in a live pill", () => {
     const fixture = TestBed.createComponent(StreamToolPillComponent);
     fixture.componentRef.setInput('name', 'Fetch');

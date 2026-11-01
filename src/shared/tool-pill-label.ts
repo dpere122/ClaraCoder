@@ -44,6 +44,7 @@ const TOOL_SPECS: Readonly<Record<string, ToolSpec>> = {
   retrieve_workspace_semantic: { verb: 'Semantic search', category: 'search' },
   web_search: { verb: 'Web search', category: 'web' },
   fetch_url: { verb: 'Fetch', category: 'web' },
+  screenshot_webpage: { verb: 'Screenshot', category: 'web' },
   write_workspace_file: { verb: 'Write', category: 'edit' },
   replace_workspace_lines: { verb: 'Edit', category: 'edit' },
   replace_workspace_line_range: { verb: 'Edit', category: 'edit' },

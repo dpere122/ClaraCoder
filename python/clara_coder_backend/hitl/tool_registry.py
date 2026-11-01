@@ -15,8 +15,8 @@ Edits, copies and deletes land on disk immediately and are journaled per turn. T
 them after the reply. There is no staging, transfer step or diff card.
 
 **HITL:**
-- ``run_command``, ``web_search``, ``fetch_url`` and MCP tools pause on an accept-command card unless Auto Run
-  is on (see :mod:`clara_coder_backend.hitl.deferred_tool_hitl`).
+- ``run_command``, ``web_search``, ``fetch_url``, ``screenshot_webpage`` and MCP tools pause on an accept-command
+  card unless Auto Run is on (see :mod:`clara_coder_backend.hitl.deferred_tool_hitl`).
 - ``run_command`` with ``elevate`` or a leading ``sudo`` stages the Admin grant card even with Auto Run on.
 - A directory delete too large to journal always asks first.
 """
@@ -118,9 +118,10 @@ def worker_tools_and_map(
         tools.extend([spawn_subagent_tool, wait_for_subagents_tool, stop_subagent_tool])
     if getattr(runtime_config.tools, 'allow_web_access', False):
         from clara_coder_backend.tools.fetch_url import fetch_url_tool
+        from clara_coder_backend.tools.screenshot_webpage import screenshot_webpage_tool
         from clara_coder_backend.tools.web_search import web_search_tool
 
-        tools.extend([web_search_tool, fetch_url_tool])
+        tools.extend([web_search_tool, fetch_url_tool, screenshot_webpage_tool])
     if apply_mode:
         strict = (
             edit_tools_strict_override
@@ -179,7 +180,7 @@ TOOL_FAMILIES: list[tuple[str, tuple[str, ...]]] = [
             'java_bootstrap_project',
         ),
     ),
-    ('Web', ('web_search', 'fetch_url')),
+    ('Web', ('web_search', 'fetch_url', 'screenshot_webpage')),
     (
         'Process',
         (

@@ -203,3 +203,26 @@ fork, ownership, report delivery and the event contract live in
 
 New tools that must not run inside a sub-agent are dropped in
 `worker_tools_and_map` for sessions with `subagent_parent_session_id` set.
+
+## 10. Public webpage screenshots
+
+`screenshot_webpage(url, width=1280, height=800)` captures a public HTTP(S)
+page or direct image using Electron's isolated, static screenshot broker. It is
+not browser automation: no logins, interactions, or script-dependent apps.
+Viewport widths are integers from 320–1920 pixels; heights from 240–1080. Like other web tools it
+requires Allow web access and an active session; Auto Run off stages approval
+before any DNS lookup or network request. The card shows the configured safe
+User-Agent and capture sandbox limitations.
+
+Electron supplies `CLARA_SCREENSHOT_URL` (exactly
+`http://127.0.0.1:<port>/capture`) and `CLARA_SCREENSHOT_TOKEN`. Python posts the
+URL, dimensions and configured User-Agent with bearer authentication, no
+environment proxies or redirects, a 40-second timeout and a 16 KiB response cap.
+Both layers enforce public-only targets; Python rejects credentials and emails
+in URLs (including repeatedly percent-encoded forms), and unsafe/private
+User-Agent values. There is no model-supplied User-Agent argument.
+
+Successful results contain only a compact summary and
+`![Webpage screenshot](nemo-asset://capture/<32 lowercase hex>.png)`, never image
+base64. The model must embed that exact Markdown image in its reply; receiving
+the result does not imply the model has visually inspected the image.

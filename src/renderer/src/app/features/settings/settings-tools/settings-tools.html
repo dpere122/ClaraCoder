@@ -81,9 +81,9 @@
                   <span>Allow web access</span>
                 </label>
                 <p class='settings-field-hint'>
-                  When on, the agent may use <code>web_search</code> and <code>fetch_url</code>. When Auto-apply is
-                  off, each call asks for confirmation. Search works out of the box with the built-in metasearch
-                  engine; point it at a SearXNG instance if you run one.
+                  When on, the agent may use <code>web_search</code>, <code>fetch_url</code>, and
+                  <code>screenshot_webpage</code>. When Auto Run is off, each call asks for confirmation.
+                  Screenshots use isolated Chromium with scripts disabled. Search uses built-in metasearch or SearXNG.
                 </p>
               </div>
               <label class='field'>
@@ -125,8 +125,8 @@
                   spellcheck='false'
                 />
                 <p class='settings-field-hint'>
-                  Sent with every built-in engine request. Leave empty for the default browser string. Shown on the
-                  approval card when Auto Run is off.
+                  Sent with built-in search and screenshot requests. Leave empty for the default browser string.
+                  Shown on the approval card when Auto Run is off. Screenshot requests reject email addresses in this header.
                 </p>
               </div>
               <div class='field field--hint'>

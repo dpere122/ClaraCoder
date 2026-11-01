@@ -489,10 +489,13 @@ def _web_access_operational_bullet() -> str:
     if not getattr(runtime_config.tools, 'allow_web_access', False):
         return ''
     return (
-        '- **Web:** `web_search` (built-in metasearch, or your SearXNG instance) and `fetch_url` are bound. '
-        'When Auto Run is off, each call asks for confirmation before leaving the machine, and the card shows '
-        'the User-Agent being sent. The User-Agent and per-engine cooldowns live in Settings → Tools; email '
-        'addresses are stripped from search queries before they leave the machine.\n'
+        '- **Web:** `web_search` (built-in metasearch, or your SearXNG instance), `fetch_url` and '
+        '`screenshot_webpage` are bound. When Auto Run is off, each call asks for confirmation before leaving '
+        'the machine; search/screenshot cards show the User-Agent from Settings → Tools. Email addresses are '
+        'stripped from search queries; screenshot URLs/User-Agents containing emails are rejected. '
+        'Screenshots are isolated static captures of public pages/direct images, not logins, interaction, or '
+        'script-dependent apps. Embed the returned screenshot Markdown image verbatim in your reply. '
+        'The User-Agent and per-engine search cooldowns live in Settings → Tools.\n'
     )
 
 

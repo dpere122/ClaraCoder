@@ -59,6 +59,12 @@
       <path class="ts-third" d="M7 23l5.5-6 4 4.5 3-3 5.5 4.5" />
       <circle class="ts-dot ts-node" cx="21" cy="12.5" r="2" />
     }
+    @case ('screenshot') {
+      <!-- Camera; the shutter pulses while a webpage capture is running. -->
+      <path class="ts-line" d="M5 10h5l2-4h8l2 4h5v16H5z" />
+      <circle class="ts-hi ts-pulse" cx="16" cy="17" r="5" />
+      <circle class="ts-dot" cx="24" cy="13" r="1" />
+    }
     @case ('list') {
       <!-- Directory tree; entries light in order. -->
       <circle class="ts-dot-line" cx="8" cy="6" r="1.8" />

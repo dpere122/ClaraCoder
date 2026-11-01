@@ -277,6 +277,11 @@ app-chat-box .assistant-md {
   color: var(--chat-final-response-fg);
 }
 
+app-chat-box .assistant-md img {
+  max-width: 100%;
+  height: auto;
+}
+
 .assistant-bubble p {
   margin: 0 0 0.5em;
 }

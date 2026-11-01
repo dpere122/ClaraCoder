@@ -1,4 +1,5 @@
-import { Pipe, PipeTransform, SecurityContext } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
+import { Pipe, PipeTransform, SecurityContext, inject } from '@angular/core';
 import { DomSanitizer } from '@angular/platform-browser';
 import { Marked } from 'marked';
 import hljs from 'highlight.js';
@@ -51,8 +52,38 @@ const customRenderer = {
 const markedInstance = new Marked();
 markedInstance.use({ renderer: customRenderer });
 
+/** Only broker-generated capture PNGs may load in assistant markdown (no paths or query strings). */
+const CAPTURE_IMAGE_URL = /^nemo-asset:\/\/capture\/[a-f0-9]{32}\.png$/;
+
+function filterMarkdownImages(html: string, document: Document): string {
+  // A template is inert: parsing must not fetch an unapproved image before we can reject it.
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  for (const element of template.content.querySelectorAll('[srcset], [poster]')) {
+    element.removeAttribute('srcset');
+    element.removeAttribute('poster');
+  }
+  for (const image of template.content.querySelectorAll('img')) {
+    const src = image.getAttribute('src') ?? '';
+    // Comparing the whole match also rejects the trailing newline JavaScript's `$` accepts.
+    if (CAPTURE_IMAGE_URL.exec(src)?.[0] !== src) {
+      image.replaceWith(document.createTextNode(image.getAttribute('alt') ?? ''));
+      continue;
+    }
+    // Preserve only inert metadata. DOM serialization escapes alt/title, including raw HTML input.
+    for (const attribute of Array.from(image.attributes)) {
+      if (!['src', 'alt', 'title'].includes(attribute.name)) {
+        image.removeAttribute(attribute.name);
+      }
+    }
+  }
+  return template.innerHTML;
+}
+
 @Pipe({ name: 'markdown', standalone: true })
 export class MarkdownPipe implements PipeTransform {
+  private readonly document = inject(DOCUMENT);
+
   constructor(private sanitizer: DomSanitizer) {}
 
   /**
@@ -63,6 +94,11 @@ export class MarkdownPipe implements PipeTransform {
     void layoutPass;
     const normalized = normalizeLooseAtxHeadings(value ?? '');
     const html = markedInstance.parse(normalized, { async: false }) as string;
-    return this.sanitizer.sanitize(SecurityContext.HTML, html) ?? '';
+    // Filter before sanitization too: never hand ordinary remote images to its HTML parser.
+    const filtered = filterMarkdownImages(html, this.document);
+    const sanitized = this.sanitizer.sanitize(SecurityContext.HTML, filtered) ?? '';
+    // Check again after stripped wrappers/namespace changes. This stays an ordinary string,
+    // so Angular's [innerHTML] sanitizer remains enabled as well.
+    return filterMarkdownImages(sanitized, this.document);
   }
 }

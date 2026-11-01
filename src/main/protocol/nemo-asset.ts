@@ -4,6 +4,7 @@ import * as path from 'path';
 import { computeThumbDimensions, parseThumbMaxEdge } from '../../shared/nemo-asset-thumb';
 import { assertRegisteredWorkspaceDirectory } from '../utils/assert-registered-workspace-dir';
 import { resolveSafeWorkspacePath } from '../utils/workspace-safe-path';
+import { captureAssetResponse } from '../web/screenshot-assets';
 
 /** Image types servable in the markdown preview / image viewer; anything else 404s. */
 const IMAGE_MIME_BY_EXT: Record<string, string> = {
@@ -216,6 +217,7 @@ export function registerNemoAssetProtocol(): void {
     let maxEdge: number | null;
     try {
       const url = new URL(request.url);
+      if (url.hostname === 'capture') return captureAssetResponse(request.url);
       root = url.searchParams.get('root') ?? '';
       relPath = url.searchParams.get('path') ?? '';
       maxEdge = parseThumbMaxEdge(url.searchParams.get('thumb'), url.searchParams.get('w'));

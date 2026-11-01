@@ -1,37 +1,125 @@
-# Clara Coder
+<p align="center">
+  <img src="docs/media/marketing/banner-1920x1080.png" alt="Clara Coder: your AI pair programmer, on your desktop" width="100%">
+</p>
 
-Electron desktop app with an Angular UI and a Python (FastAPI + LangGraph) backend for AI-assisted coding: an agent with workspace read/edit tools and approved shell commands, LSP integration, a semantic workspace index, MCP servers, build plans, speech transcription, and local Kokoro TTS. Models come from OpenAI, OpenRouter, LM Studio, or a managed local `llama-server` (llama.cpp).
+<p align="center">
+  <a href="https://github.com/dpere122/ClaraCoder/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/dpere122/ClaraCoder?style=flat-square&color=4da3ff&label=release"></a>
+  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-ffb35c?style=flat-square"></a>
+  <img alt="Electron" src="https://img.shields.io/badge/Electron-47848F?style=flat-square&logo=electron&logoColor=white">
+  <img alt="Angular" src="https://img.shields.io/badge/Angular-DD0031?style=flat-square&logo=angular&logoColor=white">
+  <img alt="Python" src="https://img.shields.io/badge/Python_3.10–3.13-3776AB?style=flat-square&logo=python&logoColor=white">
+</p>
 
-For Python API details, env vars, and layout, see [python/README.md](python/README.md). For how agent tools are written, see [python/TOOLS.md](python/TOOLS.md).
+<p align="center">
+  <b>An AI coding agent that lives on your desktop.</b><br>
+  It reads your workspace, edits files, runs approved commands and hands every change back for review,<br>
+  using Claude, OpenAI, OpenRouter, LM Studio, or a model running on your own GPU.
+</p>
 
-## First-time build
+<p align="center">
+  <a href="https://github.com/dpere122/ClaraCoder/releases/latest"><b>Download</b></a> ·
+  <a href="#features">Features</a> ·
+  <a href="#build-from-source">Build from source</a> ·
+  <a href="#themes">Themes</a> ·
+  <a href="#troubleshooting">Troubleshooting</a>
+</p>
 
-These steps get a fresh clone running in development. Allow roughly 5–15 minutes depending on network speed (PyTorch and Kokoro are the slow parts).
+<p align="center">
+  <img src="docs/media/clips/agent-turn.gif" alt="Clara adding a 5-day forecast strip to a weather app: it reads the files, edits six of them and summarises the change" width="100%">
+  <br><sub>One prompt, one real agent turn (Claude Opus 5.5, sped up): Clara reads the project, edits six files and summarises what changed.</sub>
+</p>
+
+---
+
+## Features
+
+### Describe it. Watch it land.
+
+Clara is an agent, not autocomplete. Ask for a change in plain language and it works through your workspace with real tools:
+
+- **Read, search and edit** files across the workspace, with LSP diagnostics and navigation (TypeScript/JavaScript bundled, Java via JDT LS).
+- **Semantic workspace index** built locally with fastembed, so "where do we handle auth?" finds the right code.
+- **Approved shell commands** in the workspace, or **Auto Run** to approve them for the conversation.
+- **Web search, URL fetching and page screenshots** when the answer isn't in your repo.
+- **Sub-agents** for parallel work, **build plans** for multi-step changes, and **MCP servers** for your own tools.
+- **Pick the model and reasoning effort per message** from the composer.
+
+### Every edit, reversible.
+
+<img src="docs/media/clips/turn-review.gif" alt="Clicking through the files edited in a turn and opening each as a before/after diff" width="100%">
+
+File edits land on disk straight away, and every turn ends with a change list: each file, its added and removed lines, and a **Reset** for that file or the whole turn. Click a file to open a read-only diff of exactly what that turn changed.
+
+### Ask for a theme. Get a theme.
+
+<img src="docs/media/clips/theme-proposal.gif" alt="Asking Clara for a synthwave theme and previewing it live" width="100%">
+
+Ask Clara for a theme ("make me a synthwave theme") and it posts a card you can **Preview**, **Save & apply**, **Save only** or **Dismiss**. Underneath is a full [theme engine](#themes): design tokens, per-panel overrides, background images and Monaco editor palettes, shared as a single `.clara-theme.json`.
+
+### Cloud or local. Your call.
+
+| Source | Notes |
+| ------ | ----- |
+| **Claude** | API key checked, encrypted with your OS keychain, and never shown again. |
+| **OpenAI** · **OpenRouter** | Any chat model the endpoint serves. |
+| **LM Studio** | Point at a running LM Studio server. |
+| **llama.cpp** | A managed `llama-server` with GPU-aware builds (CUDA / Vulkan / CPU) and a Hugging Face model browser. |
+
+<img src="docs/media/screenshots/health-system.png" alt="Health window showing live GPU VRAM, CPU, memory, network and disk stats" width="100%">
+
+The **Health** window shows runtime status (Python sidecar, LSP, llama-server, speech) and live GPU, CPU, memory, network and disk stats. Optional pieces such as llama-server, the Java language server, Whisper speech-to-text and Kokoro TTS download on demand from the **Dependencies** window.
+
+### More screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/screenshots/turn-diff.png" alt="Read-only before/after diff of one turn"><br><sub><b>Turn diff:</b> before and after for one file in one turn.</sub></td>
+    <td width="50%"><img src="docs/media/screenshots/theme-proposal.png" alt="Theme proposal card with the synthwave preview applied"><br><sub><b>Theme proposal:</b> the whole app previews the new theme.</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/screenshots/theme-library.png" alt="Settings theme library with built-in and user themes"><br><sub><b>Theme library:</b> built-ins, your themes, import and export.</sub></td>
+    <td><img src="docs/media/screenshots/theme-colors.png" alt="Global colors token editor"><br><sub><b>Global colors:</b> edit any design token with live preview.</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/screenshots/dependencies.png" alt="Dependencies window listing llama-server, Java LSP, Kokoro TTS and Whisper STT"><br><sub><b>Dependencies:</b> heavy pieces install on demand.</sub></td>
+    <td><img src="docs/media/screenshots/health-runtime.png" alt="Health window runtime status cards"><br><sub><b>Health:</b> each runtime component at a glance.</sub></td>
+  </tr>
+</table>
+
+---
+
+## Install
+
+Download the latest Windows installer from **[Releases](https://github.com/dpere122/ClaraCoder/releases/latest)**. The installer ships a portable Python with the backend, so there is nothing else to set up; connect a model under **Sources** on first launch.
+
+On macOS and Linux, [build from source](#build-from-source): `npm run pack` produces a `.dmg`, or a `.deb` and AppImage.
+
+---
+
+## Build from source
+
+Clara Coder is an Electron app with an Angular UI and a Python (FastAPI + LangGraph) backend. For Python API details, env vars and layout, see [python/README.md](python/README.md). For how agent tools are written, see [python/TOOLS.md](python/TOOLS.md).
+
+A fresh clone takes roughly 5–15 minutes to set up, depending on network speed (PyTorch and Kokoro are the slow parts).
 
 ### Prerequisites
 
-
-| Tool                 | Notes                                                                                                                                                                                                                          |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Node.js + npm**    | Required for Electron, Angular, and native addon rebuilds. The repo pins `npm@11.9.0`; any recent npm 11.x is fine.                                                                                                           |
-| **Python 3.10–3.13** | One system Python is enough. `npm run setup:python` creates the repo-root `.venv` for you — you do **not** need a separate 3.12 install.                                                                                        |
-| **Git**              | Needed when Kokoro cannot install from PyPI (today: Python 3.13+); `setup:python` falls back to GitHub for misaki/kokoro.                                                                                                      |
+| Tool                 | Notes |
+| -------------------- | ----- |
+| **Node.js + npm**    | Required for Electron, Angular, and native addon rebuilds. The repo pins `npm@11.9.0`; any recent npm 11.x is fine. |
+| **Python 3.10–3.13** | One system Python is enough. `npm run setup:python` creates the repo-root `.venv` for you — you do **not** need a separate 3.12 install. |
+| **Git**              | Needed when Kokoro cannot install from PyPI (today: Python 3.13+); `setup:python` falls back to GitHub for misaki/kokoro. |
 | **Build toolchain**  | Linux/macOS: compiler + Python headers for `node-pty` / `better-sqlite3` rebuilds (`build-essential`, `python3-venv`, etc.). Windows: Visual Studio Build Tools; see [node-pty / Spectre note](#native-modules-better-sqlite3--node-pty) below. |
-
 
 Optional:
 
 - **espeak-ng** — improves Kokoro English fallback for out-of-vocabulary words ([Kokoro docs](https://pypi.org/project/kokoro/)).
-- **An LLM connection** — an OpenAI or OpenRouter API key, a running LM Studio, or a GGUF model for the managed `llama-server`. All are configured in the app after launch, not at build time.
-
-
+- **An LLM connection** — a Claude, OpenAI or OpenRouter API key, a running LM Studio, or a GGUF model for the managed `llama-server`. All are configured in the app after launch, not at build time.
 
 ### 1. Clone and install Node dependencies
 
-From the repository root:
-
 ```bash
-git clone <repo-url> ClaraCoder
+git clone https://github.com/dpere122/ClaraCoder.git
 cd ClaraCoder
 npm install
 ```
@@ -46,8 +134,6 @@ npm install
 ```
 
 ### 2. Install Python dependencies (including Kokoro TTS)
-
-From the repo root:
 
 ```bash
 npm run setup:python
@@ -66,8 +152,6 @@ Override the base interpreter used to create `.venv` if needed:
 ```bash
 PYTHON=/path/to/python3 npm run setup:python:cpu
 ```
-
-
 
 ### 3. Run the app
 
@@ -110,7 +194,7 @@ npm test            # renderer (Angular + Vitest)
 npm run test:node   # Electron main / preload / shared / scripts
 ```
 
-**Production-style build**
+### Packaging
 
 ```bash
 npm run pack:dir
@@ -128,13 +212,17 @@ npm run bundle:python -- --force --write-lock
 
 On **Linux**, `npm run pack` builds a `.deb` and an AppImage. Prefer the `.deb` on Debian/Ubuntu. The AppImage needs FUSE 2 (`libfuse.so.2`); on Debian 13 / Ubuntu 24.04+ install `libfuse2t64` first, or run with `APPIMAGE_EXTRACT_AND_RUN=1`.
 
-**Agent PATH on packaged launches**
+<details>
+<summary><b>Agent PATH on packaged launches</b></summary>
 
 Desktop launchers give the app a stripped GUI `PATH`, so agent `run_command` cannot find CLIs that work in a login terminal (`gh`, `cargo`, `~/.local/bin`, nvm/fnm/asdf shims, Homebrew, …). The workspace terminal is unaffected — it is an interactive shell that sources your profile.
 
 Clara Coder reconstructs user bins once at startup (login-shell `PATH` probe + well-known directories that exist) and applies that to the sidecar that agent commands inherit. Add extra directories in **Settings → Tools → Extra PATH directories** (one per line). The login probe reads `PATH` only; it does not copy API keys or other profile secrets into agent env.
 
-**Dependencies window**
+</details>
+
+<details>
+<summary><b>Dependencies window</b></summary>
 
 After install (or in dev), open **Dependencies** to download optional runtime pieces into app data (`runtime/`):
 
@@ -147,7 +235,10 @@ After install (or in dev), open **Dependencies** to download optional runtime pi
 
 Heavy pieces are on-demand; the packaged app ships a portable Python with core backend packages plus the backend sources. Kokoro and Whisper install into an app-data venv layered on that Python (`runtime/python-venv`), which their installs create when needed.
 
-#### llama-server GPU acceleration (auto-detected)
+</details>
+
+<details>
+<summary><b>llama-server GPU acceleration (auto-detected)</b></summary>
 
 The `llama-server` installer probes the host and picks a GPU-accelerated build when one is available, falling back to CPU otherwise:
 
@@ -178,38 +269,47 @@ Pin a different llama.cpp release with `CLARA_LLAMA_SERVER_VERSION` (e.g. `b1086
 
 Managed chat servers are started with `--cache-ram 0` unless the run command already sets `--cache-ram`. llama-server's default is an 8 GiB host-RAM prompt cache that fills up whenever the prompt prefix changes (for example when the workspace tree in the system prompt changes mid-session), which looks like a steady RAM leak at large contexts. Add `--cache-ram <MiB>` to the run command to opt back in.
 
----
+</details>
 
+### Day-to-day commands
 
-
-## Day-to-day commands
-
-
-| Command                     | Purpose                                                |
-| --------------------------- | ------------------------------------------------------ |
-| `npm run dev`               | Development (UI + Electron + Python backend)           |
-| `npm run build`             | Compile main process + Angular for production          |
-| `npm run pack`              | Bundle portable Python + core deps, verify unpacked runtime, build installer (`.exe`, `.dmg`, Linux `.deb`/AppImage)|
+| Command                     | Purpose |
+| --------------------------- | ------- |
+| `npm run dev`               | Development (UI + Electron + Python backend) |
+| `npm run build`             | Compile main process + Angular for production |
+| `npm run pack`              | Bundle portable Python + core deps, verify unpacked runtime, build installer (`.exe`, `.dmg`, Linux `.deb`/AppImage) |
 | `npm run pack:dir`          | Same as `pack`, but stops at the unpacked app directory (no installer) |
 | `npm run bundle:python`     | Fetch portable CPython, install requirements into the bundle, write runtime manifest |
 | `npm run bundle:vtsls`      | Assemble the bundled TypeScript/JavaScript language server into `vtsls-bundle/` |
 | `npm run bundle:rg`         | Fetch the pinned ripgrep binary into `runtime-bundle/ripgrep/` |
 | `npm run rebuild:sqlite` / `rebuild:pty` | Force-rebuild `better-sqlite3` / `node-pty` for the pinned Electron |
 | `npm run setup:python`      | Create `.venv` if needed; install deps + GPU PyTorch + Kokoro |
-| `npm run setup:python:cpu`  | Same without CUDA — CPU-only PyTorch                   |
-| `npm run check:python-deps` | Lint Python dependency graph (`deptry`)                |
-| `npm run test`              | Renderer unit tests (Angular + Vitest)                 |
-| `npm run test:node`         | Electron main / preload / shared / scripts unit tests  |
+| `npm run setup:python:cpu`  | Same without CUDA — CPU-only PyTorch |
+| `npm run check:python-deps` | Lint Python dependency graph (`deptry`) |
+| `npm run test`              | Renderer unit tests (Angular + Vitest) |
+| `npm run test:node`         | Electron main / preload / shared / scripts unit tests |
 | `npm run gen:theme-registry` | Regenerate the theme group registry from `data-theme-group` attributes (also runs before `dev`, `build`, and `test`) |
-| `npm run check:theme-registry` | Fail when the committed registry is stale           |
+| `npm run check:theme-registry` | Fail when the committed registry is stale |
 
+### Environment overrides
 
+| Variable             | Purpose |
+| -------------------- | ------- |
+| `CLARA_PYTHON`       | Dev only: absolute path to Python executable (skips auto `.venv` detection). Ignored in packaged builds. |
+| `CLARA_PYTORCH_CPU=1` | Same as `setup:python:cpu` — CPU-only PyTorch |
+| `PYTHON`             | Base interpreter for creating `.venv` if it does not exist yet |
+| `DEV_SERVER_URL`     | Set automatically by `npm run dev` |
+| `CLARA_LLAMA_SERVER_VERSION` | Pin a llama.cpp release tag for the managed `llama-server` dep (e.g. `b10867`) |
+| `CLARA_LLAMA_SERVER_CUDA` | Force the `llama-server` build variant: `auto` (default) \| `cpu` \| `cuda-12` \| `cuda-13` \| `vulkan` \| `compile` |
+| `CLARA_FASTEMBED_THREADS` | ONNX Runtime CPU threads for the in-process workspace embedder (`0` = auto, `min(4, cores)`). Lower it if background indexing competes with a CPU-offloaded `llama-server` |
+
+---
 
 ## Themes
 
 The UI is painted by a theme engine (`src/renderer/src/app/core/theme`, shared schema in `src/shared/theme`).
 A theme is a JSON document — global design tokens (`--t-*`), per-element-group overrides, optional
-background images, and an optional Monaco palette. Two read-only built-ins ship (`clara-dark`, `clara-light`);
+background images, and an optional Monaco palette. Read-only built-ins ship (`default`, `clara-dark`, `clara-light`);
 user themes live under `{userData}/themes/<id>/theme.json` with images in `assets/`.
 
 ### Using themes
@@ -226,7 +326,8 @@ user themes live under `{userData}/themes/<id>/theme.json` with images in `asset
 - In chat, ask Clara for a theme ("make me a cyberpunk theme"); the `propose_theme` tool posts a card with
   **Preview**, **Save & apply**, **Save only**, and **Dismiss**.
 
-### Theme document
+<details>
+<summary><b>Theme document format</b></summary>
 
 ```jsonc
 {
@@ -255,7 +356,10 @@ every style rule is emitted inside a native `@scope (<root>) { … }` block, so 
 descendants, a leading `&` (or `:host`, `:root`) targets the root itself; `@keyframes` / `@font-face` are kept
 global. Embedded images must be strict `data:image/…;base64,` URLs.
 
-### Registering a new element group (for contributors)
+</details>
+
+<details>
+<summary><b>Registering a new element group (for contributors)</b></summary>
 
 1. Put `data-theme-group="<category>.<name>"` on the root element of the component template (or in the
    component's `host` metadata). Ids are lowercase with hyphens, one dot.
@@ -268,27 +372,11 @@ global. Embedded images must be strict `data:image/…;base64,` URLs.
    (root must be `position: relative`), and `backgroundClear` (inner selectors made transparent while an
    overlay is active).
 
+</details>
 
-
-## Environment overrides
-
-
-| Variable             | Purpose                                                           |
-| -------------------- | ----------------------------------------------------------------- |
-| `CLARA_PYTHON`        | Dev only: absolute path to Python executable (skips auto `.venv` detection). Ignored in packaged builds. |
-| `CLARA_PYTORCH_CPU=1` | Same as `setup:python:cpu` — CPU-only PyTorch                     |
-| `PYTHON`             | Base interpreter for creating `.venv` if it does not exist yet    |
-| `DEV_SERVER_URL`     | Set automatically by `npm run dev`                                |
-| `CLARA_LLAMA_SERVER_VERSION` | Pin a llama.cpp release tag for the managed `llama-server` dep (e.g. `b10867`) |
-| `CLARA_LLAMA_SERVER_CUDA` | Force the `llama-server` build variant: `auto` (default) \| `cpu` \| `cuda-12` \| `cuda-13` \| `vulkan` \| `compile` |
-| `CLARA_FASTEMBED_THREADS` | ONNX Runtime CPU threads for the in-process workspace embedder (`0` = auto, `min(4, cores)`). Lower it if background indexing competes with a CPU-offloaded `llama-server` |
-
-
-
+---
 
 ## Troubleshooting
-
-
 
 ### `setup:python` fails on Python 3.13
 
@@ -297,8 +385,6 @@ Ensure Git is installed and reachable. On 3.13, Kokoro falls back to cloning [he
 ```bash
 npm run setup:python
 ```
-
-
 
 ### `No Python 3.10–3.13 found` / venv creation fails
 
@@ -309,8 +395,6 @@ npm run setup:python
 ```
 
 To recreate from scratch: `rm -rf .venv && npm run setup:python`.
-
-
 
 ### Backend uses the wrong Python
 
@@ -328,20 +412,22 @@ Confirm Kokoro imports in your venv (see step 4 above). For English OOD fallback
 
 On NVIDIA GPUs, Kokoro uses CUDA via PyTorch. If TTS is slow or falls back to CPU, verify the GPU check in step 4 and reinstall with `npm run setup:python`.
 
-## Project layout (short)
+---
 
+## Project layout
 
-| Path                       | Role                                                         |
-| -------------------------- | ------------------------------------------------------------ |
-| `src/main/`                | Electron main process (TypeScript)                           |
-| `src/preload/`             | Preload bridge between the renderer and main process         |
+| Path                       | Role |
+| -------------------------- | ---- |
+| `src/main/`                | Electron main process (TypeScript) |
+| `src/preload/`             | Preload bridge between the renderer and main process |
 | `src/renderer/`            | Angular UI ([src/renderer/README.md](src/renderer/README.md)) |
 | `src/shared/`              | Types shared by main and renderer; `theme/` holds the theme schema, token catalog, generated group registry, and built-in themes |
-| `python/`                  | FastAPI backend (`server.py`, `clara_coder_backend/`)               |
+| `python/`                  | FastAPI backend (`server.py`, `clara_coder_backend/`) |
 | `.venv/`                   | Project Python environment (gitignored; created by `setup:python`) |
 | `scripts/`                 | Build, bundling, native-rebuild, and theme-registry scripts (`setup-python.mjs` creates `.venv` and installs PyTorch + deps + Kokoro) |
+| `docs/media/`              | README screenshots and clips, plus the [press kit](docs/media/README.md) |
 | `tests/branch-smoke/`      | Local, gitignored smoke scripts for a branch ([README](tests/branch-smoke/README.md)) |
 
 ## License
 
-ClaraCoder is licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for attribution.
+Clara Coder is licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for attribution.

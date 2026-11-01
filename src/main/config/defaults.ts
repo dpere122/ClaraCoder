@@ -29,6 +29,7 @@ import {
   PINNED_LM_STUDIO_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
   PINNED_OPENROUTER_PROVIDER_ID,
+  PINNED_ANTHROPIC_PROVIDER_ID,
   OPENROUTER_DEFAULT_BASE_URL,
   TTS_SPEECH_SPEED_DEFAULT,
 } from '../../shared';
@@ -167,12 +168,45 @@ export function createPinnedOpenRouterProvider(): LlmProviderConfig {
   };
 }
 
+function defaultAnthropicModelProfile(): LlmModelProfile {
+  return {
+    id: 'default-anthropic',
+    name: 'Claude',
+    model: '',
+    contextWindowTokens: inferContextWindowTokens('', 'anthropic'),
+    reasoningEffort: '',
+    thinkingMode: 'default',
+    samplingPreset: 'provider-default',
+    architectureHint: 'auto',
+    temperature: 0,
+    parallelToolCalls: true,
+    optimizationPreset: 'generic',
+    maxOutputTokens: 0,
+  };
+}
+
+/**
+ * Pinned Claude row (stable id; never deleted in UI). ``apiKey`` stays empty: the key lives in
+ * main's keychain store (``anthropic-key-store``) and is never part of the config.
+ */
+export function createPinnedAnthropicProvider(): LlmProviderConfig {
+  return {
+    id: PINNED_ANTHROPIC_PROVIDER_ID,
+    name: 'Claude',
+    provider: 'anthropic',
+    baseUrl: '',
+    apiKey: SecretValue.of(''),
+    models: [defaultAnthropicModelProfile()],
+  };
+}
+
 export function getDefaultLlmProviders(): LlmProviderConfig[] {
   return [
     createPinnedLmStudioProvider(),
     createPinnedLlamaServerUrlProvider(),
     createPinnedLocalManagedLlamaProvider(),
     createPinnedOpenRouterProvider(),
+    createPinnedAnthropicProvider(),
   ];
 }
 

@@ -524,3 +524,99 @@
 .openrouter-more {
   align-self: center;
 }
+
+/* Claude card: write-only key, status, then a model dropdown with the selected model's facts. */
+.claude-key-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.claude-link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--t-text-muted, var(--t-muted));
+  font: inherit;
+  font-size: 11px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.claude-link-button:hover:not(:disabled) {
+  color: var(--t-danger);
+}
+
+.claude-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--t-border-subtle);
+  font-size: 11px;
+}
+
+.claude-pill--ok {
+  border-color: var(--t-success);
+  color: var(--t-success);
+}
+
+.claude-pill--warn {
+  border-color: var(--t-warn);
+  color: var(--t-warn);
+}
+
+.claude-status--ok {
+  color: var(--t-success);
+}
+
+.claude-status--error {
+  color: var(--t-danger);
+}
+
+.claude-note {
+  margin-top: 10px;
+}
+
+.claude-model-card {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--t-border-subtle);
+  background: var(--t-bg-deep);
+  font-size: 12px;
+}
+
+.claude-model-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.claude-model-card__head code {
+  color: var(--t-text-muted, var(--t-muted));
+}
+
+.claude-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 8px 14px;
+  margin: 0;
+}
+
+.claude-facts dt {
+  margin: 0;
+  font-size: 11px;
+  color: var(--t-text-muted, var(--t-muted));
+}
+
+.claude-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.claude-model-card__hint {
+  margin: 0;
+}

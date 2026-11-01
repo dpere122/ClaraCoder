@@ -199,6 +199,16 @@ def aimessage_chunk_reasoning_delta(chunk: BaseMessageChunk) -> str:
     r = getattr(chunk, 'reasoning', None)
     if isinstance(r, str) and r:
         return r
+    content = getattr(chunk, 'content', None)
+    if isinstance(content, list):
+        # Claude (``ChatAnthropic``) streams reasoning as ``{"type": "thinking", "thinking": "…"}`` blocks.
+        thinking = ''.join(
+            block['thinking']
+            for block in content
+            if isinstance(block, dict) and block.get('type') == 'thinking' and isinstance(block.get('thinking'), str)
+        )
+        if thinking:
+            return thinking
     ak = getattr(chunk, 'additional_kwargs', None) or {}
     for key in ('reasoning_content', 'reasoning'):
         val = ak.get(key)

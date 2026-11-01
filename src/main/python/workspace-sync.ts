@@ -24,6 +24,8 @@ import {
 } from '../chat-template-reasoning-cache';
 import { lmStudioListModels } from '../lm-studio-client';
 import { refreshOpenRouterReasoningCaps } from '../openrouter-reasoning';
+import { refreshAnthropicReasoningCaps } from '../anthropic-models';
+import { getAnthropicApiKey } from '../anthropic-key-store';
 
 /**
  * OAuth fields Python needs. The refresh token stays in Electron, which is the only refresher
@@ -182,6 +184,7 @@ function chatTemplateReasoningWire(
   return {
     enableThinking: caps.enableThinking,
     reasoningEffortValues: caps.reasoningEffortValues == null ? null : [...caps.reasoningEffortValues],
+    ...(caps.adaptiveThinking !== undefined ? { adaptiveThinking: caps.adaptiveThinking } : {}),
   };
 }
 
@@ -330,18 +333,25 @@ async function postRuntimeConfigToPython(
   llamaManagedEndpoints?: Record<string, LlamaManagedRuntimeEndpoints>,
 ): Promise<void> {
   try {
-    await Promise.all([refreshLmStudioLiveNctx(config), refreshOpenRouterReasoningCaps(config)]);
+    await Promise.all([
+      refreshLmStudioLiveNctx(config),
+      refreshOpenRouterReasoningCaps(config),
+      refreshAnthropicReasoningCaps(config),
+    ]);
     const flat = flattenLlmProvidersToConnections(config.llmProviders);
     const reasoningById = getAllCachedChatTemplateReasoning();
     const nCtxById = getAllCachedLlamaServerNctx();
-    const connections = flat.map((c) =>
-      connectionToRuntimeWire(
+    // The Claude key is never in config; main's keychain store hands it to the sidecar here only.
+    const anthropicKey = flat.some((c) => c.provider === 'anthropic') ? await getAnthropicApiKey() : '';
+    const connections = flat.map((c) => {
+      const wire = connectionToRuntimeWire(
         c,
         c.provider === 'llamacpp' ? llamaManagedEndpoints?.[c.id] : undefined,
         reasoningById[c.id],
         nCtxById[c.id],
-      ),
-    );
+      );
+      return c.provider === 'anthropic' ? { ...wire, apiKey: anthropicKey } : wire;
+    });
     const response = await pythonControlFetch('/runtime-config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

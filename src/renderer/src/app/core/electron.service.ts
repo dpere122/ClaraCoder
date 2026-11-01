@@ -28,6 +28,9 @@ import type {
   EmbeddingsStatusResult,
   LlamacppManagedListModelsResult,
   OpenRouterListModelsResult,
+  AnthropicListModelsResult,
+  AnthropicSetModelResult,
+  AnthropicStatus,
   ChatTemplateReasoningCaps,
   LmStudioListModelsResult,
   LmStudioMutationResult,
@@ -353,6 +356,12 @@ export interface LspSemanticTokensFullPayload {
   data: number[];
   resultId: string | null;
 }
+
+const ANTHROPIC_API_UNAVAILABLE: AnthropicListModelsResult = {
+  ok: false,
+  error: 'API not available',
+  status: { configured: false, storage: 'none', keyHint: '', models: [] } satisfies AnthropicStatus,
+};
 
 @Injectable({ providedIn: 'root' })
 export class ElectronService {
@@ -1669,6 +1678,23 @@ export class ElectronService {
 
   openRouterListModels(payload: { baseUrl: string; apiKey: string }): Promise<OpenRouterListModelsResult> {
     return this.api?.openRouterListModels(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  anthropicStatus(payload?: { refresh?: boolean }): Promise<AnthropicListModelsResult> {
+    return this.api?.anthropicStatus(payload) ?? Promise.resolve(ANTHROPIC_API_UNAVAILABLE);
+  }
+
+  /** Hands the key to main, which checks it, encrypts it, and keeps it; it is not returned. */
+  anthropicSetApiKey(payload: { apiKey: string }): Promise<AnthropicListModelsResult> {
+    return this.api?.anthropicSetApiKey(payload) ?? Promise.resolve(ANTHROPIC_API_UNAVAILABLE);
+  }
+
+  anthropicClearApiKey(): Promise<AnthropicListModelsResult> {
+    return this.api?.anthropicClearApiKey() ?? Promise.resolve(ANTHROPIC_API_UNAVAILABLE);
+  }
+
+  anthropicSetModel(payload: { modelId: string }): Promise<AnthropicSetModelResult> {
+    return this.api?.anthropicSetModel(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
   }
 
   lmStudioListModels(payload: { baseUrl: string; apiKey?: string }): Promise<LmStudioListModelsResult> {

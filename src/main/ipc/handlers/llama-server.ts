@@ -13,6 +13,7 @@ import { getCachedChatTemplateReasoning, getCachedLlamaServerNctx } from '../../
 import { loadConfig } from '../../config/load-save';
 import { fetchOpenAiCompatibleModelIds } from '../../openai-compatible-models';
 import { findOpenRouterConnection, refreshOpenRouterReasoningForConnection } from '../../openrouter-reasoning';
+import { findAnthropicConnection, refreshAnthropicReasoningForConnection } from '../../anthropic-models';
 import { pythonControlFetch } from '../../python/http-client';
 import { assertTrustedAppRenderer, assertTrustedMainRendererOrThrow } from '../assert-trusted-renderer';
 
@@ -80,9 +81,16 @@ export function registerLlamaServerIpc(): void {
       return { ok: false as const, error: 'Missing model id.' };
     }
     // Any active connection asks here; OpenRouter caps come from the model catalog, not a template.
-    const openRouter = findOpenRouterConnection(await loadConfig(), modelId);
+    const config = await loadConfig();
+    const openRouter = findOpenRouterConnection(config, modelId);
     if (openRouter) {
       const caps = await refreshOpenRouterReasoningForConnection(openRouter);
+      return { ok: true as const, modelId, chatTemplateReasoning: caps ?? null, nCtx: null };
+    }
+    // Claude caps come from the Models API catalog.
+    const anthropic = findAnthropicConnection(config, modelId);
+    if (anthropic) {
+      const caps = await refreshAnthropicReasoningForConnection(anthropic);
       return { ok: true as const, modelId, chatTemplateReasoning: caps ?? null, nCtx: null };
     }
     return {

@@ -69,6 +69,11 @@ export const createAppServicesApi = (ipcRenderer: PreloadIpc) => ({
     ipcRenderer.invoke('llamacpp-openai:list-models', payload),
   openRouterListModels: (payload: { baseUrl: string; apiKey: string }) =>
     ipcRenderer.invoke('openrouter:list-models', payload),
+  /** Claude: the key goes in once and never comes back out; status carries only a hint. */
+  anthropicStatus: (payload?: { refresh?: boolean }) => ipcRenderer.invoke('anthropic:status', payload),
+  anthropicSetApiKey: (payload: { apiKey: string }) => ipcRenderer.invoke('anthropic:set-api-key', payload),
+  anthropicClearApiKey: () => ipcRenderer.invoke('anthropic:clear-api-key'),
+  anthropicSetModel: (payload: { modelId: string }) => ipcRenderer.invoke('anthropic:set-model', payload),
   lmStudioListModels: (payload: { baseUrl: string; apiKey?: string }) => ipcRenderer.invoke('lm-studio:list-models', payload),
   lmStudioLoadModel: (payload: { baseUrl: string; model: string; apiKey?: string }) =>
     ipcRenderer.invoke('lm-studio:load-model', payload),

@@ -129,6 +129,9 @@ def compose_outer_turn_human_content(
     return merged
 
 
+_REASONING_BLOCK_TYPES = frozenset({'thinking', 'redacted_thinking'})
+
+
 def stringify_content(content: Any) -> str:
     """Normalize multimodal or structured message content to a single string."""
     if isinstance(content, str):
@@ -145,6 +148,9 @@ def stringify_content(content: Any) -> str:
                     parts.append(str(text))
                     continue
                 kind = str(item.get('type') or '').strip()
+                if kind in _REASONING_BLOCK_TYPES:
+                    # Claude reasoning blocks; their text is the reasoning channel, not content.
+                    continue
                 if kind:
                     parts.append(f'[{kind}]')
                 continue
@@ -160,6 +166,18 @@ def _reasoning_body(message: AIMessage) -> str:
     r = getattr(message, 'reasoning', None)
     if isinstance(r, str) and r.strip():
         return r.strip()
+    if isinstance(message.content, list):
+        # Claude (``ChatAnthropic``) keeps summarized reasoning in ``thinking`` content blocks.
+        thinking = '\n\n'.join(
+            block['thinking'].strip()
+            for block in message.content
+            if isinstance(block, dict)
+            and block.get('type') == 'thinking'
+            and isinstance(block.get('thinking'), str)
+            and block['thinking'].strip()
+        )
+        if thinking:
+            return thinking
     ak = getattr(message, 'additional_kwargs', None) or {}
     for key in ('reasoning_content', 'reasoning'):
         val = ak.get(key)

@@ -26,6 +26,7 @@ from typing import Any
 
 import httpx
 from fastapi import HTTPException
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 
 from clara_coder_backend.config import (
@@ -103,8 +104,9 @@ def _off_reasoning_effort(allowed: list[str] | None) -> str | None:
     return None
 
 
-def build_llm(*, disable_thinking: bool = False) -> ChatOpenAI:
-    """Build a ChatOpenAI instance for the agent (tools bound separately).
+def build_llm(*, disable_thinking: bool = False) -> BaseChatModel:
+    """Build the chat model for the agent (tools bound separately): ``ChatOpenAI`` for
+    OpenAI-compatible sources, ``ChatAnthropic`` for Claude (see :mod:`.anthropic_llm`).
 
     Streaming is enabled so :meth:`~langchain_core.language_models.chat_models.BaseChatModel.astream`
     yields token chunks; the agent loop forwards them as SSE while still assembling full turns
@@ -118,6 +120,12 @@ def build_llm(*, disable_thinking: bool = False) -> ChatOpenAI:
     ``none`` (or ``minimal``) when that knob is exposed.
     """
     connection = get_active_connection()
+    if connection.provider == 'anthropic':
+        # Imported here so OpenAI-compatible sources never pay for the Anthropic SDK import.
+        from clara_coder_backend.llm.anthropic_llm import build_anthropic_llm
+
+        return build_anthropic_llm(connection, idle_timeout_sec=llm_idle_timeout_sec(), disable_thinking=disable_thinking)
+
     base_url = connection.base_url
     api_key = connection.api_key
 

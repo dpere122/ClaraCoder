@@ -25,6 +25,8 @@ import {
 import { LucideAngularModule } from 'lucide-angular';
 import { filter, merge } from 'rxjs';
 
+import { AnthropicService } from '../../../core/anthropic.service';
+import { claudeModelOptions } from '../../../core/claude-models';
 import { ElectronService } from '../../../core/electron.service';
 import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 import { ContextCapacityComponent } from '../../status/context-capacity/context-capacity';
@@ -166,6 +168,15 @@ export class MessageBox {
   });
   protected readonly effortVisible = computed(() => this.reasoningEffortOptions().length > 0);
   protected readonly showReasoningCluster = computed(() => this.thinkingVisible() || this.effortVisible());
+  private readonly anthropic = inject(AnthropicService);
+  /** Claude is the active source: the composer offers its model list. */
+  protected readonly claudeActive = computed(() => this.activeConnection()?.provider === 'anthropic');
+  protected readonly claudeModelId = computed(() => (this.claudeActive() ? (this.activeConnection()?.model ?? '') : ''));
+  protected readonly claudeModelOptions = computed(() =>
+    this.claudeActive() ? claudeModelOptions(this.anthropic.models(), this.claudeModelId()) : [],
+  );
+  protected readonly claudeModelBusy = signal(false);
+
   protected readonly thinkingMode = computed(() => this.activeConnection()?.thinkingMode || 'default');
   /** Brain toggle: anything except explicit ``off`` counts as reasoning enabled. */
   protected readonly reasoningEnabled = computed(() => this.thinkingMode() !== 'off');
@@ -232,8 +243,16 @@ export class MessageBox {
   constructor() {
     effect(() => {
       const id = this.activeConnection()?.id;
+      // The model is read too: the Claude source keeps its connection id when its model changes.
+      void this.activeConnection()?.model;
       if (id) {
         void this.electron.refreshChatTemplateReasoning(id);
+      }
+    });
+
+    effect(() => {
+      if (this.claudeActive()) {
+        void this.anthropic.ensureLoaded();
       }
     });
 
@@ -300,6 +319,19 @@ export class MessageBox {
   onReasoningToggle(): void {
     const next: GemmaThinkingMode = this.reasoningEnabled() ? 'off' : 'on';
     this.reasoningEffortChange.emit({ field: 'thinkingMode', value: next });
+  }
+
+  /** Claude model dropdown: main saves the pick and resyncs the backend, then broadcasts the config. */
+  async onClaudeModelChange(modelId: string): Promise<void> {
+    if (!modelId || modelId === this.claudeModelId() || this.claudeModelBusy()) {
+      return;
+    }
+    this.claudeModelBusy.set(true);
+    try {
+      await this.anthropic.setModel(modelId);
+    } finally {
+      this.claudeModelBusy.set(false);
+    }
   }
 
   /** Forwards the composer Reasoning dropdown to {@link reasoningEffortChange}. */

@@ -22,6 +22,8 @@ import type {
   EmbeddingsStatusResult,
   LlamacppManagedListModelsResult,
   OpenRouterListModelsResult,
+  AnthropicListModelsResult,
+  AnthropicSetModelResult,
   ChatTemplateReasoningCaps,
   LlmStatus,
   MenuFileCommand,
@@ -440,6 +442,10 @@ declare global {
       baseUrl: string;
       apiKey: string;
     }) => Promise<OpenRouterListModelsResult>;
+    anthropicStatus: (payload?: { refresh?: boolean }) => Promise<AnthropicListModelsResult>;
+    anthropicSetApiKey: (payload: { apiKey: string }) => Promise<AnthropicListModelsResult>;
+    anthropicClearApiKey: () => Promise<AnthropicListModelsResult>;
+    anthropicSetModel: (payload: { modelId: string }) => Promise<AnthropicSetModelResult>;
     lmStudioListModels: (payload: { baseUrl: string; apiKey?: string }) => Promise<LmStudioListModelsResult>;
     lmStudioLoadModel: (payload: { baseUrl: string; model: string; apiKey?: string }) => Promise<LmStudioMutationResult>;
     lmStudioUnloadModel: (payload: {

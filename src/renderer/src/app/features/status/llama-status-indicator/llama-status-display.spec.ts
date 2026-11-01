@@ -181,6 +181,15 @@ describe('modelStatusSummary', () => {
     );
   });
 
+  it('reports Claude the same way as OpenRouter', () => {
+    expect(
+      modelStatusSummary({ provider: 'anthropic', dot: 'green', warming: null, status: null, model: 'claude-opus-5-5' }),
+    ).toBe('Connected · claude-opus-5-5');
+    expect(modelStatusSummary({ provider: 'anthropic', dot: 'gray', warming: null, status: null, model: '' })).toBe(
+      'Needs a model and API key',
+    );
+  });
+
   it('follows the managed llama-server through download, start, run and stop', () => {
     const base = { provider: 'llamacpp', model: 'qwen' };
     expect(modelStatusSummary({ ...base, dot: 'yellow', warming: 'downloading', status: null })).toBe(

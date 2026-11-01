@@ -543,6 +543,214 @@
                     </button>
                   }
                 </div>
+              } @else if (connection.provider === 'anthropic') {
+                <div class='form-section'>
+                  <div class='form-section__header openrouter-section-head'>
+                    <h5>Connection</h5>
+                    @if (!claudeEditing()) {
+                      <button type='button' class='action-button action-button--compact' (click)='beginClaudeEdit()'>
+                        <lucide-icon name='square-pen' [size]='13' />
+                        {{ claude.configured() ? 'Replace key' : 'Add key' }}
+                      </button>
+                    }
+                  </div>
+                  @if (claudeEditing()) {
+                    <form class='form-grid' (ngSubmit)='saveClaudeKey()'>
+                      <label class='field field--full'>
+                        <span>API key</span>
+                        <input
+                          type='password'
+                          name='claudeApiKey'
+                          autocomplete='off'
+                          spellcheck='false'
+                          placeholder='sk-ant-…'
+                          [ngModel]='claudeKeyDraft()'
+                          (ngModelChange)='claudeKeyDraft.set($event)'
+                          (keydown.escape)='cancelClaudeEdit()'
+                        />
+                      </label>
+                      @if (claude.error(); as err) {
+                        <p class='field field--full claude-status claude-status--error' role='alert'>{{ err }}</p>
+                      }
+                      <div class='field field--full openrouter-edit-actions'>
+                        <button
+                          type='submit'
+                          class='action-button action-button--primary'
+                          [disabled]='claude.saving() || !claudeKeyDraft().trim()'
+                        >
+                          {{ claude.saving() ? 'Checking…' : 'Save' }}
+                        </button>
+                        <button type='button' class='action-button' [disabled]='claude.saving()' (click)='cancelClaudeEdit()'>
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  } @else {
+                    <dl class='openrouter-connection'>
+                      <div>
+                        <dt>API key</dt>
+                        <dd class='claude-key-row'>
+                          @if (claude.status()?.keyHint; as hint) {
+                            <code>{{ hint }}</code>
+                            <button
+                              type='button'
+                              class='claude-link-button'
+                              [disabled]='claude.saving()'
+                              (click)='removeClaudeKey()'
+                            >Remove</button>
+                          } @else if (claude.loading()) {
+                            <span class='openrouter-muted'>Checking…</span>
+                          } @else {
+                            <span class='openrouter-muted'>Not set</span>
+                          }
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Storage</dt>
+                        <dd>
+                          @switch (claude.status()?.storage) {
+                            @case ('keychain') {
+                              <span class='claude-pill claude-pill--ok'>
+                                <lucide-icon name='shield' [size]='11' />
+                                Encrypted with the OS keychain
+                              </span>
+                            }
+                            @case ('session') {
+                              <span class='claude-pill claude-pill--warn'>
+                                <lucide-icon name='triangle-alert' [size]='11' />
+                                This session only (OS keychain unavailable)
+                              </span>
+                            }
+                            @default {
+                              <span class='openrouter-muted'>—</span>
+                            }
+                          }
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Status</dt>
+                        <dd>
+                          @if (claude.error(); as err) {
+                            <span class='claude-status claude-status--error'>{{ err }}</span>
+                          } @else if (claude.configured() && claude.models().length) {
+                            <span class='claude-status claude-status--ok'>
+                              Connected · {{ claude.models().length }} models
+                              @if (claudeVerifiedAt(); as at) {
+                                <span class='openrouter-muted'> · checked {{ at }}</span>
+                              }
+                            </span>
+                          } @else if (claude.configured()) {
+                            <span class='openrouter-muted'>Key saved; model list not loaded yet</span>
+                          } @else {
+                            <span class='openrouter-muted'>Add a Claude Console API key to use Claude</span>
+                          }
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Endpoint</dt>
+                        <dd><code>api.anthropic.com</code></dd>
+                      </div>
+                    </dl>
+                  }
+                  <p class='settings-copy claude-note'>
+                    Clara checks the key with the Claude API, encrypts it with your OS keychain, and keeps it in
+                    the main process. Settings never shows it again. Claude Max, Ultra and Team plans include
+                    monthly API credits that cover keys from your linked Claude Console organization.
+                  </p>
+                </div>
+
+                <hr class='settings-divider' />
+
+                <div class='form-section'>
+                  <div class='form-section__header openrouter-section-head'>
+                    <h5>Model</h5>
+                    <button
+                      type='button'
+                      class='action-button action-button--compact'
+                      [disabled]='!claude.configured() || claude.loading()'
+                      (click)='claude.refresh()'
+                      title='Reload the model list from the Claude API'
+                    >
+                      <lucide-icon name='refresh-cw' [size]='13' />
+                      {{ claude.loading() ? 'Loading…' : 'Refresh' }}
+                    </button>
+                  </div>
+
+                  @if (claude.configured()) {
+                    <label class='field field--full'>
+                      <span>Claude model</span>
+                      <app-pill-select
+                        [options]='claudeModelOptions()'
+                        [value]='claudeModelId()'
+                        [disabled]='!claude.models().length'
+                        (valueChange)='pickClaudeModel($event)'
+                        ariaLabel='Claude model'
+                      />
+                    </label>
+
+                    @if (claudeCurrent(); as m) {
+                      <div class='claude-model-card'>
+                        <div class='claude-model-card__head'>
+                          <strong>{{ m.displayName }}</strong>
+                          <code>{{ m.id }}</code>
+                          @if (m.deprecated) {
+                            <span class='claude-pill claude-pill--warn'>Deprecated</span>
+                          }
+                        </div>
+                        <dl class='claude-facts'>
+                          <div>
+                            <dt>Context window</dt>
+                            <dd>{{ formatTokens(m.maxInputTokens) || '—' }} tokens</dd>
+                          </div>
+                          <div>
+                            <dt>Max output</dt>
+                            <dd>{{ formatTokens(m.maxOutputTokens) || '—' }} tokens</dd>
+                          </div>
+                          <div>
+                            <dt>Thinking</dt>
+                            <dd>{{ m.adaptiveThinking ? 'Adaptive' : 'Not supported' }}</dd>
+                          </div>
+                          <div>
+                            <dt>Effort levels</dt>
+                            <dd>{{ m.effortLevels.length ? m.effortLevels.join(' · ') : '—' }}</dd>
+                          </div>
+                          <div>
+                            <dt>Image input</dt>
+                            <dd>{{ m.vision ? 'Yes' : 'No' }}</dd>
+                          </div>
+                          <div>
+                            <dt>Structured output</dt>
+                            <dd>{{ m.structuredOutputs ? 'Yes' : 'No' }}</dd>
+                          </div>
+                          @if (formatDate(m.createdAt); as released) {
+                            <div>
+                              <dt>Released</dt>
+                              <dd>{{ released }}</dd>
+                            </div>
+                          }
+                          @if (formatDate(m.retiresAt); as retires) {
+                            <div>
+                              <dt>Retires</dt>
+                              <dd>{{ retires }}</dd>
+                            </div>
+                          }
+                        </dl>
+                        <p class='openrouter-muted claude-model-card__hint'>
+                          Pick the effort level from the composer. Prompt caching is on for every request.
+                        </p>
+                      </div>
+                    } @else if (claudeModelId(); as modelId) {
+                      <div class='openrouter-current'>
+                        <code>{{ modelId }}</code>
+                        <span class='openrouter-muted'>Not in this key's model list.</span>
+                      </div>
+                    } @else if (claude.models().length) {
+                      <p class='openrouter-muted'>No model selected. Pick one above.</p>
+                    }
+                  } @else {
+                    <p class='openrouter-muted'>Add an API key to load the models it can use.</p>
+                  }
+                </div>
               } @else {
                 <div class='form-section'>
                   <div class='form-section__header'>
@@ -598,7 +806,7 @@
                 </div>
               }
 
-              @if (connection.provider !== 'openrouter') {
+              @if (connection.provider !== 'openrouter' && connection.provider !== 'anthropic') {
               <hr class='settings-divider' />
 
               <div class='form-section ready-defaults'>

@@ -264,6 +264,7 @@ app-pill-select .pill-select__option,
 .settings-window .section-count,
 .settings-window .models-sources__count,
 .settings-window .settings-field-hint code,
+.settings-window .tll__swatches,
 .settings-window .source-row__remove {
   border-radius: var(--chat-radius-sm) !important;
 }

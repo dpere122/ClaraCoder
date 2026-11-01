@@ -1111,6 +1111,20 @@ describe('WorkspaceTerminalDockComponent', () => {
       expect(component.activeTabId()).not.toBe('agent-command-tab-abc12345');
     });
 
+    it('collapses the dock when an auto-focused clean exit was its only tab', async () => {
+      fixture.componentRef.setInput('conversationId', 'conv-1');
+      fixture.detectChanges();
+      component.expanded.set(true);
+
+      openCommand('conv-1', 'abc12345', 'npm run build');
+      await flushMicrotasks();
+      completeCommand('conv-1', 'abc12345', 0);
+      await flushMicrotasks();
+
+      expect(component.agentCommandTabs().length).toBe(0);
+      expect(component.expanded()).toBe(false);
+      expect(component.activeTabId()).toBeNull();
+    });
     it('keeps a clean exit open while the user is watching it', async () => {
       fixture.componentRef.setInput('conversationId', 'conv-1');
       fixture.detectChanges();

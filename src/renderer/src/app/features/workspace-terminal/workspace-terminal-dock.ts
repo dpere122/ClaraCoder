@@ -1298,30 +1298,8 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
       return;
     }
     await this.electron.notifyBackgroundCommandTerminalClosed(tab.conversationId, tab.commandId);
-    const remainingVisible = this.removeAgentCommandTab(tabId);
-    if (this.activeTabId() === tabId) {
-      this.activeTabId.set(this.fallbackTabIdAfterAgentClose(remainingVisible));
-    }
-    if (
-      this.ptyTabs().length === 0
-      && remainingVisible.length === 0
-      && this.llamaTabs().length === 0
-    ) {
-      if (this.hasWorkspace() && this.showProblemsTab()) {
-        this.teardownResizeTracking();
-        this.activeTabId.set(PROBLEMS_TAB_ID);
-        return;
-      }
-      this.teardownResizeTracking();
-      this.expanded.set(false);
-      this.activeTabId.set(null);
-      return;
-    }
-    this.queueSafe(() => {
-      this.observeActiveHostResize();
-      void this.ensureActiveTabSession();
-      this.fitActive();
-    });
+    const wasActive = this.activeTabId() === tabId;
+    this.settleDockAfterAgentCommandTabRemoved(this.removeAgentCommandTab(tabId), wasActive);
   }
 
   /**
@@ -1344,9 +1322,40 @@ export class WorkspaceTerminalDockComponent implements OnDestroy {
   private dismissAgentCommandTab(tabId: string): void {
     const wasActive = this.activeTabId() === tabId;
     const remainingVisible = this.removeAgentCommandTab(tabId);
+    // An auto-focused tab can be dismissed while showing; a background one leaves the dock as is.
+    if (wasActive) {
+      this.settleDockAfterAgentCommandTabRemoved(remainingVisible, true);
+    }
+  }
+
+  /** Picks the next tab after a run_command tab is removed, or settles an emptied dock. */
+  private settleDockAfterAgentCommandTabRemoved(
+    remainingVisible: readonly AgentCommandTab[],
+    wasActive: boolean,
+  ): void {
     if (wasActive) {
       this.activeTabId.set(this.fallbackTabIdAfterAgentClose(remainingVisible));
     }
+    if (
+      this.ptyTabs().length === 0
+      && remainingVisible.length === 0
+      && this.llamaTabs().length === 0
+    ) {
+      if (this.hasWorkspace() && this.showProblemsTab()) {
+        this.teardownResizeTracking();
+        this.activeTabId.set(PROBLEMS_TAB_ID);
+        return;
+      }
+      this.teardownResizeTracking();
+      this.expanded.set(false);
+      this.activeTabId.set(null);
+      return;
+    }
+    this.queueSafe(() => {
+      this.observeActiveHostResize();
+      void this.ensureActiveTabSession();
+      this.fitActive();
+    });
   }
 
   /** Disposes a run_command tab's UI state; returns the active chat's remaining command tabs. */

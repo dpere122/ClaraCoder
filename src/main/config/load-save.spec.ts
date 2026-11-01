@@ -56,6 +56,65 @@ function mcpServer(overrides: Partial<McpServerConfig> = {}): McpServerConfig {
   };
 }
 
+describe('screenshot retention config', () => {
+  const defaults = { downscaleAfterDays: 7, retentionDays: 30, maxWidth: 1280, maxStorageMiB: 100, maxImages: 200 };
+
+  it('supplies independent defaults for old and new configurations', () => {
+    const raw = sampleConfig();
+    delete raw.workspaceTools.screenshotRetention;
+    expect(migrateConfig(raw).workspaceTools.screenshotRetention).toEqual(defaults);
+    expect(createDefaultConfig().workspaceTools.screenshotRetention).toEqual(defaults);
+    expect(createDefaultConfig().workspaceTools.screenshotRetention)
+      .not.toBe(createDefaultConfig().workspaceTools.screenshotRetention);
+  });
+
+  it('normalizes malformed values and keeps reduction strictly before expiry', () => {
+    const raw = sampleConfig();
+    raw.workspaceTools.screenshotRetention = {
+      downscaleAfterDays: 400, retentionDays: 1, maxWidth: 50, maxStorageMiB: 5000, maxImages: -1,
+    };
+    expect(migrateConfig(raw).workspaceTools.screenshotRetention).toEqual({
+      downscaleAfterDays: 1, retentionDays: 2, maxWidth: 320, maxStorageMiB: 1024, maxImages: 10,
+    });
+    raw.workspaceTools.screenshotRetention = 'bad' as unknown as typeof raw.workspaceTools.screenshotRetention;
+    expect(migrateConfig(raw).workspaceTools.screenshotRetention).toEqual(defaults);
+  });
+
+  it('preserves saved policy when an older settings client omits the optional field', () => {
+    const disk = sampleConfig();
+    disk.workspaceTools.screenshotRetention = { ...defaults, retentionDays: 90, maxImages: 800 };
+    const client = sampleConfig();
+    delete client.workspaceTools.screenshotRetention;
+    expect(mergeSettingsConfigSave(disk, client).workspaceTools.screenshotRetention)
+      .toEqual(disk.workspaceTools.screenshotRetention);
+  });
+
+  it('merges partial retention patches without resetting the saved policy', () => {
+    const disk = sampleConfig();
+    disk.workspaceTools.screenshotRetention = { ...defaults, retentionDays: 90, maxImages: 800 };
+    const client = sampleConfig();
+    client.workspaceTools.screenshotRetention = { maxWidth: 640 } as typeof client.workspaceTools.screenshotRetention;
+    expect(mergeSettingsConfigSave(disk, client).workspaceTools.screenshotRetention)
+      .toEqual({ ...disk.workspaceTools.screenshotRetention, maxWidth: 640 });
+  });
+
+  it('round-trips a customized policy through serialized save and load', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'clara-screenshot-config-'));
+    process.env.CLARA_TEST_CONFIG_DIR = tempDir;
+    try {
+      const policy = { downscaleAfterDays: 14, retentionDays: 90, maxWidth: 960, maxStorageMiB: 240, maxImages: 700 };
+      writeFileSync(join(tempDir, 'config.json'), JSON.stringify(sampleConfig()), 'utf-8');
+      await updateConfig((cfg) => { cfg.workspaceTools.screenshotRetention = policy; });
+      expect((await loadConfig()).workspaceTools.screenshotRetention).toEqual(policy);
+      expect(JSON.parse(readFileSync(join(tempDir, 'config.json'), 'utf-8')).workspaceTools.screenshotRetention)
+        .toEqual(policy);
+    } finally {
+      delete process.env.CLARA_TEST_CONFIG_DIR;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('migrateConfig mcp servers', () => {
   it('fills a missing list', () => {
     const raw = sampleConfig();

@@ -3,6 +3,7 @@
  * Runs listener setup once in the constructor; all methods no-op or resolve empty when not in Electron.
  */
 import { Injectable, NgZone } from '@angular/core';
+import type { ScreenshotAssetStatus, ScreenshotStorageStats } from '@shared/screenshot-retention';
 import { Observable, Subject, BehaviorSubject } from 'rxjs';
 import { mergeStreamBatchQueue, type StreamBatchItem } from './stream-batch';
 import type {
@@ -106,6 +107,7 @@ const FALLBACK_APP_CONFIG: AppConfig = {
     exposeAllWorkspaceFiles: false,
     allowWebAccess: false,
     searxngBaseUrl: '',
+    webSearchProvider: 'auto',
     extraUserPath: '',
     enableAgentFormatters: false,
   },
@@ -1483,6 +1485,26 @@ export class ElectronService {
 
   saveConfig(config: AppConfig): Promise<AppConfig> {
     return this.api?.saveConfig(config) ?? Promise.resolve(structuredClone(config));
+  }
+
+  getScreenshotStorageStats(): Promise<{ ok: true; stats: ScreenshotStorageStats } | { ok: false; error: string }> {
+    return this.api?.getScreenshotStorageStats?.() ?? Promise.resolve({ ok: false, error: 'Screenshot storage is unavailable outside the desktop app.' });
+  }
+
+  runScreenshotCleanup(): Promise<{ ok: true; stats: ScreenshotStorageStats } | { ok: false; error: string }> {
+    return this.api?.runScreenshotCleanup?.() ?? Promise.resolve({ ok: false, error: 'Screenshot cleanup is unavailable outside the desktop app.' });
+  }
+
+  clearScreenshots(): Promise<{ ok: true; stats: ScreenshotStorageStats } | { ok: false; error: string }> {
+    return this.api?.clearScreenshots?.() ?? Promise.resolve({ ok: false, error: 'Screenshot storage is unavailable outside the desktop app.' });
+  }
+
+  getScreenshotAssetStatus(url: string): Promise<ScreenshotAssetStatus> {
+    return this.api?.getScreenshotAssetStatus?.(url) ?? Promise.resolve({ state: 'missing' });
+  }
+
+  onScreenshotAssetsChanged(callback: () => void): () => void {
+    return this.api?.onScreenshotAssetsChanged?.(() => this.zone.run(callback)) ?? (() => {});
   }
 
   setLastActiveConversation(workspaceKey: string, conversationId: string): Promise<AppConfig> {

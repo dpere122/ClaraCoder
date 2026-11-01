@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { normalizeScreenshotRetention } from '../../shared/screenshot-retention';
 import { promises as fs } from 'fs';
 import path = require('path');
 const syncFs = require('fs');
@@ -40,6 +41,7 @@ import {
   normalizeChatContainerSize,
   normalizeChatThinkingDisplay,
   normalizeMonacoWorkspaceEditorSettings,
+  normalizeWebSearchEngines,
   normalizeWorkspaceMonacoScrollByWorkspaceId,
   normalizeWorkspaceOpenTabsByWorkspaceId,
   getDefaultContextCompression,
@@ -1555,6 +1557,11 @@ export function migrateConfig(config: AppConfig): AppConfig {
     migrated = true;
   } else {
     const wt = wtRaw;
+    const retention = normalizeScreenshotRetention(wt.screenshotRetention);
+    if (JSON.stringify(wt.screenshotRetention) !== JSON.stringify(retention)) {
+      wt.screenshotRetention = retention;
+      migrated = true;
+    }
     if (wt.editToolsMode !== 'standard' && wt.editToolsMode !== 'strict') {
       wt.editToolsMode = 'standard';
       migrated = true;
@@ -1628,6 +1635,39 @@ export function migrateConfig(config: AppConfig): AppConfig {
       const trimmed = searxngRaw.trim();
       if (trimmed !== searxngRaw) {
         wt.searxngBaseUrl = trimmed;
+        migrated = true;
+      }
+    }
+    const providerRaw = (wt as unknown as { webSearchProvider?: unknown }).webSearchProvider;
+    if (providerRaw !== 'auto' && providerRaw !== 'internal' && providerRaw !== 'searxng') {
+      wt.webSearchProvider = 'auto';
+      migrated = true;
+    }
+    const enginesRaw = (wt as unknown as { webSearchEngines?: unknown }).webSearchEngines;
+    const engines = normalizeWebSearchEngines(enginesRaw);
+    if (JSON.stringify(engines) !== JSON.stringify(enginesRaw)) {
+      wt.webSearchEngines = engines;
+      migrated = true;
+    }
+    const uaRaw = (wt as unknown as { webSearchUserAgent?: unknown }).webSearchUserAgent;
+    if (typeof uaRaw !== 'string') {
+      wt.webSearchUserAgent = '';
+      migrated = true;
+    } else {
+      const trimmed = uaRaw.trim();
+      if (trimmed !== uaRaw) {
+        wt.webSearchUserAgent = trimmed;
+        migrated = true;
+      }
+    }
+    const cooldownRaw = (wt as unknown as { webSearchCooldownSeconds?: unknown }).webSearchCooldownSeconds;
+    if (typeof cooldownRaw !== 'number' || !Number.isFinite(cooldownRaw)) {
+      wt.webSearchCooldownSeconds = 300;
+      migrated = true;
+    } else {
+      const clamped = Math.min(3600, Math.max(0, Math.round(cooldownRaw)));
+      if (clamped !== cooldownRaw) {
+        wt.webSearchCooldownSeconds = clamped;
         migrated = true;
       }
     }
@@ -1922,9 +1962,14 @@ export function mergeSettingsConfigSave(disk: AppConfig, client: AppConfig): App
   // Client-wins settings merge; never log client/disk (secrets).
   // Read MCP touch flags first — migrate keeps them, but merge must see the pre-normalize client.
   const flags = mcpMergeFlags(client.mcpServers);
+  const screenshotRetention = normalizeScreenshotRetention({
+    ...disk.workspaceTools?.screenshotRetention,
+    ...client.workspaceTools?.screenshotRetention,
+  });
   const clientMigrated = migrateConfig(client);
   return {
     ...clientMigrated,
+    workspaceTools: { ...clientMigrated.workspaceTools, screenshotRetention },
     workspaces: disk.workspaces,
     currentWorkspaceId: disk.currentWorkspaceId,
     lastActiveConversationByWorkspaceId: disk.lastActiveConversationByWorkspaceId,

@@ -1,4 +1,5 @@
 import type { PreloadIpc } from '../preload-ipc';
+import type { ScreenshotAssetStatus, ScreenshotStorageStats } from '../../shared/screenshot-retention';
 import type {
   AppConfig,
   HealthMonitorConfig,
@@ -8,11 +9,23 @@ import type {
   WorkspaceOpenTabsState,
 } from '../../shared';
 
+type ScreenshotStorageResult = { ok: true; stats: ScreenshotStorageStats } | { ok: false; error: string };
+
 /** App config, window chrome, scripts, and LLM server IPC. */
 export const createAppServicesApi = (ipcRenderer: PreloadIpc) => ({
   setAlwaysOnTop: (pinned: boolean) => ipcRenderer.invoke('set-always-on-top', pinned),
   loadConfig: () => ipcRenderer.invoke('load-config'),
   saveConfig: (config: unknown) => ipcRenderer.invoke('save-config', config),
+  getScreenshotStorageStats: (): Promise<ScreenshotStorageResult> => ipcRenderer.invoke('screenshot-storage-stats'),
+  runScreenshotCleanup: (): Promise<ScreenshotStorageResult> => ipcRenderer.invoke('screenshot-cleanup'),
+  clearScreenshots: (): Promise<ScreenshotStorageResult> => ipcRenderer.invoke('screenshot-clear'),
+  getScreenshotAssetStatus: (url: string): Promise<ScreenshotAssetStatus> =>
+    ipcRenderer.invoke('screenshot-asset-status', url),
+  onScreenshotAssetsChanged: (callback: () => void): (() => void) => {
+    const listener = () => callback();
+    ipcRenderer.on('screenshot-assets-changed', listener);
+    return () => { ipcRenderer.removeListener('screenshot-assets-changed', listener); };
+  },
   /** App-wide UI theme (single `AppConfig.themeId`, no per-workspace override). */
   setTheme: (themeId: string) => ipcRenderer.invoke('set-theme', themeId),
   setLastActiveConversation: (workspaceKey: string, conversationId: string) =>

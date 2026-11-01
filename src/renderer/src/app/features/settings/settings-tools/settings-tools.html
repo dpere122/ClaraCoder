@@ -1,4 +1,66 @@
       <div class='settings-pane settings-pane--sectioned'>
+        @if (s.activeSubTabId('tools') === 'editTools') {
+          <section class='form-section screenshot-retention' aria-labelledby='screenshot-retention-title'>
+            <h3 id='screenshot-retention-title'>Screenshot retention</h3>
+            <p class='settings-field-hint'>
+              Cleanup runs automatically at startup, daily, and after screenshot captures.
+              Screenshots older than {{ s.screenshotRetention().downscaleAfterDays }} days are reduced to at most
+              {{ s.screenshotRetention().maxWidth }} px wide when this saves space; screenshots are deleted after
+              {{ s.screenshotRetention().retentionDays }} days. Oldest images may be removed sooner to stay within
+              {{ s.screenshotRetention().maxStorageMiB }} MiB and {{ s.screenshotRetention().maxImages }} images.
+              Conversation text is kept. Save settings to apply changes; storage actions below use the saved policy.
+            </p>
+            <div class='form-grid'>
+              <label class='field'>
+                <span>Reduce after (days)</span>
+                <input type='number' min='1' [max]='s.screenshotRetention().retentionDays - 1' step='1'
+                  [ngModel]='s.screenshotRetention().downscaleAfterDays'
+                  (ngModelChange)='s.onScreenshotRetentionChange("downscaleAfterDays", $event)' />
+              </label>
+              <label class='field'>
+                <span>Delete after (days)</span>
+                <input type='number' [min]='s.screenshotRetention().downscaleAfterDays + 1' max='365' step='1'
+                  [ngModel]='s.screenshotRetention().retentionDays'
+                  (ngModelChange)='s.onScreenshotRetentionChange("retentionDays", $event)' />
+              </label>
+              <label class='field'>
+                <span>Reduced maximum width (px)</span>
+                <input type='number' min='320' max='1920' step='1'
+                  [ngModel]='s.screenshotRetention().maxWidth'
+                  (ngModelChange)='s.onScreenshotRetentionChange("maxWidth", $event)' />
+              </label>
+              <label class='field'>
+                <span>Storage limit (MiB)</span>
+                <input type='number' min='10' max='1024' step='1'
+                  [ngModel]='s.screenshotRetention().maxStorageMiB'
+                  (ngModelChange)='s.onScreenshotRetentionChange("maxStorageMiB", $event)' />
+              </label>
+              <label class='field'>
+                <span>Image limit</span>
+                <input type='number' min='10' max='2000' step='1'
+                  [ngModel]='s.screenshotRetention().maxImages'
+                  (ngModelChange)='s.onScreenshotRetentionChange("maxImages", $event)' />
+              </label>
+            </div>
+            <div class='screenshot-retention-usage' role='status' aria-live='polite'>
+              @if (screenshotStats(); as stats) {
+                {{ stats.imageCount }} / {{ stats.maxImages }} images · {{ stats.reducedCount }} reduced ·
+                {{ screenshotMiB(stats.bytes) }} / {{ screenshotMiB(stats.maxBytes) }} MiB
+              } @else {
+                Screenshot storage usage has not been loaded.
+              }
+              @if (screenshotStorageBusy()) { <span> Updating…</span> }
+            </div>
+            @if (screenshotStorageError()) {
+              <p class='screenshot-retention-error' role='alert'>{{ screenshotStorageError() }}</p>
+            }
+            <div class='screenshot-retention-actions'>
+              <button type='button' [disabled]='screenshotStorageBusy()' (click)='refreshScreenshotStorage()'>Refresh usage</button>
+              <button type='button' [disabled]='screenshotStorageBusy()' (click)='runScreenshotCleanup()'>Run cleanup</button>
+              <button type='button' [disabled]='screenshotStorageBusy()' (click)='clearScreenshots()'>Clear screenshots…</button>
+            </div>
+          </section>
+        }
         
         @if (s.activeSubTabId('tools') === 'editTools') {
           <div class='form-section'>
@@ -81,8 +143,66 @@
                   <span>Allow web access</span>
                 </label>
                 <p class='settings-field-hint'>
-                  When on, the agent may use <code>web_search</code> (via SearXNG) and <code>fetch_url</code>. When
-                  Auto-apply is off, each call asks for confirmation. SearXNG is not bundled — run your own instance.
+                  When on, the agent may use <code>web_search</code>, <code>fetch_url</code>, and
+                  <code>screenshot_webpage</code>. When Auto Run is off, each call asks for confirmation.
+                  Screenshots use isolated Chromium with scripts disabled. Search uses built-in metasearch or SearXNG.
+                </p>
+              </div>
+              <label class='field'>
+                <span>Web search provider</span>
+                <select
+                  [ngModel]='s.webSearchProvider()'
+                  (ngModelChange)='s.onWebSearchProviderChange($event)'
+                >
+                  <option value='auto'>Auto — SearXNG if configured, else built-in</option>
+                  <option value='internal'>Built-in metasearch</option>
+                  <option value='searxng'>SearXNG instance</option>
+                </select>
+              </label>
+              <div class='field field--hint field--full'>
+                <span>Built-in search engines</span>
+                @for (engine of engines; track engine.id) {
+                  <label class='toggle-row'>
+                    <input
+                      type='checkbox'
+                      [ngModel]='s.webSearchEngines().length === 0 || s.webSearchEngines().includes(engine.id)'
+                      (ngModelChange)='s.onWebSearchEngineToggle(engine.id, $event)'
+                    />
+                    <span>{{ engine.label }}</span>
+                  </label>
+                }
+                <p class='settings-field-hint'>
+                  Queried in parallel by the built-in metasearch engine. All on gives the widest coverage; fewer
+                  engines means faster searches. Ignored when the provider is a SearXNG instance.
+                </p>
+              </div>
+              <div class='field field--hint'>
+                <span>Search User-Agent</span>
+                <input
+                  type='text'
+                  [ngModel]='s.webSearchUserAgent()'
+                  (ngModelChange)='s.onWebSearchUserAgentChange($event)'
+                  placeholder='Mozilla/5.0 (Windows NT 10.0; Win64; x64) …'
+                  autocomplete='off'
+                  spellcheck='false'
+                />
+                <p class='settings-field-hint'>
+                  Sent with built-in search and screenshot requests. Leave empty for the default browser string.
+                  Shown on the approval card when Auto Run is off. Screenshot requests reject email addresses in this header.
+                </p>
+              </div>
+              <div class='field field--hint'>
+                <span>Engine cooldown (seconds)</span>
+                <input
+                  type='number'
+                  min='0'
+                  max='3600'
+                  [ngModel]='s.webSearchCooldownSeconds()'
+                  (ngModelChange)='s.onWebSearchCooldownSecondsChange($event)'
+                />
+                <p class='settings-field-hint'>
+                  After a rate limit or captcha, that engine is skipped for this long and the search cycles through
+                  the others. 0 disables cooldowns.
                 </p>
               </div>
               <label class='field'>

@@ -1,4 +1,5 @@
 import type { Workspace } from './workspace';
+import type { ScreenshotRetentionSettings } from '../screenshot-retention';
 import {
   QWEN_REASONING_EFFORT_VALUES,
   type ChatTemplateReasoningCaps,
@@ -663,12 +664,35 @@ export interface WorkspaceToolsConfig {
    */
   exposeAllWorkspaceFiles?: boolean;
   /**
-   * When true, bind `web_search` (SearXNG) and `fetch_url` agent tools.
-   * Default false. Requires a reachable SearXNG base URL for search.
+   * When true, bind `web_search` and `fetch_url` agent tools.
+   * Default false. Search works out of the box with the built-in metasearch engine.
    */
   allowWebAccess?: boolean;
   /** Base URL of a SearXNG instance (e.g. `http://127.0.0.1:8080`). Empty until configured. */
   searxngBaseUrl?: string;
+  /**
+   * `web_search` backend: `auto` (SearXNG when a base URL is set, else the built-in
+   * metasearch engine), `internal` (always built-in), or `searxng` (always SearXNG).
+   * Default `auto`.
+   */
+  webSearchProvider?: 'auto' | 'internal' | 'searxng';
+  /**
+   * Built-in metasearch engines to query, by id (`duckduckgo`, `bing`, `mojeek`, `wikipedia`).
+   * Empty means every engine. Ignored when the provider is `searxng`.
+   */
+  webSearchEngines?: string[];
+  /**
+   * User-Agent sent with built-in search and screenshot requests. Empty uses the built-in default.
+   * Shown on the approval card when Auto Run is off.
+   */
+  webSearchUserAgent?: string;
+  /**
+   * Seconds an engine is skipped after a blocker (rate limit, challenge page).
+   * `0` disables cooldowns. Default 300.
+   */
+  webSearchCooldownSeconds?: number;
+  /** Main-process screenshot storage policy; never synced to Python runtime-config. */
+  screenshotRetention?: ScreenshotRetentionSettings;
   /**
    * Extra directories prepended onto agent `run_command` PATH (one per line).
    * Login-shell PATH and common user bins (`~/.local/bin`, `~/.cargo/bin`, …) are

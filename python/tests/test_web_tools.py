@@ -13,11 +13,13 @@ from clara_coder_backend.session.state import current_session_id, get_session, r
 from clara_coder_backend.tools.fetch_url import fetch_url_tool, html_to_text
 from clara_coder_backend.tools.http_guards import assert_public_http_url, normalize_http_base_url
 from clara_coder_backend.tools.web_search import format_searxng_search_report, search_searxng, web_search_tool
+from clara_coder_backend.tools.metasearch import ENGINE_NAMES, MetasearchOutcome, clear_cache
 from clara_coder_backend.hitl.tool_registry import worker_tools_and_map
 
 
 @pytest.fixture
 def enable_web(monkeypatch: pytest.MonkeyPatch):
+    clear_cache()
     tools = RuntimeToolsConfig(
         allow_web_access=True,
         searxng_base_url='http://127.0.0.1:8080',
@@ -94,6 +96,7 @@ async def test_web_search_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.asyncio
 async def test_web_search_missing_base_url(enable_web) -> None:
     enable_web.searxng_base_url = ''
+    enable_web.web_search_provider = 'searxng'
     sid = 'web-search-no-url'
     token = current_session_id.set(sid)
     session = get_session(sid)
@@ -237,7 +240,7 @@ def test_maybe_await_hitl_presentation_for_web_search() -> None:
     assert msg is not None
     pending = session.pending_accept_command_request
     assert pending is not None
-    assert pending['title'] == 'Web search (SearXNG)'
+    assert pending['title'] == 'Web search'
     assert pending['command_text'] == 'q'
 
 
@@ -251,3 +254,199 @@ def test_fetch_url_redirect_to_private_host_is_blocked_before_request() -> None:
     handler = _PublicOnlyRedirectHandler()
     with _pytest.raises(urllib.error.URLError):
         handler.redirect_request(None, None, 302, 'Found', {}, 'http://127.0.0.1:8080/admin')
+
+@pytest.mark.asyncio
+async def test_web_search_uses_builtin_when_provider_internal(enable_web) -> None:
+    enable_web.web_search_provider = 'internal'
+    enable_web.searxng_base_url = ''
+    sid = 'web-search-internal'
+    token = current_session_id.set(sid)
+    session = get_session(sid)
+    session.auto_apply_mode = True
+    outcome = MetasearchOutcome(
+        rows=[{'title': 'Docs', 'url': 'https://example.com/d', 'content': 'guide', 'engine': 'duckduckgo'}],
+        engines_ok=['duckduckgo'],
+    )
+    try:
+        with patch('clara_coder_backend.tools.web_search.metasearch', return_value=outcome):
+            out = await web_search_tool.ainvoke({'query': 'guide'})
+    finally:
+        current_session_id.reset(token)
+    assert 'built-in' in out
+    assert 'https://example.com/d' in out
+
+
+@pytest.mark.asyncio
+async def test_web_search_auto_prefers_searxng_when_base_url_set(enable_web) -> None:
+    enable_web.web_search_provider = 'auto'
+    sid = 'web-search-auto'
+    token = current_session_id.set(sid)
+    session = get_session(sid)
+    session.auto_apply_mode = True
+    rows = [{'title': 'Docs', 'url': 'https://example.com/d', 'content': 'guide', 'engine': 'bing'}]
+    try:
+        with patch('clara_coder_backend.tools.web_search.search_searxng', return_value=rows) as searxng:
+            out = await web_search_tool.ainvoke({'query': 'guide'})
+    finally:
+        current_session_id.reset(token)
+    assert searxng.called
+    assert 'SearXNG' in out
+
+
+@pytest.mark.asyncio
+async def test_web_search_reports_when_every_engine_fails(enable_web) -> None:
+    enable_web.web_search_provider = 'internal'
+    enable_web.searxng_base_url = ''
+    sid = 'web-search-all-fail'
+    token = current_session_id.set(sid)
+    session = get_session(sid)
+    session.auto_apply_mode = True
+    outcome = MetasearchOutcome(rows=[], engines_ok=[], engines_failed={'bing': 'HTTP 503'})
+    try:
+        with patch('clara_coder_backend.tools.web_search.metasearch', return_value=outcome):
+            out = await web_search_tool.ainvoke({'query': 'guide'})
+    finally:
+        current_session_id.reset(token)
+    assert 'every built-in search engine failed' in out
+    assert 'bing' in out
+
+@pytest.mark.asyncio
+async def test_web_search_passes_configured_engines(enable_web) -> None:
+    enable_web.web_search_provider = 'internal'
+    enable_web.searxng_base_url = ''
+    enable_web.web_search_engines = ['wikipedia', 'bogus']
+    sid = 'web-search-engines'
+    token = current_session_id.set(sid)
+    session = get_session(sid)
+    session.auto_apply_mode = True
+    outcome = MetasearchOutcome(rows=[], engines_ok=['wikipedia'])
+    try:
+        with patch('clara_coder_backend.tools.web_search.metasearch', return_value=outcome) as ms:
+            await web_search_tool.ainvoke({'query': 'guide'})
+    finally:
+        current_session_id.reset(token)
+    assert ms.call_args.kwargs['engines'] == ('wikipedia',)
+
+
+@pytest.mark.asyncio
+async def test_web_search_empty_engine_list_means_all(enable_web) -> None:
+    enable_web.web_search_provider = 'internal'
+    enable_web.searxng_base_url = ''
+    enable_web.web_search_engines = []
+    sid = 'web-search-engines-all'
+    token = current_session_id.set(sid)
+    session = get_session(sid)
+    session.auto_apply_mode = True
+    outcome = MetasearchOutcome(rows=[], engines_ok=list(ENGINE_NAMES))
+    try:
+        with patch('clara_coder_backend.tools.web_search.metasearch', return_value=outcome) as ms:
+            await web_search_tool.ainvoke({'query': 'guide'})
+    finally:
+        current_session_id.reset(token)
+    assert ms.call_args.kwargs['engines'] == ENGINE_NAMES
+
+
+def test_redact_emails() -> None:
+    from clara_coder_backend.tools.redact import redact_emails
+
+    text, count = redact_emails('contact daniel.perez@codebydp.com about asyncio')
+    assert count == 1
+    assert 'daniel.perez@codebydp.com' not in text
+    assert '[email redacted]' in text
+    assert redact_emails('no address here') == ('no address here', 0)
+
+
+@pytest.mark.asyncio
+async def test_web_search_redacts_email_before_request(enable_web) -> None:
+    enable_web.web_search_provider = 'internal'
+    enable_web.searxng_base_url = ''
+    sid = 'web-search-redact'
+    token = current_session_id.set(sid)
+    session = get_session(sid)
+    session.auto_apply_mode = True
+    outcome = MetasearchOutcome(rows=[], engines_ok=['wikipedia'])
+    try:
+        with patch('clara_coder_backend.tools.web_search.metasearch', return_value=outcome) as ms:
+            out = await web_search_tool.ainvoke({'query': 'daniel.perez@codebydp.com asyncio'})
+    finally:
+        current_session_id.reset(token)
+    sent = ms.call_args.args[0]
+    assert 'daniel.perez@codebydp.com' not in sent
+    assert '[email redacted]' in sent
+    assert 'Email addresses redacted' in out
+
+
+@pytest.mark.asyncio
+async def test_web_search_uses_configured_user_agent(enable_web) -> None:
+    enable_web.web_search_provider = 'internal'
+    enable_web.searxng_base_url = ''
+    enable_web.web_search_user_agent = 'ClaraCoder/1.0 (+https://example.com)'
+    sid = 'web-search-ua'
+    token = current_session_id.set(sid)
+    session = get_session(sid)
+    session.auto_apply_mode = True
+    outcome = MetasearchOutcome(rows=[], engines_ok=['wikipedia'])
+    try:
+        with patch('clara_coder_backend.tools.web_search.metasearch', return_value=outcome) as ms:
+            await web_search_tool.ainvoke({'query': 'guide'})
+    finally:
+        current_session_id.reset(token)
+    assert ms.call_args.kwargs['user_agent'] == 'ClaraCoder/1.0 (+https://example.com)'
+
+
+def test_web_search_user_agent_falls_back_to_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    from clara_coder_backend.tools.metasearch import DEFAULT_USER_AGENT
+    from clara_coder_backend.tools.web_search import outbound_user_agent
+
+    monkeypatch.setattr(runtime_config, 'tools', RuntimeToolsConfig(web_search_user_agent=''))
+    assert outbound_user_agent() == DEFAULT_USER_AGENT
+    monkeypatch.setattr(runtime_config, 'tools', RuntimeToolsConfig(web_search_user_agent='bad\x00ua'))
+    assert outbound_user_agent() == DEFAULT_USER_AGENT
+
+
+def test_web_search_hitl_card_shows_user_agent() -> None:
+    session = get_session('web-hitl-ua')
+    session.auto_apply_mode = False
+    session.pending_accept_command_request = None
+    msg = maybe_await_hitl_for_deferred_tool(
+        session,
+        tool_name='web_search',
+        tool_input={'query': 'q', 'limit': 5},
+    )
+    assert msg is not None
+    pending = session.pending_accept_command_request
+    assert pending is not None
+    assert any('User-Agent' in detail for detail in pending['details'])
+
+
+def test_web_search_hitl_card_redacts_email() -> None:
+    session = get_session('web-hitl-redact')
+    session.auto_apply_mode = False
+    session.pending_accept_command_request = None
+    msg = maybe_await_hitl_for_deferred_tool(
+        session,
+        tool_name='web_search',
+        tool_input={'query': 'mail daniel.perez@codebydp.com', 'limit': 5},
+    )
+    assert msg is not None
+    pending = session.pending_accept_command_request
+    assert pending is not None
+    assert 'daniel.perez@codebydp.com' not in pending['command_text']
+    assert any('Email addresses redacted' in detail for detail in pending['details'])
+
+
+def test_web_operational_bullet_mentions_user_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    from clara_coder_backend.llm.messages import _web_access_operational_bullet
+
+    monkeypatch.setattr(runtime_config, 'tools', RuntimeToolsConfig(allow_web_access=True))
+    bullet = _web_access_operational_bullet()
+    assert 'User-Agent' in bullet
+    assert 'Settings → Tools' in bullet
+    assert 'cooldowns' in bullet
+
+    monkeypatch.setattr(runtime_config, 'tools', RuntimeToolsConfig(allow_web_access=False))
+    assert _web_access_operational_bullet() == ''
+
+
+def test_web_search_description_mentions_redaction() -> None:
+    assert 'redacted' in web_search_tool.description

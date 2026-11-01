@@ -42,6 +42,7 @@ import {
   reconcileLostWorkspaces,
   type ReconcileLostWorkspacesResult,
 } from '../../workspace/lost-workspace';
+import { applyScreenshotRetention } from '../../web/screenshot-maintenance';
 
 /**
  * Push workspace system-prompt text into the active Python session immediately.
@@ -377,6 +378,7 @@ export function registerConfigWorkspacesIpc(): void {
     // seconds (sidecar busy or 60s headers timeout) and was freezing Settings → Apply.
     setHealthMetricsEnabled(saved.healthMonitor.metricsEnabled);
     broadcastConfig(saved);
+    applyScreenshotRetention(saved.workspaceTools.screenshotRetention);
     void applyPublishedConfigRuntime(saved).catch((err) => {
       console.error('Failed to apply saved config to runtime:', err);
     });

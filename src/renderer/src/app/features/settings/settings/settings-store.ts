@@ -2,6 +2,7 @@ import { Injectable, afterNextRender, effect, inject, Injector, computed, signal
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NgxSpinnerService } from 'ngx-spinner';
 import { Subscription } from 'rxjs';
+import { DEFAULT_SCREENSHOT_RETENTION, normalizeScreenshotRetention, type ScreenshotRetentionSettings } from '@shared/screenshot-retention';
 import type {
   AppConfig,
   AudioTranscriptionConfig,
@@ -88,6 +89,7 @@ import {
   normalizeChatContainerSize,
   normalizeChatThinkingDisplay,
   normalizeMonacoWorkspaceEditorSettings,
+  normalizeWebSearchEngines,
   optimizationPresetDefaultsPatch,
   optimizationPresetsForProvider,
   parseCustomManagedContextTokens,
@@ -343,6 +345,11 @@ export class SettingsStore {
   readonly exposeAllWorkspaceFiles = signal(false);
   readonly allowWebAccess = signal(false);
   readonly searxngBaseUrl = signal('');
+  readonly webSearchProvider = signal<'auto' | 'internal' | 'searxng'>('auto');
+  readonly webSearchEngines = signal<string[]>([]);
+  readonly webSearchUserAgent = signal('');
+  readonly webSearchCooldownSeconds = signal(300);
+  readonly screenshotRetention = signal<ScreenshotRetentionSettings>({ ...DEFAULT_SCREENSHOT_RETENTION });
   readonly extraUserPath = signal('');
   readonly enableAgentFormatters = signal(false);
   readonly confirmMove = signal(true);
@@ -2894,6 +2901,23 @@ export class SettingsStore {
     if (changes.searxngBaseUrl !== undefined) {
       this.searxngBaseUrl.set((changes.searxngBaseUrl || '').trim());
     }
+    if (changes.webSearchProvider !== undefined) {
+      this.webSearchProvider.set(changes.webSearchProvider ?? 'auto');
+    }
+    if (changes.webSearchEngines !== undefined) {
+      this.webSearchEngines.set(normalizeWebSearchEngines(changes.webSearchEngines));
+    }
+    if (changes.webSearchUserAgent !== undefined) {
+      this.webSearchUserAgent.set((changes.webSearchUserAgent || '').trim());
+    }
+    if (changes.webSearchCooldownSeconds !== undefined) {
+      this.webSearchCooldownSeconds.set(changes.webSearchCooldownSeconds ?? 300);
+    }
+    if (changes.screenshotRetention !== undefined) {
+      this.screenshotRetention.set(normalizeScreenshotRetention({
+        ...this.screenshotRetention(), ...changes.screenshotRetention,
+      }));
+    }
     if (changes.extraUserPath !== undefined) {
       this.extraUserPath.set(changes.extraUserPath || '');
     }
@@ -2962,6 +2986,45 @@ export class SettingsStore {
 
   onSearxngBaseUrlChange(value: string): void {
     this.searxngBaseUrl.set((value || '').trim());
+    this.markSettingsDirty();
+  }
+
+  onWebSearchProviderChange(value: string): void {
+    this.webSearchProvider.set(value === 'internal' || value === 'searxng' ? value : 'auto');
+    this.markSettingsDirty();
+  }
+
+  onWebSearchEngineToggle(id: string, enabled: boolean): void {
+    const current = new Set(this.webSearchEngines());
+    if (enabled) {
+      current.add(id);
+    } else {
+      current.delete(id);
+    }
+    this.webSearchEngines.set(normalizeWebSearchEngines([...current]));
+    this.markSettingsDirty();
+  }
+
+  onWebSearchUserAgentChange(value: string): void {
+    this.webSearchUserAgent.set((value || '').trim());
+    this.markSettingsDirty();
+  }
+
+  onWebSearchCooldownSecondsChange(raw: string | number): void {
+    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+    if (Number.isNaN(n)) {
+      return;
+    }
+    this.webSearchCooldownSeconds.set(Math.min(3600, Math.max(0, n)));
+    this.markSettingsDirty();
+  }
+
+  onScreenshotRetentionChange(key: keyof ScreenshotRetentionSettings, raw: string | number | null): void {
+    const value = typeof raw === 'number' ? raw : Number(raw);
+    if (!Number.isFinite(value) || raw === '' || raw === null) {
+      return;
+    }
+    this.screenshotRetention.set(normalizeScreenshotRetention({ ...this.screenshotRetention(), [key]: value }));
     this.markSettingsDirty();
   }
 
@@ -3410,6 +3473,11 @@ export class SettingsStore {
         exposeAllWorkspaceFiles: this.exposeAllWorkspaceFiles(),
         allowWebAccess: this.allowWebAccess(),
         searxngBaseUrl: this.searxngBaseUrl(),
+        webSearchProvider: this.webSearchProvider(),
+        webSearchEngines: this.webSearchEngines(),
+        webSearchUserAgent: this.webSearchUserAgent(),
+        webSearchCooldownSeconds: this.webSearchCooldownSeconds(),
+        screenshotRetention: normalizeScreenshotRetention(this.screenshotRetention()),
         extraUserPath: this.extraUserPath(),
         enableAgentFormatters: this.enableAgentFormatters(),
       },
@@ -3602,6 +3670,11 @@ export class SettingsStore {
     this.exposeAllWorkspaceFiles.set(!!(wt.exposeAllWorkspaceFiles ?? false));
     this.allowWebAccess.set(!!(wt.allowWebAccess ?? false));
     this.searxngBaseUrl.set((wt.searxngBaseUrl ?? '').trim());
+    this.webSearchProvider.set(wt.webSearchProvider ?? 'auto');
+    this.webSearchEngines.set(normalizeWebSearchEngines(wt.webSearchEngines));
+    this.webSearchUserAgent.set((wt.webSearchUserAgent ?? '').trim());
+    this.webSearchCooldownSeconds.set(wt.webSearchCooldownSeconds ?? 300);
+    this.screenshotRetention.set(normalizeScreenshotRetention(wt.screenshotRetention));
     this.extraUserPath.set(wt.extraUserPath ?? '');
     this.enableAgentFormatters.set(!!(wt.enableAgentFormatters ?? false));
     this.confirmMove.set(config.confirmMove !== false);

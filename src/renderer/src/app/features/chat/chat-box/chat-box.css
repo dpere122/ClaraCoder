@@ -277,6 +277,37 @@ app-chat-box .assistant-md {
   color: var(--chat-final-response-fg);
 }
 
+app-chat-box .assistant-md img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Dynamic capture fallbacks are inserted into sanitized markdown, outside Angular templates. */
+app-chat-box .assistant-md .capture-image-placeholder {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-width: 100%;
+  margin: 0.4rem 0;
+  padding: 0.8rem 1rem;
+  border: 1px dashed var(--t-border-subtle);
+  border-radius: var(--chat-radius);
+  background: var(--t-surface);
+  color: var(--t-text-muted);
+  font-size: 0.85em;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+app-chat-box .assistant-md .capture-image-placeholder__heading {
+  color: var(--t-secondary);
+  font-weight: 600;
+}
+
+app-chat-box .assistant-md .capture-image-placeholder__caption {
+  white-space: pre-wrap;
+}
+
 .assistant-bubble p {
   margin: 0 0 0.5em;
 }

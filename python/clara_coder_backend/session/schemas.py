@@ -439,6 +439,26 @@ class RuntimeToolsRequest(BaseModel):
         validation_alias=AliasChoices('searxngBaseUrl', 'searxng_base_url'),
     )
 
+    webSearchProvider: str = Field(
+        default='auto',
+        validation_alias=AliasChoices('webSearchProvider', 'web_search_provider'),
+    )
+
+    webSearchEngines: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices('webSearchEngines', 'web_search_engines'),
+    )
+
+    webSearchUserAgent: str = Field(
+        default='',
+        validation_alias=AliasChoices('webSearchUserAgent', 'web_search_user_agent'),
+    )
+
+    webSearchCooldownSeconds: int = Field(
+        default=300,
+        validation_alias=AliasChoices('webSearchCooldownSeconds', 'web_search_cooldown_seconds'),
+    )
+
     extraUserPath: str = Field(
         default='',
         validation_alias=AliasChoices('extraUserPath', 'extra_user_path'),
@@ -481,6 +501,47 @@ class RuntimeToolsRequest(BaseModel):
             return ''
         return str(v).strip().rstrip('/')
 
+    @field_validator('webSearchProvider', mode='before')
+    @classmethod
+    def _normalize_web_search_provider(cls, v: Any) -> Any:
+        if v is None:
+            return 'auto'
+        text = str(v).strip().lower()
+        return text if text in ('auto', 'internal', 'searxng') else 'auto'
+
+    @field_validator('webSearchEngines', mode='before')
+    @classmethod
+    def _normalize_web_search_engines(cls, v: Any) -> Any:
+        # Imported here so the schema module stays free of a tools import at load time.
+        from clara_coder_backend.tools.metasearch.engines import ENGINE_NAMES
+
+        if v is None:
+            return []
+        if isinstance(v, str):
+            v = [v]
+        if not isinstance(v, (list, tuple)):
+            return []
+        wanted = {str(item).strip().lower() for item in v if isinstance(item, str)}
+        return [name for name in ENGINE_NAMES if name in wanted]
+
+    @field_validator('webSearchUserAgent', mode='before')
+    @classmethod
+    def _normalize_web_search_user_agent(cls, v: Any) -> Any:
+        if v is None:
+            return ''
+        text = str(v).strip()
+        if len(text) > 512 or any(ord(ch) < 32 or ord(ch) == 127 for ch in text):
+            return ''
+        return text
+
+    @field_validator('webSearchCooldownSeconds', mode='before')
+    @classmethod
+    def _normalize_web_search_cooldown(cls, v: Any) -> Any:
+        try:
+            value = int(v)
+        except (TypeError, ValueError):
+            return 300
+        return min(max(value, 0), 3600)
     @field_validator('extraUserPath', mode='before')
     @classmethod
     def _normalize_extra_user_path(cls, v: Any) -> Any:

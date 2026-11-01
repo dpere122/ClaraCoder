@@ -1,3 +1,5 @@
+import type { ScreenshotAssetStatus, ScreenshotStorageStats } from '@shared/screenshot-retention';
+
 import type {
   AcceptCommandPayload,
   AppConfig,
@@ -387,6 +389,11 @@ declare global {
     onModelManagerHfDownloadProgress?: (callback: (event: unknown, data: HfDownloadProgressEvent) => void) => void;
     loadConfig: () => Promise<AppConfig>;
     saveConfig: (config: AppConfig) => Promise<AppConfig>;
+    getScreenshotStorageStats: () => Promise<{ ok: true; stats: ScreenshotStorageStats } | { ok: false; error: string }>;
+    runScreenshotCleanup: () => Promise<{ ok: true; stats: ScreenshotStorageStats } | { ok: false; error: string }>;
+    clearScreenshots: () => Promise<{ ok: true; stats: ScreenshotStorageStats } | { ok: false; error: string }>;
+    getScreenshotAssetStatus: (url: string) => Promise<ScreenshotAssetStatus>;
+    onScreenshotAssetsChanged: (callback: () => void) => () => void;
     setLastActiveConversation: (workspaceKey: string, conversationId: string) => Promise<AppConfig>;
     patchWorkspaceMonacoScroll: (
       workspaceId: string,

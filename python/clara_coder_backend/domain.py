@@ -389,6 +389,16 @@ class RuntimeToolsConfig:
     allow_web_access: bool = False
     #: SearXNG instance base URL for ``web_search`` (e.g. ``http://127.0.0.1:8080``).
     searxng_base_url: str = ''
+    #: ``web_search`` backend: ``auto`` (SearXNG when a base URL is set, else the built-in
+    #: metasearch engine), ``internal`` (always built-in), or ``searxng`` (always SearXNG).
+    web_search_provider: str = 'auto'
+    #: Built-in metasearch engines to query (``duckduckgo``, ``bing``, ``mojeek``, ``wikipedia``).
+    #: Empty means every engine (Settings → Tools).
+    web_search_engines: list[str] = field(default_factory=list)
+    #: User-Agent sent with built-in engine requests; empty uses the built-in default.
+    web_search_user_agent: str = ''
+    #: Seconds an engine is skipped after a blocker (rate limit, challenge page). 0 disables.
+    web_search_cooldown_seconds: int = 300
     #: Extra directories prepended onto agent ``run_command`` PATH (Settings → Tools).
     extra_user_path: str = ''
     #: When True, auto-run Black/Prettier after edits and bind format_* tools (Settings → Tools).

@@ -26,7 +26,7 @@ const RUN_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
 ]);
 
 /** Network tools (globe spinner). */
-const WEB_TOOL_NAMES: ReadonlySet<string> = new Set<string>(['web_search', 'fetch_url']);
+const WEB_TOOL_NAMES: ReadonlySet<string> = new Set<string>(['web_search', 'fetch_url', 'screenshot_webpage']);
 
 /**
  * One glyph per agent tool: drawn still it is the tool's icon, animated it is that tool's spinner.
@@ -59,6 +59,7 @@ export const TOOL_GLYPH_IDS = [
   'java',
   'web-search',
   'fetch',
+  'screenshot',
   'command',
   'wait',
   'stop-command',
@@ -113,6 +114,7 @@ const TOOL_GLYPHS: Readonly<Record<string, ToolGlyph>> = {
   java_bootstrap_project: 'java',
   web_search: 'web-search',
   fetch_url: 'fetch',
+  screenshot_webpage: 'screenshot',
   run_command: 'command',
   wait_for_command: 'wait',
   kill_background_command: 'stop-command',

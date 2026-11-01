@@ -663,12 +663,23 @@ export interface WorkspaceToolsConfig {
    */
   exposeAllWorkspaceFiles?: boolean;
   /**
-   * When true, bind `web_search` (SearXNG) and `fetch_url` agent tools.
-   * Default false. Requires a reachable SearXNG base URL for search.
+   * When true, bind `web_search` and `fetch_url` agent tools.
+   * Default false. Search works out of the box with the built-in metasearch engine.
    */
   allowWebAccess?: boolean;
   /** Base URL of a SearXNG instance (e.g. `http://127.0.0.1:8080`). Empty until configured. */
   searxngBaseUrl?: string;
+  /**
+   * `web_search` backend: `auto` (SearXNG when a base URL is set, else the built-in
+   * metasearch engine), `internal` (always built-in), or `searxng` (always SearXNG).
+   * Default `auto`.
+   */
+  webSearchProvider?: 'auto' | 'internal' | 'searxng';
+  /**
+   * Built-in metasearch engines to query, by id (`duckduckgo`, `bing`, `mojeek`, `wikipedia`).
+   * Empty means every engine. Ignored when the provider is `searxng`.
+   */
+  webSearchEngines?: string[];
   /**
    * Extra directories prepended onto agent `run_command` PATH (one per line).
    * Login-shell PATH and common user bins (`~/.local/bin`, `~/.cargo/bin`, …) are

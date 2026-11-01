@@ -13,11 +13,13 @@ from clara_coder_backend.session.state import current_session_id, get_session, r
 from clara_coder_backend.tools.fetch_url import fetch_url_tool, html_to_text
 from clara_coder_backend.tools.http_guards import assert_public_http_url, normalize_http_base_url
 from clara_coder_backend.tools.web_search import format_searxng_search_report, search_searxng, web_search_tool
+from clara_coder_backend.tools.metasearch import ENGINE_NAMES, MetasearchOutcome, clear_cache
 from clara_coder_backend.hitl.tool_registry import worker_tools_and_map
 
 
 @pytest.fixture
 def enable_web(monkeypatch: pytest.MonkeyPatch):
+    clear_cache()
     tools = RuntimeToolsConfig(
         allow_web_access=True,
         searxng_base_url='http://127.0.0.1:8080',
@@ -94,6 +96,7 @@ async def test_web_search_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.asyncio
 async def test_web_search_missing_base_url(enable_web) -> None:
     enable_web.searxng_base_url = ''
+    enable_web.web_search_provider = 'searxng'
     sid = 'web-search-no-url'
     token = current_session_id.set(sid)
     session = get_session(sid)
@@ -237,7 +240,7 @@ def test_maybe_await_hitl_presentation_for_web_search() -> None:
     assert msg is not None
     pending = session.pending_accept_command_request
     assert pending is not None
-    assert pending['title'] == 'Web search (SearXNG)'
+    assert pending['title'] == 'Web search'
     assert pending['command_text'] == 'q'
 
 
@@ -251,3 +254,93 @@ def test_fetch_url_redirect_to_private_host_is_blocked_before_request() -> None:
     handler = _PublicOnlyRedirectHandler()
     with _pytest.raises(urllib.error.URLError):
         handler.redirect_request(None, None, 302, 'Found', {}, 'http://127.0.0.1:8080/admin')
+
+@pytest.mark.asyncio
+async def test_web_search_uses_builtin_when_provider_internal(enable_web) -> None:
+    enable_web.web_search_provider = 'internal'
+    enable_web.searxng_base_url = ''
+    sid = 'web-search-internal'
+    token = current_session_id.set(sid)
+    session = get_session(sid)
+    session.auto_apply_mode = True
+    outcome = MetasearchOutcome(
+        rows=[{'title': 'Docs', 'url': 'https://example.com/d', 'content': 'guide', 'engine': 'duckduckgo'}],
+        engines_ok=['duckduckgo'],
+    )
+    try:
+        with patch('clara_coder_backend.tools.web_search.metasearch', return_value=outcome):
+            out = await web_search_tool.ainvoke({'query': 'guide'})
+    finally:
+        current_session_id.reset(token)
+    assert 'built-in' in out
+    assert 'https://example.com/d' in out
+
+
+@pytest.mark.asyncio
+async def test_web_search_auto_prefers_searxng_when_base_url_set(enable_web) -> None:
+    enable_web.web_search_provider = 'auto'
+    sid = 'web-search-auto'
+    token = current_session_id.set(sid)
+    session = get_session(sid)
+    session.auto_apply_mode = True
+    rows = [{'title': 'Docs', 'url': 'https://example.com/d', 'content': 'guide', 'engine': 'bing'}]
+    try:
+        with patch('clara_coder_backend.tools.web_search.search_searxng', return_value=rows) as searxng:
+            out = await web_search_tool.ainvoke({'query': 'guide'})
+    finally:
+        current_session_id.reset(token)
+    assert searxng.called
+    assert 'SearXNG' in out
+
+
+@pytest.mark.asyncio
+async def test_web_search_reports_when_every_engine_fails(enable_web) -> None:
+    enable_web.web_search_provider = 'internal'
+    enable_web.searxng_base_url = ''
+    sid = 'web-search-all-fail'
+    token = current_session_id.set(sid)
+    session = get_session(sid)
+    session.auto_apply_mode = True
+    outcome = MetasearchOutcome(rows=[], engines_ok=[], engines_failed={'bing': 'HTTP 503'})
+    try:
+        with patch('clara_coder_backend.tools.web_search.metasearch', return_value=outcome):
+            out = await web_search_tool.ainvoke({'query': 'guide'})
+    finally:
+        current_session_id.reset(token)
+    assert 'every built-in search engine failed' in out
+    assert 'bing' in out
+
+@pytest.mark.asyncio
+async def test_web_search_passes_configured_engines(enable_web) -> None:
+    enable_web.web_search_provider = 'internal'
+    enable_web.searxng_base_url = ''
+    enable_web.web_search_engines = ['wikipedia', 'bogus']
+    sid = 'web-search-engines'
+    token = current_session_id.set(sid)
+    session = get_session(sid)
+    session.auto_apply_mode = True
+    outcome = MetasearchOutcome(rows=[], engines_ok=['wikipedia'])
+    try:
+        with patch('clara_coder_backend.tools.web_search.metasearch', return_value=outcome) as ms:
+            await web_search_tool.ainvoke({'query': 'guide'})
+    finally:
+        current_session_id.reset(token)
+    assert ms.call_args.kwargs['engines'] == ('wikipedia',)
+
+
+@pytest.mark.asyncio
+async def test_web_search_empty_engine_list_means_all(enable_web) -> None:
+    enable_web.web_search_provider = 'internal'
+    enable_web.searxng_base_url = ''
+    enable_web.web_search_engines = []
+    sid = 'web-search-engines-all'
+    token = current_session_id.set(sid)
+    session = get_session(sid)
+    session.auto_apply_mode = True
+    outcome = MetasearchOutcome(rows=[], engines_ok=list(ENGINE_NAMES))
+    try:
+        with patch('clara_coder_backend.tools.web_search.metasearch', return_value=outcome) as ms:
+            await web_search_tool.ainvoke({'query': 'guide'})
+    finally:
+        current_session_id.reset(token)
+    assert ms.call_args.kwargs['engines'] == ENGINE_NAMES

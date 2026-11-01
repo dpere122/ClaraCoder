@@ -106,6 +106,7 @@ const FALLBACK_APP_CONFIG: AppConfig = {
     exposeAllWorkspaceFiles: false,
     allowWebAccess: false,
     searxngBaseUrl: '',
+    webSearchProvider: 'auto',
     extraUserPath: '',
     enableAgentFormatters: false,
   },

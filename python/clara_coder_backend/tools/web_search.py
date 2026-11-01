@@ -1,4 +1,4 @@
-"""Search the web via a user-configured SearXNG instance."""
+"""Search the web via the built-in metasearch backend or a user-configured SearXNG instance."""
 
 from __future__ import annotations
 
@@ -14,6 +14,8 @@ from langchain_core.tools import tool
 
 from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
 from clara_coder_backend.tools.http_guards import normalize_http_base_url
+from clara_coder_backend.tools.metasearch import ENGINE_NAMES, MetasearchOutcome, metasearch
+from clara_coder_backend.tools.metasearch.cache import get_cached, put_cached
 from clara_coder_backend.tools.tool_conventions import describe
 from clara_coder_backend.tools.workspace import truncate_text_head_tail
 
@@ -25,8 +27,14 @@ _MAX_QUERY_LEN = 512
 _MAX_LIMIT = 20
 _DEFAULT_LIMIT = 8
 
+#: ``auto`` — SearXNG when a base URL is set, else the built-in engine.
+#: ``internal`` — always the built-in metasearch backend.
+#: ``searxng`` — always the configured SearXNG instance.
+_PROVIDERS = ('auto', 'internal', 'searxng')
+
 __all__ = [
     'WEB_SEARCH_NAME',
+    'format_search_report',
     'format_searxng_search_report',
     'search_searxng',
     'web_search_tool',
@@ -47,9 +55,38 @@ def _searxng_base() -> tuple[str | None, str | None]:
     if not base:
         return None, (
             'Tool error: SearXNG base URL is not configured. Set **SearXNG base URL** in '
-            'Settings → Tools (e.g. `http://127.0.0.1:8080`).'
+            'Settings → Tools (e.g. `http://127.0.0.1:8080`), or set **Web search provider** to '
+            '**Built-in**.'
         )
     return base, None
+
+
+def _provider() -> str:
+    raw = str(getattr(runtime_config.tools, 'web_search_provider', 'auto') or 'auto').strip().lower()
+    return raw if raw in _PROVIDERS else 'auto'
+
+
+def _resolve_provider() -> tuple[str | None, str | None]:
+    """Return ``('internal' | 'searxng', None)``, or ``(None, error)`` when misconfigured."""
+
+    provider = _provider()
+    if provider == 'internal':
+        return 'internal', None
+    if provider == 'searxng':
+        base, err = _searxng_base()
+        return (None, err) if err else ('searxng', None)
+    # auto: prefer an explicitly configured instance, otherwise use the built-in engine.
+    base = normalize_http_base_url(getattr(runtime_config.tools, 'searxng_base_url', '') or '')
+    return ('searxng', None) if base else ('internal', None)
+
+
+def _enabled_engines() -> tuple[str, ...]:
+    """Configured built-in engines, filtered to known names; empty means every engine."""
+
+    raw = getattr(runtime_config.tools, 'web_search_engines', None) or []
+    wanted = {str(name).strip().lower() for name in raw if isinstance(name, str)}
+    selected = tuple(name for name in ENGINE_NAMES if name in wanted)
+    return selected or ENGINE_NAMES
 
 
 def _normalize_limit(limit: int) -> tuple[int | None, str | None]:
@@ -96,12 +133,23 @@ def search_searxng(query: str, *, base_url: str, limit: int = _DEFAULT_LIMIT) ->
     return rows
 
 
-def format_searxng_search_report(*, query: str, rows: list[dict[str, Any]]) -> str:
+def format_search_report(
+    *,
+    query: str,
+    rows: list[dict[str, Any]],
+    source: str = 'SearXNG',
+    engines_ok: list[str] | None = None,
+    engines_failed: dict[str, str] | None = None,
+) -> str:
     lines: list[str] = [
-        'Web search results (SearXNG):',
+        f'Web search results ({source}):',
         '',
         f'Query: `{query}`',
     ]
+    if engines_ok:
+        lines.append(f'- Engines: {", ".join(engines_ok)}')
+    if engines_failed:
+        lines.append(f'- Unavailable: {", ".join(sorted(engines_failed))}')
     if not rows:
         lines.append('- Matches: none')
     else:
@@ -129,13 +177,41 @@ def format_searxng_search_report(*, query: str, rows: list[dict[str, Any]]) -> s
     return truncate_text_head_tail(body, _MAX_OUTPUT_CHARS)
 
 
+def format_searxng_search_report(*, query: str, rows: list[dict[str, Any]]) -> str:
+    return format_search_report(query=query, rows=rows, source='SearXNG')
+
+
+async def _internal_search(query: str, limit: int) -> str:
+    engines = _enabled_engines()
+    key = ('internal', query.strip().lower(), limit, engines)
+    outcome: MetasearchOutcome | None = get_cached(key)
+    if outcome is None:
+        try:
+            outcome = await asyncio.to_thread(metasearch, query, limit=limit, engines=engines)
+        except Exception as exc:  # noqa: BLE001 - surface a tool error, never a traceback
+            return f'Tool error: built-in search failed ({exc.__class__.__name__}).'
+        put_cached(key, outcome)
+
+    if not outcome.rows and outcome.engines_failed:
+        detail = '; '.join(f'{name}: {err}' for name, err in sorted(outcome.engines_failed.items()))
+        return f'Tool error: every built-in search engine failed ({detail}).'
+
+    return format_search_report(
+        query=query,
+        rows=outcome.rows,
+        source='built-in',
+        engines_ok=outcome.engines_ok,
+        engines_failed=outcome.engines_failed,
+    )
+
+
 @tool(
     WEB_SEARCH_NAME,
     description=describe(
-        'Search the web via the configured SearXNG instance.',
+        'Search the web with the built-in metasearch engine or a configured SearXNG instance.',
         when='you need current docs, APIs, errors, or package info from the public web.',
         not_='reading a known URL (use `fetch_url`); workspace search.',
-        shape='`query` required; optional `limit` (1–20). Requires Allow web access + SearXNG base URL in Settings.',
+        shape='`query` required; optional `limit` (1–20). Requires Allow web access in Settings.',
     ),
 )
 async def web_search_tool(query: str, limit: int = _DEFAULT_LIMIT) -> str:
@@ -156,10 +232,10 @@ async def web_search_tool(query: str, limit: int = _DEFAULT_LIMIT) -> str:
         return limit_err
     assert limit_value is not None
 
-    base, base_err = _searxng_base()
-    if base_err:
-        return base_err
-    assert base is not None
+    provider, provider_err = _resolve_provider()
+    if provider_err:
+        return provider_err
+    assert provider is not None
 
     sid = (current_session_id.get() or '').strip()
     if not sid:
@@ -176,6 +252,14 @@ async def web_search_tool(query: str, limit: int = _DEFAULT_LIMIT) -> str:
     if pending:
         return pending
 
+    if provider == 'internal':
+        return await _internal_search(q, limit_value)
+
+    base, base_err = _searxng_base()
+    if base_err:
+        return base_err
+    assert base is not None
+
     try:
         rows = await asyncio.to_thread(search_searxng, q, base_url=base, limit=limit_value)
     except urllib.error.HTTPError as exc:
@@ -187,4 +271,4 @@ async def web_search_tool(query: str, limit: int = _DEFAULT_LIMIT) -> str:
     except json.JSONDecodeError:
         return 'Tool error: SearXNG returned invalid JSON.'
 
-    return format_searxng_search_report(query=q, rows=rows)
+    return format_search_report(query=q, rows=rows, source='SearXNG')

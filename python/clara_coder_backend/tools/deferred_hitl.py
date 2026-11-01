@@ -53,8 +53,8 @@ def _presentation(tool_name: str, tool_input: dict[str, Any]) -> tuple[str, str,
         if limit is not None:
             details.append(f'Limit: `{limit}`')
         return (
-            'Web search (SearXNG)',
-            'Search the web via your configured SearXNG instance.',
+            'Web search',
+            'Search the web with the configured search backend.',
             query or '(empty query)',
             details,
         )

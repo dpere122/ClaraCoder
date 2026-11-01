@@ -40,6 +40,7 @@ import {
   normalizeChatContainerSize,
   normalizeChatThinkingDisplay,
   normalizeMonacoWorkspaceEditorSettings,
+  normalizeWebSearchEngines,
   normalizeWorkspaceMonacoScrollByWorkspaceId,
   normalizeWorkspaceOpenTabsByWorkspaceId,
   getDefaultContextCompression,
@@ -1630,6 +1631,17 @@ export function migrateConfig(config: AppConfig): AppConfig {
         wt.searxngBaseUrl = trimmed;
         migrated = true;
       }
+    }
+    const providerRaw = (wt as unknown as { webSearchProvider?: unknown }).webSearchProvider;
+    if (providerRaw !== 'auto' && providerRaw !== 'internal' && providerRaw !== 'searxng') {
+      wt.webSearchProvider = 'auto';
+      migrated = true;
+    }
+    const enginesRaw = (wt as unknown as { webSearchEngines?: unknown }).webSearchEngines;
+    const engines = normalizeWebSearchEngines(enginesRaw);
+    if (JSON.stringify(engines) !== JSON.stringify(enginesRaw)) {
+      wt.webSearchEngines = engines;
+      migrated = true;
     }
     const extraPathRaw = (wt as unknown as { extraUserPath?: unknown }).extraUserPath;
     if (typeof extraPathRaw !== 'string') {

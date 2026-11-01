@@ -1,5 +1,6 @@
 import { Component, ViewEncapsulation, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { WEB_SEARCH_ENGINES } from '@shared/index';
 import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 import { SettingsStore } from '../settings/settings-store';
 
@@ -12,4 +13,5 @@ import { SettingsStore } from '../settings/settings-store';
 })
 export class SettingsTools {
   protected readonly s = inject(SettingsStore);
+  protected readonly engines = WEB_SEARCH_ENGINES;
 }

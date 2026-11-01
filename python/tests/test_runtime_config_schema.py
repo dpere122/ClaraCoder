@@ -63,12 +63,37 @@ def test_allow_web_access_and_searxng_base_url() -> None:
             'defaultWorkspaceNewline': 'lf',
             'allow_web_access': 'true',
             'searxng_base_url': '  http://127.0.0.1:8080/  ',
+            'web_search_provider': '  INTERNAL  ',
         },
     }
     r = RuntimeConfigRequest.model_validate(body)
     assert r.tools is not None
     assert r.tools.allowWebAccess is True
     assert r.tools.searxngBaseUrl == 'http://127.0.0.1:8080'
+    assert r.tools.webSearchProvider == 'internal'
+
+
+def test_web_search_provider_defaults_and_rejects_unknown() -> None:
+    body = {
+        'activeConnectionId': 'x',
+        'connections': [_CONN],
+        'audio': {'provider': 'openai', 'baseUrl': '', 'model': 'whisper-1', 'apiKey': ''},
+        'tools': {
+            'editToolsStrict': False,
+            'maxFileReadLines': 400,
+            'maxSearchResults': 40,
+            'defaultWorkspaceEncoding': 'utf-8',
+            'defaultWorkspaceNewline': 'lf',
+        },
+    }
+    r = RuntimeConfigRequest.model_validate(body)
+    assert r.tools is not None
+    assert r.tools.webSearchProvider == 'auto'
+
+    body['tools']['webSearchProvider'] = 'nonsense'
+    r = RuntimeConfigRequest.model_validate(body)
+    assert r.tools is not None
+    assert r.tools.webSearchProvider == 'auto'
 
 
 def test_enable_agent_formatters_accepts_snake_case_string() -> None:
@@ -234,3 +259,27 @@ def test_parallel_tool_calls_defaults_on_when_omitted() -> None:
     body = {k: v for k, v in _CONN.items() if k != 'parallelToolCalls'}
     r = RuntimeConnectionRequest.model_validate(body)
     assert r.parallelToolCalls is True
+
+
+def test_web_search_engines_normalized_to_known_names() -> None:
+    body = {
+        'activeConnectionId': 'x',
+        'connections': [_CONN],
+        'audio': {'provider': 'openai', 'baseUrl': '', 'model': 'whisper-1', 'apiKey': ''},
+        'tools': {
+            'editToolsStrict': False,
+            'maxFileReadLines': 400,
+            'maxSearchResults': 40,
+            'defaultWorkspaceEncoding': 'utf-8',
+            'defaultWorkspaceNewline': 'lf',
+            'webSearchEngines': ['Wikipedia', 'bogus', 'bing', 'bing'],
+        },
+    }
+    r = RuntimeConfigRequest.model_validate(body)
+    assert r.tools is not None
+    assert r.tools.webSearchEngines == ['bing', 'wikipedia']
+
+    body['tools'].pop('webSearchEngines')
+    r = RuntimeConfigRequest.model_validate(body)
+    assert r.tools is not None
+    assert r.tools.webSearchEngines == []

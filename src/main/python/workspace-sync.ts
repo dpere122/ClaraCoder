@@ -10,6 +10,7 @@ import {
   effectiveLmStudioContextTokens,
   flattenLlmProvidersToConnections,
   lmStudioOpenAiBaseUrlToRestOrigin,
+  normalizeWebSearchEngines,
 } from '../../shared';
 import { unwrapSecret } from '../../shared/types/app-config';
 import { ensurePythonReady } from './server';
@@ -363,6 +364,8 @@ async function postRuntimeConfigToPython(
           exposeAllWorkspaceFiles: config.workspaceTools.exposeAllWorkspaceFiles ?? false,
           allowWebAccess: config.workspaceTools.allowWebAccess ?? false,
           searxngBaseUrl: (config.workspaceTools.searxngBaseUrl ?? '').trim(),
+          webSearchProvider: config.workspaceTools.webSearchProvider ?? 'auto',
+          webSearchEngines: normalizeWebSearchEngines(config.workspaceTools.webSearchEngines),
           extraUserPath: config.workspaceTools.extraUserPath ?? '',
           enableAgentFormatters: config.workspaceTools.enableAgentFormatters ?? false,
         },

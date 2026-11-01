@@ -88,6 +88,7 @@ import {
   normalizeChatContainerSize,
   normalizeChatThinkingDisplay,
   normalizeMonacoWorkspaceEditorSettings,
+  normalizeWebSearchEngines,
   optimizationPresetDefaultsPatch,
   optimizationPresetsForProvider,
   parseCustomManagedContextTokens,
@@ -343,6 +344,8 @@ export class SettingsStore {
   readonly exposeAllWorkspaceFiles = signal(false);
   readonly allowWebAccess = signal(false);
   readonly searxngBaseUrl = signal('');
+  readonly webSearchProvider = signal<'auto' | 'internal' | 'searxng'>('auto');
+  readonly webSearchEngines = signal<string[]>([]);
   readonly extraUserPath = signal('');
   readonly enableAgentFormatters = signal(false);
   readonly confirmMove = signal(true);
@@ -2894,6 +2897,12 @@ export class SettingsStore {
     if (changes.searxngBaseUrl !== undefined) {
       this.searxngBaseUrl.set((changes.searxngBaseUrl || '').trim());
     }
+    if (changes.webSearchProvider !== undefined) {
+      this.webSearchProvider.set(changes.webSearchProvider ?? 'auto');
+    }
+    if (changes.webSearchEngines !== undefined) {
+      this.webSearchEngines.set(normalizeWebSearchEngines(changes.webSearchEngines));
+    }
     if (changes.extraUserPath !== undefined) {
       this.extraUserPath.set(changes.extraUserPath || '');
     }
@@ -2962,6 +2971,22 @@ export class SettingsStore {
 
   onSearxngBaseUrlChange(value: string): void {
     this.searxngBaseUrl.set((value || '').trim());
+    this.markSettingsDirty();
+  }
+
+  onWebSearchProviderChange(value: string): void {
+    this.webSearchProvider.set(value === 'internal' || value === 'searxng' ? value : 'auto');
+    this.markSettingsDirty();
+  }
+
+  onWebSearchEngineToggle(id: string, enabled: boolean): void {
+    const current = new Set(this.webSearchEngines());
+    if (enabled) {
+      current.add(id);
+    } else {
+      current.delete(id);
+    }
+    this.webSearchEngines.set(normalizeWebSearchEngines([...current]));
     this.markSettingsDirty();
   }
 
@@ -3410,6 +3435,8 @@ export class SettingsStore {
         exposeAllWorkspaceFiles: this.exposeAllWorkspaceFiles(),
         allowWebAccess: this.allowWebAccess(),
         searxngBaseUrl: this.searxngBaseUrl(),
+        webSearchProvider: this.webSearchProvider(),
+        webSearchEngines: this.webSearchEngines(),
         extraUserPath: this.extraUserPath(),
         enableAgentFormatters: this.enableAgentFormatters(),
       },
@@ -3602,6 +3629,8 @@ export class SettingsStore {
     this.exposeAllWorkspaceFiles.set(!!(wt.exposeAllWorkspaceFiles ?? false));
     this.allowWebAccess.set(!!(wt.allowWebAccess ?? false));
     this.searxngBaseUrl.set((wt.searxngBaseUrl ?? '').trim());
+    this.webSearchProvider.set(wt.webSearchProvider ?? 'auto');
+    this.webSearchEngines.set(normalizeWebSearchEngines(wt.webSearchEngines));
     this.extraUserPath.set(wt.extraUserPath ?? '');
     this.enableAgentFormatters.set(!!(wt.enableAgentFormatters ?? false));
     this.confirmMove.set(config.confirmMove !== false);

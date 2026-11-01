@@ -204,6 +204,8 @@ export function getDefaultWorkspaceTools(): WorkspaceToolsConfig {
     exposeAllWorkspaceFiles: false,
     allowWebAccess: false,
     searxngBaseUrl: '',
+    webSearchProvider: 'auto',
+    webSearchEngines: [],
     extraUserPath: '',
     enableAgentFormatters: false,
   };

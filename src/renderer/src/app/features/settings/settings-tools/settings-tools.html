@@ -81,8 +81,37 @@
                   <span>Allow web access</span>
                 </label>
                 <p class='settings-field-hint'>
-                  When on, the agent may use <code>web_search</code> (via SearXNG) and <code>fetch_url</code>. When
-                  Auto-apply is off, each call asks for confirmation. SearXNG is not bundled — run your own instance.
+                  When on, the agent may use <code>web_search</code> and <code>fetch_url</code>. When Auto-apply is
+                  off, each call asks for confirmation. Search works out of the box with the built-in metasearch
+                  engine; point it at a SearXNG instance if you run one.
+                </p>
+              </div>
+              <label class='field'>
+                <span>Web search provider</span>
+                <select
+                  [ngModel]='s.webSearchProvider()'
+                  (ngModelChange)='s.onWebSearchProviderChange($event)'
+                >
+                  <option value='auto'>Auto — SearXNG if configured, else built-in</option>
+                  <option value='internal'>Built-in metasearch</option>
+                  <option value='searxng'>SearXNG instance</option>
+                </select>
+              </label>
+              <div class='field field--hint field--full'>
+                <span>Built-in search engines</span>
+                @for (engine of engines; track engine.id) {
+                  <label class='toggle-row'>
+                    <input
+                      type='checkbox'
+                      [ngModel]='s.webSearchEngines().length === 0 || s.webSearchEngines().includes(engine.id)'
+                      (ngModelChange)='s.onWebSearchEngineToggle(engine.id, $event)'
+                    />
+                    <span>{{ engine.label }}</span>
+                  </label>
+                }
+                <p class='settings-field-hint'>
+                  Queried in parallel by the built-in metasearch engine. All on gives the widest coverage; fewer
+                  engines means faster searches. Ignored when the provider is a SearXNG instance.
                 </p>
               </div>
               <label class='field'>

@@ -489,7 +489,7 @@ def _web_access_operational_bullet() -> str:
     if not getattr(runtime_config.tools, 'allow_web_access', False):
         return ''
     return (
-        '- **Web:** `web_search` (configured SearXNG) and `fetch_url` are bound. '
+        '- **Web:** `web_search` (built-in metasearch, or your SearXNG instance) and `fetch_url` are bound. '
         'When Auto Run is off, each call asks for confirmation before leaving the machine.\n'
     )
 

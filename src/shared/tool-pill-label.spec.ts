@@ -113,7 +113,18 @@ describe('toolPillLabel', () => {
   it('run-command lanes: command label and exit code', () => {
     const lane: StreamPart = { streamTag: 'run-command:6514a07e', label: 'python hello.py', text: 'Hello world\r\n', runComplete: true, exitCode: 0 };
     expect(pill(lane)).toBe('Run · python hello.py · exit 0');
-    expect(pill({ ...lane, runComplete: false, exitCode: undefined }, true)).toBe('Run · python hello.py · running');
+    expect(pill({ ...lane, runComplete: false, exitCode: undefined }, true)).toBe('Running · python hello.py');
+    // A live lane carries no `runComplete` at all until `tool_exec_complete` lands.
+    expect(pill({ streamTag: lane.streamTag, label: lane.label, text: lane.text }, true)).toBe('Running · python hello.py');
+    // A saved turn never shows a live verb, even for a lane left unfinished.
+    expect(pill({ ...lane, runComplete: false, exitCode: undefined })).toBe('Run · python hello.py · Hello world');
+  });
+
+  it('run_command calls: running pill previews the command', () => {
+    const running = status('run_command', 'npm run build', { toolChainState: 'running' });
+    expect(pill(running, true)).toBe('Running · npm run build');
+    expect(pill(running)).toBe('Run · npm run build');
+    expect(pill(status('read_workspace_file', 'src/a.ts', { toolChainState: 'running' }), true)).toBe('Read · src/a.ts');
   });
 
   it('lsp diagnostics: issue count', () => {

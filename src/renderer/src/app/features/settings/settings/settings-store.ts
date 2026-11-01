@@ -2,6 +2,7 @@ import { Injectable, afterNextRender, effect, inject, Injector, computed, signal
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NgxSpinnerService } from 'ngx-spinner';
 import { Subscription } from 'rxjs';
+import { DEFAULT_SCREENSHOT_RETENTION, normalizeScreenshotRetention, type ScreenshotRetentionSettings } from '@shared/screenshot-retention';
 import type {
   AppConfig,
   AudioTranscriptionConfig,
@@ -348,6 +349,7 @@ export class SettingsStore {
   readonly webSearchEngines = signal<string[]>([]);
   readonly webSearchUserAgent = signal('');
   readonly webSearchCooldownSeconds = signal(300);
+  readonly screenshotRetention = signal<ScreenshotRetentionSettings>({ ...DEFAULT_SCREENSHOT_RETENTION });
   readonly extraUserPath = signal('');
   readonly enableAgentFormatters = signal(false);
   readonly confirmMove = signal(true);
@@ -2911,6 +2913,11 @@ export class SettingsStore {
     if (changes.webSearchCooldownSeconds !== undefined) {
       this.webSearchCooldownSeconds.set(changes.webSearchCooldownSeconds ?? 300);
     }
+    if (changes.screenshotRetention !== undefined) {
+      this.screenshotRetention.set(normalizeScreenshotRetention({
+        ...this.screenshotRetention(), ...changes.screenshotRetention,
+      }));
+    }
     if (changes.extraUserPath !== undefined) {
       this.extraUserPath.set(changes.extraUserPath || '');
     }
@@ -3009,6 +3016,15 @@ export class SettingsStore {
       return;
     }
     this.webSearchCooldownSeconds.set(Math.min(3600, Math.max(0, n)));
+    this.markSettingsDirty();
+  }
+
+  onScreenshotRetentionChange(key: keyof ScreenshotRetentionSettings, raw: string | number | null): void {
+    const value = typeof raw === 'number' ? raw : Number(raw);
+    if (!Number.isFinite(value) || raw === '' || raw === null) {
+      return;
+    }
+    this.screenshotRetention.set(normalizeScreenshotRetention({ ...this.screenshotRetention(), [key]: value }));
     this.markSettingsDirty();
   }
 
@@ -3461,6 +3477,7 @@ export class SettingsStore {
         webSearchEngines: this.webSearchEngines(),
         webSearchUserAgent: this.webSearchUserAgent(),
         webSearchCooldownSeconds: this.webSearchCooldownSeconds(),
+        screenshotRetention: normalizeScreenshotRetention(this.screenshotRetention()),
         extraUserPath: this.extraUserPath(),
         enableAgentFormatters: this.enableAgentFormatters(),
       },
@@ -3657,6 +3674,7 @@ export class SettingsStore {
     this.webSearchEngines.set(normalizeWebSearchEngines(wt.webSearchEngines));
     this.webSearchUserAgent.set((wt.webSearchUserAgent ?? '').trim());
     this.webSearchCooldownSeconds.set(wt.webSearchCooldownSeconds ?? 300);
+    this.screenshotRetention.set(normalizeScreenshotRetention(wt.screenshotRetention));
     this.extraUserPath.set(wt.extraUserPath ?? '');
     this.enableAgentFormatters.set(!!(wt.enableAgentFormatters ?? false));
     this.confirmMove.set(config.confirmMove !== false);

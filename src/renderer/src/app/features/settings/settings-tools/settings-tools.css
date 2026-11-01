@@ -1,1 +1,20 @@
 /* Tab-specific styles for settings-tools; shared form chrome lives in settings/settings.css */
+.screenshot-retention h3 {
+  margin: 0 0 0.5rem;
+}
+
+.screenshot-retention-usage {
+  margin-top: 1rem;
+}
+
+.screenshot-retention-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.screenshot-retention-error {
+  color: var(--t-danger);
+  margin: 0.5rem 0;
+}

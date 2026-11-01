@@ -25,6 +25,7 @@ import { registerDependenciesIpc } from './handlers/dependencies';
 import { registerThemesIpc } from './handlers/themes';
 import { registerMcpIpc } from './handlers/mcp';
 import { registerUpdaterIpc } from './handlers/updater';
+import { registerScreenshotRetentionIpc } from './handlers/screenshot-retention';
 
 /** Registers all `ipcMain` handlers used by the preload `electronAPI` surface. */
 export function registerAllIpc(): void {
@@ -55,4 +56,5 @@ export function registerAllIpc(): void {
   registerThemesIpc();
   registerMcpIpc();
   registerUpdaterIpc();
+  registerScreenshotRetentionIpc();
 }

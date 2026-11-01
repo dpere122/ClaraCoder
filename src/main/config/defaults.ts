@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { DEFAULT_SCREENSHOT_RETENTION } from '../../shared/screenshot-retention';
 import { homedir } from 'os';
 import path = require('path');
 import type {
@@ -208,6 +209,7 @@ export function getDefaultWorkspaceTools(): WorkspaceToolsConfig {
     webSearchEngines: [],
     webSearchUserAgent: '',
     webSearchCooldownSeconds: 300,
+    screenshotRetention: { ...DEFAULT_SCREENSHOT_RETENTION },
     extraUserPath: '',
     enableAgentFormatters: false,
   };

@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net';
 import { app, BrowserWindow, session } from 'electron';
 import { loadConfigSync } from '../config/load-save';
+import { broadcastToAppWindows } from '../ipc/handlers/theme-broadcast';
 import { saveCaptureAsset } from './screenshot-assets';
 import { CaptureNetwork, captureUrl, captureUserAgent } from './screenshot-network';
 
@@ -109,6 +110,7 @@ export async function captureWebpage(input: ScreenshotRequest): Promise<{
       if (image.isEmpty()) throw new Error('Chromium returned an empty screenshot.');
       const size = image.getSize();
       const image_url = await saveCaptureAsset(image.toPNG());
+      broadcastToAppWindows('screenshot-assets-changed', undefined);
       return { image_url, url, width: size.width, height: size.height };
     };
     return await Promise.race([

@@ -16,6 +16,7 @@ import {
 import type { ChatThinkingDisplay, StreamPart, TurnFeedItem } from '@shared/index';
 import { DEFAULT_CHAT_THINKING_DISPLAY, formatThoughtDuration } from '@shared/index';
 import { AuxStreamToolPartComponent } from '../aux-stream-tool-part/aux-stream-tool-part';
+import { CaptureImagesDirective } from '../capture-images.directive';
 import { MarkdownPipe } from '../markdown.pipe';
 import { StreamNudgePillComponent } from '../stream-nudge-pill/stream-nudge-pill';
 import { StreamThoughtPillComponent } from '../stream-thought-pill/stream-thought-pill';
@@ -64,6 +65,7 @@ export type HostedSpinnerKind = PillSpinnerKind;
   standalone: true,
   imports: [
     AuxStreamToolPartComponent,
+    CaptureImagesDirective,
     MarkdownPipe,
     NgTemplateOutlet,
     StreamNudgePillComponent,

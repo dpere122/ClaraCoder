@@ -86,6 +86,7 @@
         "--t-log-level-warning",
         "--t-primary",
         "--t-secondary",
+        "--t-surface",
         "--t-surface-2",
         "--t-text-muted",
         "--t-tui-clara-frame",
@@ -1034,6 +1035,7 @@
         "--t-process-c",
         "--t-secondary",
         "--t-success",
+        "--t-surface",
         "--t-surface-2",
         "--t-text-muted",
         "--t-user-fg"
@@ -1338,6 +1340,7 @@
         "--t-log-level-warning",
         "--t-primary",
         "--t-secondary",
+        "--t-surface",
         "--t-surface-2",
         "--t-text-muted",
         "--t-tui-user-frame",
@@ -2882,6 +2885,10 @@
         "model-hf-pager__pages",
         "model-hf-pager__page",
         "callout",
+        "screenshot-retention",
+        "screenshot-retention-usage",
+        "screenshot-retention-error",
+        "screenshot-retention-actions",
         "mcp-toolbar",
         "mcp-warning",
         "mcp-server",
@@ -2906,11 +2913,7 @@
         "ws-detail__favorite",
         "ws-detail__fields",
         "ws-detail__path",
-        "ws-detail__note",
-        "font-control",
-        "font-size-label",
-        "size-label",
-        "pill-select"
+        "ws-detail__note"
       ]
     },
     {
@@ -3178,6 +3181,10 @@
         "model-hf-pager__pages",
         "model-hf-pager__page",
         "callout",
+        "screenshot-retention",
+        "screenshot-retention-usage",
+        "screenshot-retention-error",
+        "screenshot-retention-actions",
         "mcp-toolbar",
         "mcp-warning",
         "mcp-server",
@@ -3185,11 +3192,7 @@
         "mcp-secrets",
         "mcp-secrets__head",
         "mcp-secrets__row",
-        "mcp-tools",
-        "settings-voice-threshold",
-        "settings-voice-threshold-value",
-        "settings-pane--workspaces",
-        "ws-list__label"
+        "mcp-tools"
       ]
     },
     {

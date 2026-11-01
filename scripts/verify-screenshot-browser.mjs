@@ -22,7 +22,10 @@ try {
         import { app, nativeImage } from 'electron';
         import { strict as assert } from 'node:assert';
         import { captureWebpage } from './src/main/web/screenshot-browser';
-        import { captureAssetResponse } from './src/main/web/screenshot-assets';
+        import {
+          captureAssetResponse, clearCaptureAssets, configureCaptureRetention,
+          getCaptureAssetStatus, getCaptureStorageStats, runCaptureMaintenance, saveCaptureAsset,
+        } from './src/main/web/screenshot-assets';
         import { CaptureNetwork } from './src/main/web/screenshot-network';
         app.setPath('appData', ${JSON.stringify(directory)});
         app.disableHardwareAcceleration();
@@ -63,6 +66,31 @@ try {
             assert.ok(directImage.toBitmap().includes(Buffer.from([255, 0, 0, 255])), 'Direct PNG must appear in the raster capture');
           }
           await assert.rejects(() => captureWebpage({ url: 'http://127.0.0.1/', width: 800, height: 600, user_agent: 'Test/1.0' }));
+          const originalNow = Date.now;
+          const capturedAt = originalNow();
+          try {
+            configureCaptureRetention({ maxWidth: 320 });
+            Date.now = () => capturedAt + 8 * 24 * 60 * 60 * 1000;
+            await runCaptureMaintenance();
+            const reducedResponse = await captureAssetResponse(result.image_url);
+            assert.equal(reducedResponse.status, 200);
+            const reducedBytes = Buffer.from(await reducedResponse.arrayBuffer());
+            const reduced = nativeImage.createFromBuffer(reducedBytes);
+            assert.deepEqual(reduced.getSize(), { width: 320, height: 240 });
+            assert.ok(reducedBytes.length < image.toPNG().length, 'Downscaling must save disk space');
+            assert.ok((await getCaptureStorageStats()).reducedCount >= 1);
+            Date.now = () => capturedAt + 31 * 24 * 60 * 60 * 1000;
+            await runCaptureMaintenance();
+            assert.equal((await captureAssetResponse(result.image_url)).status, 410);
+            assert.deepEqual(await getCaptureAssetStatus(result.image_url), { state: 'expired', reason: 'age', retentionDays: 30 });
+            assert.equal((await getCaptureStorageStats()).imageCount, 0, 'Resizing must not reset the capture age');
+            const freshUrl = await saveCaptureAsset(image.toPNG());
+            await clearCaptureAssets();
+            assert.deepEqual(await getCaptureAssetStatus(freshUrl), { state: 'expired', reason: 'cleared' });
+            assert.equal((await captureAssetResponse(freshUrl)).status, 410);
+            assert.equal((await captureAssetResponse('nemo-asset://capture/' + '0'.repeat(32) + '.png')).status, 404);
+            console.log('RETENTION_SMOKE_OK');
+          } finally { Date.now = originalNow; }
           console.log('SCREENSHOT_SMOKE_OK', JSON.stringify(result));
           app.exit(0);
         }).catch((error) => { console.error(error); app.exit(1); });

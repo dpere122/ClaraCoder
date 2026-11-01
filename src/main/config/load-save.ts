@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { normalizeScreenshotRetention } from '../../shared/screenshot-retention';
 import { promises as fs } from 'fs';
 import path = require('path');
 const syncFs = require('fs');
@@ -1556,6 +1557,11 @@ export function migrateConfig(config: AppConfig): AppConfig {
     migrated = true;
   } else {
     const wt = wtRaw;
+    const retention = normalizeScreenshotRetention(wt.screenshotRetention);
+    if (JSON.stringify(wt.screenshotRetention) !== JSON.stringify(retention)) {
+      wt.screenshotRetention = retention;
+      migrated = true;
+    }
     if (wt.editToolsMode !== 'standard' && wt.editToolsMode !== 'strict') {
       wt.editToolsMode = 'standard';
       migrated = true;
@@ -1956,9 +1962,14 @@ export function mergeSettingsConfigSave(disk: AppConfig, client: AppConfig): App
   // Client-wins settings merge; never log client/disk (secrets).
   // Read MCP touch flags first — migrate keeps them, but merge must see the pre-normalize client.
   const flags = mcpMergeFlags(client.mcpServers);
+  const screenshotRetention = normalizeScreenshotRetention({
+    ...disk.workspaceTools?.screenshotRetention,
+    ...client.workspaceTools?.screenshotRetention,
+  });
   const clientMigrated = migrateConfig(client);
   return {
     ...clientMigrated,
+    workspaceTools: { ...clientMigrated.workspaceTools, screenshotRetention },
     workspaces: disk.workspaces,
     currentWorkspaceId: disk.currentWorkspaceId,
     lastActiveConversationByWorkspaceId: disk.lastActiveConversationByWorkspaceId,

@@ -1,4 +1,5 @@
 import type { Workspace } from './workspace';
+import type { ScreenshotRetentionSettings } from '../screenshot-retention';
 import {
   QWEN_REASONING_EFFORT_VALUES,
   type ChatTemplateReasoningCaps,
@@ -690,6 +691,8 @@ export interface WorkspaceToolsConfig {
    * `0` disables cooldowns. Default 300.
    */
   webSearchCooldownSeconds?: number;
+  /** Main-process screenshot storage policy; never synced to Python runtime-config. */
+  screenshotRetention?: ScreenshotRetentionSettings;
   /**
    * Extra directories prepended onto agent `run_command` PATH (one per line).
    * Login-shell PATH and common user bins (`~/.local/bin`, `~/.cargo/bin`, …) are

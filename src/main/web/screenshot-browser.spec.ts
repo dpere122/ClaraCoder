@@ -10,6 +10,7 @@ vi.mock('electron', () => ({
 }));
 vi.mock('../config/load-save', () => ({ loadConfigSync: mocks.config }));
 vi.mock('./screenshot-assets', () => ({ saveCaptureAsset: mocks.save }));
+vi.mock('../ipc/handlers/theme-broadcast', () => ({ broadcastToAppWindows: vi.fn() }));
 
 import { captureWebpage, screenshotBrokerEnvironment, startScreenshotBroker, validateScreenshotRequest } from './screenshot-browser';
 import { CaptureNetwork } from './screenshot-network';

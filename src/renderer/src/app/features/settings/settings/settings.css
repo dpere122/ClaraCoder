@@ -39,6 +39,37 @@
   font-weight: 400;
 }
 
+.settings-top-bar__close {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 24px;
+  margin-right: -8px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--t-text-muted, var(--t-muted));
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.settings-top-bar__close:hover:not(:disabled) {
+  background: var(--t-danger);
+  border-color: var(--t-danger);
+  color: var(--t-on-primary, var(--t-bg));
+}
+
+.settings-top-bar__close:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .settings-general-font {
   display: flex;
   flex-direction: column;

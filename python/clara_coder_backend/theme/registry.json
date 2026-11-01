@@ -2999,6 +2999,7 @@
         "settings-window",
         "settings-top-bar",
         "settings-top-bar__title",
+        "settings-top-bar__close",
         "settings-shell",
         "settings-nav",
         "settings-nav__group",
@@ -3194,8 +3195,7 @@
         "model-card__versions-empty",
         "model-card-list__loading-overlay",
         "model-hf-pager",
-        "model-hf-pager__pages",
-        "model-hf-pager__page"
+        "model-hf-pager__pages"
       ]
     },
     {

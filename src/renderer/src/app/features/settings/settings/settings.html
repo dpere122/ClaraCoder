@@ -1,6 +1,17 @@
 <div class='settings-window' data-theme-group='settings.window'>
   <header class='settings-top-bar' (dblclick)='s.onTopBarDoubleClick()'>
     <h1 class='settings-top-bar__title'>Settings</h1>
+    <button
+      type='button'
+      class='settings-top-bar__close'
+      [disabled]='s.settingsSaving()'
+      (click)='s.closeSettings()'
+      (dblclick)='$event.stopPropagation()'
+      aria-label='Close settings'
+      title='Close'
+    >
+      ×
+    </button>
   </header>
 
   <div class='settings-shell'>
@@ -116,9 +127,9 @@
   <footer class='settings-footer'>
     <p class='settings-footer__note'>
       @if (s.settingsDirty()) {
-        <span class='settings-footer__dot' aria-hidden='true'></span>Unsaved changes are written when you close this window.
+        <span class='settings-footer__dot' aria-hidden='true'></span>Unsaved changes. Click Apply to save them and enable OK.
       } @else {
-        Edits stay in memory until you close this window; nothing is written unless you change something.
+        Changes are saved only when you click Apply; closing the window discards unapplied edits.
       }
     </p>
     @if (s.settingsDirty()) {
@@ -147,7 +158,8 @@
     <button
       type='button'
       class='action-button action-button--primary settings-footer-btn'
-      [disabled]='s.settingsSaving()'
+      [disabled]='s.settingsSaving() || s.settingsDirty()'
+      [attr.title]="s.settingsDirty() ? 'Apply your changes first' : null"
       [attr.aria-busy]="s.settingsSaveAction() === 'ok'"
       (click)='s.okSettings()'
     >

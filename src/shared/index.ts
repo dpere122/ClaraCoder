@@ -292,11 +292,13 @@ export {
   PINNED_LM_STUDIO_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
   PINNED_OPENROUTER_PROVIDER_ID,
+  PINNED_ANTHROPIC_PROVIDER_ID,
   OPENROUTER_DEFAULT_BASE_URL,
   isPinnedLmStudioProviderId,
   isPinnedLlamaCppLocalProviderId,
   isPinnedLlamaServerUrlProviderId,
   isPinnedOpenRouterProviderId,
+  isPinnedAnthropicProviderId,
   isPinnedLlmSourceId,
 } from './llm-provider-ids';
 export { lmStudioOpenAiBaseUrlToRestOrigin } from './lm-studio-url';
@@ -308,6 +310,15 @@ export type {
   OpenRouterReasoningInfo,
 } from './openrouter-ipc';
 export { openRouterReasoningCaps, openRouterSourceLabel } from './openrouter-ipc';
+export type {
+  AnthropicCatalogModel,
+  AnthropicKeyStorage,
+  AnthropicListModelsResult,
+  AnthropicSetKeyResult,
+  AnthropicSetModelResult,
+  AnthropicStatus,
+} from './anthropic-ipc';
+export { anthropicReasoningCaps, anthropicSourceLabel, ANTHROPIC_EFFORT_ORDER } from './anthropic-ipc';
 export { coerceLmStudioContextTokens, effectiveLmStudioContextTokens } from './lm-studio-ipc';
 export type {
   ChatStructuredContentPart,

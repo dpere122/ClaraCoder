@@ -15,6 +15,8 @@ import {
 } from '@shared/index';
 import { NgxSpinnerComponent } from 'ngx-spinner';
 import { LucideAngularModule } from 'lucide-angular';
+import { AnthropicService } from '../../../core/anthropic.service';
+import { claudeModelOptions, formatClaudeDate, formatClaudeTokens } from '../../../core/claude-models';
 import { ElectronService } from '../../../core/electron.service';
 import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 import { SettingsStore } from '../settings/settings-store';
@@ -115,6 +117,70 @@ export class SettingsModels {
     return p?.provider === 'openrouter' ? p.id : null;
   });
 
+  protected readonly claude = inject(AnthropicService);
+  /** The key is write-only here: Edit opens an empty field, and Save hands it to main. */
+  protected readonly claudeEditing = signal(false);
+  protected readonly claudeKeyDraft = signal('');
+  private readonly claudeSourceId = computed(() => {
+    const p = this.s.selectedProvider();
+    return p?.provider === 'anthropic' ? p.id : null;
+  });
+  protected readonly claudeModelId = computed(() => {
+    const p = this.s.selectedProvider();
+    return p?.provider === 'anthropic' ? (p.models[0]?.model ?? '') : '';
+  });
+  protected readonly claudeModelOptions = computed(() => claudeModelOptions(this.claude.models(), this.claudeModelId()));
+  /** Catalog row for the saved model id, if the catalog lists it. */
+  protected readonly claudeCurrent = computed(() => {
+    const id = this.claudeModelId();
+    return id ? (this.claude.models().find((m) => m.id === id) ?? null) : null;
+  });
+  protected readonly claudeVerifiedAt = computed(() => {
+    const at = this.claude.status()?.verifiedAt;
+    return at ? new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  });
+  protected readonly formatTokens = formatClaudeTokens;
+  protected readonly formatDate = formatClaudeDate;
+
+  protected beginClaudeEdit(): void {
+    this.claude.error.set('');
+    this.claudeKeyDraft.set('');
+    this.claudeEditing.set(true);
+  }
+
+  protected cancelClaudeEdit(): void {
+    this.claudeEditing.set(false);
+    this.claudeKeyDraft.set('');
+  }
+
+  protected async saveClaudeKey(): Promise<void> {
+    const key = this.claudeKeyDraft().trim();
+    if (!key || this.claude.saving()) {
+      return;
+    }
+    const accepted = await this.claude.saveKey(key);
+    // Drop the plaintext from this window as soon as main has it (or rejected it).
+    this.claudeKeyDraft.set('');
+    if (accepted) {
+      this.claudeEditing.set(false);
+    }
+  }
+
+  protected async removeClaudeKey(): Promise<void> {
+    await this.claude.clearKey();
+    this.cancelClaudeEdit();
+  }
+
+  protected async pickClaudeModel(modelId: string): Promise<void> {
+    const model = this.claude.models().find((m) => m.id === modelId);
+    if (!model || modelId === this.claudeModelId()) {
+      return;
+    }
+    if (await this.claude.setModel(modelId)) {
+      this.s.mirrorClaudeModel(model);
+    }
+  }
+
   protected readonly formatContext = formatOpenRouterContext;
   protected readonly formatPrice = formatOpenRouterPrice;
   protected readonly isFree = openRouterModelIsFree;
@@ -209,6 +275,16 @@ export class SettingsModels {
       if (id) {
         void this.electron.refreshChatTemplateReasoning(id);
       }
+    });
+    // Opening the Claude card loads its status (key hint + model catalog) and closes a stale edit.
+    effect(() => {
+      const sourceId = this.claudeSourceId();
+      untracked(() => {
+        this.cancelClaudeEdit();
+        if (sourceId) {
+          void this.claude.ensureLoaded();
+        }
+      });
     });
     // Opening the OpenRouter card loads the catalog (it lists without a key) and drops any
     // half-edited connection left from an earlier visit.

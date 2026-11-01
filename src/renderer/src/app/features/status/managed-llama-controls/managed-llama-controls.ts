@@ -29,6 +29,8 @@ import {
   isPinnedLlamaServerUrlProviderId,
   isPinnedLmStudioProviderId,
   isPinnedOpenRouterProviderId,
+  isPinnedAnthropicProviderId,
+  anthropicSourceLabel,
   isPinnedLlmSourceId,
   managedLlamaSourceDisplayName,
   openRouterSourceLabel,
@@ -98,6 +100,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     const pinUrl = list.find((p) => isPinnedLlamaServerUrlProviderId(p.id));
     const pinLocal = list.find((p) => isPinnedLlamaCppLocalProviderId(p.id));
     const pinOpenRouter = list.find((p) => isPinnedOpenRouterProviderId(p.id));
+    const pinAnthropic = list.find((p) => isPinnedAnthropicProviderId(p.id));
     const rest = list.filter((p) => !isPinnedLlmSourceId(p.id));
     const head: LlmProviderConfig[] = [];
     if (pinLm) {
@@ -111,6 +114,9 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     }
     if (pinOpenRouter) {
       head.push(pinOpenRouter);
+    }
+    if (pinAnthropic) {
+      head.push(pinAnthropic);
     }
     return [...head, ...rest];
   });
@@ -140,7 +146,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
   /** Whether the active source is a local llama server (Start/Stop eligible). */
   protected readonly isLocalLlama = computed(() => this.activeLocation() !== null);
 
-  /** Active provider kind, used to hide the managed server button for OpenRouter. */
+  /** Active provider kind, used to hide the managed server button for hosted APIs. */
   private readonly activeProviderKind = computed(() => {
     const cfg = this.appConfig();
     const mid = cfg?.activeLlmModelId?.trim();
@@ -150,8 +156,11 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     return findLlmModelLocation(cfg.llmProviders, mid)?.provider.provider ?? null;
   });
 
-  /** Start/Stop is the managed local llama-server. Hide it while OpenRouter is the chat source. */
-  protected readonly showManagedStart = computed(() => this.activeProviderKind() !== 'openrouter');
+  /** Start/Stop is the managed local llama-server. Hide it while a hosted API (OpenRouter, Claude) is the chat source. */
+  protected readonly showManagedStart = computed(() => {
+    const kind = this.activeProviderKind();
+    return kind !== 'openrouter' && kind !== 'anthropic';
+  });
 
   protected readonly modelId = computed(() => this.activeLocation()?.model.id ?? '');
 
@@ -251,10 +260,13 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     );
   }
 
-  /** Display name for a source option in the dropdown (model name for llama and OpenRouter sources, else stored name). */
+  /** Display name for a source option in the dropdown (model name for llama, OpenRouter and Claude sources, else stored name). */
   protected sourceLabel(provider: LlmProviderConfig): string {
     if (provider.provider === 'openrouter') {
       return openRouterSourceLabel(provider);
+    }
+    if (provider.provider === 'anthropic') {
+      return anthropicSourceLabel(provider);
     }
     return managedLlamaSourceDisplayName(provider, this.inventory());
   }

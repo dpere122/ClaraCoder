@@ -11,6 +11,8 @@ export interface ChatTemplateReasoningCaps {
    * Non-null is the allowed effort tokens (no empty Default; UI prepends that).
    */
   reasoningEffortValues: readonly string[] | null;
+  /** Claude only: the model accepts ``thinking: {type: "adaptive"}`` (from the Models API). */
+  adaptiveThinking?: boolean;
 }
 
 /** API effort tokens recognized in Jinja allow-lists (not UI aliases on/off). */

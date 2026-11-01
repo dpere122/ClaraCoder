@@ -86,6 +86,20 @@
         <lucide-icon name="mic" [size]="18" class="voice-mic-icon"></lucide-icon>
       </button>
     </span>
+    @if (claudeActive()) {
+      <div class="composer-mode-wrap composer-model-wrap">
+        <app-pill-select
+          class="composer-mode-select composer-model-select"
+          [options]="claudeModelOptions()"
+          [value]="claudeModelId()"
+          [menuFitContent]="true"
+          (valueChange)="onClaudeModelChange($event)"
+          [disabled]="loading() || claudeModelBusy() || claudeModelOptions().length === 0"
+          [attr.title]="loading() ? 'Claude model (change it after this reply)' : 'Claude model'"
+          ariaLabel="Claude model"
+        />
+      </div>
+    }
     @if (showReasoningCluster()) {
       <div class="composer-reasoning-cluster">
         @if (thinkingVisible()) {

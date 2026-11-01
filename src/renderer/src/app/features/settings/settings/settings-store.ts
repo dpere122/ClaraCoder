@@ -21,6 +21,7 @@ import type {
   LlmProviderConfig,
   LmStudioModelCard,
   OpenRouterCatalogModel,
+  AnthropicCatalogModel,
   ModelManagerFileEntry,
   MonacoWorkspaceEditorSettings,
   MonacoWorkspaceEditorThemeId,
@@ -128,6 +129,7 @@ import {
   isPinnedLlamaCppLocalProviderId,
   isPinnedLlamaServerUrlProviderId,
   isPinnedOpenRouterProviderId,
+  isPinnedAnthropicProviderId,
   OPENROUTER_DEFAULT_BASE_URL,
   type ManagedLlamaCacheType,
   type ManagedLlamaFlashAttn,
@@ -489,13 +491,14 @@ export class SettingsStore {
     const tab = this.tabs.find((t) => t.id === parent) ?? this.tabs[0];
     return { label: tab.label, description: tab.description, parentLabel: null as string | null };
   });
-  /** Pinned sources first: LM Studio, remote llama URL, local managed llama, OpenRouter; remaining rows keep file order. */
+  /** Pinned sources first: LM Studio, remote llama URL, local managed llama, OpenRouter, Claude; remaining rows keep file order. */
   readonly sourcesOrdered = computed(() => {
     const list = this.llmProviders();
     const pinLm = list.find((p) => isPinnedLmStudioProviderId(p.id));
     const pinUrl = list.find((p) => isPinnedLlamaServerUrlProviderId(p.id));
     const pinLocal = list.find((p) => isPinnedLlamaCppLocalProviderId(p.id));
     const pinOpenRouter = list.find((p) => isPinnedOpenRouterProviderId(p.id));
+    const pinAnthropic = list.find((p) => isPinnedAnthropicProviderId(p.id));
     const rest = list.filter((p) => !isPinnedLlmSourceId(p.id));
     const head: LlmProviderConfig[] = [];
     if (pinLm) {
@@ -509,6 +512,9 @@ export class SettingsStore {
     }
     if (pinOpenRouter) {
       head.push(pinOpenRouter);
+    }
+    if (pinAnthropic) {
+      head.push(pinAnthropic);
     }
     return [...head, ...rest];
   });
@@ -1234,6 +1240,22 @@ export class SettingsStore {
     await this.refreshOpenRouterModels();
   }
 
+  /**
+   * Mirror a Claude model pick into the draft. Main already saved it (``anthropic:set-model``), so
+   * this does not mark Settings dirty; it only keeps this window's view current while dirty.
+   */
+  mirrorClaudeModel(model: AnthropicCatalogModel): void {
+    const profile = this.llmProviders().find((p) => p.provider === 'anthropic')?.models[0];
+    if (!profile) {
+      return;
+    }
+    this.applyLlmModelPatch(profile.id, {
+      model: model.id,
+      name: model.displayName,
+      contextWindowTokens: model.maxInputTokens || inferContextWindowTokens(model.id, 'anthropic'),
+    });
+  }
+
   isPinnedSource(providerId: string): boolean {
     return isPinnedLlmSourceId(providerId);
   }
@@ -1514,6 +1536,9 @@ export class SettingsStore {
     }
     if (kind === 'openrouter') {
       return 'OpenRouter';
+    }
+    if (kind === 'anthropic') {
+      return 'Anthropic';
     }
     return 'OpenAI';
   }

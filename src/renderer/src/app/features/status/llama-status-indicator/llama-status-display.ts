@@ -88,7 +88,7 @@ export function embeddingsStatusDotState(status: string): LlamaStatusDotState {
 
 /**
  * One-line model status for the home Runtime panel: managed llama.cpp shows its server state
- * (Running / Starting… / Stopped), OpenRouter and remote llama URLs show whether they are connected.
+ * (Running / Starting… / Stopped), OpenRouter, Claude and remote llama URLs show whether they are connected.
  * Other sources are not probed.
  */
 export function modelStatusSummary(args: {
@@ -102,7 +102,7 @@ export function modelStatusSummary(args: {
   if (!provider) {
     return 'No model selected';
   }
-  if (provider === 'openrouter') {
+  if (provider === 'openrouter' || provider === 'anthropic') {
     return dot === 'green' ? `Connected · ${model}` : 'Needs a model and API key';
   }
   if (provider !== 'llamacpp') {

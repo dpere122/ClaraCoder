@@ -288,6 +288,8 @@ class ChatTemplateReasoningCapsRequest(BaseModel):
 
     enableThinking: bool = False
     reasoningEffortValues: list[str] | None = None
+    # Claude only: the Models API says the model accepts ``thinking: {type: "adaptive"}``.
+    adaptiveThinking: bool = False
 
 
 class RuntimeConnectionRequest(BaseModel):
@@ -295,7 +297,7 @@ class RuntimeConnectionRequest(BaseModel):
 
     id: str
     name: str
-    provider: Literal['openai', 'lmstudio', 'llamacpp', 'openrouter']
+    provider: Literal['openai', 'lmstudio', 'llamacpp', 'openrouter', 'anthropic']
     baseUrl: str = ''
     model: str
     apiKey: str = ''

@@ -234,8 +234,11 @@ export interface LlmProviderConfig {
    * selected local model (see ``managedLlamaSourceDisplayName``), falling back to ``name``.
    */
   customName?: string;
-  /** ``llamacpp`` targets llama.cpp’s OpenAI-compatible HTTP server (``llama-server``). ``openrouter`` is OpenRouter’s chat API. */
-  provider: 'openai' | 'lmstudio' | 'llamacpp' | 'openrouter' | 'python-t2i';
+  /**
+   * ``llamacpp`` targets llama.cpp’s OpenAI-compatible HTTP server (``llama-server``). ``openrouter`` is OpenRouter’s chat API.
+   * ``anthropic`` is the Claude API; its key lives in main's keychain store, never in ``apiKey``.
+   */
+  provider: 'openai' | 'lmstudio' | 'llamacpp' | 'openrouter' | 'anthropic' | 'python-t2i';
   baseUrl: string;
   apiKey: SecretValue<string>;
   /**

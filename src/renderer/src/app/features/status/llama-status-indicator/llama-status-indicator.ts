@@ -8,6 +8,7 @@ import type {
 } from '@shared/index';
 import { resolveActiveLlmConnection, unwrapSecret } from '@shared/index';
 import { filter, merge } from 'rxjs';
+import { AnthropicService } from '../../../core/anthropic.service';
 import { ElectronService } from '../../../core/electron.service';
 import {
   computeStatusPollIntervalMs,
@@ -35,6 +36,7 @@ import {
 })
 export class LlamaStatusIndicator {
   private readonly electron = inject(ElectronService);
+  private readonly anthropic = inject(AnthropicService);
   private readonly destroyRef = inject(DestroyRef);
 
   /** Current app config (from shell). */
@@ -78,10 +80,10 @@ export class LlamaStatusIndicator {
     return !!cfg && !!cfg.activeLlmModelId?.trim() && !!this.activeProvider();
   });
 
-  /** Model dot: managed llama.cpp health, or OpenRouter once a model and key are saved. */
+  /** Model dot: managed llama.cpp health, or OpenRouter / Claude once a model and key are saved. */
   protected readonly showModelDot = computed(() => {
     const provider = this.activeProvider();
-    return provider === 'llamacpp' || provider === 'openrouter';
+    return provider === 'llamacpp' || provider === 'openrouter' || provider === 'anthropic';
   });
 
   private readonly activeConnection = computed(() => {
@@ -97,14 +99,25 @@ export class LlamaStatusIndicator {
     return openRouterModelDotState(conn.model, unwrapSecret(conn.apiKey)) === 'green';
   });
 
+  /** The Claude key never reaches renderers; main reports whether one is saved. */
+  private readonly claudeConnected = computed(() => {
+    const conn = this.activeConnection();
+    return conn?.provider === 'anthropic' && !!conn.model.trim() && this.anthropic.configured();
+  });
+
   protected readonly modelDot = computed((): LlamaStatusDotState => {
     if (this.activeProvider() === 'openrouter') {
       return this.openRouterConnected() ? 'green' : 'gray';
     }
+    if (this.activeProvider() === 'anthropic') {
+      return this.claudeConnected() ? 'green' : 'gray';
+    }
     return modelStatusDotState(this.modelWarming(), this.status());
   });
 
-  protected readonly modelLabel = computed(() => (this.openRouterConnected() ? 'Connected' : 'Model'));
+  protected readonly modelLabel = computed(() =>
+    this.openRouterConnected() || this.claudeConnected() ? 'Connected' : 'Model',
+  );
 
   protected readonly modelSummary = computed(() =>
     modelStatusSummary({
@@ -133,6 +146,10 @@ export class LlamaStatusIndicator {
         return `OpenRouter — connected (${conn.model})`;
       }
       return 'OpenRouter — set a model and API key';
+    }
+    if (this.activeProvider() === 'anthropic') {
+      const conn = this.activeConnection();
+      return this.claudeConnected() && conn ? `Claude — connected (${conn.model})` : 'Claude — set a model and API key';
     }
     const warm = this.modelWarming();
     if (warm === 'downloading') {
@@ -179,6 +196,11 @@ export class LlamaStatusIndicator {
   }
 
   constructor() {
+    effect(() => {
+      if (this.activeProvider() === 'anthropic') {
+        void this.anthropic.ensureLoaded();
+      }
+    });
     this.destroyRef.onDestroy(() => {
       this.stopPolling();
       this.stopEmbedPolling();

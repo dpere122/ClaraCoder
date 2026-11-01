@@ -55,6 +55,7 @@ import {
   PINNED_LM_STUDIO_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
   PINNED_OPENROUTER_PROVIDER_ID,
+  PINNED_ANTHROPIC_PROVIDER_ID,
   OPENROUTER_DEFAULT_BASE_URL,
 } from '../../shared';
 import {
@@ -75,6 +76,7 @@ import {
   createPinnedLlamaServerUrlProvider,
   createPinnedLocalManagedLlamaProvider,
   createPinnedOpenRouterProvider,
+  createPinnedAnthropicProvider,
   getDefaultAudioTranscription,
   getDefaultHealthMonitor,
   getDefaultLlmProviders,
@@ -541,7 +543,8 @@ function exposeSecretsForConsumers(config: AppConfig): AppConfig {
 function serializeConfigForDisk(config: AppConfig): Record<string, unknown> {
   const providers = (config.llmProviders ?? []).map((p) => ({
     ...p,
-    apiKey: encryptSecretForDisk(unwrapSecret(p.apiKey)),
+    // The Claude key lives in its own keychain file (anthropic-key-store), never in config.json.
+    apiKey: p.provider === 'anthropic' ? '' : encryptSecretForDisk(unwrapSecret(p.apiKey)),
     models: p.models,
   }));
   const audio = config.audioTranscription
@@ -912,14 +915,17 @@ function normalizeLlmProvidersTree(providers: LlmProviderConfig[]): boolean {
             ? 'llama.cpp'
             : p.provider === 'openrouter'
               ? 'OpenRouter'
-              : 'OpenAI';
+              : p.provider === 'anthropic'
+                ? 'Claude'
+                : 'OpenAI';
       migrated = true;
     }
     if (
       p.provider !== 'openai' &&
       p.provider !== 'lmstudio' &&
       p.provider !== 'llamacpp' &&
-      p.provider !== 'openrouter'
+      p.provider !== 'openrouter' &&
+      p.provider !== 'anthropic'
     ) {
       p.provider = 'openai';
       migrated = true;
@@ -935,7 +941,13 @@ function normalizeLlmProvidersTree(providers: LlmProviderConfig[]): boolean {
               : '';
       migrated = true;
     }
-    if (p.apiKey === undefined) {
+    if (p.provider === 'anthropic') {
+      // Never carried in config (see anthropic-key-store); drop anything a client sent.
+      if (p.apiKey === undefined || unwrapSecret(p.apiKey) !== '') {
+        migrated = true;
+      }
+      p.apiKey = SecretValue.of('');
+    } else if (p.apiKey === undefined) {
       p.apiKey = SecretValue.of(p.provider === 'lmstudio' ? 'lm-studio' : '');
       migrated = true;
     } else {
@@ -1046,6 +1058,30 @@ function ensurePinnedOpenRouterProvider(providers: LlmProviderConfig[]): boolean
   const localIdx = providers.findIndex((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID);
   const insert = localIdx >= 0 ? localIdx + 1 : providers.length;
   providers.splice(insert, 0, createPinnedOpenRouterProvider());
+  return true;
+}
+
+/**
+ * Ensure the pinned Claude row exists after OpenRouter, with its fixed provider and name.
+ * Does not change the active model.
+ */
+function ensurePinnedAnthropicProvider(providers: LlmProviderConfig[]): boolean {
+  const existing = providers.find((p) => p.id === PINNED_ANTHROPIC_PROVIDER_ID);
+  if (existing) {
+    let changed = false;
+    if (existing.provider !== 'anthropic') {
+      existing.provider = 'anthropic';
+      changed = true;
+    }
+    if (existing.name !== 'Claude') {
+      existing.name = 'Claude';
+      changed = true;
+    }
+    return changed;
+  }
+  const openRouterIdx = providers.findIndex((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID);
+  const insert = openRouterIdx >= 0 ? openRouterIdx + 1 : providers.length;
+  providers.splice(insert, 0, createPinnedAnthropicProvider());
   return true;
 }
 
@@ -1318,6 +1354,10 @@ export function migrateConfig(config: AppConfig): AppConfig {
   }
 
   if (ensurePinnedOpenRouterProvider(newConfig.llmProviders)) {
+    migrated = true;
+  }
+
+  if (ensurePinnedAnthropicProvider(newConfig.llmProviders)) {
     migrated = true;
   }
 
@@ -1957,6 +1997,30 @@ async function writeConfigToDiskUnsafe(config: AppConfig): Promise<void> {
   }
 }
 
+/**
+ * The Claude model is set through ``anthropic:set-model`` (Settings and the composer), so a
+ * Settings save drafted before a composer pick must not roll it back.
+ */
+function keepDiskClaudeModel(disk: LlmProviderConfig[], client: LlmProviderConfig[]): LlmProviderConfig[] {
+  const diskModel = disk.find((p) => p.id === PINNED_ANTHROPIC_PROVIDER_ID)?.models[0];
+  if (!diskModel) {
+    return client;
+  }
+  return client.map((p) => {
+    if (p.id !== PINNED_ANTHROPIC_PROVIDER_ID || !p.models[0]) {
+      return p;
+    }
+    const [first, ...rest] = p.models;
+    return {
+      ...p,
+      models: [
+        { ...first, model: diskModel.model, name: diskModel.name, contextWindowTokens: diskModel.contextWindowTokens },
+        ...rest,
+      ],
+    };
+  });
+}
+
 /** Preserve workspace registry fields owned by dedicated IPC handlers. */
 export function mergeSettingsConfigSave(disk: AppConfig, client: AppConfig): AppConfig {
   // Client-wins settings merge; never log client/disk (secrets).
@@ -1969,6 +2033,7 @@ export function mergeSettingsConfigSave(disk: AppConfig, client: AppConfig): App
   const clientMigrated = migrateConfig(client);
   return {
     ...clientMigrated,
+    llmProviders: keepDiskClaudeModel(disk.llmProviders, clientMigrated.llmProviders),
     workspaceTools: { ...clientMigrated.workspaceTools, screenshotRetention },
     workspaces: disk.workspaces,
     currentWorkspaceId: disk.currentWorkspaceId,

@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from clara_coder_backend.hitl.accept_command import ACCEPT_COMMAND_KIND_DEFERRED_TOOL
 from clara_coder_backend.config import CLARA_COMMAND_RISK_ASSESS_TIMEOUT_SEC
 from clara_coder_backend.llm.factory import build_llm
+from clara_coder_backend.session.state import get_active_connection
 
 logger = logging.getLogger('clara.command_risk_assess')
 
@@ -50,7 +51,12 @@ def _risk_assessment_chain():
             ),
         ]
     )
-    return prompt | build_llm().with_structured_output(CommandRiskAssessment)
+    llm = build_llm()
+    if get_active_connection().provider == 'anthropic':
+        # Current Claude models reject the forced tool call LangChain uses by default; structured
+        # outputs (``output_config.format``) give the same schema guarantee.
+        return prompt | llm.with_structured_output(CommandRiskAssessment, method='json_schema')
+    return prompt | llm.with_structured_output(CommandRiskAssessment)
 
 
 async def assess_command_risk(command_text: str, cwd_label: str) -> CommandRiskAssessment | None:

@@ -8,7 +8,9 @@ import {
   PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
   PINNED_OPENROUTER_PROVIDER_ID,
+  PINNED_ANTHROPIC_PROVIDER_ID,
 } from '../../shared';
+import { SecretValue } from '../../shared/types/app-config';
 import { APP_CONFIG_SCHEMA_VERSION, createDefaultConfig } from './defaults';
 
 vi.mock('../paths', () => ({
@@ -545,5 +547,56 @@ describe('migrateConfig managed llama source names', () => {
     expect(migrated.llmProviders.find((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID)?.name).toBe(
       'Llama server (URL)',
     );
+  });
+});
+
+describe('migrateConfig Claude pin', () => {
+  const claudeOf = (cfg: AppConfig) => cfg.llmProviders.find((p) => p.id === PINNED_ANTHROPIC_PROVIDER_ID);
+
+  it('inserts the pinned Claude source after OpenRouter without changing the active model', () => {
+    const cfg = sampleConfig();
+    const active = cfg.activeLlmModelId;
+    cfg.llmProviders = cfg.llmProviders.filter((p) => p.id !== PINNED_ANTHROPIC_PROVIDER_ID);
+    const migrated = migrateConfig(cfg);
+    const claude = claudeOf(migrated);
+    expect(claude?.provider).toBe('anthropic');
+    expect(claude?.name).toBe('Claude');
+    expect(claude?.models[0]?.model).toBe('');
+    expect(migrated.activeLlmModelId).toBe(active);
+    const orIdx = migrated.llmProviders.findIndex((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID);
+    expect(migrated.llmProviders[orIdx + 1]?.id).toBe(PINNED_ANTHROPIC_PROVIDER_ID);
+  });
+
+  it('never carries or writes a Claude API key in the config', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'clara-claude-config-'));
+    process.env.CLARA_TEST_CONFIG_DIR = tempDir;
+    try {
+      writeFileSync(join(tempDir, 'config.json'), JSON.stringify(sampleConfig(), null, 2), 'utf-8');
+      await loadConfig();
+      const saved = await updateConfig((cfg) => {
+        claudeOf(cfg)!.apiKey = SecretValue.of('claude-key-should-not-persist');
+      });
+      expect(unwrapSecret(claudeOf(saved)!.apiKey)).toBe('');
+      expect(readFileSync(join(tempDir, 'config.json'), 'utf-8')).not.toContain('claude-key-should-not-persist');
+    } finally {
+      delete process.env.CLARA_TEST_CONFIG_DIR;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the saved Claude model when a stale Settings draft is applied', () => {
+    const disk = sampleConfig();
+    const diskRow = claudeOf(disk)!;
+    diskRow.models[0] = { ...diskRow.models[0]!, model: 'claude-opus-5-5', name: 'Claude Opus 5.5', contextWindowTokens: 1_000_000 };
+    const client = structuredClone(sampleConfig());
+    const clientRow = claudeOf(client)!;
+    clientRow.models[0] = { ...clientRow.models[0]!, model: 'claude-sonnet-5-5', reasoningEffort: 'high' };
+    const merged = mergeSettingsConfigSave(disk, client);
+    const row = claudeOf(merged)!.models[0]!;
+    expect(row.model).toBe('claude-opus-5-5');
+    expect(row.name).toBe('Claude Opus 5.5');
+    expect(row.contextWindowTokens).toBe(1_000_000);
+    // Fields Settings owns still come from the client.
+    expect(row.reasoningEffort).toBe('high');
   });
 });

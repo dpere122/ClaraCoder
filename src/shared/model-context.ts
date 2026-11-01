@@ -74,14 +74,14 @@ const MODEL_CONTEXT_WINDOWS: Array<{ pattern: RegExp; tokens: number }> = [
 ];
 
 /**
- * Model id for a profile that has none. OpenRouter stays empty: its ids are vendor-prefixed and
- * picked from the catalog, so any fallback (e.g. `gpt-4o-mini`) would be an invalid id.
+ * Model id for a profile that has none. OpenRouter and Claude stay empty: their ids are picked
+ * from the provider catalog, so any fallback (e.g. `gpt-4o-mini`) would be an invalid id.
  */
 export function defaultLlmModelId(provider: LlmConnectionConfig['provider']): string {
   if (provider === 'lmstudio' || provider === 'llamacpp') {
     return 'local-model';
   }
-  if (provider === 'openrouter') {
+  if (provider === 'openrouter' || provider === 'anthropic') {
     return '';
   }
   return 'gpt-4o-mini';

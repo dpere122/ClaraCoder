@@ -574,10 +574,10 @@ describe('migrateConfig Claude pin', () => {
       writeFileSync(join(tempDir, 'config.json'), JSON.stringify(sampleConfig(), null, 2), 'utf-8');
       await loadConfig();
       const saved = await updateConfig((cfg) => {
-        claudeOf(cfg)!.apiKey = SecretValue.of('sk-ant-should-not-persist');
+        claudeOf(cfg)!.apiKey = SecretValue.of('claude-key-should-not-persist');
       });
       expect(unwrapSecret(claudeOf(saved)!.apiKey)).toBe('');
-      expect(readFileSync(join(tempDir, 'config.json'), 'utf-8')).not.toContain('sk-ant-should-not-persist');
+      expect(readFileSync(join(tempDir, 'config.json'), 'utf-8')).not.toContain('claude-key-should-not-persist');
     } finally {
       delete process.env.CLARA_TEST_CONFIG_DIR;
       rmSync(tempDir, { recursive: true, force: true });

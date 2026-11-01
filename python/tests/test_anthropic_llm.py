@@ -33,7 +33,7 @@ def _connection(**overrides: object) -> RuntimeConnection:
         'provider': 'anthropic',
         'base_url': '',
         'model': 'claude-opus-5-5',
-        'api_key': 'sk-ant-test-key',
+        'api_key': 'test-claude-key',
         'temperature': 0.7,
         'chat_template_reasoning': dict(OPUS_CAPS),
     }

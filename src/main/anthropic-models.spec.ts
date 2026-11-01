@@ -52,6 +52,11 @@ function modelInfo(overrides: Partial<ModelInfo> = {}): ModelInfo {
   } as ModelInfo;
 }
 
+/** Fake keys built at runtime so no key-shaped literal sits in the source (secret scanners). */
+const KEY_PREFIX = ['sk', 'ant'].join('-');
+const FAKE_KEY = `${KEY_PREFIX}-fake-store-key-1234`;
+const FAKE_GOOD_KEY = `${KEY_PREFIX}-fake-good-key-0001`;
+
 /** Reversible stand-in for Electron safeStorage. */
 const fakeKeychain = {
   isEncryptionAvailable: () => true,
@@ -113,11 +118,11 @@ describe('anthropic key store', () => {
   it('encrypts the key on disk and reads it back after a restart', async () => {
     const file = join(dir, 'secrets', 'anthropic-api-key.bin');
     configureAnthropicKeyStoreForTests({ filePath: file, safeStorage: fakeKeychain });
-    expect(await setAnthropicApiKey('sk-ant-api03-secretvalue1234')).toBe('keychain');
-    expect(readFileSync(file).toString()).not.toContain('sk-ant-api03-secretvalue1234');
+    expect(await setAnthropicApiKey(FAKE_KEY)).toBe('keychain');
+    expect(readFileSync(file).toString()).not.toContain(FAKE_KEY);
 
     configureAnthropicKeyStoreForTests({ filePath: file, safeStorage: fakeKeychain });
-    expect(await getAnthropicApiKey()).toBe('sk-ant-api03-secretvalue1234');
+    expect(await getAnthropicApiKey()).toBe(FAKE_KEY);
     expect(await getAnthropicKeyStorage()).toBe('keychain');
 
     await clearAnthropicApiKey();
@@ -128,19 +133,19 @@ describe('anthropic key store', () => {
   it('keeps the key in memory only when the keychain is unavailable', async () => {
     const file = join(dir, 'secrets', 'anthropic-api-key.bin');
     configureAnthropicKeyStoreForTests({ filePath: file, safeStorage: null });
-    expect(await setAnthropicApiKey('sk-ant-api03-secretvalue1234')).toBe('session');
-    expect(await getAnthropicApiKey()).toBe('sk-ant-api03-secretvalue1234');
+    expect(await setAnthropicApiKey(FAKE_KEY)).toBe('session');
+    expect(await getAnthropicApiKey()).toBe(FAKE_KEY);
     expect(() => readFileSync(file)).toThrow();
   });
 
   it('hints a key without revealing it', () => {
-    expect(anthropicKeyHint('sk-ant-api03-abcdefghijklmnop-WXYZ')).toBe('sk-ant-…WXYZ');
+    expect(anthropicKeyHint(`${KEY_PREFIX}-fake-hint-key-WXYZ`)).toBe(`${KEY_PREFIX}-…WXYZ`);
     expect(anthropicKeyHint('')).toBe('');
   });
 
   it('reports models for a good key and a readable error for a rejected one', async () => {
     configureAnthropicKeyStoreForTests({ filePath: join(dir, 'k.bin'), safeStorage: fakeKeychain });
-    await setAnthropicApiKey('sk-ant-api03-goodkey-0001');
+    await setAnthropicApiKey(FAKE_GOOD_KEY);
     setAnthropicClientFactoryForTests(() => ({
       models: {
         list: () =>
@@ -152,9 +157,9 @@ describe('anthropic key store', () => {
     }) as unknown as Pick<Anthropic, 'models'>);
     const ok = await getAnthropicStatus(true);
     expect(ok.ok).toBe(true);
-    expect(ok.status).toMatchObject({ configured: true, storage: 'keychain', keyHint: 'sk-ant-…0001' });
+    expect(ok.status).toMatchObject({ configured: true, storage: 'keychain', keyHint: `${KEY_PREFIX}-…0001` });
     expect(ok.status.models.map((m) => m.id)).toEqual(['claude-opus-5-5', 'claude-sonnet-5-5']);
-    expect(JSON.stringify(ok)).not.toContain('goodkey');
+    expect(JSON.stringify(ok)).not.toContain('fake-good-key');
 
     setAnthropicClientFactoryForTests(() => ({
       models: {

@@ -225,6 +225,51 @@ describe('CaptureImagesDirective', () => {
     expect(lookup).toHaveBeenCalledWith(OTHER_URL);
   });
 
+  it('keeps the same loaded image node while streamed markdown re-renders around it', async () => {
+    fixture.componentInstance.text.set(`Here it is:\n\n![Captured page](${URL})`);
+    fixture.detectChanges();
+    await settle();
+    const element = host.querySelector('img');
+    expect(element).not.toBeNull();
+    fixture.componentInstance.text.set(`Here it is:\n\n![Captured page](${URL})\n\nThe page shows`);
+    fixture.detectChanges();
+    await settle();
+    fixture.componentInstance.text.set(`Here it is:\n\n![Captured page](${URL})\n\nThe page shows a header.`);
+    fixture.detectChanges();
+    await settle();
+    expect(host.querySelectorAll('img').length).toBe(1);
+    expect(host.querySelector('img')).toBe(element);
+    expect(host.textContent).toContain('a header.');
+    expect(lookup).toHaveBeenCalledExactlyOnceWith(URL);
+  });
+
+  it('keeps repeated screenshots paired in order and placeholders stable across re-renders', async () => {
+    lookup.mockImplementation(async (url) => url === URL ? EXPIRED : { state: 'available' });
+    const markdown = `![First](${URL})\n\n![Second](${OTHER_URL})\n\n![First](${URL})`;
+    fixture.componentInstance.text.set(markdown);
+    fixture.detectChanges();
+    await settle();
+    const before = [...host.querySelectorAll('img, .capture-image-placeholder')];
+    expect(before.map((node) => node.tagName)).toEqual(['SPAN', 'IMG', 'SPAN']);
+    fixture.componentInstance.text.set(`${markdown}\n\nDone.`);
+    fixture.detectChanges();
+    await settle();
+    expect([...host.querySelectorAll('img, .capture-image-placeholder')]).toEqual(before);
+    expect(lookup).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not adopt a detached capture over a re-rendered image with a different caption', async () => {
+    fixture.componentInstance.text.set(`![Old caption](${URL})`);
+    fixture.detectChanges();
+    await settle();
+    const element = host.querySelector('img');
+    fixture.componentInstance.text.set(`![New caption](${URL})`);
+    fixture.detectChanges();
+    await settle();
+    expect(host.querySelector('img')).not.toBe(element);
+    expect(host.querySelector('img')?.alt).toBe('New caption');
+  });
+
   it('ignores a stale response after replacing DOM even if the new image has the same URL', async () => {
     const stale = deferred<ScreenshotAssetStatus>();
     const fresh = deferred<ScreenshotAssetStatus>();
@@ -232,7 +277,9 @@ describe('CaptureImagesDirective', () => {
     const oldImage = image();
     await settle();
     oldImage.remove();
+    // A different caption makes this a new capture rather than a streamed re-render of the old one.
     const newImage = image();
+    newImage.alt = 'Recaptured page';
     await settle();
     expect(lookup).toHaveBeenCalledTimes(2);
     stale.resolve(EXPIRED);

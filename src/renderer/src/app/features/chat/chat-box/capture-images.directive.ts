@@ -77,6 +77,7 @@ export class CaptureImagesDirective implements AfterViewInit, OnDestroy {
 
   private scan(): void {
     if (this.destroyed) return;
+    this.adopt();
     for (const [image, capture] of this.captures) {
       if (!this.current(capture)) this.captures.delete(image);
     }
@@ -97,6 +98,30 @@ export class CaptureImagesDirective implements AfterViewInit, OnDestroy {
       };
       this.captures.set(image, capture);
       this.check(capture);
+    }
+  }
+
+  /**
+   * Streaming re-renders replace the whole `[innerHTML]` tree on every chunk. Put each detached
+   * capture (loaded image or placeholder) back over its re-parsed twin before the next paint, so
+   * the uncached capture is not re-fetched, collapsed to zero height and re-decoded per chunk.
+   */
+  private adopt(): void {
+    const detached = new Map<string, CaptureImage[]>();
+    for (const capture of this.captures.values()) {
+      if (this.host.contains(capture.node) || capture.image.getAttribute('src') !== capture.url) continue;
+      detached.set(capture.url, [...(detached.get(capture.url) ?? []), capture]);
+    }
+    if (!detached.size) return;
+    for (const image of this.host.querySelectorAll('img')) {
+      if (this.captures.has(image)) continue;
+      // Matching occurrences in document order keeps repeated screenshots paired with their own node.
+      const capture = detached.get(image.getAttribute('src') ?? '')?.shift();
+      if (!capture || capture.image.alt !== image.alt || capture.image.title !== image.title) continue;
+      const link = image.closest('a');
+      image.replaceWith(capture.node);
+      // A re-parsed linked image must not resurrect the fallback link a placeholder removed.
+      if (capture.node !== capture.image && link && this.host.contains(link)) link.replaceWith(...link.childNodes);
     }
   }
 

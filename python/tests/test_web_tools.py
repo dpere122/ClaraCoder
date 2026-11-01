@@ -433,3 +433,20 @@ def test_web_search_hitl_card_redacts_email() -> None:
     assert pending is not None
     assert 'daniel.perez@codebydp.com' not in pending['command_text']
     assert any('Email addresses redacted' in detail for detail in pending['details'])
+
+
+def test_web_operational_bullet_mentions_user_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    from clara_coder_backend.llm.messages import _web_access_operational_bullet
+
+    monkeypatch.setattr(runtime_config, 'tools', RuntimeToolsConfig(allow_web_access=True))
+    bullet = _web_access_operational_bullet()
+    assert 'User-Agent' in bullet
+    assert 'Settings → Tools' in bullet
+    assert 'cooldowns' in bullet
+
+    monkeypatch.setattr(runtime_config, 'tools', RuntimeToolsConfig(allow_web_access=False))
+    assert _web_access_operational_bullet() == ''
+
+
+def test_web_search_description_mentions_redaction() -> None:
+    assert 'redacted' in web_search_tool.description

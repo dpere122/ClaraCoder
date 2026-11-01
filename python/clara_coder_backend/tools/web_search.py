@@ -274,7 +274,10 @@ async def _internal_search(query: str, limit: int, redacted_count: int = 0) -> s
         'Search the web with the built-in metasearch engine or a configured SearXNG instance.',
         when='you need current docs, APIs, errors, or package info from the public web.',
         not_='reading a known URL (use `fetch_url`); workspace search.',
-        shape='`query` required; optional `limit` (1–20). Requires Allow web access in Settings.',
+        shape=(
+            '`query` required; optional `limit` (1–20). Requires Allow web access in Settings. '
+            'Email addresses in `query` are redacted before sending.'
+        ),
     ),
 )
 async def web_search_tool(query: str, limit: int = _DEFAULT_LIMIT) -> str:

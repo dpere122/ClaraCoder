@@ -490,7 +490,9 @@ def _web_access_operational_bullet() -> str:
         return ''
     return (
         '- **Web:** `web_search` (built-in metasearch, or your SearXNG instance) and `fetch_url` are bound. '
-        'When Auto Run is off, each call asks for confirmation before leaving the machine.\n'
+        'When Auto Run is off, each call asks for confirmation before leaving the machine, and the card shows '
+        'the User-Agent being sent. The User-Agent and per-engine cooldowns live in Settings → Tools; email '
+        'addresses are stripped from search queries before they leave the machine.\n'
     )
 
 

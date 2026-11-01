@@ -40,7 +40,7 @@
             @if (hint.kind) {
               <span class="accept-command-context__kind">{{ hint.kind }}</span>
             }
-            <code class="accept-command-context__value">{{ hint.value }}</code>
+            <code class="accept-command-context__value" [title]="hint.value">{{ hint.value }}</code>
           </span>
         }
       </div>

@@ -5,7 +5,7 @@ import type { Workspace } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { WorkspaceFileChangeStatusService } from '../../../core/workspace-file-change-status.service';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
-import type { FileNode } from './workspace-tree';
+import type { FileNode, FlatNode } from './workspace-tree';
 import { WorkspaceComponent } from './workspace';
 
 const WS_PATH = '/tmp/ws';
@@ -147,5 +147,101 @@ describe('WorkspaceComponent.beginCreateFromMenu', () => {
     component.beginCreateFromMenu('folder');
     await flushPendingCreate();
     expect(signals.pendingCreate()).toEqual({ kind: 'folder', parentDir: SRC_DIR });
+  });
+});
+
+describe('WorkspaceComponent.confirmMoveIfNeeded', () => {
+  let fixture: ComponentFixture<WorkspaceComponent>;
+  let component: WorkspaceComponent;
+  const openWithCheckbox = vi.fn();
+
+  type MoveGuard = { confirmMoveIfNeeded: (source: string, dest: string) => Promise<boolean> };
+  type TreeAccess = { flatTree: { set: (nodes: FlatNode[]) => void } };
+
+  function dirNode(path: string): FlatNode {
+    return { name: 'src', path, isDirectory: true, expanded: true, depth: 0, hasChildren: true };
+  }
+
+  function fileNode(path: string): FlatNode {
+    return { name: 'foo.ts', path, isDirectory: false, expanded: false, depth: 0, hasChildren: false };
+  }
+
+  beforeEach(async () => {
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [WorkspaceComponent],
+      providers: [
+        { provide: ThemedConfirmDialogService, useValue: { open: vi.fn(), openWithCheckbox } },
+        { provide: WorkspaceFileChangeStatusService, useValue: { showFileName: vi.fn(), clear: vi.fn() } },
+        {
+          provide: ElectronService,
+          useValue: {
+            isElectron: false,
+            workspaceChanged$: new Subject<string | null>().asObservable(),
+            workspaceFilesChanged$: new Subject<never>().asObservable(),
+            llamaServerLifecycle$: new Subject<never>().asObservable(),
+            llamaServerProcessExit$: new Subject<never>().asObservable(),
+            readDirectory: vi.fn().mockResolvedValue([]),
+          },
+        },
+      ],
+    })
+      .overrideComponent(WorkspaceComponent, { set: { template: '', imports: [] } })
+      .compileComponents();
+
+    fixture = TestBed.createComponent(WorkspaceComponent);
+    component = fixture.componentInstance;
+    openWithCheckbox.mockReset();
+  });
+
+  afterEach(() => {
+    fixture.destroy();
+  });
+
+  it('prompts for files and returns false when cancelled', async () => {
+    fixture.componentRef.setInput('appConfig', { confirmMove: true } as never);
+    (component as unknown as TreeAccess).flatTree.set([fileNode(FOO_FILE)]);
+    openWithCheckbox.mockResolvedValue({ result: 'cancel', checked: false });
+
+    const ok = await (component as unknown as MoveGuard).confirmMoveIfNeeded(FOO_FILE, SRC_DIR);
+
+    expect(ok).toBe(false);
+    expect(openWithCheckbox).toHaveBeenCalledOnce();
+    expect(openWithCheckbox.mock.calls[0][0]).toMatchObject({ title: 'Move file?' });
+  });
+
+  it('prompts for folders and returns false when cancelled', async () => {
+    fixture.componentRef.setInput('appConfig', { confirmMove: true } as never);
+    (component as unknown as TreeAccess).flatTree.set([dirNode(SRC_DIR)]);
+    openWithCheckbox.mockResolvedValue({ result: 'cancel', checked: false });
+
+    const ok = await (component as unknown as MoveGuard).confirmMoveIfNeeded(SRC_DIR, '/tmp/ws/dest');
+
+    expect(ok).toBe(false);
+    expect(openWithCheckbox).toHaveBeenCalledOnce();
+    expect(openWithCheckbox.mock.calls[0][0]).toMatchObject({ title: 'Move folder?' });
+  });
+
+  it('emits moveConfirmDisabled when the box is ticked', async () => {
+    fixture.componentRef.setInput('appConfig', { confirmMove: true } as never);
+    (component as unknown as TreeAccess).flatTree.set([dirNode(SRC_DIR)]);
+    openWithCheckbox.mockResolvedValue({ result: 'confirm', checked: true });
+    const emitted = vi.fn();
+    component.moveConfirmDisabled.subscribe(emitted);
+
+    const ok = await (component as unknown as MoveGuard).confirmMoveIfNeeded(SRC_DIR, '/tmp/ws/dest');
+
+    expect(ok).toBe(true);
+    expect(emitted).toHaveBeenCalledOnce();
+  });
+
+  it('skips the prompt when the preference is disabled', async () => {
+    fixture.componentRef.setInput('appConfig', { confirmMove: false } as never);
+    (component as unknown as TreeAccess).flatTree.set([dirNode(SRC_DIR)]);
+
+    const ok = await (component as unknown as MoveGuard).confirmMoveIfNeeded(SRC_DIR, '/tmp/ws/dest');
+
+    expect(ok).toBe(true);
+    expect(openWithCheckbox).not.toHaveBeenCalled();
   });
 });

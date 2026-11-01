@@ -76,6 +76,26 @@
             </div>
           </div>
         }
-          
+
+        @if (s.activeSubTabId('general') === 'behavior') {
+          <div class='form-section'>
+            <div class='form-grid'>
+              <div class='field field--hint'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
+                    [ngModel]='s.confirmMove()'
+                    (ngModelChange)='s.onConfirmMoveChange($event)'
+                  />
+                  <span>Confirm before moving files and folders</span>
+                </label>
+                <p class='settings-field-hint'>
+                  When on, dragging a file or folder into another folder asks for confirmation. Turn it off here, or
+                  tick "Don't ask again" on the prompt itself.
+                </p>
+              </div>
+            </div>
+          </div>
+        }
 
       </div>

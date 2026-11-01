@@ -345,6 +345,7 @@ export class SettingsStore {
   readonly searxngBaseUrl = signal('');
   readonly extraUserPath = signal('');
   readonly enableAgentFormatters = signal(false);
+  readonly confirmMove = signal(true);
   readonly contextCompressionEnabled = signal(false);
   readonly contextCompressionTriggerRatio = signal(0.7);
   readonly contextCompressionTargetRatio = signal(0.55);
@@ -830,6 +831,9 @@ export class SettingsStore {
           const sizeLabel =
             CHAT_CONTAINER_SIZE_OPTIONS.find((opt) => opt.value === this.chatContainerSize())?.label ?? 'Standard';
           return `${sizeLabel} · UI ${this.uiFontSizeRem()} · chat ${this.chatFontSizeRem()}rem`;
+        }
+        if (id === 'behavior') {
+          return this.confirmMove() ? 'Confirm moves' : 'No move prompt';
         }
         break;
       case 'tools':
@@ -2965,6 +2969,11 @@ export class SettingsStore {
     this.markSettingsDirty();
   }
 
+  onConfirmMoveChange(enabled: boolean): void {
+    this.confirmMove.set(!!enabled);
+    this.markSettingsDirty();
+  }
+
   updateContextCompression(changes: Partial<ContextCompressionConfig>): void {
     if (changes.enabled !== undefined) {
       this.contextCompressionEnabled.set(!!changes.enabled);
@@ -3396,6 +3405,7 @@ export class SettingsStore {
         extraUserPath: this.extraUserPath(),
         enableAgentFormatters: this.enableAgentFormatters(),
       },
+      confirmMove: this.confirmMove(),
       contextCompression: {
         enabled: this.contextCompressionEnabled(),
         triggerRatio: this.contextCompressionTriggerRatio(),
@@ -3579,6 +3589,7 @@ export class SettingsStore {
     this.searxngBaseUrl.set((wt.searxngBaseUrl ?? '').trim());
     this.extraUserPath.set(wt.extraUserPath ?? '');
     this.enableAgentFormatters.set(!!(wt.enableAgentFormatters ?? false));
+    this.confirmMove.set(config.confirmMove !== false);
 
     const cc = config.contextCompression ?? getDefaultContextCompression();
     this.contextCompressionEnabled.set(!!cc.enabled);

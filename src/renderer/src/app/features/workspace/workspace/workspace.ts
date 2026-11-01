@@ -91,6 +91,8 @@ export class WorkspaceComponent implements OnDestroy {
   readonly addToChatContext = output<{ absolutePath: string; isDirectory: boolean }>();
   /** User clicked a symbol in the outline panel — reveal in the editor. */
   readonly outlineSymbolReveal = output<{ relativePath: string; line: number; column: number }>();
+  /** User ticked "Don't ask again" on the move confirmation — persist the preference. */
+  readonly moveConfirmDisabled = output<void>();
 
   protected readonly flatTree = signal<FlatNode[]>([]);
   /** Flat tree with an inline pending-create row when the user is naming a new file/folder. */
@@ -1001,6 +1003,9 @@ export class WorkspaceComponent implements OnDestroy {
       if (normalizePathSlashes(parentDirectoryPath(internalSource)) === normalizePathSlashes(destParentDir)) {
         return;
       }
+      if (!(await this.confirmMoveIfNeeded(internalSource, destParentDir))) {
+        return;
+      }
       this.markDiskOpPending(internalSource, destParentDir);
       const res = await this.electron.moveWorkspaceEntry(workspaceRoot, internalSource, destParentDir);
       if (!res.ok) {
@@ -1021,6 +1026,39 @@ export class WorkspaceComponent implements OnDestroy {
       this.clearDiskOpPending(destParentDir);
       window.alert(res.error ?? 'Failed to import item(s).');
     }
+  }
+
+  /**
+   * Ask before moving a file or folder into another folder, unless the user disabled the prompt.
+   * Returns false when the user cancels the move.
+   */
+  private async confirmMoveIfNeeded(sourceAbs: string, destParentAbs: string): Promise<boolean> {
+    if (this.appConfig()?.confirmMove === false) {
+      return true;
+    }
+    const isDirectory = this.isDirectoryPath(sourceAbs);
+    const kind = isDirectory ? 'folder' : 'file';
+    const sourceName = workspaceFileBasename(sourceAbs);
+    const destName = workspaceFileBasename(destParentAbs);
+    const { result, checked } = await this.themedConfirm.openWithCheckbox({
+      title: `Move ${kind}?`,
+      message: `Move ${kind} "${sourceName}" into "${destName}"?`,
+      confirmText: 'Move',
+      cancelText: 'Cancel',
+      checkboxLabel: "Don't ask again",
+    });
+    if (result !== 'confirm') {
+      return false;
+    }
+    if (checked) {
+      this.moveConfirmDisabled.emit();
+    }
+    return true;
+  }
+
+  private isDirectoryPath(absPath: string): boolean {
+    const norm = normalizePathSlashes(absPath);
+    return this.flatTree().some((node) => node.isDirectory && normalizePathSlashes(node.path) === norm);
   }
 
   onContextMenuRename(): void {

@@ -1248,6 +1248,23 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  /** Persist the "Don't ask again" choice from the move confirmation dialog. */
+  protected async onMoveConfirmDisabled(): Promise<void> {
+    const config = this.appConfig();
+    if (!config || config.confirmMove === false) {
+      return;
+    }
+    try {
+      const saved = await this.electron.saveConfig({
+        ...config,
+        confirmMove: false,
+      });
+      this.applyIncomingAppConfig(saved);
+    } catch (err) {
+      console.error('[App] persist confirmMove failed', err);
+    }
+  }
+
   private restoreOpenTabsForWorkspace(workspaceId: string | null): void {
     this.applyingRestoredOpenTabs = true;
     try {

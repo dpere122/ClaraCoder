@@ -85,9 +85,11 @@ def test_suggest_title_uses_mock_llm(monkeypatch: pytest.MonkeyPatch) -> None:
         ('<|channel>thought\nscratchpad only', ''),
         ('<think>plan the name</think>\nFix login bug', 'Fix login bug'),
         ('  "Quoted title"  ', 'Quoted title'),
+        ([{'text': 'Add forecast strip', 'type': 'text', 'index': 0}], 'Add forecast strip'),
+        ([{'type': 'thinking', 'thinking': 'naming'}, {'type': 'text', 'text': 'Fix login bug'}], 'Fix login bug'),
     ],
 )
-def test_sanitize_suggested_title(raw: str, expected: str) -> None:
+def test_sanitize_suggested_title(raw: Any, expected: str) -> None:
     assert sanitize_suggested_title(raw) == expected
 
 

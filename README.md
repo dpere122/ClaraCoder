@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/media/marketing/banner-1920x1080.png" alt="Clara Coder: your AI pair programmer, on your desktop" width="100%">
+  <img src="docs/media/marketing/banner-1920x1080.png" alt="Clara Coder: the desktop app with a finished agent turn of six edited files ready for review" width="100%">
 </p>
 
 <p align="center">
@@ -11,9 +11,9 @@
 </p>
 
 <p align="center">
-  <b>An AI coding agent that lives on your desktop.</b><br>
-  It reads your workspace, edits files, runs approved commands and hands every change back for review,<br>
-  using Claude, OpenAI, OpenRouter, LM Studio, or a model running on your own GPU.
+  <b>A desktop coding agent that works directly in your repository.</b><br>
+  Clara reads and edits your code, runs the commands you approve, and records every change as a diff you can inspect or revert.<br>
+  Use Claude, OpenAI, OpenRouter, LM Studio, or a local llama.cpp model.
 </p>
 
 <p align="center">
@@ -26,63 +26,63 @@
 
 <p align="center">
   <img src="docs/media/clips/agent-turn.gif" alt="Clara adding a 5-day forecast strip to a weather app: it reads the files, edits six of them and summarises the change" width="100%">
-  <br><sub>One prompt, one real agent turn (Claude Opus 5.5, sped up): Clara reads the project, edits six files and summarises what changed.</sub>
+  <br><sub>A single unedited turn with Claude Opus 5.5 (waits sped up): Clara reads the project, edits six files and summarises the change.</sub>
 </p>
 
 ---
 
 ## Features
 
-### Describe it. Watch it land.
+### Agent tooling
 
-Clara is an agent, not autocomplete. Ask for a change in plain language and it works through your workspace with real tools:
+Clara is an agent rather than a completion engine. It plans and carries out changes using the same tools you would:
 
-- **Read, search and edit** files across the workspace, with LSP diagnostics and navigation (TypeScript/JavaScript bundled, Java via JDT LS).
-- **Semantic workspace index** built locally with fastembed, so "where do we handle auth?" finds the right code.
-- **Approved shell commands** in the workspace, or **Auto Run** to approve them for the conversation.
-- **Web search, URL fetching and page screenshots** when the answer isn't in your repo.
+- **File read, search and edit** across the workspace, with LSP diagnostics and navigation (TypeScript/JavaScript bundled; Java via JDT LS).
+- **A local semantic index** built with fastembed, so queries by intent ("where is auth handled?") find the relevant code, not just matching symbols.
+- **Shell commands** in the workspace, approved one at a time or for the whole conversation with **Auto Run**.
+- **Web search, URL fetching and page screenshots** for context outside the repository.
 - **Sub-agents** for parallel work, **build plans** for multi-step changes, and **MCP servers** for your own tools.
-- **Pick the model and reasoning effort per message** from the composer.
+- **Model and reasoning effort** selectable per message.
 
-### Every edit, reversible.
+### Review and revert
 
 <img src="docs/media/clips/turn-review.gif" alt="Clicking through the files edited in a turn and opening each as a before/after diff" width="100%">
 
-File edits land on disk straight away, and every turn ends with a change list: each file, its added and removed lines, and a **Reset** for that file or the whole turn. Click a file to open a read-only diff of exactly what that turn changed.
+Edits are written to disk as they happen. Each turn ends with a change list showing every file touched, its added and removed lines, and a **Reset** for that file or the entire turn. Selecting a file opens a read-only diff of that turn's changes.
 
-### Ask for a theme. Get a theme.
-
-<img src="docs/media/clips/theme-proposal.gif" alt="Asking Clara for a synthwave theme and previewing it live" width="100%">
-
-Ask Clara for a theme ("make me a synthwave theme") and it posts a card you can **Preview**, **Save & apply**, **Save only** or **Dismiss**. Underneath is a full [theme engine](#themes): design tokens, per-panel overrides, background images and Monaco editor palettes, shared as a single `.clara-theme.json`.
-
-### Cloud or local. Your call.
+### Cloud and local models
 
 | Source | Notes |
 | ------ | ----- |
-| **Claude** | API key checked, encrypted with your OS keychain, and never shown again. |
+| **Claude** | Key validated on entry, encrypted with the OS keychain, and never displayed again. |
 | **OpenAI** · **OpenRouter** | Any chat model the endpoint serves. |
-| **LM Studio** | Point at a running LM Studio server. |
+| **LM Studio** | Connects to a running LM Studio server. |
 | **llama.cpp** | A managed `llama-server` with GPU-aware builds (CUDA / Vulkan / CPU) and a Hugging Face model browser. |
 
 <img src="docs/media/screenshots/health-system.png" alt="Health window showing live GPU VRAM, CPU, memory, network and disk stats" width="100%">
 
-The **Health** window shows runtime status (Python sidecar, LSP, llama-server, speech) and live GPU, CPU, memory, network and disk stats. Optional pieces such as llama-server, the Java language server, Whisper speech-to-text and Kokoro TTS download on demand from the **Dependencies** window.
+The **Health** window reports runtime status (Python sidecar, LSP, llama-server, speech) alongside live GPU, CPU, memory, network and disk usage. Optional components (llama-server, the Java language server, Whisper speech-to-text and Kokoro TTS) are installed on demand from the **Dependencies** window.
 
-### More screenshots
+### Theming
+
+<img src="docs/media/clips/theme-proposal.gif" alt="Asking Clara for a synthwave theme and previewing it live" width="100%">
+
+The UI is driven by a [theme engine](#themes): design tokens, per-panel overrides, background images and Monaco palettes, packaged as a single `.clara-theme.json`. Clara can also generate a theme from a description; the proposal card lets you **Preview** it across the app, then **Save & apply**, **Save only** or **Dismiss**.
+
+### Screenshots
 
 <table>
   <tr>
     <td width="50%"><img src="docs/media/screenshots/turn-diff.png" alt="Read-only before/after diff of one turn"><br><sub><b>Turn diff:</b> before and after for one file in one turn.</sub></td>
-    <td width="50%"><img src="docs/media/screenshots/theme-proposal.png" alt="Theme proposal card with the synthwave preview applied"><br><sub><b>Theme proposal:</b> the whole app previews the new theme.</sub></td>
+    <td width="50%"><img src="docs/media/screenshots/theme-proposal.png" alt="Theme proposal card with the synthwave preview applied"><br><sub><b>Theme proposal:</b> a generated theme previewed across the app.</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/media/screenshots/theme-library.png" alt="Settings theme library with built-in and user themes"><br><sub><b>Theme library:</b> built-ins, your themes, import and export.</sub></td>
-    <td><img src="docs/media/screenshots/theme-colors.png" alt="Global colors token editor"><br><sub><b>Global colors:</b> edit any design token with live preview.</sub></td>
+    <td><img src="docs/media/screenshots/theme-library.png" alt="Settings theme library with built-in and user themes"><br><sub><b>Theme library:</b> built-in and user themes, with import and export.</sub></td>
+    <td><img src="docs/media/screenshots/theme-colors.png" alt="Global colors token editor"><br><sub><b>Global colors:</b> design token editor with live preview.</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/media/screenshots/dependencies.png" alt="Dependencies window listing llama-server, Java LSP, Kokoro TTS and Whisper STT"><br><sub><b>Dependencies:</b> heavy pieces install on demand.</sub></td>
-    <td><img src="docs/media/screenshots/health-runtime.png" alt="Health window runtime status cards"><br><sub><b>Health:</b> each runtime component at a glance.</sub></td>
+    <td><img src="docs/media/screenshots/dependencies.png" alt="Dependencies window listing llama-server, Java LSP, Kokoro TTS and Whisper STT"><br><sub><b>Dependencies:</b> optional components installed on demand.</sub></td>
+    <td><img src="docs/media/screenshots/health-runtime.png" alt="Health window runtime status cards"><br><sub><b>Health:</b> status of each runtime component.</sub></td>
   </tr>
 </table>
 
@@ -90,9 +90,9 @@ The **Health** window shows runtime status (Python sidecar, LSP, llama-server, s
 
 ## Install
 
-Download the latest Windows installer from **[Releases](https://github.com/dpere122/ClaraCoder/releases/latest)**. The installer ships a portable Python with the backend, so there is nothing else to set up; connect a model under **Sources** on first launch.
+Download the latest Windows installer from **[Releases](https://github.com/dpere122/ClaraCoder/releases/latest)**. It bundles a portable Python runtime and the backend, so no further setup is required; add a model under **Sources** on first launch.
 
-On macOS and Linux, [build from source](#build-from-source): `npm run pack` produces a `.dmg`, or a `.deb` and AppImage.
+On macOS and Linux, [build from source](#build-from-source): `npm run pack` produces a `.dmg`, or a `.deb` and an AppImage.
 
 ---
 

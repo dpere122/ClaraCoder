@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { Component, ViewEncapsulation, computed, effect, inject, signal, untracked } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
@@ -20,6 +21,7 @@ import { claudeModelOptions, formatClaudeDate, formatClaudeTokens } from '../../
 import { ElectronService } from '../../../core/electron.service';
 import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 import { SettingsStore } from '../settings/settings-store';
+import { LlamaRunCommandComponent } from './llama-run-command/llama-run-command';
 import {
   OPENROUTER_MODEL_SORT_OPTIONS,
   filterOpenRouterModels,
@@ -35,7 +37,14 @@ const OPENROUTER_GRID_PAGE = 48;
 
 @Component({
   selector: 'app-settings-models',
-  imports: [FormsModule, LucideAngularModule, NgxSpinnerComponent, PillSelectComponent],
+  imports: [
+    FormsModule,
+    LlamaRunCommandComponent,
+    LucideAngularModule,
+    NgTemplateOutlet,
+    NgxSpinnerComponent,
+    PillSelectComponent,
+  ],
   templateUrl: './settings-models.html',
   styleUrl: './settings-models.css',
   encapsulation: ViewEncapsulation.None,
@@ -207,11 +216,6 @@ export class SettingsModels {
       rows.push({ id: picked, label: `${picked.slice(3)} (HF)` });
     }
     return [{ id: '', label: 'Select a model' }, ...rows];
-  }
-
-  protected labeledIds(values: readonly string[], emptyLabel?: string): { id: string; label: string }[] {
-    const rows = values.map((value) => ({ id: value, label: value }));
-    return emptyLabel ? [{ id: '', label: emptyLabel }, ...rows] : rows;
   }
 
   protected presetOptions(provider: LlmProviderConfig['provider']): { id: string; label: string; title: string }[] {

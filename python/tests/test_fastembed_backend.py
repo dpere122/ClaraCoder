@@ -191,3 +191,28 @@ def test_idle_unload_disabled_by_zero(monkeypatch, tmp_path: Path) -> None:
     fb.build_fastembed_embedding()
     assert not fb.unload_idle_engine(now=time.monotonic() + 10_000)
     assert fb._engine is not None
+
+
+def test_load_lowers_only_the_threads_onnx_starts(monkeypatch, tmp_path: Path) -> None:
+    import fastembed
+
+    snapshots = iter([{1, 2}, {1, 2, 3, 4}])
+    lowered: list[set[int]] = []
+    monkeypatch.setattr(fb, 'native_thread_ids', lambda: next(snapshots))
+    monkeypatch.setattr(fb, 'lower_thread_priority', lambda ids: lowered.append(ids) or len(ids))
+    monkeypatch.setattr(fastembed, 'TextEmbedding', MagicMock())
+    fb._load_text_embedding('BAAI/bge-small-en-v1.5', tmp_path)
+    assert lowered == [{3, 4}]
+
+
+def test_load_leaves_python_threads_started_meanwhile_alone(monkeypatch, tmp_path: Path) -> None:
+    import fastembed
+
+    snapshots = iter([{1}, {1, 2, 3}])
+    lowered: list[set[int]] = []
+    monkeypatch.setattr(fb, 'native_thread_ids', lambda: next(snapshots))
+    monkeypatch.setattr(fb, 'python_thread_ids', lambda: {3})
+    monkeypatch.setattr(fb, 'lower_thread_priority', lambda ids: lowered.append(ids) or len(ids))
+    monkeypatch.setattr(fastembed, 'TextEmbedding', MagicMock())
+    fb._load_text_embedding('BAAI/bge-small-en-v1.5', tmp_path)
+    assert lowered == [{2}]

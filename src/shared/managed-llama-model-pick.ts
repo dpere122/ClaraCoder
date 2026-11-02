@@ -4,9 +4,23 @@
  */
 import {
   argvToShellCommandLine,
+  CTK_FLAG_NAMES,
+  CTV_FLAG_NAMES,
+  CTX_FLAG_NAMES,
   detectShellQuotingPlatform,
+  FA_FLAG_NAMES,
+  findLlamaFlag,
+  hasLlamaFlag,
+  HF_FLAG_NAMES,
+  lastLlamaFlag,
+  MODEL_FLAG_NAMES,
+  NGL_FLAG_NAMES,
+  readLlamaFlagValue,
+  setLlamaBooleanFlag,
+  spliceOutLlamaSpans,
+  upsertLlamaFlag,
   type ShellQuotingPlatform,
-} from './llama-cpp-managed';
+} from './llama-command-tokens';
 import { inferContextWindowTokens } from './model-context';
 import type { LlmOptimizationPreset, LlmProviderConfig } from './types/app-config';
 import { GEMMA_PRESET_DEFAULTS, QWEN_PRESET_DEFAULTS } from './types/llm-presets';
@@ -435,14 +449,6 @@ export function buildManagedLlamaChatCommand(
   return argvToShellCommandLine(argv, platform);
 }
 
-function unquoteShellToken(raw: string): string {
-  const t = raw.trim();
-  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
-    return t.slice(1, -1);
-  }
-  return t;
-}
-
 /** Parse the selected GGUF path or HF id from an existing managed chat command. */
 export function parseManagedLlamaModelSelection(
   cmd: string,
@@ -451,31 +457,18 @@ export function parseManagedLlamaModelSelection(
   if (!t) {
     return null;
   }
-  const hf = /\s-hf(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i.exec(t);
-  if (hf) {
-    const id = unquoteShellToken(hf[1] ?? hf[2] ?? hf[3] ?? '');
-    return id ? { kind: 'hf', hfId: id } : null;
+  const hfId = readLlamaFlagValue(t, HF_FLAG_NAMES);
+  if (hfId) {
+    return { kind: 'hf', hfId };
   }
-  const m = /\s-m(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i.exec(t);
-  if (m) {
-    const path = unquoteShellToken(m[1] ?? m[2] ?? m[3] ?? '');
-    return path ? { kind: 'gguf', absolutePath: path } : null;
-  }
-  return null;
+  const absolutePath = readLlamaFlagValue(t, MODEL_FLAG_NAMES);
+  return absolutePath ? { kind: 'gguf', absolutePath } : null;
 }
 
 /** Parse ``-c`` / ``--ctx-size`` from a managed chat command. ``0`` is a valid Max value. */
 export function parseManagedLlamaContextSize(cmd: string): number | null {
-  const t = (cmd || '').trim();
-  if (!t) {
-    return null;
-  }
-  const m = /(?:^|[\s"'])(?:--ctx-size|-c)(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i.exec(t);
-  if (!m) {
-    return null;
-  }
-  const raw = unquoteShellToken(m[1] ?? m[2] ?? m[3] ?? '');
-  if (!/^-?\d+$/.test(raw)) {
+  const raw = readLlamaFlagValue(cmd, CTX_FLAG_NAMES);
+  if (raw === null || !/^-?\d+$/.test(raw)) {
     return null;
   }
   const n = Number.parseInt(raw, 10);
@@ -499,15 +492,7 @@ export function syncContextFlagInManagedChatCommand(
   if (ctx === null) {
     return trimmed;
   }
-  const ctxStr = String(ctx);
-  const replaced = trimmed.replace(
-    /(^|[\s"'])((--ctx-size|-c)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+))/i,
-    (_full, lead: string, _flagged: string, flag: string) => `${lead}${flag} ${ctxStr}`,
-  );
-  if (replaced !== trimmed) {
-    return replaced;
-  }
-  return `${trimmed} ${argvToShellCommandLine(['-c', ctxStr], platform)}`;
+  return upsertLlamaFlag(trimmed, CTX_FLAG_NAMES, '-c', String(ctx), platform);
 }
 
 /** Slider / command range for ``-ngl`` (0 = CPU, 99 = llama.cpp ``auto`` / ``--fit``). */
@@ -519,11 +504,7 @@ export const MANAGED_LLAMA_NGL_MAX = 99;
  */
 export const MANAGED_LLAMA_NGL_DEFAULT = 99;
 
-const NGL_FLAG_RE =
-  /(?:^|[\s"'])(?:--n-gpu-layers|--gpu-layers|-ngl)(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i;
-const NGL_FLAG_REPLACE_RE =
-  /(^|[\s"'])((--n-gpu-layers|--gpu-layers|-ngl)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+))/i;
-const NO_HOST_TOKEN_RE = /(?:^|[\s"'])--no-host(?:\s|=|$)/i;
+const NO_HOST_FLAG_NAMES = ['--no-host'];
 
 function clampManagedNglFlag(n: number): number | null {
   if (!Number.isFinite(n)) {
@@ -555,30 +536,8 @@ function parseNglToken(raw: string): number | null {
 
 /** Parse ``-ngl`` / ``--n-gpu-layers`` / ``--gpu-layers``. ``auto`` / ``all`` / negatives map to 99. */
 export function parseManagedLlamaNgl(cmd: string): number | null {
-  const t = (cmd || '').trim();
-  if (!t) {
-    return null;
-  }
-  const m = NGL_FLAG_RE.exec(t);
-  if (!m) {
-    return null;
-  }
-  return parseNglToken(unquoteShellToken(m[1] ?? m[2] ?? m[3] ?? ''));
-}
-
-function replaceNglFlagValue(
-  cmd: string,
-  value: string,
-  platform: ShellQuotingPlatform,
-): string {
-  const replaced = cmd.replace(
-    NGL_FLAG_REPLACE_RE,
-    (_full, lead: string, _flagged: string, flag: string) => `${lead}${flag} ${value}`,
-  );
-  if (replaced !== cmd) {
-    return replaced;
-  }
-  return `${cmd} ${argvToShellCommandLine(['-ngl', value], platform)}`;
+  const raw = readLlamaFlagValue(cmd, NGL_FLAG_NAMES);
+  return raw === null ? null : parseNglToken(raw);
 }
 
 /**
@@ -599,10 +558,8 @@ export function syncNglFlagInManagedChatCommand(
   if (ngl === null) {
     return trimmed;
   }
-  if (ngl === MANAGED_LLAMA_NGL_MAX) {
-    return replaceNglFlagValue(trimmed, 'auto', platform);
-  }
-  return replaceNglFlagValue(trimmed, String(ngl), platform);
+  const value = ngl === MANAGED_LLAMA_NGL_MAX ? 'auto' : String(ngl);
+  return upsertLlamaFlag(trimmed, NGL_FLAG_NAMES, '-ngl', value, platform);
 }
 
 /**
@@ -619,20 +576,15 @@ export function promoteManagedSentinelNglToAuto(
   if (!trimmed) {
     return trimmed;
   }
-  const m = NGL_FLAG_RE.exec(trimmed);
-  if (!m) {
+  if (readLlamaFlagValue(trimmed, NGL_FLAG_NAMES) !== '99') {
     return trimmed;
   }
-  const raw = unquoteShellToken(m[1] ?? m[2] ?? m[3] ?? '');
-  if (raw !== '99') {
-    return trimmed;
-  }
-  return replaceNglFlagValue(trimmed, 'auto', platform);
+  return upsertLlamaFlag(trimmed, NGL_FLAG_NAMES, '-ngl', 'auto', platform);
 }
 
 /** True when the command already has the boolean ``--no-host`` token (not ``--host``). */
 export function managedLlamaCommandHasNoHost(cmd: string): boolean {
-  return NO_HOST_TOKEN_RE.test((cmd || '').trim());
+  return hasLlamaFlag(cmd, NO_HOST_FLAG_NAMES);
 }
 
 /**
@@ -640,24 +592,7 @@ export function managedLlamaCommandHasNoHost(cmd: string): boolean {
  * Does not touch ``--host <addr>``.
  */
 export function syncNoHostFlagInManagedChatCommand(cmd: string, enabled: boolean): string {
-  const trimmed = (cmd || '').trim();
-  if (!trimmed) {
-    return trimmed;
-  }
-  const has = managedLlamaCommandHasNoHost(trimmed);
-  if (enabled) {
-    if (has) {
-      return trimmed;
-    }
-    return `${trimmed} --no-host`;
-  }
-  if (!has) {
-    return trimmed;
-  }
-  return trimmed
-    .replace(/(^|[\s"'])--no-host(?=\s|$)/gi, '$1')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return setLlamaBooleanFlag(cmd, NO_HOST_FLAG_NAMES, '--no-host', enabled);
 }
 
 export const MANAGED_LLAMA_FLASH_ATTN_MODES = ['auto', 'on', 'off'] as const;
@@ -680,41 +615,14 @@ export type ManagedLlamaCacheType = (typeof MANAGED_LLAMA_CACHE_TYPES)[number];
 export const MANAGED_LLAMA_BATCH_MIN = 0;
 export const MANAGED_LLAMA_BATCH_MAX = 65_536;
 
-const FA_FLAG_RE =
-  /(?:^|[\s"'])(?:--flash-attn|-fa)(?:(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(on|off|auto)))?(?=\s|$)/i;
-const FA_FLAG_REPLACE_RE =
-  /(^|[\s"'])((--flash-attn|-fa)(?:(?:\s+|=)(?:"[^"]+"|'[^']+'|(?:on|off|auto)))?)/i;
-const NO_MMPROJ_TOKEN_RE = /(?:^|[\s"'])--no-mmproj(?:\s|=|$)/i;
-/** ``--mmproj path`` only — does not match ``--mmproj-auto`` / ``--mmproj-offload``. */
-const MMPROJ_FLAG_RE =
-  /(?:^|[\s"'])--mmproj(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i;
-const MMPROJ_FLAG_STRIP_RE = /\s*--mmproj(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+)/gi;
-const NO_WEBUI_TOKEN_RE = /(?:^|[\s"'])--no-(?:web)?ui(?:\s|=|$)/i;
-const PARALLEL_FLAG_RE =
-  /(?:^|[\s"'])(?:--parallel|-np)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+)/i;
-const CACHE_RAM_FLAG_RE =
-  /(?:^|[\s"'])(?:--cache-ram|-cram)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+)/i;
-const REASONING_FORMAT_FLAG_RE = /(?:^|[\s"'])--reasoning-format(?:\s|=|$)/i;
-const BATCH_PARSE_RE =
-  /(?:^|[\s"'])(?:--batch-size|-b)(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i;
-const BATCH_REPLACE_RE =
-  /(^|[\s"'])((--batch-size|-b)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+))/i;
-const UBATCH_PARSE_RE =
-  /(?:^|[\s"'])(?:--ubatch-size|-ub)(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i;
-const UBATCH_REPLACE_RE =
-  /(^|[\s"'])((--ubatch-size|-ub)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+))/i;
-const CTK_PARSE_RE =
-  /(?:^|[\s"'])(?:--cache-type-k|-ctk)(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i;
-const CTK_REPLACE_RE =
-  /(^|[\s"'])((--cache-type-k|-ctk)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+))/i;
-const CTV_PARSE_RE =
-  /(?:^|[\s"'])(?:--cache-type-v|-ctv)(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i;
-const CTV_REPLACE_RE =
-  /(^|[\s"'])((--cache-type-v|-ctv)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+))/i;
-
-function parseQuotedFlagValue(match: RegExpExecArray): string {
-  return unquoteShellToken(match[1] ?? match[2] ?? match[3] ?? '');
-}
+const NO_MMPROJ_FLAG_NAMES = ['--no-mmproj'];
+const MMPROJ_FLAG_NAMES = ['-mm', '--mmproj'];
+const NO_WEBUI_FLAG_NAMES = ['--no-webui', '--no-ui'];
+const PARALLEL_FLAG_NAMES = ['-np', '--parallel'];
+const CACHE_RAM_FLAG_NAMES = ['-cram', '--cache-ram'];
+const REASONING_FORMAT_FLAG_NAMES = ['--reasoning-format'];
+const BATCH_FLAG_NAMES = ['-b', '--batch-size'];
+const UBATCH_FLAG_NAMES = ['-ub', '--ubatch-size'];
 
 function isFlashAttnMode(raw: string): raw is ManagedLlamaFlashAttn {
   return (MANAGED_LLAMA_FLASH_ATTN_MODES as readonly string[]).includes(raw);
@@ -735,80 +643,21 @@ function clampManagedBatchFlag(n: number): number | null {
   return Math.min(MANAGED_LLAMA_BATCH_MAX, v);
 }
 
-function parsePositiveOrZeroIntFlag(cmd: string, re: RegExp): number | null {
-  const t = (cmd || '').trim();
-  if (!t) {
-    return null;
-  }
-  re.lastIndex = 0;
-  const m = re.exec(t);
-  if (!m) {
-    return null;
-  }
-  const raw = parseQuotedFlagValue(m);
-  if (!/^-?\d+$/.test(raw)) {
+function parsePositiveOrZeroIntFlag(cmd: string, names: readonly string[]): number | null {
+  const raw = readLlamaFlagValue(cmd, names);
+  if (raw === null || !/^-?\d+$/.test(raw)) {
     return null;
   }
   return clampManagedBatchFlag(Number.parseInt(raw, 10));
 }
 
-function syncOrStripFlagValue(
-  cmd: string,
-  replaceRe: RegExp,
-  canonicalFlag: string,
-  value: string | null,
-  platform: ShellQuotingPlatform,
-): string {
-  const trimmed = (cmd || '').trim();
-  if (!trimmed) {
-    return trimmed;
-  }
-  if (value === null) {
-    return trimmed.replace(replaceRe, '$1').replace(/\s+/g, ' ').trim();
-  }
-  const replaced = trimmed.replace(
-    replaceRe,
-    (_full, lead: string, _flagged: string, flagName: string) => `${lead}${flagName} ${value}`,
-  );
-  if (replaced !== trimmed) {
-    return replaced;
-  }
-  return `${trimmed} ${argvToShellCommandLine([canonicalFlag, value], platform)}`;
-}
-
-function syncBooleanTokenFlag(cmd: string, enabled: boolean, token: string, hasRe: RegExp): string {
-  const trimmed = (cmd || '').trim();
-  if (!trimmed) {
-    return trimmed;
-  }
-  const has = hasRe.test(trimmed);
-  if (enabled) {
-    if (has) {
-      return trimmed;
-    }
-    return `${trimmed} ${token}`;
-  }
-  if (!has) {
-    return trimmed;
-  }
-  const tokenBody = token.replace(/^--/, '');
-  return trimmed
-    .replace(new RegExp(`(^|[\\s"'])--${tokenBody}(?=\\s|$)`, 'gi'), '$1')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 /** Parse ``-fa`` / ``--flash-attn``. Bare ``-fa`` is ``on``. Missing flag is ``null`` (UI shows auto). */
 export function parseManagedLlamaFlashAttn(cmd: string): ManagedLlamaFlashAttn | null {
-  const t = (cmd || '').trim();
-  if (!t) {
+  const occurrence = lastLlamaFlag(cmd, FA_FLAG_NAMES);
+  if (!occurrence) {
     return null;
   }
-  const m = FA_FLAG_RE.exec(t);
-  if (!m) {
-    return null;
-  }
-  const raw = (m[1] ?? m[2] ?? m[3] ?? '').trim().toLowerCase();
+  const raw = (occurrence.value ?? '').trim().toLowerCase();
   if (!raw) {
     return 'on';
   }
@@ -824,30 +673,21 @@ export function syncFlashAttnInManagedChatCommand(
   if (!isFlashAttnMode(mode)) {
     return (cmd || '').trim();
   }
-  return syncOrStripFlagValue(cmd, FA_FLAG_REPLACE_RE, '-fa', mode, platform);
+  return upsertLlamaFlag(cmd, FA_FLAG_NAMES, '-fa', mode, platform);
 }
 
 export function managedLlamaCommandHasNoMmproj(cmd: string): boolean {
-  return NO_MMPROJ_TOKEN_RE.test((cmd || '').trim());
+  return hasLlamaFlag(cmd, NO_MMPROJ_FLAG_NAMES);
 }
 
 /** Append or strip ``--no-mmproj``. */
 export function syncNoMmprojFlagInManagedChatCommand(cmd: string, enabled: boolean): string {
-  return syncBooleanTokenFlag(cmd, enabled, '--no-mmproj', NO_MMPROJ_TOKEN_RE);
+  return setLlamaBooleanFlag(cmd, NO_MMPROJ_FLAG_NAMES, '--no-mmproj', enabled);
 }
 
 /** Parse ``--mmproj`` from a managed chat command. Absent / empty → ``null``. */
 export function parseManagedLlamaMmproj(cmd: string): string | null {
-  const t = (cmd || '').trim();
-  if (!t) {
-    return null;
-  }
-  const m = MMPROJ_FLAG_RE.exec(t);
-  if (!m) {
-    return null;
-  }
-  const filePath = unquoteShellToken(m[1] ?? m[2] ?? m[3] ?? '');
-  return filePath || null;
+  return readLlamaFlagValue(cmd, MMPROJ_FLAG_NAMES) || null;
 }
 
 /**
@@ -864,8 +704,7 @@ export function syncMmprojFlagInManagedChatCommand(
   if (!trimmed) {
     return trimmed;
   }
-  MMPROJ_FLAG_STRIP_RE.lastIndex = 0;
-  const stripped = trimmed.replace(MMPROJ_FLAG_STRIP_RE, '').replace(/\s{2,}/g, ' ').trim();
+  const stripped = spliceOutLlamaSpans(trimmed, findLlamaFlag(trimmed, MMPROJ_FLAG_NAMES));
   const filePath = (mmprojPath || '').trim();
   if (!filePath) {
     return stripped;
@@ -894,11 +733,11 @@ export function syncManagedVisionProjectorInChatCommand(
 }
 
 export function parseManagedLlamaBatchSize(cmd: string): number | null {
-  return parsePositiveOrZeroIntFlag(cmd, BATCH_PARSE_RE);
+  return parsePositiveOrZeroIntFlag(cmd, BATCH_FLAG_NAMES);
 }
 
 export function parseManagedLlamaUbatchSize(cmd: string): number | null {
-  return parsePositiveOrZeroIntFlag(cmd, UBATCH_PARSE_RE);
+  return parsePositiveOrZeroIntFlag(cmd, UBATCH_FLAG_NAMES);
 }
 
 /**
@@ -913,10 +752,7 @@ export function syncBatchSizeInManagedChatCommand(
   if (n === null) {
     return (cmd || '').trim();
   }
-  if (n === 0) {
-    return syncOrStripFlagValue(cmd, BATCH_REPLACE_RE, '-b', null, platform);
-  }
-  return syncOrStripFlagValue(cmd, BATCH_REPLACE_RE, '-b', String(n), platform);
+  return upsertLlamaFlag(cmd, BATCH_FLAG_NAMES, '-b', n === 0 ? null : String(n), platform);
 }
 
 /**
@@ -931,35 +767,16 @@ export function syncUbatchSizeInManagedChatCommand(
   if (n === null) {
     return (cmd || '').trim();
   }
-  if (n === 0) {
-    return syncOrStripFlagValue(cmd, UBATCH_REPLACE_RE, '-ub', null, platform);
-  }
-  return syncOrStripFlagValue(cmd, UBATCH_REPLACE_RE, '-ub', String(n), platform);
+  return upsertLlamaFlag(cmd, UBATCH_FLAG_NAMES, '-ub', n === 0 ? null : String(n), platform);
 }
 
 export function parseManagedLlamaCacheTypeK(cmd: string): ManagedLlamaCacheType | null {
-  const t = (cmd || '').trim();
-  if (!t) {
-    return null;
-  }
-  const m = CTK_PARSE_RE.exec(t);
-  if (!m) {
-    return null;
-  }
-  const raw = parseQuotedFlagValue(m).toLowerCase();
+  const raw = (readLlamaFlagValue(cmd, CTK_FLAG_NAMES) ?? '').toLowerCase();
   return isCacheType(raw) ? raw : null;
 }
 
 export function parseManagedLlamaCacheTypeV(cmd: string): ManagedLlamaCacheType | null {
-  const t = (cmd || '').trim();
-  if (!t) {
-    return null;
-  }
-  const m = CTV_PARSE_RE.exec(t);
-  if (!m) {
-    return null;
-  }
-  const raw = parseQuotedFlagValue(m).toLowerCase();
+  const raw = (readLlamaFlagValue(cmd, CTV_FLAG_NAMES) ?? '').toLowerCase();
   return isCacheType(raw) ? raw : null;
 }
 
@@ -972,7 +789,7 @@ export function syncCacheTypeKInManagedChatCommand(
   if (cacheType !== null && !isCacheType(cacheType)) {
     return (cmd || '').trim();
   }
-  return syncOrStripFlagValue(cmd, CTK_REPLACE_RE, '-ctk', cacheType, platform);
+  return upsertLlamaFlag(cmd, CTK_FLAG_NAMES, '-ctk', cacheType, platform);
 }
 
 /** Write ``-ctv`` / ``--cache-type-v``. ``null`` strips the flag (llama.cpp default f16). */
@@ -984,24 +801,24 @@ export function syncCacheTypeVInManagedChatCommand(
   if (cacheType !== null && !isCacheType(cacheType)) {
     return (cmd || '').trim();
   }
-  return syncOrStripFlagValue(cmd, CTV_REPLACE_RE, '-ctv', cacheType, platform);
+  return upsertLlamaFlag(cmd, CTV_FLAG_NAMES, '-ctv', cacheType, platform);
 }
 
 export function managedLlamaCommandHasNoWebui(cmd: string): boolean {
-  return NO_WEBUI_TOKEN_RE.test((cmd || '').trim());
+  return hasLlamaFlag(cmd, NO_WEBUI_FLAG_NAMES);
 }
 
 export function managedLlamaCommandHasParallel(cmd: string): boolean {
-  return PARALLEL_FLAG_RE.test((cmd || '').trim());
+  return hasLlamaFlag(cmd, PARALLEL_FLAG_NAMES);
 }
 
 export function managedLlamaCommandHasReasoningFormat(cmd: string): boolean {
-  return REASONING_FORMAT_FLAG_RE.test((cmd || '').trim());
+  return hasLlamaFlag(cmd, REASONING_FORMAT_FLAG_NAMES);
 }
 
 /** True when the command already sets ``--cache-ram`` / ``-cram`` (any value). */
 export function managedLlamaCommandHasCacheRam(cmd: string): boolean {
-  return CACHE_RAM_FLAG_RE.test((cmd || '').trim());
+  return hasLlamaFlag(cmd, CACHE_RAM_FLAG_NAMES);
 }
 
 /**

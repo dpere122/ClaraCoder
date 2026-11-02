@@ -20,6 +20,7 @@ import type {
   LlamaServerStartResult,
   LlamaServerStatusResult,
   EmbeddingsStatusResult,
+  LlamaFlagCatalog,
   LlamacppManagedListModelsResult,
   OpenRouterListModelsResult,
   AnthropicListModelsResult,
@@ -434,6 +435,10 @@ declare global {
       | { ok: true; modelId: string; chatTemplateReasoning: ChatTemplateReasoningCaps | null; nCtx: number | null }
       | { ok: false; error: string }
     >;
+    llamaServerFlagCatalog: () => Promise<{ ok: true; catalog: LlamaFlagCatalog } | { ok: false; error: string }>;
+    llamaServerLaunchedCommand: (payload: {
+      modelId: string;
+    }) => Promise<{ ok: true; command: string | null } | { ok: false; error: string }>;
     llamacppManagedListModels: (payload: {
       modelId: string;
       config: AppConfig;

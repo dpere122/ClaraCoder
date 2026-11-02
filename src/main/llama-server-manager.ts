@@ -17,10 +17,8 @@ import type {
   ManagedServerHealthState,
 } from '../shared';
 import {
-  appendJinjaFlagToManagedChatCommand,
+  buildManagedChatStartCommand,
   detectShellQuotingPlatform,
-  ensureManagedLlamaDefaultServerFlags,
-  ensureManagedLlamaGemmaReasoningFormat,
   findLlmModelLocation,
   formatChatTemplateReasoningSummary,
   looksLikeLlamaModelDownload,
@@ -29,7 +27,6 @@ import {
   parseLlamaServerPropsReasoning,
   parseManagedLlamaChatTemplateFile,
   prepareManagedLlamaShellCommand,
-  promoteManagedSentinelNglToAuto,
 } from '../shared';
 import { loadConfigSync } from './config/load-save';
 import { SecretValue, unwrapSecret } from '../shared/types/app-config';
@@ -45,6 +42,7 @@ import {
 } from './utils/stop-llama-server';
 import { ingestElectronLog } from './log-ingest';
 import { rewriteManagedLlamaCommand } from './runtime/dependency-manager';
+import { MANAGED_LLAMA_SHELL_METACHAR_RE, tokenizeManagedLlamaCommand } from '../shared/llama-command-tokens';
 import { syncRuntimeConfigToPython } from './python/workspace-sync';
 import {
   clearCachedChatTemplateReasoning,
@@ -119,6 +117,8 @@ interface ManagedLlamaSlot {
   /** Chat and embed (if configured) passed ``/health``; UI may show running. */
   ready: boolean;
   chatProc: ChildProcess | undefined;
+  /** Chat command this server was spawned with, port filled in; what Settings compares against. */
+  launchedChatCommand: string | undefined;
   embedProc: ChildProcess | undefined;
   chatPort: number;
   embedPort: number | undefined;
@@ -512,83 +512,7 @@ function managedLlamaSpawnOptions(env: NodeJS.ProcessEnv): SpawnOptions {
   };
 }
 
-/** Disallowed shell metacharacters (unquoted tokens; newlines are rejected on the full string). */
-export const MANAGED_LLAMA_SHELL_METACHAR_RE = /[;|&<>`$(){}!*\n\r~#]/;
-const UNQUOTED_TOKEN_METACHAR_RE = /[;|&<>`$(){}!*~#]/;
-
-/**
- * Tokenize a prepared managed run command into argv.
- * Honors single/double quotes; rejects unbalanced quotes and unquoted shell metacharacters.
- * Quoted tokens may contain path characters such as ``()`` (e.g. ``Program Files (x86)``).
- */
-export function tokenizeManagedLlamaCommand(
-  command: string,
-): { ok: true; argv: string[] } | { ok: false; error: string } {
-  if (/[\n\r]/.test(command)) {
-    return {
-      ok: false,
-      error:
-        'Run command contains disallowed shell metacharacters (; | & < > ` $ ( ) { } ! * # ~ or newlines).',
-    };
-  }
-  const argv: string[] = [];
-  let i = 0;
-  const s = command;
-  while (i < s.length) {
-    while (i < s.length && (s[i] === ' ' || s[i] === '\t')) {
-      i++;
-    }
-    if (i >= s.length) {
-      break;
-    }
-    const q = s[i];
-    if (q === '"' || q === "'") {
-      i++;
-      let token = '';
-      let closed = false;
-      while (i < s.length) {
-        if (s[i] === q) {
-          closed = true;
-          i++;
-          break;
-        }
-        token += s[i];
-        i++;
-      }
-      if (!closed) {
-        return { ok: false, error: 'Run command has unbalanced quotes.' };
-      }
-      argv.push(token);
-      continue;
-    }
-    let token = '';
-    while (i < s.length && s[i] !== ' ' && s[i] !== '\t' && s[i] !== '"' && s[i] !== "'") {
-      token += s[i];
-      i++;
-    }
-    // Reject shell-style adjacent quotes (e.g. --chat-template-file="/path with spaces").
-    // Supported forms: --flag value, --flag=/path (no spaces), or a fully quoted token.
-    if (i < s.length && (s[i] === '"' || s[i] === "'")) {
-      return {
-        ok: false,
-        error:
-          'Run command has quotes adjacent to an unquoted token (e.g. --flag="value"). Use --flag value or --flag=value without adjacent quotes.',
-      };
-    }
-    if (UNQUOTED_TOKEN_METACHAR_RE.test(token)) {
-      return {
-        ok: false,
-        error:
-          'Run command contains disallowed shell metacharacters (; | & < > ` $ ( ) { } ! * # ~ or newlines).',
-      };
-    }
-    argv.push(token);
-  }
-  if (argv.length === 0) {
-    return { ok: false, error: 'Run command is empty.' };
-  }
-  return { ok: true, argv };
-}
+export { MANAGED_LLAMA_SHELL_METACHAR_RE, tokenizeManagedLlamaCommand };
 
 /**
  * Allow only the managed runtime ``llama-server`` binary under the real runtime/bin directory.
@@ -773,6 +697,7 @@ function reserveManagedLlamaSlot(modelId: string): ManagedLlamaSlot {
     chatReady: false,
     ready: false,
     chatProc: undefined,
+    launchedChatCommand: undefined,
     embedProc: undefined,
     chatPort: 0,
     embedPort: undefined,
@@ -824,14 +749,11 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
   }
 
   const managedLlamaBin = getManagedLlamaServerPath();
-  let chatCmd = promoteManagedSentinelNglToAuto(
-    rewriteManagedLlamaCommand((managed.chatRunCommand || '').trim(), managedLlamaBin),
-    detectShellQuotingPlatform(),
-  );
-  if (!chatCmd) {
+  const savedChatCmd = rewriteManagedLlamaCommand((managed.chatRunCommand || '').trim(), managedLlamaBin);
+  if (!savedChatCmd) {
     return { ok: false, error: 'chatRunCommand is empty.' };
   }
-  if (/^(["']?)llama-server(?:\.exe)?\1(\s|$)/i.test(chatCmd) && !managedLlamaBin) {
+  if (/^(["']?)llama-server(?:\.exe)?\1(\s|$)/i.test(savedChatCmd) && !managedLlamaBin) {
     return {
       ok: false,
       error:
@@ -839,10 +761,11 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
     };
   }
 
-  chatCmd = ensureManagedLlamaDefaultServerFlags(appendJinjaFlagToManagedChatCommand(chatCmd));
-  if ((loc.model.optimizationPreset || '').trim().toLowerCase() === 'gemma') {
-    chatCmd = ensureManagedLlamaGemmaReasoningFormat(chatCmd);
-  }
+  const chatCmd = buildManagedChatStartCommand(
+    savedChatCmd,
+    loc.model.optimizationPreset,
+    detectShellQuotingPlatform(),
+  );
   const chatTemplateFile = parseManagedLlamaChatTemplateFile(chatCmd);
   if (chatTemplateFile && !existsSync(chatTemplateFile)) {
     return {
@@ -933,6 +856,7 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
      */
     const chatProc = spawn(chatArgv.bin, chatArgv.args, managedLlamaSpawnOptions(spawnEnv));
     st.chatProc = chatProc;
+    st.launchedChatCommand = chatBuilt.command;
     hideWindowsConsoleWindow(chatProc.pid);
     persistManagedLlamaPids();
     attachLlamaStreams(modelId, 'chat', chatProc, st.logBuf, hfToken);
@@ -1572,6 +1496,12 @@ async function getRemoteLlamacppUrlStatus(
     out.embed = embedBlock;
   }
   return attachCachedReasoning(out);
+}
+
+/** The chat command a running managed server was spawned with, or ``null`` when none is running. */
+export function getManagedLlamaLaunchedCommand(modelId: string): string | null {
+  const st = running.get(modelId);
+  return st?.chatProc ? (st.launchedChatCommand ?? null) : null;
 }
 
 export async function getManagedLlamaStatus(

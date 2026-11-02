@@ -26,6 +26,7 @@ import type {
   LlamaServerStartResult,
   LlamaServerStatusResult,
   EmbeddingsStatusResult,
+  LlamaFlagCatalog,
   LlamacppManagedListModelsResult,
   OpenRouterListModelsResult,
   AnthropicListModelsResult,
@@ -1673,6 +1674,16 @@ export class ElectronService {
   /** Overlay a live context window (llama.cpp ``n_ctx`` or LM Studio loaded context) for the context meter. */
   applyLiveContextWindow(modelId: string, nCtx: number | null | undefined): void {
     this.patchLlamaServerNctx(modelId, nCtx != null && nCtx > 0 ? nCtx : undefined);
+  }
+
+  llamaServerFlagCatalog(): Promise<{ ok: true; catalog: LlamaFlagCatalog } | { ok: false; error: string }> {
+    return this.api?.llamaServerFlagCatalog() ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  llamaServerLaunchedCommand(payload: {
+    modelId: string;
+  }): Promise<{ ok: true; command: string | null } | { ok: false; error: string }> {
+    return this.api?.llamaServerLaunchedCommand(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
   }
 
   llamacppManagedListModels(payload: {

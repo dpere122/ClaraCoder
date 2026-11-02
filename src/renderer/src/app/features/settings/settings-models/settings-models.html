@@ -848,43 +848,7 @@
                     </label>
                   }
 
-                  @if (connection.provider === 'llamacpp' && !s.isUrlOnlyLlamacpp()) {
-                    <div class='field field--full'>
-                      <span>Context</span>
-                      <div class='context-mode-row'>
-                        <label class='context-mode-option' title='Model-native context (-c 0). After start, the token field shows llama.cpp n_ctx (the same value as n_ctx_slot in the server log). --fit may shrink this to what fits in VRAM when GPU layers are Auto.'>
-                          <input
-                            type='radio'
-                            name='managedContextMode'
-                            value='max'
-                            [ngModel]='s.managedContextMode()'
-                            (ngModelChange)='s.onManagedContextModeChange($event)'
-                          />
-                          Max
-                        </label>
-                        <label class='context-mode-option' title='Sets -c from the token field'>
-                          <input
-                            type='radio'
-                            name='managedContextMode'
-                            value='custom'
-                            [ngModel]='s.managedContextMode()'
-                            (ngModelChange)='s.onManagedContextModeChange($event)'
-                          />
-                          Custom
-                        </label>
-                        <input
-                          type='text'
-                          inputmode='numeric'
-                          autocomplete='off'
-                          spellcheck='false'
-                          placeholder='e.g. 8192'
-                          [disabled]='s.managedContextMode() !== "custom"'
-                          [ngModel]='s.managedCustomContextTokensDisplay()'
-                          (ngModelChange)='s.onManagedCustomContextTokensChange($event)'
-                        />
-                      </div>
-                    </div>
-                  } @else {
+                  @if (connection.provider !== 'llamacpp' || s.isUrlOnlyLlamacpp()) {
                     <label class='field'>
                       <span>Context</span>
                       <input
@@ -905,7 +869,6 @@
               <details class='advanced-tuning'>
                 <summary>Advanced</summary>
                 <div class='form-section'>
-
                 @if (connection.provider === 'llamacpp' && !s.isUrlOnlyLlamacpp()) {
                   <div class='form-grid' style='margin-bottom: 1rem'>
                     <label class='field field--full'>
@@ -916,450 +879,135 @@
                         (ngModelChange)='s.updateSelectedProvider({ apiKey: $event })'
                       />
                     </label>
-                    <label class='field field--full'>
-                      <span>Chat command</span>
-                      <p class='settings-copy' style='margin: 0 0 0.35rem'>
-                        Must include one <code>{{ s.managedLlamaPortToken }}</code>.
-                      </p>
-                      <textarea
-                        rows='4'
-                        [ngModel]='s.selectedLlamaCppManaged().chatRunCommand'
-                        (ngModelChange)='s.patchLlamaCppManaged({ chatRunCommand: $event })'
-                        [placeholder]="'llama-server --host 127.0.0.1 --port ' + s.managedLlamaPortToken + ' --jinja --no-webui -np 1 -hf org/model:Q4_0'"
-                      ></textarea>
-                    </label>
-                    <label class='field field--full'>
-                      <span>Embedding command</span>
-                      <textarea
-                        rows='3'
-                        disabled
-                        placeholder='Built-in CPU embeddings (disabled)'
-                      ></textarea>
-                    </label>
-                    <div class='field field--full'>
-                      <button
-                        type='button'
-                        class='action-button action-button--compact'
-                        [disabled]='!s.selectedLlamaCppManaged().chatRunCommand.trim()'
-                        (click)='s.resetManagedToRecommended()'
-                      >
-                        Reset defaults
-                      </button>
-                    </div>
                   </div>
-                }
 
-                <div
-                  class='advanced-inference-split'
-                  [class.advanced-inference-split--paired]='connection.provider === "llamacpp" && !s.isUrlOnlyLlamacpp()'
-                >
-                  <div class='advanced-inference-split__col'>
-                    @if (connection.provider === 'llamacpp' && !s.isUrlOnlyLlamacpp()) {
-                      <h6 class='advanced-inference-split__head'>Inference</h6>
-                    }
-                    <div class='form-grid sampling-compact'>
-                      <label class='field'>
-                        <span class='sampling-label'>
-                          Max output 0–200k
-                          <span class='field-help' tabindex='0' aria-label='0 is no max output limit.'>
-                            ?
-                            <span class='field-help__popup' role='tooltip'>0 is no max output limit.</span>
-                          </span>
-                        </span>
-                        <input
-                          type='number'
-                          min='0'
-                          max='200000'
-                          step='256'
-                          placeholder='0 = no limit'
-                          [ngModel]='connection.maxOutputTokens'
-                          (ngModelChange)='s.onMaxOutputTokensChange($event)'
-                        />
-                      </label>
-                      <label class='field'>
-                        <span>Temp 0–1</span>
-                        <div class='temperature-row'>
-                          <input
-                            type='range'
-                            min='0'
-                            max='1'
-                            step='0.05'
-                            [ngModel]='connection.temperature'
-                            (ngModelChange)='s.onTemperatureChange($event)'
-                          />
-                          <input
-                            type='number'
-                            class='temperature-row__number'
-                            min='0'
-                            max='1'
-                            step='0.05'
-                            [ngModel]='connection.temperature'
-                            (ngModelChange)='s.onTemperatureChange($event)'
-                          />
-                        </div>
-                      </label>
-                      <label class='field'>
-                        <span>top_p 0–1</span>
-                        <input
-                          type='number'
-                          min='0'
-                          max='1'
-                          step='0.01'
-                          placeholder='omit'
-                          [ngModel]='connection.topP'
-                          (ngModelChange)='s.onOptionalTopPChange($event)'
-                        />
-                      </label>
-                      <label class='field'>
-                        <span>top_k 1–256</span>
-                        <input
-                          type='number'
-                          min='1'
-                          max='256'
-                          step='1'
-                          placeholder='omit'
-                          [ngModel]='connection.topK'
-                          (ngModelChange)='s.onOptionalTopKChange($event)'
-                        />
-                      </label>
-                      <label class='field'>
-                        <span>min_p 0–1</span>
-                        <input
-                          type='number'
-                          min='0'
-                          max='1'
-                          step='0.01'
-                          placeholder='omit'
-                          [ngModel]='connection.minP'
-                          (ngModelChange)='s.onOptionalMinPChange($event)'
-                        />
-                      </label>
-                      <label class='field'>
-                        <span>Presence −2–2</span>
-                        <input
-                          type='number'
-                          min='-2'
-                          max='2'
-                          step='0.05'
-                          placeholder='omit'
-                          [ngModel]='connection.presencePenalty'
-                          (ngModelChange)='s.onOptionalPresencePenaltyChange($event)'
-                        />
-                      </label>
-                      <label class='field'>
-                        <span>Repeat 0.01–4</span>
-                        <input
-                          type='number'
-                          min='0.01'
-                          max='4'
-                          step='0.05'
-                          placeholder='omit'
-                          [ngModel]='connection.repeatPenalty'
-                          (ngModelChange)='s.onOptionalRepeatPenaltyChange($event)'
-                        />
-                      </label>
-                      <div class='field'>
-                        <span>Parallel tool calls</span>
-                        <label class='toggle-row'>
-                          <input
-                            type='checkbox'
-                            [ngModel]='connection.parallelToolCalls'
-                            (ngModelChange)='s.updateSelectedModel({ parallelToolCalls: $event })'
-                          />
-                          <span>{{ connection.parallelToolCalls ? 'On' : 'Off' }}</span>
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                  @if (connection.provider === 'llamacpp' && !s.isUrlOnlyLlamacpp()) {
-                    <div class='advanced-inference-split__col'>
-                      <h6 class='advanced-inference-split__head'>llama.cpp</h6>
-                      <div class='form-grid sampling-compact'>
-                        <div class='field'>
-                          <span class='sampling-label'>
-                            Chat template
-                            <span
-                              class='field-help'
-                              tabindex='0'
-                              aria-label='Leave empty to use the GGUF template. Browse sets --chat-template-file on the chat command.'
-                            >
-                              ?
-                              <span class='field-help__popup' role='tooltip'>
-                                Leave empty to use the GGUF chat template (--jinja). Browse adds --chat-template-file on the chat command.
-                              </span>
-                            </span>
-                          </span>
-                          <div class='chat-template-row'>
-                            <input
-                              type='text'
-                              autocomplete='off'
-                              spellcheck='false'
-                              placeholder='GGUF (in model)'
-                              [ngModel]='s.managedChatTemplateFile()'
-                              (ngModelChange)='s.onManagedChatTemplateFileChange($event)'
-                            />
-                            <button type='button' class='action-button action-button--compact' (click)='s.pickManagedChatTemplateFile()'>
-                              Browse
-                            </button>
-                            <button
-                              type='button'
-                              class='action-button action-button--compact'
-                              [disabled]='!s.managedChatTemplateFile()'
-                              (click)='s.clearManagedChatTemplateFile()'
-                            >
-                              Clear
-                            </button>
-                          </div>
-                        </div>
-                        <div class='llama-flag-pair'>
-                          <label class='field'>
-                            <span class='sampling-label'>
-                              Flash attn (-fa)
-                              <span
-                                class='field-help'
-                                tabindex='0'
-                                aria-label='auto is the llama.cpp default. on is recommended for CUDA and required for quantized KV cache.'
-                              >
-                                ?
-                                <span class='field-help__popup' role='tooltip'>
-                                  auto is the llama.cpp default. on is faster and uses less VRAM on CUDA; quantized KV cache requires it.
-                                </span>
-                              </span>
-                            </span>
-                            <app-pill-select
-                              [options]='labeledIds(s.managedFlashAttnModes)'
-                              [value]='s.managedFlashAttn()'
-                              (valueChange)='s.onManagedFlashAttnChange($any($event))'
-                            />
-                          </label>
-                          <div class='field'>
-                            <span class='sampling-label'>
-                              Vision projector
-                              <span
-                                class='field-help'
-                                tabindex='0'
-                                aria-label='Off writes --no-mmproj so llama.cpp does not load a multimodal projector. Auto writes --mmproj only for a projector that belongs with this model (hub folder or matching filename).'
-                              >
-                                ?
-                                <span class='field-help__popup' role='tooltip'>
-                                  Off writes --no-mmproj. Auto (unchecked) writes one --mmproj when a projector is in the same hub folder or its filename matches this model. A generic mmproj-BF16.gguf in a shared models folder is not attached. If none is local, -hf can still auto-download one.
-                                </span>
-                              </span>
-                            </span>
-                            <label class='toggle-row'>
-                              <input
-                                type='checkbox'
-                                [ngModel]='s.managedNoMmproj()'
-                                (ngModelChange)='s.onManagedNoMmprojChange($event)'
-                              />
-                              <span>{{ s.managedNoMmproj() ? 'Off (--no-mmproj)' : 'Auto' }}</span>
-                            </label>
-                          </div>
-                        </div>
-                        <div class='llama-flag-pair'>
-                          <label class='field'>
-                            <span class='sampling-label'>
-                              Batch (-b)
-                              <span
-                                class='field-help'
-                                tabindex='0'
-                                aria-label='Logical batch size. 0 omits -b and uses the llama.cpp default of 2048.'
-                              >
-                                ?
-                                <span class='field-help__popup' role='tooltip'>
-                                  Logical max batch. 0 removes -b so llama.cpp uses 2048.
-                                </span>
-                              </span>
-                            </span>
-                            <input
-                              type='number'
-                              [min]='s.managedBatchMin'
-                              [max]='s.managedBatchMax'
-                              step='64'
-                              [ngModel]='s.managedBatchSize()'
-                              (ngModelChange)='s.onManagedBatchSizeChange($event)'
-                            />
-                          </label>
-                          <label class='field'>
-                            <span class='sampling-label'>
-                              Ubatch (-ub)
-                              <span
-                                class='field-help'
-                                tabindex='0'
-                                aria-label='Physical batch size. 0 omits -ub and uses the llama.cpp default of 512.'
-                              >
-                                ?
-                                <span class='field-help__popup' role='tooltip'>
-                                  Physical max batch. 0 removes -ub so llama.cpp uses 512.
-                                </span>
-                              </span>
-                            </span>
-                            <input
-                              type='number'
-                              [min]='s.managedBatchMin'
-                              [max]='s.managedBatchMax'
-                              step='64'
-                              [ngModel]='s.managedUbatchSize()'
-                              (ngModelChange)='s.onManagedUbatchSizeChange($event)'
-                            />
-                          </label>
-                        </div>
-                        <div class='llama-flag-pair'>
-                          <label class='field'>
-                            <span class='sampling-label'>
-                              K cache (-ctk)
-                              <span
-                                class='field-help'
-                                tabindex='0'
-                                aria-label='KV cache type for keys. Default omits the flag (f16). q8_0 halves VRAM with little quality loss; needs Flash Attention on.'
-                              >
-                                ?
-                                <span class='field-help__popup' role='tooltip'>
-                                  Default omits -ctk (llama.cpp f16). q8_0 cuts KV VRAM roughly in half; use Flash Attention on.
-                                </span>
-                              </span>
-                            </span>
-                            <app-pill-select
-                              [options]='labeledIds(s.managedCacheTypes, "Default (f16)")'
-                              [value]='s.managedCacheTypeK()'
-                              (valueChange)='s.onManagedCacheTypeKChange($event)'
-                            />
-                          </label>
-                          <label class='field'>
-                            <span class='sampling-label'>
-                              V cache (-ctv)
-                              <span
-                                class='field-help'
-                                tabindex='0'
-                                aria-label='KV cache type for values. Default omits the flag (f16). Match -ctk unless you are measuring quality.'
-                              >
-                                ?
-                                <span class='field-help__popup' role='tooltip'>
-                                  Default omits -ctv (llama.cpp f16). Match K cache unless you are measuring quality.
-                                </span>
-                              </span>
-                            </span>
-                            <app-pill-select
-                              [options]='labeledIds(s.managedCacheTypes, "Default (f16)")'
-                              [value]='s.managedCacheTypeV()'
-                              (valueChange)='s.onManagedCacheTypeVChange($event)'
-                            />
-                          </label>
-                        </div>
-                        <label class='field'>
-                          <span class='sampling-label'>
-                            GPU layers (-ngl) 0–99 auto
-                            <span
-                              class='field-help'
-                              tabindex='0'
-                              aria-label='99 is auto: fill VRAM and shrink context before spilling to RAM. 0 is CPU only. 1–98 pins that many layers and disables auto-fit.'
-                            >
-                              ?
-                              <span class='field-help__popup' role='tooltip'>
-                                99 is auto (llama.cpp --fit): fill VRAM and shrink context before spilling weights into system RAM. 0 is CPU only. Values 1–98 pin an exact layer count and turn auto-fit off.
-                              </span>
-                            </span>
-                          </span>
-                          <div class='temperature-row'>
-                            <input
-                              type='range'
-                              [min]='s.managedNglMin'
-                              [max]='s.managedNglMax'
-                              step='1'
-                              [ngModel]='s.managedNglLayers()'
-                              (ngModelChange)='s.onManagedNglChange($event)'
-                            />
-                            <input
-                              type='number'
-                              class='temperature-row__number'
-                              [min]='s.managedNglMin'
-                              [max]='s.managedNglMax'
-                              step='1'
-                              [ngModel]='s.managedNglLayers()'
-                              (ngModelChange)='s.onManagedNglChange($event)'
-                            />
-                          </div>
-                        </label>
-                        @if (s.cudaGpus().length) {
-                          <div class='field field--full'>
-                            <span class='sampling-label'>
-                              GPU offload
-                              <span
-                                class='field-help'
-                                tabindex='0'
-                                aria-label='Fastest card is usually better when the model fits. Split only when it does not.'
-                              >
-                                ?
-                                <span class='field-help__popup' role='tooltip'>
-                                  Fastest card is usually better when the model fits. Split by VRAM only when weights would spill into system RAM.
-                                </span>
-                              </span>
-                            </span>
-                            <div class='gpu-offload-options'>
-                              <label class='gpu-offload-option'>
-                                <input
-                                  type='radio'
-                                  name='managedGpuOffload'
-                                  value='single'
-                                  [ngModel]='s.managedGpuOffloadMode()'
-                                  (ngModelChange)='s.onManagedGpuOffloadChange($event)'
-                                />
-                                <span>
-                                  Fastest card
-                                  @if (s.managedGpuAdvice()?.mode === 'single') {
-                                    <span class='gpu-offload-rec'>Recommended</span>
-                                  }
-                                  <span class='gpu-offload-detail'>
-                                    @if (s.managedGpuAdvice(); as advice) {
-                                      CUDA{{ advice.primaryCudaIndex }} · {{ s.managedPrimaryGpuLabel() }}
-                                    }
-                                  </span>
-                                </span>
-                              </label>
-                              <label class='gpu-offload-option' [class.is-disabled]='s.cudaGpus().length < 2'>
-                                <input
-                                  type='radio'
-                                  name='managedGpuOffload'
-                                  value='split'
-                                  [disabled]='s.cudaGpus().length < 2'
-                                  [ngModel]='s.managedGpuOffloadMode()'
-                                  (ngModelChange)='s.onManagedGpuOffloadChange($event)'
-                                />
-                                <span>
-                                  Split by VRAM
-                                  @if (s.managedGpuAdvice()?.mode === 'split') {
-                                    <span class='gpu-offload-rec'>Recommended</span>
-                                  }
-                                  <span class='gpu-offload-detail'>
-                                    {{ s.managedGpuSplitRatioLabel() }}
-                                  </span>
-                                </span>
-                              </label>
-                              <label class='gpu-offload-option'>
-                                <input
-                                  type='radio'
-                                  name='managedGpuOffload'
-                                  value='auto'
-                                  [ngModel]='s.managedGpuOffloadMode()'
-                                  (ngModelChange)='s.onManagedGpuOffloadChange($event)'
-                                />
-                                <span>
-                                  All GPUs
-                                  <span class='gpu-offload-detail'>llama.cpp default — can overflow into RAM on mixed cards</span>
-                                </span>
-                              </label>
-                            </div>
-                            @if (s.managedGpuAdvice()?.reason; as reason) {
-                              <p class='gpu-offload-reason'>{{ reason }}</p>
-                            }
-                          </div>
-                        }
-                      </div>
-                    </div>
-                  }
+                  <app-llama-run-command />
+
+                  <details class='inference-toggle'>
+                    <summary>Inference</summary>
+                    <ng-container *ngTemplateOutlet='inferenceFields; context: { $implicit: connection }' />
+                  </details>
+                } @else {
+                  <ng-container *ngTemplateOutlet='inferenceFields; context: { $implicit: connection }' />
+                }
                 </div>
-              </div>
               </details>
+
+              <ng-template #inferenceFields let-connection>
+                <div class='form-grid sampling-compact'>
+                  <label class='field'>
+                    <span class='sampling-label'>
+                      Max output 0–200k
+                      <span class='field-help' tabindex='0' aria-label='0 is no max output limit.'>
+                        ?
+                        <span class='field-help__popup' role='tooltip'>0 is no max output limit.</span>
+                      </span>
+                    </span>
+                    <input
+                      type='number'
+                      min='0'
+                      max='200000'
+                      step='256'
+                      placeholder='0 = no limit'
+                      [ngModel]='connection.maxOutputTokens'
+                      (ngModelChange)='s.onMaxOutputTokensChange($event)'
+                    />
+                  </label>
+                  <label class='field'>
+                    <span>Temp 0–1</span>
+                    <div class='temperature-row'>
+                      <input
+                        type='range'
+                        min='0'
+                        max='1'
+                        step='0.05'
+                        [ngModel]='connection.temperature'
+                        (ngModelChange)='s.onTemperatureChange($event)'
+                      />
+                      <input
+                        type='number'
+                        class='temperature-row__number'
+                        min='0'
+                        max='1'
+                        step='0.05'
+                        [ngModel]='connection.temperature'
+                        (ngModelChange)='s.onTemperatureChange($event)'
+                      />
+                    </div>
+                  </label>
+                  <label class='field'>
+                    <span>top_p 0–1</span>
+                    <input
+                      type='number'
+                      min='0'
+                      max='1'
+                      step='0.01'
+                      placeholder='omit'
+                      [ngModel]='connection.topP'
+                      (ngModelChange)='s.onOptionalTopPChange($event)'
+                    />
+                  </label>
+                  <label class='field'>
+                    <span>top_k 1–256</span>
+                    <input
+                      type='number'
+                      min='1'
+                      max='256'
+                      step='1'
+                      placeholder='omit'
+                      [ngModel]='connection.topK'
+                      (ngModelChange)='s.onOptionalTopKChange($event)'
+                    />
+                  </label>
+                  <label class='field'>
+                    <span>min_p 0–1</span>
+                    <input
+                      type='number'
+                      min='0'
+                      max='1'
+                      step='0.01'
+                      placeholder='omit'
+                      [ngModel]='connection.minP'
+                      (ngModelChange)='s.onOptionalMinPChange($event)'
+                    />
+                  </label>
+                  <label class='field'>
+                    <span>Presence −2–2</span>
+                    <input
+                      type='number'
+                      min='-2'
+                      max='2'
+                      step='0.05'
+                      placeholder='omit'
+                      [ngModel]='connection.presencePenalty'
+                      (ngModelChange)='s.onOptionalPresencePenaltyChange($event)'
+                    />
+                  </label>
+                  <label class='field'>
+                    <span>Repeat 0.01–4</span>
+                    <input
+                      type='number'
+                      min='0.01'
+                      max='4'
+                      step='0.05'
+                      placeholder='omit'
+                      [ngModel]='connection.repeatPenalty'
+                      (ngModelChange)='s.onOptionalRepeatPenaltyChange($event)'
+                    />
+                  </label>
+                  <div class='field'>
+                    <span>Parallel tool calls</span>
+                    <label class='toggle-row'>
+                      <input
+                        type='checkbox'
+                        [ngModel]='connection.parallelToolCalls'
+                        (ngModelChange)='s.updateSelectedModel({ parallelToolCalls: $event })'
+                      />
+                      <span>{{ connection.parallelToolCalls ? 'On' : 'Off' }}</span>
+                    </label>
+                  </div>
+                </div>
+              </ng-template>
               }
 
             } @else {

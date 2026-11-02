@@ -6,7 +6,9 @@ import {
   recommendGpuOffload,
   shortCudaGpuName,
   syncGpuOffloadInManagedChatCommand,
+  syncTensorSplitSliderInManagedChatCommand,
   tensorSplitForGpus,
+  tensorSplitSliderForCommand,
   type CudaGpuDevice,
 } from '@shared/index';
 
@@ -126,5 +128,51 @@ describe('syncGpuOffloadInManagedChatCommand', () => {
   it('leaves the command unchanged when GPUs are unknown', () => {
     const cmd = `${base} -dev CUDA0 --main-gpu 0`;
     expect(syncGpuOffloadInManagedChatCommand(cmd, 'single', [], 'posix')).toBe(cmd);
+  });
+});
+
+describe('tensor split slider', () => {
+  const gpus = [rtx5090, rtx5070ti];
+  const cmd = (extra: string) => `llama-server --port {{PORT}} -m a.gguf -dev CUDA0,CUDA1 ${extra}`.trim();
+
+  it('reads the current split in GB out of both cards', () => {
+    const slider = tensorSplitSliderForCommand(cmd('--tensor-split 36,12'), gpus);
+    expect(slider?.total).toBe(47);
+    expect(slider?.value).toBe(35);
+    expect(slider?.first).toBe(rtx5090);
+    expect(slider?.second).toBe(rtx5070ti);
+  });
+
+  it('maps any ratio onto the slider, and starts from VRAM when no split is set', () => {
+    expect(tensorSplitSliderForCommand(cmd('-ts 3,1'), gpus)?.value).toBe(35);
+    expect(tensorSplitSliderForCommand(cmd('-ts 0.5,0.5'), gpus)?.value).toBe(24);
+    expect(tensorSplitSliderForCommand(cmd(''), gpus)?.value).toBe(31);
+  });
+
+  it('keeps both cards in the split at the ends of the range', () => {
+    expect(tensorSplitSliderForCommand(cmd('-ts 1000,1'), gpus)?.value).toBe(46);
+    expect(tensorSplitSliderForCommand(cmd('-ts 1,1000'), gpus)?.value).toBe(1);
+  });
+
+  it('follows the -dev order', () => {
+    const slider = tensorSplitSliderForCommand('llama-server -dev CUDA1,CUDA0 -ts 12,36', gpus);
+    expect(slider?.first).toBe(rtx5070ti);
+    expect(slider?.value).toBe(12);
+  });
+
+  it('has no slider for what it cannot express', () => {
+    expect(tensorSplitSliderForCommand('llama-server -dev CUDA0', gpus)).toBeNull();
+    expect(tensorSplitSliderForCommand('llama-server -m a.gguf', gpus)).toBeNull();
+    expect(tensorSplitSliderForCommand(cmd('-ts 1,2,3'), gpus)).toBeNull();
+    expect(tensorSplitSliderForCommand(cmd('-ts 0,1'), gpus)).toBeNull();
+    expect(tensorSplitSliderForCommand(cmd('-ts abc'), gpus)).toBeNull();
+    expect(tensorSplitSliderForCommand('llama-server -dev CUDA0,CUDA5', gpus)).toBeNull();
+  });
+
+  it('writes the split in place, keeping the alias as written', () => {
+    expect(syncTensorSplitSliderInManagedChatCommand(cmd('-ts 3,1 --metrics'), 30, 47, 'posix')).toBe(
+      cmd('-ts 30,17 --metrics'),
+    );
+    expect(syncTensorSplitSliderInManagedChatCommand(cmd(''), 30, 47, 'posix')).toBe(cmd('--tensor-split 30,17'));
   });
 });

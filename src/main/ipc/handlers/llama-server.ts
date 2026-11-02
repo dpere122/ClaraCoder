@@ -4,12 +4,14 @@ import { findLlmModelLocation } from '../../../shared';
 import { unwrapSecret } from '../../../shared/types/app-config';
 import {
   getManagedChatOpenAiBaseUrl,
+  getManagedLlamaLaunchedCommand,
   getManagedLlamaStatus,
   startManagedLlamaServers,
   stopManagedLlamaServers,
   syncWithManagedLlamaOverrides,
 } from '../../llama-server-manager';
 import { getCachedChatTemplateReasoning, getCachedLlamaServerNctx } from '../../chat-template-reasoning-cache';
+import { getLlamaServerFlagCatalog } from '../../llama-server-flag-catalog';
 import { loadConfig } from '../../config/load-save';
 import { fetchOpenAiCompatibleModelIds } from '../../openai-compatible-models';
 import { findOpenRouterConnection, refreshOpenRouterReasoningForConnection } from '../../openrouter-reasoning';
@@ -99,6 +101,28 @@ export function registerLlamaServerIpc(): void {
       chatTemplateReasoning: getCachedChatTemplateReasoning(modelId) ?? null,
       nCtx: getCachedLlamaServerNctx(modelId) ?? null,
     };
+  });
+
+  ipcMain.handle('llama-server:flag-catalog', async (event) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return { ok: false as const, error: 'Untrusted IPC sender' };
+    }
+    return getLlamaServerFlagCatalog();
+  });
+
+  ipcMain.handle('llama-server:launched-command', async (event, payload: { modelId?: string }) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return { ok: false as const, error: 'Untrusted IPC sender' };
+    }
+    const modelId = normalizeLlamaModelId(payload?.modelId);
+    if (!modelId) {
+      return { ok: false as const, error: 'Missing model id.' };
+    }
+    return { ok: true as const, command: getManagedLlamaLaunchedCommand(modelId) };
   });
 
   ipcMain.handle('llamacpp-managed:list-models', async (event, payload: LlamaServerIpcPayload) => {

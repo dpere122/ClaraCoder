@@ -1,0 +1,263 @@
+<section class='run-command'>
+  <div class='run-command__head'>
+    <div class='run-command__title'>
+      <h6>Run command</h6>
+      <span class='run-command__summary'>{{ summary() }}</span>
+    </div>
+    <div class='run-command__actions'>
+      <div class='run-command__views' role='tablist' aria-label='Run command view'>
+        <button type='button' role='tab' [attr.aria-selected]='view() === "flags"' [class.is-active]='view() === "flags"' (click)='view.set("flags")'>Flags</button>
+        <button type='button' role='tab' [attr.aria-selected]='view() === "raw"' [class.is-active]='view() === "raw"' (click)='view.set("raw")'>Raw</button>
+      </div>
+      <button
+        type='button'
+        class='action-button action-button--compact'
+        [disabled]='!command().trim()'
+        title='Rebuild the command for this model. Custom flags are removed.'
+        (click)='s.resetManagedToRecommended()'
+      >
+        Reset defaults
+      </button>
+    </div>
+  </div>
+
+  @for (error of analysis().errors; track error) {
+    <p class='run-command__notice run-command__notice--error' role='alert'>
+      <lucide-icon name='triangle-alert' [size]='12' />
+      <span>{{ error }}</span>
+    </p>
+  }
+  @for (warning of analysis().warnings; track warning) {
+    <p class='run-command__notice run-command__notice--warn'>
+      <lucide-icon name='triangle-alert' [size]='12' />
+      <span>{{ warning }}</span>
+    </p>
+  }
+  @if (pendingChanges().length) {
+    <div class='run-command__notice run-command__notice--pending'>
+      <span>The running server still uses the old flags. Restart it to apply:</span>
+      <ul class='run-command__changes'>
+        @for (change of pendingChanges(); track change.flag) {
+          <li>
+            <code>{{ change.flag }}</code>
+            {{ change.from ?? 'not set' }} → {{ change.to ?? 'removed' }}
+          </li>
+        }
+      </ul>
+    </div>
+  }
+
+  @if (view() === 'flags') {
+    <div class='run-flag-list'>
+      @for (entry of analysis().entries; track entry.id) {
+        <div class='run-flag' [attr.data-status]='entry.status' [attr.data-flag]='entry.flag' [title]='entryTitle(entry)'>
+          <div class='run-flag__name'>
+            <code>{{ entry.flag }}</code>
+            @if (entry.longName) {
+              <span class='run-flag__long'>{{ entry.longName }}</span>
+            }
+          </div>
+          <div class='run-flag__value'>
+            @if (entry.status === 'managed' || isLocked(entry)) {
+              <code class='run-flag__fixed'>{{ entry.value }}</code>
+            } @else if (entry.spec?.choices && !entry.inline) {
+              <app-pill-select
+                [options]='choiceOptions(entry)'
+                [value]='entry.value ?? ""'
+                [ariaLabel]='entry.flag + " value"'
+                (valueChange)='setEntryValue(entry, $event)'
+              />
+            } @else if (entry.takesValue || entry.value !== null) {
+              <input
+                type='text'
+                autocomplete='off'
+                spellcheck='false'
+                [attr.aria-label]='entry.flag + " value"'
+                [value]='entry.value ?? ""'
+                (change)='setEntryValue(entry, $any($event.target).value)'
+              />
+              @if (takesFilePath(entry.spec?.valueHint)) {
+                <button type='button' class='action-button action-button--compact' (click)='browseEntry(entry)'>Browse</button>
+              }
+            }
+          </div>
+          <span class='run-flag__status'>{{ statusLabel(entry.status) }}</span>
+          @if (entry.status === 'managed' || isLocked(entry)) {
+            <span class='run-flag__remove-gap'></span>
+          } @else {
+            <button
+              type='button'
+              class='run-flag__remove'
+              [attr.aria-label]='"Remove " + entry.flag'
+              title='Remove from the command'
+              (click)='removeEntry(entry)'
+            >
+              <lucide-icon name='x' [size]='13' />
+            </button>
+          }
+          @if (entryNote(entry); as note) {
+            <p class='run-flag__note'>
+              {{ note }}
+              @if (entry.inline) {
+                <button type='button' class='run-flag__fix' (click)='fixInline(entry)'>Fix</button>
+              }
+            </p>
+          }
+        </div>
+      } @empty {
+        <p class='settings-copy'>No flags yet.</p>
+      }
+
+      @for (added of analysis().addedAtStart; track added.flag) {
+        <div class='run-flag run-flag--added' data-status='added' [attr.data-flag]='added.flag'>
+          <div class='run-flag__name'><code>{{ added.flag }}</code></div>
+          <div class='run-flag__value'>
+            @if (added.value !== null) {
+              <code class='run-flag__fixed'>{{ added.value }}</code>
+            }
+          </div>
+          <span class='run-flag__status'>Added at start</span>
+          <span class='run-flag__remove-gap'></span>
+          @if (added.note) {
+            <p class='run-flag__note'>{{ added.note }}</p>
+          }
+        </div>
+      }
+    </div>
+
+    @if (draftSpec(); as spec) {
+      <div class='run-flag-draft' [title]='spec.description'>
+        <code>{{ draftName() }}</code>
+        @if (spec.choices) {
+          <app-pill-select
+            [options]='draftOptions(spec)'
+            [value]='draftValue()'
+            [ariaLabel]='draftName() + " value"'
+            (valueChange)='draftValue.set($event)'
+          />
+        } @else {
+          <input
+            type='text'
+            autocomplete='off'
+            spellcheck='false'
+            [attr.aria-label]='draftName() + " value"'
+            [placeholder]='spec.valueHint ?? "value"'
+            [ngModel]='draftValue()'
+            (ngModelChange)='draftValue.set($event)'
+            (keydown.enter)='$event.preventDefault(); commitDraft()'
+            (keydown.escape)='cancelDraft()'
+          />
+          @if (takesFilePath(spec.valueHint)) {
+            <button type='button' class='action-button action-button--compact' (click)='browseDraft()'>Browse</button>
+          }
+        }
+        <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='!draftValue().trim()' (click)='commitDraft()'>Add</button>
+        <button type='button' class='action-button action-button--compact' (click)='cancelDraft()'>Cancel</button>
+      </div>
+    }
+
+    <div class='run-flag-add'>
+      <lucide-icon name='plus' [size]='13' />
+      <input
+        type='text'
+        autocomplete='off'
+        spellcheck='false'
+        aria-label='Add a flag'
+        [placeholder]='catalog() ? "Add a flag: search " + catalog()!.flags.length + " options" : "Add a flag: --name value"'
+        [ngModel]='flagQuery()'
+        (ngModelChange)='flagQuery.set($event)'
+        (keydown.enter)='onQueryEnter($event)'
+        (keydown.escape)='flagQuery.set("")'
+      />
+    </div>
+    @if (commonFlags().length && !flagQuery().trim()) {
+      <div class='run-flag-common' role='group' aria-label='Common flags'>
+        @for (flag of commonFlags(); track flag.name) {
+          <button type='button' [title]='"Add " + flag.name' (click)='addCommonFlag(flag)'>{{ flag.name }}</button>
+        }
+      </div>
+    }
+    @if (suggestions().length) {
+      <ul class='run-flag-suggestions' role='listbox' aria-label='Matching flags'>
+        @for (spec of suggestions(); track spec.names[0]) {
+          <li>
+            <button type='button' [title]='spec.description' (click)='pickSuggestion(spec)'>
+              <code>{{ suggestionName(spec) }}</code>
+              @if (spec.valueHint) {
+                <span class='run-flag-suggestions__hint'>{{ spec.valueHint }}</span>
+              }
+              <span class='run-flag-suggestions__text'>{{ spec.description }}</span>
+            </button>
+          </li>
+        }
+      </ul>
+    }
+  } @else {
+    <label class='field field--full run-command__raw'>
+      <span>Chat command. Needs one <code>{{ s.managedLlamaPortToken }}</code>.</span>
+      <textarea
+        rows='6'
+        autocomplete='off'
+        spellcheck='false'
+        [ngModel]='command()'
+        (ngModelChange)='onRawChange($event)'
+        [placeholder]="'llama-server --host 127.0.0.1 --port ' + s.managedLlamaPortToken + ' --jinja --no-webui -np 1 -hf org/model:Q4_0'"
+      ></textarea>
+    </label>
+  }
+
+  @if (s.cudaGpus().length) {
+    <div class='run-placement'>
+      <span class='run-placement__label'>GPU placement</span>
+      <div class='run-command__views' role='radiogroup' aria-label='GPU placement'>
+        @for (placement of gpuPlacements; track placement.mode) {
+          <button
+            type='button'
+            role='radio'
+            [attr.aria-checked]='s.managedGpuOffloadMode() === placement.mode'
+            [class.is-active]='s.managedGpuOffloadMode() === placement.mode'
+            [disabled]='placement.mode === "split" && s.cudaGpus().length < 2'
+            [title]='placementDetail(placement.mode)'
+            (click)='s.onManagedGpuOffloadChange(placement.mode)'
+          >
+            {{ placement.label }}{{ isRecommendedPlacement(placement.mode) ? ' (recommended)' : '' }}
+          </button>
+        }
+      </div>
+      @if (tensorSplit(); as split) {
+        <div class='run-split'>
+          <span class='run-split__card'>{{ gpuName(split.first) }} <strong>{{ split.value }}</strong></span>
+          <input
+            type='range'
+            min='1'
+            [max]='split.total - 1'
+            step='1'
+            aria-label='Tensor split: share of the model on the first card'
+            [attr.aria-valuetext]='split.value + " on " + gpuName(split.first) + ", " + (split.total - split.value) + " on " + gpuName(split.second)'
+            [value]='split.value'
+            (input)='onTensorSplitInput($any($event.target).value, split.total)'
+          />
+          <span class='run-split__card run-split__card--end'><strong>{{ split.total - split.value }}</strong> {{ gpuName(split.second) }}</span>
+        </div>
+      }
+      @if (s.managedGpuAdvice()?.reason; as reason) {
+        <p class='run-placement__reason'>{{ reason }}</p>
+      }
+    </div>
+  }
+
+  <details class='run-command__start'>
+    <summary>Command Clara starts</summary>
+    <code>{{ analysis().startCommand || 'Nothing to start yet.' }}</code>
+  </details>
+
+  <p class='run-command__source'>
+    @if (catalog(); as c) {
+      Checked against the installed llama-server{{ c.version ? ' (' + c.version + ')' : '' }}.
+    } @else if (catalogError()) {
+      Flags aren’t verified: {{ catalogError() }}
+    } @else {
+      Reading llama-server options…
+    }
+  </p>
+</section>

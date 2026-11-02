@@ -106,7 +106,13 @@ export {
   syncNoMmprojFlagInManagedChatCommand,
   syncUbatchSizeInManagedChatCommand,
 } from './managed-llama-model-pick';
-export type { CudaGpuDevice, GpuOffloadAdvice, ManagedGpuOffloadMode, ParsedGpuOffload } from './managed-llama-gpu-split';
+export type {
+  CudaGpuDevice,
+  GpuOffloadAdvice,
+  ManagedGpuOffloadMode,
+  ParsedGpuOffload,
+  TensorSplitSlider,
+} from './managed-llama-gpu-split';
 export {
   cudaDeviceListArg,
   formatGpuVramGb,
@@ -115,7 +121,9 @@ export {
   shortCudaGpuName,
   syncGpuOffloadInManagedChatCommand,
   syncGpuOffloadFromParsed,
+  syncTensorSplitSliderInManagedChatCommand,
   tensorSplitForGpus,
+  tensorSplitSliderForCommand,
 } from './managed-llama-gpu-split';
 export type {
   EmbeddingsLoadStatus,
@@ -249,6 +257,28 @@ export {
   createEmptyMcpServer,
 } from './types/app-config';
 export type { LlamaCppEmbeddingManagedLegacy, LlamaCppManagedLegacy, ShellQuotingPlatform } from './llama-cpp-managed';
+export type {
+  LlamaAddedFlag,
+  LlamaAnalyzeOptions,
+  LlamaCommandAnalysis,
+  LlamaCommandEntry,
+  LlamaFlagCatalog,
+  LlamaFlagChange,
+  LlamaFlagSpec,
+  LlamaFlagStatus,
+} from './llama-run-command';
+export {
+  analyzeLlamaRunCommand,
+  appendLlamaFlag,
+  buildManagedChatStartCommand,
+  carryCustomLlamaFlags,
+  diffLlamaCommands,
+  normalizeLlamaCommandInput,
+  parseLlamaServerHelp,
+  preferredLlamaFlagName,
+  removeLlamaEntry,
+  setLlamaEntryValue,
+} from './llama-run-command';
 export {
   appendChatTemplateFileFlags,
   appendJinjaFlagToManagedChatCommand,

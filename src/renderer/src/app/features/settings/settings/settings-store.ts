@@ -1,5 +1,4 @@
 import { Injectable, afterNextRender, effect, inject, Injector, computed, signal, untracked } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
 import { NgxSpinnerService } from 'ngx-spinner';
 import { Subscription } from 'rxjs';
 import { DEFAULT_SCREENSHOT_RETENTION, normalizeScreenshotRetention, type ScreenshotRetentionSettings } from '@shared/screenshot-retention';
@@ -63,6 +62,7 @@ import {
   UI_FONT_SIZE_REM_MIN,
   UI_FONT_SIZE_REM_STEP,
   buildManagedLlamaChatCommand,
+  carryCustomLlamaFlags,
   clampUiFontSizeRem,
   defaultMonacoWorkspaceEditorSettings,
   defaultLlamaCppManaged,
@@ -75,13 +75,6 @@ import {
   inferContextWindowTokens,
   inferModelFamilyFromHint,
   inferOptimizationPresetFromModelHint,
-  MANAGED_LLAMA_BATCH_MAX,
-  MANAGED_LLAMA_BATCH_MIN,
-  MANAGED_LLAMA_CACHE_TYPES,
-  MANAGED_LLAMA_FLASH_ATTN_MODES,
-  MANAGED_LLAMA_NGL_DEFAULT,
-  MANAGED_LLAMA_NGL_MAX,
-  MANAGED_LLAMA_NGL_MIN,
   managedLlamaCommandHasNoHost,
   managedLlamaCommandHasNoMmproj,
   managedLlamaModelLabel,
@@ -117,7 +110,6 @@ import {
   syncBatchSizeInManagedChatCommand,
   syncCacheTypeKInManagedChatCommand,
   syncCacheTypeVInManagedChatCommand,
-  syncContextFlagInManagedChatCommand,
   syncFlashAttnInManagedChatCommand,
   syncNglFlagInManagedChatCommand,
   syncNoHostFlagInManagedChatCommand,
@@ -133,8 +125,6 @@ import {
   isPinnedOpenRouterProviderId,
   isPinnedAnthropicProviderId,
   OPENROUTER_DEFAULT_BASE_URL,
-  type ManagedLlamaCacheType,
-  type ManagedLlamaFlashAttn,
   type ManagedLlamaModelSource,
   setWorkspaceFavorite,
 } from '@shared/index';
@@ -566,69 +556,6 @@ export class SettingsStore {
   readonly managedPickerValue = computed(() =>
     managedPickerValueForCmd(this.selectedLlamaCppManaged().chatRunCommand, this.modelManagerCustomModels()),
   );
-  /** Max (``-c 0``) vs Custom, derived from the current chat command so the radios follow power-user edits. */
-  readonly managedContextMode = computed((): 'max' | 'custom' => {
-    const parsed = parseManagedLlamaContextSize(this.selectedLlamaCppManaged().chatRunCommand);
-    if (parsed === null || parsed === 0) {
-      return 'max';
-    }
-    return 'custom';
-  });
-  private readonly llamaServerNctxByModel = toSignal(inject(ElectronService).llamaServerNctx$, {
-    initialValue: {} as Readonly<Record<string, number>>,
-  });
-  /** Token count shown in the Custom field: parsed ``-c`` when set, live ``n_ctx`` after start, otherwise the profile value. */
-  readonly managedCustomContextTokensDisplay = computed((): string => {
-    const parsed = parseManagedLlamaContextSize(this.selectedLlamaCppManaged().chatRunCommand);
-    if (parsed !== null && parsed > 0) {
-      return String(parsed);
-    }
-    const modelId = this.selectedModel()?.id;
-    const live = modelId ? this.llamaServerNctxByModel()[modelId] : undefined;
-    if (typeof live === 'number' && live > 0) {
-      return String(live);
-    }
-    const tokens = this.selectedModel()?.contextWindowTokens;
-    return tokens != null ? String(tokens) : '';
-  });
-  readonly managedNglMin = MANAGED_LLAMA_NGL_MIN;
-  readonly managedNglMax = MANAGED_LLAMA_NGL_MAX;
-  /** GPU layers from the chat command; 99 (``auto`` / ``--fit``) when ``-ngl`` is absent. */
-  readonly managedNglLayers = computed((): number => {
-    const parsed = parseManagedLlamaNgl(this.selectedLlamaCppManaged().chatRunCommand);
-    return parsed === null ? MANAGED_LLAMA_NGL_DEFAULT : parsed;
-  });
-  /** Custom ``--chat-template-file`` path; empty means use the GGUF template. */
-  readonly managedChatTemplateFile = computed(
-    (): string => parseManagedLlamaChatTemplateFile(this.selectedLlamaCppManaged().chatRunCommand) ?? '',
-  );
-  readonly managedFlashAttnModes = MANAGED_LLAMA_FLASH_ATTN_MODES;
-  readonly managedCacheTypes = MANAGED_LLAMA_CACHE_TYPES;
-  readonly managedBatchMin = MANAGED_LLAMA_BATCH_MIN;
-  readonly managedBatchMax = MANAGED_LLAMA_BATCH_MAX;
-  /** ``-fa``; llama.cpp default is auto when the flag is absent. */
-  readonly managedFlashAttn = computed((): ManagedLlamaFlashAttn => {
-    return parseManagedLlamaFlashAttn(this.selectedLlamaCppManaged().chatRunCommand) ?? 'auto';
-  });
-  readonly managedNoMmproj = computed((): boolean =>
-    managedLlamaCommandHasNoMmproj(this.selectedLlamaCppManaged().chatRunCommand),
-  );
-  /** ``-b``; ``0`` means omit (llama.cpp default 2048). */
-  readonly managedBatchSize = computed((): number => {
-    return parseManagedLlamaBatchSize(this.selectedLlamaCppManaged().chatRunCommand) ?? 0;
-  });
-  /** ``-ub``; ``0`` means omit (llama.cpp default 512). */
-  readonly managedUbatchSize = computed((): number => {
-    return parseManagedLlamaUbatchSize(this.selectedLlamaCppManaged().chatRunCommand) ?? 0;
-  });
-  /** ``-ctk``; empty means omit (llama.cpp default f16). */
-  readonly managedCacheTypeK = computed((): ManagedLlamaCacheType | '' => {
-    return parseManagedLlamaCacheTypeK(this.selectedLlamaCppManaged().chatRunCommand) ?? '';
-  });
-  /** ``-ctv``; empty means omit (llama.cpp default f16). */
-  readonly managedCacheTypeV = computed((): ManagedLlamaCacheType | '' => {
-    return parseManagedLlamaCacheTypeV(this.selectedLlamaCppManaged().chatRunCommand) ?? '';
-  });
   /** NVIDIA cards in CUDA index order (empty until NVML inventory returns). */
   readonly cudaGpus = signal<CudaGpuDevice[]>([]);
   readonly managedGpuOffloadMode = computed((): ManagedGpuOffloadMode =>
@@ -1720,6 +1647,20 @@ export class SettingsStore {
     });
   }
 
+  /** Save the chat command, keeping the profile's context size in step with its ``-c``. */
+  setManagedChatRunCommand(chatRunCommand: string): void {
+    const m = this.selectedModel();
+    if (!m) {
+      return;
+    }
+    const base = m.llamaCppManaged ?? defaultLlamaCppManaged();
+    const ctx = parseCustomManagedContextTokens(parseManagedLlamaContextSize(chatRunCommand) ?? '');
+    this.updateSelectedModel({
+      llamaCppManaged: { ...base, chatRunCommand },
+      ...(ctx === null ? {} : { contextWindowTokens: ctx }),
+    });
+  }
+
   openModelManagerTab(): void {
     this.selectTab('modelManager');
   }
@@ -1732,7 +1673,7 @@ export class SettingsStore {
     if (v.startsWith('gguf:')) {
       const absolutePath = v.slice('gguf:'.length);
       const fileName = absolutePath.split(/[/\\]/).pop() || absolutePath;
-      this.applyManagedModelSource({ kind: 'gguf', absolutePath, displayName: fileName });
+      this.applyManagedModelSource({ kind: 'gguf', absolutePath, displayName: fileName }, { keepCustomFlags: true });
       return;
     }
     if (v.startsWith('hub:')) {
@@ -1740,78 +1681,33 @@ export class SettingsStore {
       const entry = this.modelManagerCustomModels().find((m) => m.absolutePath === absolutePath);
       const localGguf = (entry?.ggufAbsolutePath || '').trim();
       if (localGguf) {
-        this.applyManagedModelSource({
-          kind: 'gguf',
-          absolutePath: localGguf,
-          displayName: entry?.fileName || localGguf.split(/[/\\]/).pop() || localGguf,
-        });
+        this.applyManagedModelSource(
+          {
+            kind: 'gguf',
+            absolutePath: localGguf,
+            displayName: entry?.fileName || localGguf.split(/[/\\]/).pop() || localGguf,
+          },
+          { keepCustomFlags: true },
+        );
         return;
       }
       const folderName = entry?.fileName || absolutePath.split(/[/\\]/).pop() || absolutePath;
-      this.applyManagedModelSource({
-        kind: 'hubRepo',
-        absolutePath,
-        folderName,
-        displayName: folderName,
-      });
+      this.applyManagedModelSource(
+        {
+          kind: 'hubRepo',
+          absolutePath,
+          folderName,
+          displayName: folderName,
+        },
+        { keepCustomFlags: true },
+      );
       return;
     }
     if (v.startsWith('hf:')) {
       const hfId = v.slice('hf:'.length);
       this.managedHfIdDraft.set(hfId);
-      this.applyManagedModelSource({ kind: 'hf', hfId });
+      this.applyManagedModelSource({ kind: 'hf', hfId }, { keepCustomFlags: true });
     }
-  }
-
-  onManagedContextModeChange(mode: string): void {
-    if (mode === 'max') {
-      this.syncManagedChatContextFlag(0);
-      return;
-    }
-    if (mode !== 'custom') {
-      return;
-    }
-    const n =
-      parseCustomManagedContextTokens(this.managedCustomContextTokensDisplay()) ??
-      parseCustomManagedContextTokens(this.selectedModel()?.contextWindowTokens ?? '');
-    if (n === null) {
-      return;
-    }
-    this.updateSelectedModel({ contextWindowTokens: n });
-    this.syncManagedChatContextFlag(n);
-  }
-
-  onManagedCustomContextTokensChange(raw: string): void {
-    const n = parseCustomManagedContextTokens(raw);
-    if (n === null) {
-      return;
-    }
-    this.updateSelectedModel({ contextWindowTokens: n });
-    this.syncManagedChatContextFlag(n);
-  }
-
-  private syncManagedChatContextFlag(ctx: number): void {
-    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
-    if (!cmd.trim()) {
-      return;
-    }
-    this.patchLlamaCppManaged({
-      chatRunCommand: syncContextFlagInManagedChatCommand(cmd, ctx, detectShellQuotingPlatform()),
-    });
-  }
-
-  onManagedNglChange(raw: string | number): void {
-    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
-    if (Number.isNaN(n)) {
-      return;
-    }
-    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
-    if (!cmd.trim()) {
-      return;
-    }
-    this.patchLlamaCppManaged({
-      chatRunCommand: syncNglFlagInManagedChatCommand(cmd, n, detectShellQuotingPlatform()),
-    });
   }
 
   onManagedGpuOffloadChange(mode: ManagedGpuOffloadMode | string): void {
@@ -1835,54 +1731,6 @@ export class SettingsStore {
     });
   }
 
-  onManagedChatTemplateFileChange(raw: string): void {
-    this.syncManagedChatTemplateFile((raw || '').trim() || null);
-  }
-
-  async pickManagedChatTemplateFile(): Promise<void> {
-    const selected = await this.electron.openFileDialog({
-      filters: [
-        { name: 'Chat templates', extensions: ['jinja', 'json'] },
-        { name: 'All files', extensions: ['*'] },
-      ],
-    });
-    if (!selected) {
-      return;
-    }
-    this.syncManagedChatTemplateFile(selected);
-  }
-
-  clearManagedChatTemplateFile(): void {
-    this.syncManagedChatTemplateFile(null);
-  }
-
-  private syncManagedChatTemplateFile(templatePath: string | null): void {
-    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
-    if (!cmd.trim()) {
-      return;
-    }
-    this.patchLlamaCppManaged({
-      chatRunCommand: syncChatTemplateFileInManagedChatCommand(
-        cmd,
-        templatePath,
-        detectShellQuotingPlatform(),
-      ),
-    });
-  }
-
-  onManagedFlashAttnChange(raw: ManagedLlamaFlashAttn | string): void {
-    if (raw !== 'auto' && raw !== 'on' && raw !== 'off') {
-      return;
-    }
-    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
-    if (!cmd.trim()) {
-      return;
-    }
-    this.patchLlamaCppManaged({
-      chatRunCommand: syncFlashAttnInManagedChatCommand(cmd, raw, detectShellQuotingPlatform()),
-    });
-  }
-
   onManagedNoMmprojChange(enabled: boolean | string): void {
     const cmd = this.selectedLlamaCppManaged().chatRunCommand;
     if (!cmd.trim()) {
@@ -1900,62 +1748,6 @@ export class SettingsStore {
         { noMmproj, mmprojPath },
         detectShellQuotingPlatform(),
       ),
-    });
-  }
-
-  onManagedBatchSizeChange(raw: string | number): void {
-    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
-    if (Number.isNaN(n)) {
-      return;
-    }
-    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
-    if (!cmd.trim()) {
-      return;
-    }
-    this.patchLlamaCppManaged({
-      chatRunCommand: syncBatchSizeInManagedChatCommand(cmd, n, detectShellQuotingPlatform()),
-    });
-  }
-
-  onManagedUbatchSizeChange(raw: string | number): void {
-    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
-    if (Number.isNaN(n)) {
-      return;
-    }
-    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
-    if (!cmd.trim()) {
-      return;
-    }
-    this.patchLlamaCppManaged({
-      chatRunCommand: syncUbatchSizeInManagedChatCommand(cmd, n, detectShellQuotingPlatform()),
-    });
-  }
-
-  onManagedCacheTypeKChange(raw: string): void {
-    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
-    if (!cmd.trim()) {
-      return;
-    }
-    const value = (raw || '').trim();
-    const cacheType = (MANAGED_LLAMA_CACHE_TYPES as readonly string[]).includes(value)
-      ? (value as ManagedLlamaCacheType)
-      : null;
-    this.patchLlamaCppManaged({
-      chatRunCommand: syncCacheTypeKInManagedChatCommand(cmd, cacheType, detectShellQuotingPlatform()),
-    });
-  }
-
-  onManagedCacheTypeVChange(raw: string): void {
-    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
-    if (!cmd.trim()) {
-      return;
-    }
-    const value = (raw || '').trim();
-    const cacheType = (MANAGED_LLAMA_CACHE_TYPES as readonly string[]).includes(value)
-      ? (value as ManagedLlamaCacheType)
-      : null;
-    this.patchLlamaCppManaged({
-      chatRunCommand: syncCacheTypeVInManagedChatCommand(cmd, cacheType, detectShellQuotingPlatform()),
     });
   }
 
@@ -2262,7 +2054,7 @@ export class SettingsStore {
     return `${value.toFixed(value >= 100 ? 0 : value >= 10 ? 1 : 2)} ${units[unit]}`;
   }
 
-  private applyManagedModelSource(source: ManagedLlamaModelSource): void {
+  private applyManagedModelSource(source: ManagedLlamaModelSource, opts: { keepCustomFlags?: boolean } = {}): void {
     const ensureLocal = (): LlmModelProfile | null => {
       const current = this.selectedModel();
       const p = this.selectedProvider();
@@ -2342,6 +2134,9 @@ export class SettingsStore {
       chatRunCommand = syncCacheTypeVInManagedChatCommand(chatRunCommand, prevCtv, platform);
     }
     chatRunCommand = promoteManagedSentinelNglToAuto(chatRunCommand, platform);
+    if (opts.keepCustomFlags) {
+      chatRunCommand = carryCustomLlamaFlags(prevCmd, chatRunCommand);
+    }
     const patch = optimizationPresetDefaultsPatch(preset) as Partial<LlmModelProfile>;
     this.applyLlmModelPatch(model.id, {
       ...patch,

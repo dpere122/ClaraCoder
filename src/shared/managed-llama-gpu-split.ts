@@ -2,10 +2,13 @@
  * Recommend and apply llama-server GPU placement: one CUDA card vs a VRAM-weighted split.
  */
 import {
-  argvToShellCommandLine,
   detectShellQuotingPlatform,
+  findLlamaFlag,
+  readLlamaFlagValue,
+  spliceOutLlamaSpans,
+  upsertLlamaFlag,
   type ShellQuotingPlatform,
-} from './llama-cpp-managed';
+} from './llama-command-tokens';
 
 /** One NVIDIA device in CUDA / NVML index order. */
 export interface CudaGpuDevice {
@@ -30,13 +33,6 @@ const MAX_KV_MB = 12288;
 /** Conservative KV guess: ~12 MiB per 1k context tokens. */
 const KV_MB_PER_1K_CTX = 12;
 
-function unquoteShellToken(raw: string): string {
-  const t = raw.trim();
-  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
-    return t.slice(1, -1);
-  }
-  return t;
-}
 
 /** Dedicated VRAM label for settings copy (32187 MiB → "31 GB"). */
 export function formatGpuVramGb(memoryTotalMb: number): string {
@@ -159,18 +155,9 @@ export function recommendGpuOffload(
   };
 }
 
-const DEV_FLAG_RE =
-  /(?:^|[\s"'])(?:--device|-dev)(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i;
-const DEV_FLAG_REPLACE_RE =
-  /(^|[\s"'])((--device|-dev)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+))/i;
-const TS_FLAG_RE =
-  /(?:^|[\s"'])(?:--tensor-split|-ts)(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i;
-const TS_FLAG_REPLACE_RE =
-  /(^|[\s"'])((--tensor-split|-ts)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+))/i;
-const MG_FLAG_RE =
-  /(?:^|[\s"'])(?:--main-gpu|-mg)(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i;
-const MG_FLAG_REPLACE_RE =
-  /(^|[\s"'])((--main-gpu|-mg)(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+))/i;
+const DEV_FLAG_NAMES = ['-dev', '--device'];
+const TS_FLAG_NAMES = ['-ts', '--tensor-split'];
+const MG_FLAG_NAMES = ['-mg', '--main-gpu'];
 
 function parseCudaIndexes(raw: string): number[] {
   const out: number[] = [];
@@ -201,14 +188,13 @@ export function parseManagedLlamaGpuOffload(cmd: string): ParsedGpuOffload {
   if (!t) {
     return empty;
   }
-  const devM = DEV_FLAG_RE.exec(t);
-  const tsM = TS_FLAG_RE.exec(t);
-  const mgM = MG_FLAG_RE.exec(t);
-  const cudaIndexes = devM ? parseCudaIndexes(unquoteShellToken(devM[1] ?? devM[2] ?? devM[3] ?? '')) : [];
-  const tensorSplit = tsM ? unquoteShellToken(tsM[1] ?? tsM[2] ?? tsM[3] ?? '') : null;
+  const dev = readLlamaFlagValue(t, DEV_FLAG_NAMES);
+  const tensorSplit = readLlamaFlagValue(t, TS_FLAG_NAMES);
+  const mg = readLlamaFlagValue(t, MG_FLAG_NAMES);
+  const cudaIndexes = dev ? parseCudaIndexes(dev) : [];
   let mainGpu: number | null = null;
-  if (mgM) {
-    const n = Number.parseInt(unquoteShellToken(mgM[1] ?? mgM[2] ?? mgM[3] ?? ''), 10);
+  if (mg !== null) {
+    const n = Number.parseInt(mg, 10);
     mainGpu = Number.isFinite(n) ? n : null;
   }
   // Split mode requires multiple devices. A lone `--tensor-split a,b` left over after
@@ -222,33 +208,57 @@ export function parseManagedLlamaGpuOffload(cmd: string): ParsedGpuOffload {
   return { mode: 'auto', cudaIndexes, tensorSplit, mainGpu };
 }
 
-function collapseSpaces(cmd: string): string {
-  return cmd.replace(/\s+/g, ' ').trim();
+function stripFlag(cmd: string, names: readonly string[]): string {
+  return spliceOutLlamaSpans(cmd, findLlamaFlag(cmd, names));
 }
 
-function stripFlag(cmd: string, replaceRe: RegExp): string {
-  let next = cmd;
-  let prev = '';
-  while (next !== prev) {
-    prev = next;
-    next = next.replace(replaceRe, '$1');
+/** A two-card `--tensor-split`, as whole GB on the first card out of both cards' VRAM. */
+export interface TensorSplitSlider {
+  first: CudaGpuDevice;
+  second: CudaGpuDevice;
+  /** Both cards' VRAM in GB: the two sides always add up to this. */
+  total: number;
+  value: number;
+}
+
+/**
+ * Slider state for a command split across exactly two known cards. Any ratio `--tensor-split`
+ * accepts maps onto it (`3,1` reads as 3/4 of the total). `null` when a slider can't express the
+ * split: another device count, or a list that isn't two positive weights.
+ */
+export function tensorSplitSliderForCommand(cmd: string, gpus: readonly CudaGpuDevice[]): TensorSplitSlider | null {
+  const parsed = parseManagedLlamaGpuOffload(cmd);
+  if (parsed.mode !== 'split' || parsed.cudaIndexes.length !== 2) {
+    return null;
   }
-  return collapseSpaces(next);
+  const first = gpus.find((g) => g.cudaIndex === parsed.cudaIndexes[0]);
+  const second = gpus.find((g) => g.cudaIndex === parsed.cudaIndexes[1]);
+  if (!first || !second) {
+    return null;
+  }
+  const vramGb = (g: CudaGpuDevice): number => Math.max(1, Math.round(g.memoryTotalMb / 1024));
+  const total = vramGb(first) + vramGb(second);
+  let share = vramGb(first) / total;
+  if (parsed.tensorSplit !== null) {
+    const weights = parsed.tensorSplit.split(',').map(Number);
+    const [a, b] = weights;
+    if (weights.length !== 2 || !a || !b || a < 0 || b < 0) {
+      return null;
+    }
+    share = a / (a + b);
+  }
+  return { first, second, total, value: Math.min(total - 1, Math.max(1, Math.round(share * total))) };
 }
 
-function upsertFlag(
+/** Write a two-card `--tensor-split` from a slider position. */
+export function syncTensorSplitSliderInManagedChatCommand(
   cmd: string,
-  replaceRe: RegExp,
-  flag: string,
-  value: string,
-  platform: ShellQuotingPlatform,
+  firstGb: number,
+  total: number,
+  platform: ShellQuotingPlatform = detectShellQuotingPlatform(),
 ): string {
-  const quoted = argvToShellCommandLine([flag, value], platform);
-  const replaced = cmd.replace(replaceRe, (_full, lead: string) => `${lead}${quoted}`);
-  if (replaced !== cmd) {
-    return collapseSpaces(replaced);
-  }
-  return collapseSpaces(`${cmd} ${quoted}`);
+  const first = Math.min(total - 1, Math.max(1, Math.round(firstGb)));
+  return upsertLlamaFlag(cmd, TS_FLAG_NAMES, '--tensor-split', `${first},${total - first}`, platform);
 }
 
 /**
@@ -269,9 +279,9 @@ export function syncGpuOffloadInManagedChatCommand(
   if (mode !== 'auto' && ordered.length === 0) {
     return trimmed;
   }
-  let next = stripFlag(trimmed, DEV_FLAG_REPLACE_RE);
-  next = stripFlag(next, TS_FLAG_REPLACE_RE);
-  next = stripFlag(next, MG_FLAG_REPLACE_RE);
+  let next = stripFlag(trimmed, DEV_FLAG_NAMES);
+  next = stripFlag(next, TS_FLAG_NAMES);
+  next = stripFlag(next, MG_FLAG_NAMES);
   if (mode === 'auto' || ordered.length === 0) {
     return next;
   }
@@ -280,18 +290,18 @@ export function syncGpuOffloadInManagedChatCommand(
     if (!primary) {
       return next;
     }
-    next = upsertFlag(next, DEV_FLAG_REPLACE_RE, '-dev', `CUDA${primary.cudaIndex}`, platform);
-    next = upsertFlag(next, MG_FLAG_REPLACE_RE, '--main-gpu', String(primary.cudaIndex), platform);
+    next = upsertLlamaFlag(next, DEV_FLAG_NAMES, '-dev', `CUDA${primary.cudaIndex}`, platform);
+    next = upsertLlamaFlag(next, MG_FLAG_NAMES, '--main-gpu', String(primary.cudaIndex), platform);
     return next;
   }
   const split = tensorSplitForGpus(ordered);
   const primary = largestCudaGpu(ordered);
-  next = upsertFlag(next, DEV_FLAG_REPLACE_RE, '-dev', cudaDeviceListArg(ordered), platform);
+  next = upsertLlamaFlag(next, DEV_FLAG_NAMES, '-dev', cudaDeviceListArg(ordered), platform);
   if (split) {
-    next = upsertFlag(next, TS_FLAG_REPLACE_RE, '--tensor-split', split, platform);
+    next = upsertLlamaFlag(next, TS_FLAG_NAMES, '--tensor-split', split, platform);
   }
   if (primary) {
-    next = upsertFlag(next, MG_FLAG_REPLACE_RE, '--main-gpu', String(primary.cudaIndex), platform);
+    next = upsertLlamaFlag(next, MG_FLAG_NAMES, '--main-gpu', String(primary.cudaIndex), platform);
   }
   return next;
 }
@@ -307,27 +317,25 @@ export function syncGpuOffloadFromParsed(
     return trimmed;
   }
   if (parsed.mode === 'auto') {
-    return collapseSpaces(
-      stripFlag(stripFlag(stripFlag(trimmed, DEV_FLAG_REPLACE_RE), TS_FLAG_REPLACE_RE), MG_FLAG_REPLACE_RE),
-    );
+    return stripFlag(stripFlag(stripFlag(trimmed, DEV_FLAG_NAMES), TS_FLAG_NAMES), MG_FLAG_NAMES);
   }
-  let next = stripFlag(trimmed, DEV_FLAG_REPLACE_RE);
-  next = stripFlag(next, TS_FLAG_REPLACE_RE);
-  next = stripFlag(next, MG_FLAG_REPLACE_RE);
+  let next = stripFlag(trimmed, DEV_FLAG_NAMES);
+  next = stripFlag(next, TS_FLAG_NAMES);
+  next = stripFlag(next, MG_FLAG_NAMES);
   if (parsed.cudaIndexes.length) {
-    next = upsertFlag(
+    next = upsertLlamaFlag(
       next,
-      DEV_FLAG_REPLACE_RE,
+      DEV_FLAG_NAMES,
       '-dev',
       parsed.cudaIndexes.map((i) => `CUDA${i}`).join(','),
       platform,
     );
   }
   if (parsed.mode === 'split' && parsed.tensorSplit) {
-    next = upsertFlag(next, TS_FLAG_REPLACE_RE, '--tensor-split', parsed.tensorSplit, platform);
+    next = upsertLlamaFlag(next, TS_FLAG_NAMES, '--tensor-split', parsed.tensorSplit, platform);
   }
   if (parsed.mainGpu != null) {
-    next = upsertFlag(next, MG_FLAG_REPLACE_RE, '--main-gpu', String(parsed.mainGpu), platform);
+    next = upsertLlamaFlag(next, MG_FLAG_NAMES, '--main-gpu', String(parsed.mainGpu), platform);
   }
   return next;
 }

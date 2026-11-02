@@ -125,6 +125,7 @@ import {
   isPinnedOpenRouterProviderId,
   isPinnedAnthropicProviderId,
   OPENROUTER_DEFAULT_BASE_URL,
+  type GpuVramCardUsage,
   type ManagedLlamaModelSource,
   setWorkspaceFavorite,
 } from '@shared/index';
@@ -561,17 +562,30 @@ export class SettingsStore {
   readonly managedGpuOffloadMode = computed((): ManagedGpuOffloadMode =>
     parseManagedLlamaGpuOffload(this.selectedLlamaCppManaged().chatRunCommand).mode,
   );
-  readonly managedGgufSizeBytes = computed((): number | null => {
+  /** Path of the GGUF the chat command loads, when it names a local file. */
+  readonly managedGgufPath = computed((): string | null => {
     const sel = parseManagedLlamaModelSelection(this.selectedLlamaCppManaged().chatRunCommand);
-    if (sel?.kind !== 'gguf') {
+    return sel?.kind === 'gguf' ? sel.absolutePath : null;
+  });
+  /** What each card has allocated now, counting what `nvidia-smi` leaves out. */
+  readonly managedVramUsage = signal<readonly GpuVramCardUsage[]>([]);
+  /** On-disk size read from main. A hub repo's inventory size covers its whole folder, not this file. */
+  readonly managedGgufFileSize = signal<{ path: string; bytes: number } | null>(null);
+  readonly managedGgufSizeBytes = computed((): number | null => {
+    const path = this.managedGgufPath();
+    if (!path) {
       return null;
     }
-    const hit = this.modelManagerCustomModels().find((m) => m.absolutePath === sel.absolutePath);
+    const stat = this.managedGgufFileSize();
+    if (stat?.path === path) {
+      return stat.bytes;
+    }
+    const hit = this.modelManagerCustomModels().find((m) => m.absolutePath === path);
     return hit && Number.isFinite(hit.sizeBytes) ? hit.sizeBytes : null;
   });
   readonly managedGpuAdvice = computed(() => {
     const parsedCtx = parseManagedLlamaContextSize(this.selectedLlamaCppManaged().chatRunCommand);
-    return recommendGpuOffload(this.cudaGpus(), this.managedGgufSizeBytes(), parsedCtx ?? 0);
+    return recommendGpuOffload(this.cudaGpus(), this.managedGgufSizeBytes(), parsedCtx ?? 0, this.managedVramUsage());
   });
   readonly managedGpuSplitRatioLabel = computed(() => {
     const gpus = this.cudaGpus();

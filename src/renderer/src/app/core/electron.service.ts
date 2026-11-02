@@ -26,6 +26,7 @@ import type {
   LlamaServerStartResult,
   LlamaServerStatusResult,
   EmbeddingsStatusResult,
+  GpuVramCardUsage,
   LlamaFlagCatalog,
   LlamacppManagedListModelsResult,
   OpenRouterListModelsResult,
@@ -1678,6 +1679,14 @@ export class ElectronService {
 
   llamaServerFlagCatalog(): Promise<{ ok: true; catalog: LlamaFlagCatalog } | { ok: false; error: string }> {
     return this.api?.llamaServerFlagCatalog() ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  llamaServerVramUsage(): Promise<GpuVramCardUsage[]> {
+    return this.api?.llamaServerVramUsage?.() ?? Promise.resolve([]);
+  }
+
+  llamaServerGgufSize(payload: { path: string }): Promise<number | null> {
+    return this.api?.llamaServerGgufSize?.(payload) ?? Promise.resolve(null);
   }
 
   llamaServerLaunchedCommand(payload: {

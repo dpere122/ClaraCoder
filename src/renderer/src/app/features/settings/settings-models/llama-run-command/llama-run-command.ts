@@ -6,10 +6,12 @@ import {
   appendLlamaFlag,
   detectShellQuotingPlatform,
   diffLlamaCommands,
+  estimateManagedLlamaVram,
   MANAGED_LLAMA_CACHE_TYPES,
   MANAGED_LLAMA_FLASH_ATTN_MODES,
   type ManagedGpuOffloadMode,
   normalizeLlamaCommandInput,
+  overcommittedCards,
   preferredLlamaFlagName,
   removeLlamaEntry,
   setLlamaEntryValue,
@@ -17,6 +19,7 @@ import {
   syncTensorSplitSliderInManagedChatCommand,
   tensorSplitSliderForCommand,
   type CudaGpuDevice,
+  type GpuVramCardEstimate,
   type LlamaCommandEntry,
   type LlamaFlagCatalog,
   type LlamaFlagSpec,
@@ -69,6 +72,8 @@ const CTX_FLAG_NAMES = ['-c', '--ctx-size'];
 const NO_MMPROJ_FLAG = '--no-mmproj';
 const CHAT_TEMPLATE_FILE_FLAG = '--chat-template-file';
 const FILE_VALUE_HINT_RE = /FILE|FNAME|PATH/;
+/** Keeps the live VRAM warning current while a server runs. Each sample starts a short PowerShell. */
+const VRAM_REFRESH_MS = 30_000;
 
 /**
  * Editor for the managed ``llama-server`` chat command. The saved command stays the single source
@@ -171,6 +176,14 @@ export class LlamaRunCommandComponent {
   /** Shown while Split by VRAM is active across two cards. */
   protected readonly tensorSplit = computed(() => tensorSplitSliderForCommand(this.command(), this.s.cudaGpus()));
 
+  /** What this command would put on each card, for the settings as edited. */
+  protected readonly vramEstimate = computed(() =>
+    estimateManagedLlamaVram(this.command(), this.s.cudaGpus(), this.s.managedGgufSizeBytes(), this.s.managedVramUsage()),
+  );
+  protected readonly vramProblem = computed(() => this.vramEstimate()?.find((c) => c.level !== 'ok') ?? null);
+  /** Cards past their physical memory right now, whatever the settings say. */
+  protected readonly vramOvercommitted = computed(() => overcommittedCards(this.s.cudaGpus(), this.s.managedVramUsage()));
+
   protected readonly flagQuery = signal('');
   /** A chosen flag waiting for its value. */
   protected readonly draftSpec = signal<LlamaFlagSpec | null>(null);
@@ -198,9 +211,34 @@ export class LlamaRunCommandComponent {
       const id = this.s.selectedModel()?.id;
       void this.refreshLaunched(id);
     });
+    effect(() => {
+      void this.refreshGgufSize(this.s.managedGgufPath());
+    });
+    void this.refreshVramUsage();
     this.electron.llamaServerLifecycle$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
       void this.refreshLaunched(this.s.selectedModel()?.id);
+      void this.refreshVramUsage();
     });
+    const timer = setInterval(() => {
+      if (this.launchedCommand()) {
+        void this.refreshVramUsage();
+      }
+    }, VRAM_REFRESH_MS);
+    this.destroyRef.onDestroy(() => clearInterval(timer));
+  }
+
+  private async refreshVramUsage(): Promise<void> {
+    this.s.managedVramUsage.set(await this.electron.llamaServerVramUsage());
+  }
+
+  private async refreshGgufSize(path: string | null): Promise<void> {
+    if (!path) {
+      return;
+    }
+    const bytes = await this.electron.llamaServerGgufSize({ path });
+    if (bytes !== null) {
+      this.s.managedGgufFileSize.set({ path, bytes });
+    }
   }
 
   private async loadCatalog(): Promise<void> {
@@ -271,6 +309,27 @@ export class LlamaRunCommandComponent {
     if (picked) {
       this.draftValue.set(picked);
     }
+  }
+
+  protected gb(mb: number): string {
+    return (mb / 1024).toFixed(1);
+  }
+
+  protected vramLine(card: GpuVramCardEstimate): string {
+    const name = shortCudaGpuName(card.gpu.model);
+    const breakdown = card.otherMb > 0 ? ` (${this.gb(card.modelMb)} model + ${this.gb(card.otherMb)} desktop and apps)` : '';
+    return `${name}: about ${this.gb(card.totalMb)} of ${this.gb(card.gpu.memoryTotalMb)} GB${breakdown}`;
+  }
+
+  protected vramAdvice(card: GpuVramCardEstimate): string {
+    const name = shortCudaGpuName(card.gpu.model);
+    return card.level === 'over'
+      ? `Too much for the ${name}. Windows will push things out of VRAM and every app can lag. Lower -c or give this card less of the split.`
+      : `Tight on the ${name}. Opening another app could start pushing things out of VRAM and cause lag.`;
+  }
+
+  protected shortGpuName(gpu: CudaGpuDevice): string {
+    return shortCudaGpuName(gpu.model);
   }
 
   protected gpuName(gpu: CudaGpuDevice): string {

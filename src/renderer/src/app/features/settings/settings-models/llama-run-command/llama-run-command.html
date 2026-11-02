@@ -243,6 +243,25 @@
       @if (s.managedGpuAdvice()?.reason; as reason) {
         <p class='run-placement__reason'>{{ reason }}</p>
       }
+      @if (vramEstimate(); as cards) {
+        <ul class='run-vram' aria-label='Estimated VRAM per card'>
+          @for (card of cards; track card.gpu.cudaIndex) {
+            <li [attr.data-level]='card.level'>{{ vramLine(card) }}</li>
+          }
+        </ul>
+      }
+      @if (vramProblem(); as card) {
+        <p class='run-command__notice' [class.run-command__notice--error]='card.level === "over"' [class.run-command__notice--warn]='card.level === "tight"' role='status'>
+          <lucide-icon name='triangle-alert' [size]='12' />
+          <span>{{ vramAdvice(card) }}</span>
+        </p>
+      }
+      @for (card of vramOvercommitted(); track card.gpu.cudaIndex) {
+        <p class='run-command__notice run-command__notice--error' role='alert'>
+          <lucide-icon name='triangle-alert' [size]='12' />
+          <span>Right now the {{ shortGpuName(card.gpu) }} has {{ gb(card.dedicatedMb) }} GB allocated, more than its {{ gb(card.gpu.memoryTotalMb) }} GB. Task Manager and nvidia-smi can under-report this.</span>
+        </p>
+      }
     </div>
   }
 

@@ -22,6 +22,7 @@ from clara_coder_backend.config import (
     CLARA_FASTEMBED_THREADS,
 )
 from clara_coder_backend.runtime.deps.paths import get_runtime_dir
+from clara_coder_backend.workspace_index.thread_priority import lower_thread_priority, native_thread_ids
 
 logger = logging.getLogger('clara.workspace_index.fastembed')
 
@@ -147,6 +148,7 @@ def _load_text_embedding(model_name: str, cache_dir: Path) -> Any:
             cache_dir,
         )
     logger.debug('onnxruntime version=%s', getattr(onnxruntime, '__version__', 'unknown'))
+    threads_before = native_thread_ids()
     engine = TextEmbedding(
         model_name=model_name,
         cache_dir=str(cache_dir),
@@ -155,11 +157,16 @@ def _load_text_embedding(model_name: str, cache_dir: Path) -> Any:
         cuda=False,
         enable_cpu_mem_arena=False,
     )
+    # Indexing a workspace keeps these busy for minutes, so they yield to the desktop. Only ONNX's
+    # pool threads: the calling thread holds the GIL between batches, and starving it would stall
+    # the backend's event loop behind low-priority work.
+    lowered = lower_thread_priority(native_thread_ids() - threads_before)
     logger.info(
-        'CPU FastEmbed model=%s ready cache_dir=%s onnx_threads=%s',
+        'CPU FastEmbed model=%s ready cache_dir=%s onnx_threads=%s low_priority_threads=%s',
         model_name,
         cache_dir,
         _ONNX_INTRA_OP_THREADS,
+        lowered,
     )
     return engine
 

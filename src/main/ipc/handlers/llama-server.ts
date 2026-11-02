@@ -1,4 +1,6 @@
 import { ipcMain } from 'electron';
+import { promises as fs } from 'node:fs';
+import * as path from 'node:path';
 import type { AppConfig } from '../../../shared';
 import { findLlmModelLocation } from '../../../shared';
 import { unwrapSecret } from '../../../shared/types/app-config';
@@ -12,6 +14,7 @@ import {
 } from '../../llama-server-manager';
 import { getCachedChatTemplateReasoning, getCachedLlamaServerNctx } from '../../chat-template-reasoning-cache';
 import { getLlamaServerFlagCatalog } from '../../llama-server-flag-catalog';
+import { sampleGpuVramUsage } from '../../utils/gpu-vram-usage';
 import { loadConfig } from '../../config/load-save';
 import { fetchOpenAiCompatibleModelIds } from '../../openai-compatible-models';
 import { findOpenRouterConnection, refreshOpenRouterReasoningForConnection } from '../../openrouter-reasoning';
@@ -110,6 +113,32 @@ export function registerLlamaServerIpc(): void {
       return { ok: false as const, error: 'Untrusted IPC sender' };
     }
     return getLlamaServerFlagCatalog();
+  });
+
+  ipcMain.handle('llama-server:vram-usage', async (event) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return [];
+    }
+    return sampleGpuVramUsage();
+  });
+
+  ipcMain.handle('llama-server:gguf-size', async (event, payload: { path?: unknown }) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return null;
+    }
+    const file = typeof payload?.path === 'string' ? payload.path : '';
+    if (!path.isAbsolute(file) || !/\.gguf$/i.test(file)) {
+      return null;
+    }
+    try {
+      return (await fs.stat(file)).size;
+    } catch {
+      return null;
+    }
   });
 
   ipcMain.handle('llama-server:launched-command', async (event, payload: { modelId?: string }) => {

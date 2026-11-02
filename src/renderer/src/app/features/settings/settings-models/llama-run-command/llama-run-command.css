@@ -94,6 +94,11 @@
   margin-top: 2px;
 }
 
+.run-command__notice > span {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .run-command__notice--error {
   color: var(--t-danger, #ff6b6b);
 }
@@ -322,6 +327,28 @@
   color: var(--t-fg);
   font-family: var(--t-font-mono, monospace);
   font-weight: 500;
+}
+
+.run-vram {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--t-muted);
+}
+
+.run-vram li[data-level='tight'] {
+  color: var(--t-warn, #e8b931);
+}
+
+.run-vram li[data-level='over'] {
+  color: var(--t-danger, #ff6b6b);
+}
+
+.run-placement .run-command__notice {
+  flex-basis: 100%;
 }
 
 .run-placement__reason {

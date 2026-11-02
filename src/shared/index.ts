@@ -109,6 +109,9 @@ export {
 export type {
   CudaGpuDevice,
   GpuOffloadAdvice,
+  GpuVramCardEstimate,
+  GpuVramCardUsage,
+  GpuVramLevel,
   ManagedGpuOffloadMode,
   ParsedGpuOffload,
   TensorSplitSlider,
@@ -118,6 +121,8 @@ export {
   formatGpuVramGb,
   parseManagedLlamaGpuOffload,
   recommendGpuOffload,
+  estimateManagedLlamaVram,
+  overcommittedCards,
   shortCudaGpuName,
   syncGpuOffloadInManagedChatCommand,
   syncGpuOffloadFromParsed,

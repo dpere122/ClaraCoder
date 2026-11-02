@@ -30,8 +30,11 @@ const FIT_RATIO = 0.9;
 const COMPUTE_OVERHEAD_MB = 1536;
 const MIN_KV_MB = 1024;
 const MAX_KV_MB = 12288;
-/** Conservative KV guess: ~12 MiB per 1k context tokens. */
-const KV_MB_PER_1K_CTX = 12;
+/**
+ * KV cache for a 27B-class model with `-ctk q8_0 -ctv q8_0`. From measurements on Qwen3.8-27B
+ * Q6: halving `-c` from 262144 freed about 5.5 GB across two cards.
+ */
+const KV_MB_PER_1K_CTX = 42;
 
 
 /** Dedicated VRAM label for settings copy (32187 MiB → "31 GB"). */
@@ -90,12 +93,14 @@ function estimateNeededMb(modelBytes: number | null, ctxTokens: number): number 
 /**
  * Pick fastest-card vs VRAM split. Prefer a single GPU whenever the GGUF + a
  * conservative KV/compute reserve fits, because layer-split across unequal
- * cards stalls the faster GPU on PCIe.
+ * cards stalls the faster GPU on PCIe. `usage` takes what the desktop and other
+ * apps already hold off each card, when it's known.
  */
 export function recommendGpuOffload(
   gpus: readonly CudaGpuDevice[],
   modelBytes: number | null,
   ctxTokens: number,
+  usage: readonly GpuVramCardUsage[] = [],
 ): GpuOffloadAdvice | null {
   if (!gpus.length) {
     return null;
@@ -117,8 +122,10 @@ export function recommendGpuOffload(
 
   const names = ordered.map((g) => `${shortCudaGpuName(g.model)} ${formatGpuVramGb(g.memoryTotalMb)}`).join(' · ');
   const needed = estimateNeededMb(modelBytes, ctxTokens);
-  const largestFit = primary.memoryTotalMb * FIT_RATIO;
-  const combinedFit = ordered.reduce((s, g) => s + g.memoryTotalMb, 0) * FIT_RATIO;
+  const availableMb = (g: CudaGpuDevice): number =>
+    Math.max(0, g.memoryTotalMb - (usage.find((u) => u.cudaIndex === g.cudaIndex)?.otherMb ?? 0));
+  const largestFit = availableMb(primary) * FIT_RATIO;
+  const combinedFit = ordered.reduce((s, g) => s + availableMb(g), 0) * FIT_RATIO;
 
   if (needed == null) {
     return {
@@ -141,7 +148,7 @@ export function recommendGpuOffload(
   if (needed <= combinedFit) {
     return {
       mode: 'split',
-      reason: `This model is larger than the ${shortCudaGpuName(primary.model)} (${formatGpuVramGb(primary.memoryTotalMb)}). Split by VRAM (${names}) keeps weights on the GPUs instead of system RAM.`,
+      reason: `This model is larger than what the ${shortCudaGpuName(primary.model)} (${formatGpuVramGb(primary.memoryTotalMb)}) has free. Split by VRAM (${names}) keeps weights on the GPUs instead of system RAM.`,
       primaryCudaIndex: primary.cudaIndex,
       tensorSplit: split,
     };
@@ -210,6 +217,99 @@ export function parseManagedLlamaGpuOffload(cmd: string): ParsedGpuOffload {
 
 function stripFlag(cmd: string, names: readonly string[]): string {
   return spliceOutLlamaSpans(cmd, findLlamaFlag(cmd, names));
+}
+
+/** VRAM allocated on one card right now, counting every process. */
+export interface GpuVramCardUsage {
+  cudaIndex: number;
+  dedicatedMb: number;
+  /** Everything except `llama-server`: the desktop and other apps. */
+  otherMb: number;
+}
+
+export type GpuVramLevel = 'ok' | 'tight' | 'over';
+
+export interface GpuVramCardEstimate {
+  gpu: CudaGpuDevice;
+  /** Weights, KV cache and compute buffers placed on this card. */
+  modelMb: number;
+  otherMb: number;
+  totalMb: number;
+  level: GpuVramLevel;
+}
+
+/** What `-c 0` (model native) usually means for the large-context models Clara runs. */
+const ASSUMED_NATIVE_CTX = 262_144;
+/** Under this much free, opening another app can start pushing things out of VRAM. */
+const TIGHT_HEADROOM_MB = 1536;
+
+/** Size of one cache cell against `q8_0`. Without `-ctk` / `-ctv`, llama.cpp uses f16. */
+function cacheTypeWeight(type: string | null): number {
+  const t = (type ?? 'f16').toLowerCase();
+  if (t === 'f32') {
+    return 4;
+  }
+  if (t === 'f16' || t === 'bf16') {
+    return 2;
+  }
+  return t.startsWith('q8') ? 1 : t.startsWith('q5') ? 0.625 : t.startsWith('q4') || t.startsWith('iq4') ? 0.5 : 2;
+}
+
+/**
+ * Estimate each card's VRAM for a command before starting it. `null` when the model size or the
+ * cards aren't known, or the model stays off the GPU (`-ngl 0`). Layers don't land exactly on the
+ * split, so read the result as "about"; it runs a little high on the larger card.
+ */
+export function estimateManagedLlamaVram(
+  cmd: string,
+  gpus: readonly CudaGpuDevice[],
+  modelBytes: number | null,
+  usage: readonly GpuVramCardUsage[],
+): GpuVramCardEstimate[] | null {
+  if (modelBytes == null || !Number.isFinite(modelBytes) || modelBytes <= 0 || !gpus.length) {
+    return null;
+  }
+  if (readLlamaFlagValue(cmd, ['-ngl', '--gpu-layers', '--n-gpu-layers']) === '0') {
+    return null;
+  }
+  const parsed = parseManagedLlamaGpuOffload(cmd);
+  const chosen = parsed.cudaIndexes.length ? parsed.cudaIndexes : gpus.map((g) => g.cudaIndex);
+  const cards = chosen.map((i) => gpus.find((g) => g.cudaIndex === i));
+  if (cards.some((g) => !g)) {
+    return null;
+  }
+  const placed = cards as CudaGpuDevice[];
+  const listed = (parsed.tensorSplit ?? '').split(',').map(Number);
+  const weights =
+    listed.length === placed.length && listed.every((w) => Number.isFinite(w) && w >= 0) && listed.some((w) => w > 0)
+      ? listed
+      : placed.map((g) => g.memoryTotalMb);
+  const weightSum = weights.reduce((a, b) => a + b, 0);
+  const ctx = Number.parseInt(readLlamaFlagValue(cmd, ['-c', '--ctx-size']) ?? '', 10);
+  const cacheWeight =
+    (cacheTypeWeight(readLlamaFlagValue(cmd, ['-ctk', '--cache-type-k'])) +
+      cacheTypeWeight(readLlamaFlagValue(cmd, ['-ctv', '--cache-type-v']))) /
+    2;
+  const kvMb = ((ctx > 0 ? ctx : ASSUMED_NATIVE_CTX) / 1024) * KV_MB_PER_1K_CTX * cacheWeight;
+  const neededMb = modelBytes / (1024 * 1024) + kvMb + COMPUTE_OVERHEAD_MB;
+  return placed.map((gpu, i) => {
+    const modelMb = neededMb * ((weights[i] as number) / weightSum);
+    const otherMb = usage.find((u) => u.cudaIndex === gpu.cudaIndex)?.otherMb ?? 0;
+    const totalMb = modelMb + otherMb;
+    const free = gpu.memoryTotalMb - totalMb;
+    return { gpu, modelMb, otherMb, totalMb, level: free < 0 ? 'over' : free < TIGHT_HEADROOM_MB ? 'tight' : 'ok' };
+  });
+}
+
+/** Cards with more allocated right now than they physically have. */
+export function overcommittedCards(
+  gpus: readonly CudaGpuDevice[],
+  usage: readonly GpuVramCardUsage[],
+): { gpu: CudaGpuDevice; dedicatedMb: number }[] {
+  return usage.flatMap((u) => {
+    const gpu = gpus.find((g) => g.cudaIndex === u.cudaIndex);
+    return gpu && u.dedicatedMb > gpu.memoryTotalMb ? [{ gpu, dedicatedMb: u.dedicatedMb }] : [];
+  });
 }
 
 /** A two-card `--tensor-split`, as whole GB on the first card out of both cards' VRAM. */

@@ -122,6 +122,7 @@ export {
   parseManagedLlamaGpuOffload,
   recommendGpuOffload,
   estimateManagedLlamaVram,
+  managedLlamaKvCacheWeight,
   overcommittedCards,
   shortCudaGpuName,
   syncGpuOffloadInManagedChatCommand,
@@ -261,6 +262,7 @@ export {
   unwrapSecret,
   createEmptyMcpServer,
 } from './types/app-config';
+export { CTX_FLAG_NAMES, HF_FLAG_NAMES, MODEL_FLAG_NAMES } from './llama-command-tokens';
 export type { LlamaCppEmbeddingManagedLegacy, LlamaCppManagedLegacy, ShellQuotingPlatform } from './llama-cpp-managed';
 export type {
   LlamaAddedFlag,

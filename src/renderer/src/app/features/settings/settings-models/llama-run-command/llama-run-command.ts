@@ -4,12 +4,15 @@ import { FormsModule } from '@angular/forms';
 import {
   analyzeLlamaRunCommand,
   appendLlamaFlag,
+  CTX_FLAG_NAMES,
   detectShellQuotingPlatform,
   diffLlamaCommands,
   estimateManagedLlamaVram,
+  HF_FLAG_NAMES,
   MANAGED_LLAMA_CACHE_TYPES,
   MANAGED_LLAMA_FLASH_ATTN_MODES,
   type ManagedGpuOffloadMode,
+  MODEL_FLAG_NAMES,
   normalizeLlamaCommandInput,
   overcommittedCards,
   preferredLlamaFlagName,
@@ -67,8 +70,7 @@ const COMMON_FLAGS: readonly {
 ];
 
 /** The Local model picker owns these, so their rows only show what it set. */
-const MODEL_FLAG_NAMES = ['-m', '--model', '-hf', '-hfr', '--hf-repo'];
-const CTX_FLAG_NAMES = ['-c', '--ctx-size'];
+const LOCKED_FLAG_NAMES = [...MODEL_FLAG_NAMES, ...HF_FLAG_NAMES];
 const NO_MMPROJ_FLAG = '--no-mmproj';
 const CHAT_TEMPLATE_FILE_FLAG = '--chat-template-file';
 const FILE_VALUE_HINT_RE = /FILE|FNAME|PATH/;
@@ -92,6 +94,7 @@ export class LlamaRunCommandComponent {
   private readonly electron = inject(ElectronService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly platform = detectShellQuotingPlatform();
+  private rawEdited = false;
 
   protected readonly view = signal<RunCommandView>('flags');
   protected readonly catalog = signal<LlamaFlagCatalog | null>(null);
@@ -163,7 +166,7 @@ export class LlamaRunCommandComponent {
 
   /** Common flags the command doesn't set yet. */
   protected readonly commonFlags = computed(() => {
-    const used = new Set(this.analysis().entries.map((e) => e.flag));
+    const used = new Set(this.analysis().entries.map((e) => e.name));
     return COMMON_FLAGS.filter((flag) => !used.has(flag.name) && !flag.aliases.some((alias) => used.has(alias)));
   });
 
@@ -180,7 +183,11 @@ export class LlamaRunCommandComponent {
   protected readonly vramEstimate = computed(() =>
     estimateManagedLlamaVram(this.command(), this.s.cudaGpus(), this.s.managedGgufSizeBytes(), this.s.managedVramUsage()),
   );
-  protected readonly vramProblem = computed(() => this.vramEstimate()?.find((c) => c.level !== 'ok') ?? null);
+  /** The worst card, so a tight one never hides one that is over. */
+  protected readonly vramProblem = computed(() => {
+    const cards = this.vramEstimate();
+    return cards?.find((c) => c.level === 'over') ?? cards?.find((c) => c.level === 'tight') ?? null;
+  });
   /** Cards past their physical memory right now, whatever the settings say. */
   protected readonly vramOvercommitted = computed(() => overcommittedCards(this.s.cudaGpus(), this.s.managedVramUsage()));
 
@@ -196,7 +203,7 @@ export class LlamaRunCommandComponent {
     if (!query) {
       return [];
     }
-    const used = new Set(this.analysis().entries.map((e) => e.flag));
+    const used = new Set(this.analysis().entries.map((e) => e.name));
     const available = flags.filter((spec) => !spec.names.some((name) => used.has(name)));
     const byName = available.filter((spec) => spec.names.some((name) => name.toLowerCase().includes(query)));
     const byText = available.filter(
@@ -216,15 +223,20 @@ export class LlamaRunCommandComponent {
     });
     void this.refreshVramUsage();
     this.electron.llamaServerLifecycle$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
+      void this.loadCatalog();
       void this.refreshLaunched(this.s.selectedModel()?.id);
       void this.refreshVramUsage();
     });
     const timer = setInterval(() => {
-      if (this.launchedCommand()) {
+      // An overcommit alert says "right now", so it has to keep checking until it clears.
+      if (this.launchedCommand() || this.vramOvercommitted().length) {
         void this.refreshVramUsage();
       }
     }, VRAM_REFRESH_MS);
-    this.destroyRef.onDestroy(() => clearInterval(timer));
+    this.destroyRef.onDestroy(() => {
+      clearInterval(timer);
+      this.commitRawEdit();
+    });
   }
 
   private async refreshVramUsage(): Promise<void> {
@@ -257,7 +269,9 @@ export class LlamaRunCommandComponent {
       return;
     }
     const res = await this.electron.llamaServerLaunchedCommand({ modelId });
-    this.launchedCommand.set(res.ok ? res.command : null);
+    if (this.s.selectedModel()?.id === modelId) {
+      this.launchedCommand.set(res.ok ? res.command : null);
+    }
   }
 
   protected statusLabel(status: LlamaFlagStatus): string {
@@ -266,14 +280,14 @@ export class LlamaRunCommandComponent {
 
   /** Model rows are read-only unless something is wrong with them. */
   protected isLocked(entry: LlamaCommandEntry): boolean {
-    return entry.status === 'used' && MODEL_FLAG_NAMES.includes(entry.flag);
+    return entry.status === 'used' && LOCKED_FLAG_NAMES.includes(entry.name);
   }
 
   protected entryNote(entry: LlamaCommandEntry): string {
     if (this.isLocked(entry)) {
       return 'Set by Local model above.';
     }
-    if (entry.status === 'used' && CTX_FLAG_NAMES.includes(entry.flag)) {
+    if (entry.status === 'used' && CTX_FLAG_NAMES.includes(entry.name)) {
       const modelId = this.s.selectedModel()?.id;
       const live = modelId ? this.liveNctxByModel()[modelId] : undefined;
       if (live && String(live) !== entry.value) {
@@ -298,9 +312,11 @@ export class LlamaRunCommandComponent {
   }
 
   protected async browseEntry(entry: LlamaCommandEntry): Promise<void> {
-    const picked = await this.browseForFile(entry.flag);
-    if (picked) {
-      this.setEntryValue(entry, picked);
+    const picked = await this.browseForFile(entry.name);
+    // The command can change behind the dialog, which would leave this entry's spans stale.
+    const current = this.analysis().entries.find((e) => e.id === entry.id);
+    if (picked && current) {
+      this.setEntryValue(current, picked);
     }
   }
 
@@ -380,12 +396,27 @@ export class LlamaRunCommandComponent {
     this.s.setManagedChatRunCommand(command);
   }
 
+  /**
+   * Keystrokes save the command only: a half-typed ``-c`` isn't a context size, so the profile
+   * follows it once editing ends.
+   */
   protected onRawChange(raw: string): void {
-    this.save(normalizeLlamaCommandInput(raw));
+    this.rawEdited = true;
+    this.s.patchLlamaCppManaged({ chatRunCommand: normalizeLlamaCommandInput(raw) });
+  }
+
+  protected commitRawEdit(): void {
+    if (this.rawEdited) {
+      this.rawEdited = false;
+      this.save(this.command());
+    }
   }
 
   protected setEntryValue(entry: LlamaCommandEntry, value: string): void {
-    if (value !== entry.value) {
+    // A value flag left bare would take the next flag as its value, so clearing one removes it.
+    if (entry.takesValue && !value.trim()) {
+      this.removeEntry(entry);
+    } else if (value !== entry.value) {
       this.save(setLlamaEntryValue(this.command(), entry, value.trim(), this.platform));
     }
   }
@@ -396,7 +427,7 @@ export class LlamaRunCommandComponent {
   }
 
   protected removeEntry(entry: LlamaCommandEntry): void {
-    if (entry.flag === NO_MMPROJ_FLAG) {
+    if (entry.name === NO_MMPROJ_FLAG) {
       // Turning the projector back on also restores the one that belongs with this model.
       this.s.onManagedNoMmprojChange(false);
       return;
@@ -411,8 +442,6 @@ export class LlamaRunCommandComponent {
       valueHint: flag.valueHint,
       choices: flag.choices ? [...flag.choices] : null,
       description: '',
-      defaultValue: null,
-      section: '',
     };
     this.addFlag(spec, flag.name, flag.value);
   }

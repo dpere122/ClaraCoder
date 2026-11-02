@@ -3,6 +3,7 @@ import {
   cudaDeviceListArg,
   estimateManagedLlamaVram,
   formatGpuVramGb,
+  managedLlamaKvCacheWeight,
   overcommittedCards,
   parseManagedLlamaGpuOffload,
   recommendGpuOffload,
@@ -239,6 +240,25 @@ describe('VRAM estimate', () => {
     expect(estimateManagedLlamaVram(cmd('-c 1'), [], modelBytes, usage)).toBeNull();
     expect(estimateManagedLlamaVram(cmd('-c 1 -ngl 0'), gpus, modelBytes, usage)).toBeNull();
     expect(estimateManagedLlamaVram(cmd('-c 1 -dev CUDA7'), gpus, modelBytes, usage)).toBeNull();
+  });
+
+  it('has no estimate when the command does not spread the model over CUDA cards', () => {
+    expect(estimateManagedLlamaVram(cmd('-c 1 -ngl 10'), gpus, modelBytes, usage)).toBeNull();
+    expect(estimateManagedLlamaVram(cmd('-c 1 -dev none'), gpus, modelBytes, usage)).toBeNull();
+    expect(estimateManagedLlamaVram(cmd('-c 1 -dev Vulkan0'), gpus, modelBytes, usage)).toBeNull();
+    expect(estimateManagedLlamaVram(cmd('-c 1 -sm none'), gpus, modelBytes, usage)).toBeNull();
+    expect(estimateManagedLlamaVram(cmd('-c 1 --split-mode none'), gpus, modelBytes, usage)).toBeNull();
+    expect(estimateManagedLlamaVram(cmd('-c 1 -ngl auto'), gpus, modelBytes, usage)).not.toBeNull();
+    expect(estimateManagedLlamaVram(cmd('-c 1 -ngl 99'), gpus, modelBytes, usage)).not.toBeNull();
+  });
+
+  it('agrees with the recommendation about an unquantized cache', () => {
+    const size = 20 * 1024 * 1024 * 1024;
+    const command = 'llama-server -m a.gguf -c 131072 -dev CUDA0';
+    const single = estimateManagedLlamaVram(command, gpus, size, [])?.[0];
+    expect(single?.level).toBe('over');
+    const advice = recommendGpuOffload(gpus, size, 131072, [], managedLlamaKvCacheWeight(command));
+    expect(advice?.mode).toBe('split');
   });
 
   it('recommends what actually fits once the desktop is counted', () => {

@@ -8,6 +8,14 @@
 
 export type ShellQuotingPlatform = 'win32' | 'posix';
 
+export const MODEL_FLAG_NAMES = ['-m', '--model'];
+export const HF_FLAG_NAMES = ['-hf', '-hfr', '--hf-repo'];
+export const CTX_FLAG_NAMES = ['-c', '--ctx-size'];
+export const NGL_FLAG_NAMES = ['-ngl', '--gpu-layers', '--n-gpu-layers'];
+export const FA_FLAG_NAMES = ['-fa', '--flash-attn'];
+export const CTK_FLAG_NAMES = ['-ctk', '--cache-type-k'];
+export const CTV_FLAG_NAMES = ['-ctv', '--cache-type-v'];
+
 export function detectShellQuotingPlatform(): ShellQuotingPlatform {
   const proc = (globalThis as { process?: { platform?: string } }).process;
   if (proc?.platform === 'win32') {
@@ -36,6 +44,22 @@ export const MANAGED_LLAMA_SHELL_METACHAR_RE = /[;|&<>`$(){}!*\n\r~#]/;
 const UNQUOTED_TOKEN_METACHAR_RE = /[;|&<>`$(){}!*~#]/;
 const METACHAR_ERROR =
   'Run command contains disallowed shell metacharacters (; | & < > ` $ ( ) { } ! * # ~ or newlines).';
+
+/**
+ * Quote a value so {@link tokenizeManagedLlamaCommand} reads it back as one argument. The launcher
+ * runs no shell and has no escapes, so a value holding one kind of quote is wrapped in the other.
+ */
+export function quoteLlamaFlagValue(value: string, platform: ShellQuotingPlatform): string {
+  const hasDouble = value.includes('"');
+  const hasSingle = value.includes("'");
+  if (hasDouble && !hasSingle) {
+    return `'${value}'`;
+  }
+  if (hasSingle && !hasDouble) {
+    return `"${value}"`;
+  }
+  return !hasDouble && UNQUOTED_TOKEN_METACHAR_RE.test(value) ? `"${value}"` : shellQuoteArg(value, platform);
+}
 
 /**
  * Tokenize a prepared managed run command into argv.
@@ -167,6 +191,8 @@ export interface LlamaFlagOccurrence {
   /** Source span of the flag and its value. */
   start: number;
   end: number;
+  /** End of any further bare tokens, which belong to this flag (``--range START END``). */
+  tailEnd: number;
 }
 
 /**
@@ -184,6 +210,11 @@ export function parseLlamaFlagOccurrences(command: string, arity?: LlamaFlagArit
     const token = tokens[i] as LlamaCommandToken;
     i++;
     if (!isLlamaFlagToken(token.text)) {
+      // llama-server takes no positional arguments, so a bare token is still the previous flag's.
+      const previous = out[out.length - 1];
+      if (previous) {
+        previous.tailEnd = token.end;
+      }
       continue;
     }
     const eq = token.text.startsWith('--') ? token.text.indexOf('=') : -1;
@@ -196,6 +227,7 @@ export function parseLlamaFlagOccurrences(command: string, arity?: LlamaFlagArit
         inline: true,
         start: token.start,
         end: token.end,
+        tailEnd: token.end,
       });
       continue;
     }
@@ -203,11 +235,27 @@ export function parseLlamaFlagOccurrences(command: string, arity?: LlamaFlagArit
     const next = tokens[i];
     const takesValue = arity?.(name) ?? (!!next && !isLlamaFlagToken(next.text));
     if (takesValue && next) {
-      out.push({ name, written: token.text, value: next.text, inline: false, start: token.start, end: next.end });
+      out.push({
+        name,
+        written: token.text,
+        value: next.text,
+        inline: false,
+        start: token.start,
+        end: next.end,
+        tailEnd: next.end,
+      });
       i++;
       continue;
     }
-    out.push({ name, written: token.text, value: null, inline: false, start: token.start, end: token.end });
+    out.push({
+      name,
+      written: token.text,
+      value: null,
+      inline: false,
+      start: token.start,
+      end: token.end,
+      tailEnd: token.end,
+    });
   }
   return out;
 }
@@ -232,14 +280,17 @@ export function hasLlamaFlag(command: string, names: readonly string[]): boolean
 }
 
 /** Remove source spans (and the whitespace before each) without touching anything else. */
-export function spliceOutLlamaSpans(command: string, spans: readonly { start: number; end: number }[]): string {
+export function spliceOutLlamaSpans(
+  command: string,
+  spans: readonly { start: number; end: number; tailEnd?: number }[],
+): string {
   let out = command;
   for (const span of [...spans].sort((a, b) => b.start - a.start)) {
     let from = span.start;
     while (from > 0 && /\s/.test(out[from - 1] as string)) {
       from--;
     }
-    out = out.slice(0, from) + out.slice(span.end);
+    out = out.slice(0, from) + out.slice(span.tailEnd ?? span.end);
   }
   return out.trim();
 }
@@ -264,7 +315,7 @@ export function upsertLlamaFlag(
   if (value === null) {
     return spliceOutLlamaSpans(trimmed, occurrences);
   }
-  const quoted = shellQuoteArg(value, platform);
+  const quoted = quoteLlamaFlagValue(value, platform);
   const last = occurrences.pop();
   if (!last) {
     return `${trimmed} ${canonical} ${quoted}`;

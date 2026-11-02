@@ -63,7 +63,7 @@ export function uniqueManagedLlamaSourceName(taken: readonly string[]): string {
   return name;
 }
 
-const PORT_TOKEN = '{{PORT}}';
+export const PORT_TOKEN = '{{PORT}}';
 /** Baseline managed chat command template used in defaults and Settings placeholders. */
 export const DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND =
   'llama-server --host 127.0.0.1 --port {{PORT}} --jinja --no-webui -np 1 -hf org/model:Q4_0';

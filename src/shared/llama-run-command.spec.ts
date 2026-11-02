@@ -17,8 +17,10 @@ import {
   parseLlamaFlagOccurrences,
   readLlamaFlagValue,
   scanLlamaCommandTokens,
+  tokenizeManagedLlamaCommand,
   upsertLlamaFlag,
 } from './llama-command-tokens';
+import { managedLlamaCmdUsesHfRemoteModel } from './llama-model-download';
 
 /** Excerpt of real ``llama-server --help`` output (build 10867). */
 const HELP = `----- common params -----
@@ -102,13 +104,12 @@ function entry(command: string, flag: string, opts: LlamaAnalyzeOptions = option
 describe('parseLlamaServerHelp', () => {
   const byName = (name: string) => catalog.flags.find((f) => f.names.includes(name));
 
-  it('reads aliases, value hints and sections', () => {
+  it('reads aliases and value hints', () => {
     expect(byName('-ngl')?.names).toEqual(['-ngl', '--gpu-layers', '--n-gpu-layers']);
     expect(byName('-c')?.valueHint).toBe('N');
     expect(byName('--no-mmap')?.valueHint).toBeNull();
     expect(byName('--ui')?.names).toEqual(['--ui', '--webui', '--no-ui', '--no-webui']);
     expect(byName('--ui')?.valueHint).toBeNull();
-    expect(byName('--temp')?.section).toBe('sampling params');
   });
 
   it('keeps a hint that contains spaces, and a description on the next line', () => {
@@ -127,8 +128,7 @@ describe('parseLlamaServerHelp', () => {
     expect(byName('-c')?.choices).toBeNull();
   });
 
-  it('pulls the default and leaves env lines out of the description', () => {
-    expect(byName('-b')?.defaultValue).toBe('2048');
+  it('leaves env lines out of the description', () => {
     expect(byName('-b')?.description).not.toContain('LLAMA_ARG');
   });
 });
@@ -282,8 +282,9 @@ describe('analyzeLlamaRunCommand', () => {
     expect(analyzeLlamaRunCommand('llama-server --port {{PORT}}', options).warnings[0]).toContain('No model');
     expect(analyzeLlamaRunCommand('llama-server --port {{PORT}} -m a -hf b', options).warnings[0]).toContain('Both');
     expect(
-      analyzeLlamaRunCommand('llama-server --port {{PORT}} -m a -fa off -ctk q8_0', options).warnings[0],
+      analyzeLlamaRunCommand('llama-server --port {{PORT}} -m a -fa off -ctv q8_0', options).warnings[0],
     ).toContain('flash attention');
+    expect(analyzeLlamaRunCommand('llama-server --port {{PORT}} -m a -fa off -ctk q8_0', options).warnings).toEqual([]);
   });
 
   it('keeps entry ids stable when a value changes', () => {
@@ -343,7 +344,74 @@ describe('diffLlamaCommands', () => {
   });
 });
 
+describe('editing entries', () => {
+  const options = { catalog, platform: 'posix' as const };
+  const entryFor = (command: string, flag: string) => {
+    const entry = analyzeLlamaRunCommand(command, options).entries.find((e) => e.flag === flag);
+    if (!entry) {
+      throw new Error(`no ${flag} entry`);
+    }
+    return entry;
+  };
+
+  it('applies spans to the trimmed command that was analyzed', () => {
+    const command = '  llama-server --port {{PORT}} -m a -c 1 -b 2';
+    expect(setLlamaEntryValue(command, entryFor(command, '-c'), '9', 'posix')).toBe(
+      'llama-server --port {{PORT}} -m a -c 9 -b 2',
+    );
+    expect(removeLlamaEntry(command, entryFor(command, '-c'))).toBe('llama-server --port {{PORT}} -m a -b 2');
+  });
+
+  it('removes every value of a flag that takes two', () => {
+    const command = 'llama-server --port {{PORT}} --control-vector-layer-range 1 5 -c 1';
+    const entry = analyzeLlamaRunCommand(command, { platform: 'posix' }).entries.find(
+      (e) => e.flag === '--control-vector-layer-range',
+    );
+    expect(entry && removeLlamaEntry(command, entry)).toBe('llama-server --port {{PORT}} -c 1');
+  });
+
+  it('writes values the launcher reads back as one argument', () => {
+    const json = '{"enable_thinking":false}';
+    for (const platform of ['win32', 'posix'] as const) {
+      for (const value of [json, '#abc', "it's", 'a b']) {
+        const written = appendLlamaFlag('llama-server', '--x', value, platform);
+        expect(tokenizeManagedLlamaCommand(written)).toEqual({ ok: true, argv: ['llama-server', '--x', value] });
+      }
+    }
+  });
+
+  it('classifies underscore spellings like the dashed flag', () => {
+    const entries = analyzeLlamaRunCommand('llama-server --port {{PORT}} -m a --gpu_layers 99', {
+      platform: 'posix',
+    }).entries;
+    expect(entries.find((e) => e.flag === '--gpu_layers')?.status).toBe('rewritten');
+  });
+});
+
+describe('diffLlamaCommands toggles', () => {
+  it('notices a flag switched to its negation', () => {
+    const changes = diffLlamaCommands('llama-server --ui', 'llama-server --no-ui', catalog);
+    expect(changes).toEqual([{ flag: '--no-ui', from: '--ui', to: '--no-ui' }]);
+  });
+});
+
+describe('managedLlamaCmdUsesHfRemoteModel', () => {
+  it('knows every spelling of the Hugging Face repo flag, and not a path that mentions it', () => {
+    for (const flag of ['-hf org/m', '-hfr org/m', '--hf-repo org/m', '--hf-url https://x']) {
+      expect(managedLlamaCmdUsesHfRemoteModel(`llama-server ${flag}`)).toBe(true);
+    }
+    expect(managedLlamaCmdUsesHfRemoteModel('llama-server -m "/models -hf x/a.gguf"')).toBe(false);
+  });
+});
+
 describe('carryCustomLlamaFlags', () => {
+  it('leaves flags that name the previous model behind', () => {
+    const previous = 'llama-server --port {{PORT}} -hf org/old -hff old-Q4.gguf -mmu https://x/mm.gguf --no-mmap';
+    expect(carryCustomLlamaFlags(previous, 'llama-server --port {{PORT}} -hf org/new')).toBe(
+      'llama-server --port {{PORT}} -hf org/new --no-mmap',
+    );
+  });
+
   it('keeps custom tuning when the model changes, but not the old model or a stale duplicate', () => {
     const previous = `llama-server --port {{PORT}} -m '/old model.gguf' -c 4096 --no-mmap --spec-type draft-mtp -mm /old-mm.gguf`;
     const rebuilt = 'llama-server --port {{PORT}} -m /new.gguf -c 8192';

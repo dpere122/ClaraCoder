@@ -770,7 +770,7 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
   if (chatTemplateFile && !existsSync(chatTemplateFile)) {
     return {
       ok: false,
-      error: `Chat template file was not found at ${chatTemplateFile}. Clear Chat template in Settings to use the GGUF template, or pick a valid .jinja file.`,
+      error: `Chat template file was not found at ${chatTemplateFile}. Remove --chat-template-file from the run command in Settings to use the GGUF template, or pick a valid .jinja file.`,
     };
   }
 

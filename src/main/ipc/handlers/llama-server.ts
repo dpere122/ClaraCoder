@@ -1,5 +1,4 @@
 import { ipcMain } from 'electron';
-import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import type { AppConfig } from '../../../shared';
 import { findLlmModelLocation } from '../../../shared';
@@ -14,6 +13,7 @@ import {
 } from '../../llama-server-manager';
 import { getCachedChatTemplateReasoning, getCachedLlamaServerNctx } from '../../chat-template-reasoning-cache';
 import { getLlamaServerFlagCatalog } from '../../llama-server-flag-catalog';
+import { ggufBytesOnDisk } from '../../utils/gguf-size';
 import { sampleGpuVramUsage } from '../../utils/gpu-vram-usage';
 import { loadConfig } from '../../config/load-save';
 import { fetchOpenAiCompatibleModelIds } from '../../openai-compatible-models';
@@ -135,7 +135,7 @@ export function registerLlamaServerIpc(): void {
       return null;
     }
     try {
-      return (await fs.stat(file)).size;
+      return await ggufBytesOnDisk(file);
     } catch {
       return null;
     }

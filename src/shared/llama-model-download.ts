@@ -1,14 +1,11 @@
 /**
  * Heuristics for llama.cpp ``llama-server`` pulling a remote model (e.g. ``-hf``) before ``/health`` is ready.
  */
+import { hasLlamaFlag, HF_FLAG_NAMES } from './llama-command-tokens';
 
 /** True when the managed shell command likely triggers a Hugging Face (or similar) model fetch. */
 export function managedLlamaCmdUsesHfRemoteModel(cmd: string): boolean {
-  const t = cmd.trim();
-  if (!t) {
-    return false;
-  }
-  return /\s-hf(\s|$)|\s--hf-url(\s|=)/i.test(t);
+  return hasLlamaFlag(cmd, [...HF_FLAG_NAMES, '--hf-url']);
 }
 
 /**

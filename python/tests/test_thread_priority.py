@@ -67,6 +67,25 @@ def test_lowers_a_thread_below_normal_on_windows() -> None:
     assert seen == [-1]
 
 
+def test_python_threads_are_listed() -> None:
+    assert threading.get_native_id() in tp.python_thread_ids()
+
+
+def test_linux_keeps_going_past_a_thread_that_exited(monkeypatch) -> None:
+    seen: list[int] = []
+
+    def setpriority(_which: int, tid: int, _nice: int) -> None:
+        seen.append(tid)
+        if tid == 2:
+            raise ProcessLookupError
+
+    monkeypatch.setattr(tp.sys, 'platform', 'linux')
+    monkeypatch.setattr(tp.os, 'PRIO_PROCESS', 0, raising=False)
+    monkeypatch.setattr(tp.os, 'setpriority', setpriority, raising=False)
+    assert tp.lower_thread_priority({1, 2, 3}) == 2
+    assert sorted(seen) == [1, 2, 3]
+
+
 def test_a_thread_that_is_gone_is_not_counted() -> None:
     if sys.platform == 'win32':
         assert tp.lower_thread_priority({0xFFFFFFF0}) == 0

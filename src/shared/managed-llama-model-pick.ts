@@ -4,10 +4,17 @@
  */
 import {
   argvToShellCommandLine,
+  CTK_FLAG_NAMES,
+  CTV_FLAG_NAMES,
+  CTX_FLAG_NAMES,
   detectShellQuotingPlatform,
+  FA_FLAG_NAMES,
   findLlamaFlag,
   hasLlamaFlag,
+  HF_FLAG_NAMES,
   lastLlamaFlag,
+  MODEL_FLAG_NAMES,
+  NGL_FLAG_NAMES,
   readLlamaFlagValue,
   setLlamaBooleanFlag,
   spliceOutLlamaSpans,
@@ -442,10 +449,6 @@ export function buildManagedLlamaChatCommand(
   return argvToShellCommandLine(argv, platform);
 }
 
-const HF_FLAG_NAMES = ['-hf', '-hfr', '--hf-repo'];
-const MODEL_FLAG_NAMES = ['-m', '--model'];
-const CTX_FLAG_NAMES = ['-c', '--ctx-size'];
-
 /** Parse the selected GGUF path or HF id from an existing managed chat command. */
 export function parseManagedLlamaModelSelection(
   cmd: string,
@@ -501,7 +504,6 @@ export const MANAGED_LLAMA_NGL_MAX = 99;
  */
 export const MANAGED_LLAMA_NGL_DEFAULT = 99;
 
-const NGL_FLAG_NAMES = ['-ngl', '--gpu-layers', '--n-gpu-layers'];
 const NO_HOST_FLAG_NAMES = ['--no-host'];
 
 function clampManagedNglFlag(n: number): number | null {
@@ -613,7 +615,6 @@ export type ManagedLlamaCacheType = (typeof MANAGED_LLAMA_CACHE_TYPES)[number];
 export const MANAGED_LLAMA_BATCH_MIN = 0;
 export const MANAGED_LLAMA_BATCH_MAX = 65_536;
 
-const FA_FLAG_NAMES = ['-fa', '--flash-attn'];
 const NO_MMPROJ_FLAG_NAMES = ['--no-mmproj'];
 const MMPROJ_FLAG_NAMES = ['-mm', '--mmproj'];
 const NO_WEBUI_FLAG_NAMES = ['--no-webui', '--no-ui'];
@@ -622,8 +623,6 @@ const CACHE_RAM_FLAG_NAMES = ['-cram', '--cache-ram'];
 const REASONING_FORMAT_FLAG_NAMES = ['--reasoning-format'];
 const BATCH_FLAG_NAMES = ['-b', '--batch-size'];
 const UBATCH_FLAG_NAMES = ['-ub', '--ubatch-size'];
-const CTK_FLAG_NAMES = ['-ctk', '--cache-type-k'];
-const CTV_FLAG_NAMES = ['-ctv', '--cache-type-v'];
 
 function isFlashAttnMode(raw: string): raw is ManagedLlamaFlashAttn {
   return (MANAGED_LLAMA_FLASH_ATTN_MODES as readonly string[]).includes(raw);

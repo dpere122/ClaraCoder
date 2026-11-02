@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import type { GpuVramCardUsage } from '../../shared';
+import { enumerateGpus } from './dxgi-gpu';
 
 const SAMPLE_TIMEOUT_MS = 10_000;
 /** Settings can ask from several places at once; one sample answers them all. */
@@ -61,35 +62,47 @@ export function parseGpuVramSample(json: string): AdapterUsage[] {
   return [...adapters.values()];
 }
 
-/** Parse ``nvidia-smi --query-gpu=index,memory.used --format=csv,noheader,nounits``. */
-export function parseNvidiaSmiMemoryUsed(csv: string): { cudaIndex: number; usedMb: number }[] {
-  const out: { cudaIndex: number; usedMb: number }[] = [];
+interface CardMemoryUsed {
+  cudaIndex: number;
+  usedMb: number;
+  name?: string;
+}
+
+/** Parse ``nvidia-smi --query-gpu=index,memory.used,name --format=csv,noheader,nounits``. */
+export function parseNvidiaSmiMemoryUsed(csv: string): CardMemoryUsed[] {
+  const out: CardMemoryUsed[] = [];
   for (const line of csv.split(/\r?\n/)) {
-    const [index, used] = line.split(',').map((part) => Number.parseInt(part.trim(), 10));
-    if (Number.isFinite(index) && Number.isFinite(used)) {
-      out.push({ cudaIndex: index as number, usedMb: used as number });
+    const [index, used, name] = line.split(',').map((part) => part.trim());
+    const cudaIndex = Number.parseInt(index ?? '', 10);
+    const usedMb = Number.parseInt(used ?? '', 10);
+    if (Number.isFinite(cudaIndex) && Number.isFinite(usedMb)) {
+      out.push(name ? { cudaIndex, usedMb, name } : { cudaIndex, usedMb });
     }
   }
   return out;
 }
 
 /**
- * Windows names adapters by LUID and ``nvidia-smi`` by CUDA index. Both report nearly the same used
+ * Windows names adapters by LUID and ``nvidia-smi`` by CUDA index. ``adapterNames`` (LUID to model)
+ * settles every card with its own model; between identical cards, both report nearly the same used
  * memory for one card, so busiest cards pair with their closest adapter. A card with no adapter
  * within reach is left out rather than guessed.
  */
 export function assignAdaptersToCudaCards(
   adapters: readonly AdapterUsage[],
-  cards: readonly { cudaIndex: number; usedMb: number }[],
+  cards: readonly CardMemoryUsed[],
+  adapterNames: ReadonlyMap<string, string> = new Map(),
 ): GpuVramCardUsage[] {
   const free = [...adapters];
   const out: GpuVramCardUsage[] = [];
   for (const card of [...cards].sort((a, b) => b.usedMb - a.usedMb)) {
     let best = -1;
     let bestGap = Number.POSITIVE_INFINITY;
+    const sameModel = (adapter: AdapterUsage): boolean => adapterNames.get(adapter.key) === card.name;
+    const anyNamed = !!card.name && free.some(sameModel);
     free.forEach((adapter, i) => {
       const gap = Math.abs(adapter.adapterMb - card.usedMb);
-      if (gap < bestGap) {
+      if (gap < bestGap && (!anyNamed || sameModel(adapter))) {
         best = i;
         bestGap = gap;
       }
@@ -123,9 +136,10 @@ async function readUsage(): Promise<GpuVramCardUsage[]> {
   try {
     const [sample, smi] = await Promise.all([
       run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', SAMPLE_SCRIPT]),
-      run('nvidia-smi', ['--query-gpu=index,memory.used', '--format=csv,noheader,nounits']),
+      run('nvidia-smi', ['--query-gpu=index,memory.used,name', '--format=csv,noheader,nounits']),
     ]);
-    return assignAdaptersToCudaCards(parseGpuVramSample(sample), parseNvidiaSmiMemoryUsed(smi));
+    const names = new Map(enumerateGpus().flatMap((gpu) => (gpu.model ? [[gpu.luid, gpu.model] as const] : [])));
+    return assignAdaptersToCudaCards(parseGpuVramSample(sample), parseNvidiaSmiMemoryUsed(smi), names);
   } catch {
     return [];
   }

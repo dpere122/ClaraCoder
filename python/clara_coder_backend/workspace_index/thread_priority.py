@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import threading
 
 logger = logging.getLogger('clara.workspace_index.thread_priority')
 
@@ -25,6 +26,8 @@ def _kernel32():
     kernel32.OpenThread.restype = wintypes.HANDLE
     kernel32.OpenThread.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.Thread32First.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
+    kernel32.Thread32Next.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
     kernel32.SetThreadPriority.argtypes = [wintypes.HANDLE, ctypes.c_int]
     return kernel32
 
@@ -75,6 +78,11 @@ def native_thread_ids() -> set[int]:
     return set()
 
 
+def python_thread_ids() -> set[int]:
+    """OS ids of the threads Python started: interpreter work, which must keep normal priority."""
+    return {thread.native_id for thread in threading.enumerate() if thread.native_id is not None}
+
+
 def lower_thread_priority(thread_ids: set[int]) -> int:
     """Move threads below normal priority. Returns how many changed; failure only costs the hint."""
     lowered = 0
@@ -93,7 +101,10 @@ def lower_thread_priority(thread_ids: set[int]) -> int:
         elif sys.platform.startswith('linux'):
             # On Linux, setpriority with a thread id applies to that one thread.
             for tid in thread_ids:
-                os.setpriority(os.PRIO_PROCESS, tid, _LINUX_BACKGROUND_NICE)
+                try:
+                    os.setpriority(os.PRIO_PROCESS, tid, _LINUX_BACKGROUND_NICE)
+                except ProcessLookupError:
+                    continue
                 lowered += 1
     except Exception as exc:
         logger.debug('could not lower native thread priority: %s', exc)

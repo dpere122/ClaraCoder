@@ -75,6 +75,7 @@ import {
   inferContextWindowTokens,
   inferModelFamilyFromHint,
   inferOptimizationPresetFromModelHint,
+  managedLlamaKvCacheWeight,
   managedLlamaCommandHasNoHost,
   managedLlamaCommandHasNoMmproj,
   managedLlamaModelLabel,
@@ -584,8 +585,14 @@ export class SettingsStore {
     return hit && Number.isFinite(hit.sizeBytes) ? hit.sizeBytes : null;
   });
   readonly managedGpuAdvice = computed(() => {
-    const parsedCtx = parseManagedLlamaContextSize(this.selectedLlamaCppManaged().chatRunCommand);
-    return recommendGpuOffload(this.cudaGpus(), this.managedGgufSizeBytes(), parsedCtx ?? 0, this.managedVramUsage());
+    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
+    return recommendGpuOffload(
+      this.cudaGpus(),
+      this.managedGgufSizeBytes(),
+      parseManagedLlamaContextSize(cmd) ?? 0,
+      this.managedVramUsage(),
+      managedLlamaKvCacheWeight(cmd),
+    );
   });
   readonly managedGpuSplitRatioLabel = computed(() => {
     const gpus = this.cudaGpus();

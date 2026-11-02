@@ -4,23 +4,29 @@
  * the preview and the spawned command cannot drift.
  */
 import {
+  CTK_FLAG_NAMES,
+  CTV_FLAG_NAMES,
+  CTX_FLAG_NAMES,
+  FA_FLAG_NAMES,
+  HF_FLAG_NAMES,
   isLlamaFlagToken,
+  MODEL_FLAG_NAMES,
+  NGL_FLAG_NAMES,
+  normalizeLlamaFlagName,
   parseLlamaFlagOccurrences,
+  quoteLlamaFlagValue,
   scanLlamaCommandTokens,
-  shellQuoteArg,
   spliceOutLlamaSpans,
   tokenizeManagedLlamaCommand,
   type LlamaFlagOccurrence,
   type ShellQuotingPlatform,
 } from './llama-command-tokens';
-import { appendJinjaFlagToManagedChatCommand } from './llama-cpp-managed';
+import { appendJinjaFlagToManagedChatCommand, PORT_TOKEN } from './llama-cpp-managed';
 import {
   ensureManagedLlamaDefaultServerFlags,
   ensureManagedLlamaGemmaReasoningFormat,
   promoteManagedSentinelNglToAuto,
 } from './managed-llama-model-pick';
-
-const PORT_TOKEN = '{{PORT}}';
 
 /** One option from ``llama-server --help``. */
 export interface LlamaFlagSpec {
@@ -31,8 +37,6 @@ export interface LlamaFlagSpec {
   /** Allowed values when the help text enumerates them. */
   choices: string[] | null;
   description: string;
-  defaultValue: string | null;
-  section: string;
 }
 
 export interface LlamaFlagCatalog {
@@ -93,8 +97,7 @@ function choicesFromHint(hint: string | null, description: string): string[] | n
 /** Parse the option table printed by ``llama-server --help``. */
 export function parseLlamaServerHelp(helpText: string, version: string | null = null): LlamaFlagCatalog {
   const flags: LlamaFlagSpec[] = [];
-  let section = '';
-  let current: { head: ReturnType<typeof parseHelpHead>; lines: string[]; section: string } | null = null;
+  let current: { head: ReturnType<typeof parseHelpHead>; lines: string[] } | null = null;
   const flush = (): void => {
     if (!current) {
       return;
@@ -107,23 +110,19 @@ export function parseLlamaServerHelp(helpText: string, version: string | null = 
       valueHint: current.head.valueHint,
       choices: choicesFromHint(current.head.valueHint, description),
       description,
-      defaultValue: /\(default:\s*([^)]*)\)/.exec(description)?.[1]?.trim() ?? null,
-      section: current.section,
     });
     current = null;
   };
   for (const raw of (helpText || '').split(/\r?\n/)) {
-    const heading = /^-{3,}\s*(.+?)\s*-{3,}$/.exec(raw.trim());
-    if (heading) {
+    if (/^-{3,}\s*.+?\s*-{3,}$/.test(raw.trim())) {
       flush();
-      section = heading[1] as string;
       continue;
     }
     if (raw.startsWith('-')) {
       flush();
       const head = parseHelpHead(raw);
       if (head.names.length) {
-        current = { head, lines: head.rest ? [head.rest] : [], section };
+        current = { head, lines: head.rest ? [head.rest] : [] };
       }
       continue;
     }
@@ -153,16 +152,16 @@ function catalogIndex(catalog: LlamaFlagCatalog | null): Map<string, LlamaFlagSp
 
 /** Alias groups Clara must recognize even before the installed server has been asked. */
 const CORE_FLAG_GROUPS: readonly (readonly string[])[] = [
-  ['-m', '--model'],
-  ['-hf', '-hfr', '--hf-repo'],
+  MODEL_FLAG_NAMES,
+  HF_FLAG_NAMES,
   ['-mm', '--mmproj'],
-  ['-c', '--ctx-size'],
+  CTX_FLAG_NAMES,
   ['-b', '--batch-size'],
   ['-ub', '--ubatch-size'],
-  ['-fa', '--flash-attn'],
-  ['-ctk', '--cache-type-k'],
-  ['-ctv', '--cache-type-v'],
-  ['-ngl', '--gpu-layers', '--n-gpu-layers'],
+  FA_FLAG_NAMES,
+  CTK_FLAG_NAMES,
+  CTV_FLAG_NAMES,
+  NGL_FLAG_NAMES,
   ['-dev', '--device'],
   ['-ts', '--tensor-split'],
   ['-mg', '--main-gpu'],
@@ -205,6 +204,9 @@ export type LlamaFlagStatus =
 export interface LlamaCommandEntry {
   /** Stable across value edits: option identity plus occurrence number. */
   id: string;
+  /** Normalized name, for comparing against known flags. */
+  name: string;
+  /** Name as written in the command. */
   flag: string;
   /** Long name to show alongside a short alias, when there is one. */
   longName: string | null;
@@ -212,6 +214,7 @@ export interface LlamaCommandEntry {
   takesValue: boolean;
   start: number;
   end: number;
+  tailEnd: number;
   inline: boolean;
   spec: LlamaFlagSpec | null;
   status: LlamaFlagStatus;
@@ -287,14 +290,13 @@ const DRAFT_MODEL_NAMES = ['-md', '--model-draft', '--spec-draft-model', '-hfd',
 const QUANTIZED_CACHE_RE = /^(?:q\d|iq\d)/i;
 
 interface ClassifyContext {
-  entries: LlamaCommandEntry[];
   value(names: readonly string[]): string | null;
   has(names: readonly string[]): boolean;
 }
 
 /** Interactions that make an accepted flag do nothing, or do less than it says. */
 function interactionNote(entry: LlamaCommandEntry, ctx: ClassifyContext): string {
-  const names = flagGroupNames(entry.flag, entry.spec);
+  const names = flagGroupNames(entry.name, entry.spec);
   if (names.includes('--mmproj') && ctx.has(['--no-mmproj', '--no-mmproj-auto'])) {
     return '--no-mmproj is also set, so no projector is loaded.';
   }
@@ -345,12 +347,14 @@ export function analyzeLlamaRunCommand(command: string, options: LlamaAnalyzeOpt
     const takesValue = spec ? spec.valueHint !== null : occ.value !== null;
     const entry: LlamaCommandEntry = {
       id: `${key}#${nth}`,
+      name: occ.name,
       flag: occ.written,
       longName,
       value: occ.value,
       takesValue,
       start: occ.start,
       end: occ.end,
+      tailEnd: occ.tailEnd,
       inline: occ.inline,
       spec,
       status: 'used',
@@ -385,7 +389,6 @@ export function analyzeLlamaRunCommand(command: string, options: LlamaAnalyzeOpt
     return null;
   };
   const ctx: ClassifyContext = {
-    entries,
     value: lastValue,
     has: (names) => occurrences.some((occ) => names.includes(occ.name)),
   };
@@ -394,7 +397,7 @@ export function analyzeLlamaRunCommand(command: string, options: LlamaAnalyzeOpt
     if (entry.status !== 'used') {
       continue;
     }
-    const names = flagGroupNames(entry.flag, entry.spec);
+    const names = flagGroupNames(entry.name, entry.spec);
     if (names.includes('--port') && entry.value === PORT_TOKEN) {
       entry.status = 'managed';
       entry.note = 'Clara picks a free port at start.';
@@ -406,7 +409,7 @@ export function analyzeLlamaRunCommand(command: string, options: LlamaAnalyzeOpt
       entry.note = `Clara sends ${override.label} with every request, so this is only a fallback.`;
       continue;
     }
-    if (names.includes('--gpu-layers') || names.includes('-ngl')) {
+    if (NGL_FLAG_NAMES.some((name) => names.includes(name))) {
       if (entry.value === '99') {
         entry.status = 'rewritten';
         entry.note = 'Clara starts this as auto, so --fit can keep the model in VRAM.';
@@ -443,17 +446,13 @@ export function analyzeLlamaRunCommand(command: string, options: LlamaAnalyzeOpt
     } else if (!/(?:^|[/\\])llama-server(?:\.exe)?$/i.test(binary)) {
       errors.push(`Clara only runs llama-server, not ${binary}.`);
     }
-    if (!ctx.has(['-m', '--model', '-hf', '-hfr', '--hf-repo'])) {
+    if (!ctx.has([...MODEL_FLAG_NAMES, ...HF_FLAG_NAMES])) {
       warnings.push('No model is set (-m or -hf).');
-    } else if (ctx.has(['-m', '--model']) && ctx.has(['-hf', '-hfr', '--hf-repo'])) {
+    } else if (ctx.has(MODEL_FLAG_NAMES) && ctx.has(HF_FLAG_NAMES)) {
       warnings.push('Both -m and -hf are set. Keep one.');
     }
-    const fa = lastValue(['-fa', '--flash-attn']);
-    const quantizedCache = [lastValue(['-ctk', '--cache-type-k']), lastValue(['-ctv', '--cache-type-v'])].some(
-      (v) => !!v && QUANTIZED_CACHE_RE.test(v),
-    );
-    if (fa === 'off' && quantizedCache) {
-      warnings.push('A quantized KV cache needs flash attention, but -fa is off.');
+    if (lastValue(FA_FLAG_NAMES) === 'off' && QUANTIZED_CACHE_RE.test(lastValue(CTV_FLAG_NAMES) ?? '')) {
+      warnings.push('A quantized -ctv cache needs flash attention, but -fa is off.');
     }
   }
 
@@ -470,19 +469,23 @@ export function normalizeLlamaCommandInput(raw: string): string {
   return (raw || '').replace(/\s*(?:\\|\^|`)?\r?\n\s*/g, ' ');
 }
 
-/** Rewrite one entry's value. An ``--x=y`` entry becomes ``--x y``. */
+/**
+ * Rewrite one entry's value. An ``--x=y`` entry becomes ``--x y``. Entry spans index the trimmed
+ * command, which is what {@link analyzeLlamaRunCommand} parsed, so these work on that too.
+ */
 export function setLlamaEntryValue(
   command: string,
   entry: Pick<LlamaCommandEntry, 'flag' | 'start' | 'end'>,
   value: string,
   platform: ShellQuotingPlatform,
 ): string {
-  const replacement = value === '' ? entry.flag : `${entry.flag} ${shellQuoteArg(value, platform)}`;
-  return `${command.slice(0, entry.start)}${replacement}${command.slice(entry.end)}`;
+  const trimmed = (command || '').trim();
+  const replacement = value === '' ? entry.flag : `${entry.flag} ${quoteLlamaFlagValue(value, platform)}`;
+  return `${trimmed.slice(0, entry.start)}${replacement}${trimmed.slice(entry.end)}`;
 }
 
-export function removeLlamaEntry(command: string, entry: Pick<LlamaCommandEntry, 'start' | 'end'>): string {
-  return spliceOutLlamaSpans(command, [entry]);
+export function removeLlamaEntry(command: string, entry: Pick<LlamaCommandEntry, 'start' | 'end' | 'tailEnd'>): string {
+  return spliceOutLlamaSpans((command || '').trim(), [entry]);
 }
 
 /** Append a flag, with its value when it takes one. */
@@ -492,7 +495,7 @@ export function appendLlamaFlag(
   value: string | null,
   platform: ShellQuotingPlatform,
 ): string {
-  const tail = value === null ? flag : `${flag} ${shellQuoteArg(value, platform)}`;
+  const tail = value === null ? flag : `${flag} ${quoteLlamaFlagValue(value, platform)}`;
   const trimmed = (command || '').trim();
   return trimmed ? `${trimmed} ${tail}` : tail;
 }
@@ -506,6 +509,10 @@ export interface LlamaFlagChange {
   flag: string;
   from: string | null;
   to: string | null;
+}
+
+function isNegatedFlag(flag: string): boolean {
+  return normalizeLlamaFlagName(flag).startsWith('--no-');
 }
 
 function effectiveValues(command: string, index: Map<string, LlamaFlagSpec>): Map<string, { flag: string; value: string | null }> {
@@ -539,6 +546,8 @@ export function diffLlamaCommands(
       changes.push({ flag: was.flag, from: was.value ?? 'on', to: null });
     } else if (now.value !== was.value) {
       changes.push({ flag: now.flag, from: was.value, to: now.value });
+    } else if (isNegatedFlag(now.flag) !== isNegatedFlag(was.flag)) {
+      changes.push({ flag: now.flag, from: was.flag, to: now.flag });
     }
   }
   for (const [key, now] of after) {
@@ -549,7 +558,21 @@ export function diffLlamaCommands(
   return changes;
 }
 
-const MODEL_IDENTITY_FLAGS = ['-m', '--model', '-hf', '-hfr', '--hf-repo', '-mm', '--mmproj', '--no-mmproj', '--no-mmproj-auto'];
+const MODEL_IDENTITY_FLAGS = [
+  ...MODEL_FLAG_NAMES,
+  ...HF_FLAG_NAMES,
+  '-mu',
+  '--model-url',
+  '--hf-url',
+  '-hff',
+  '--hf-file',
+  '-mm',
+  '--mmproj',
+  '-mmu',
+  '--mmproj-url',
+  '--no-mmproj',
+  '--no-mmproj-auto',
+];
 
 /**
  * Copy flags from the previous command that a rebuilt one lacks, so picking another model keeps the
@@ -564,7 +587,7 @@ export function carryCustomLlamaFlags(previous: string, rebuilt: string): string
       continue;
     }
     present.add(key);
-    out = `${out} ${previous.slice(occ.start, occ.end)}`;
+    out = `${out} ${previous.slice(occ.start, occ.tailEnd)}`;
   }
   return out;
 }

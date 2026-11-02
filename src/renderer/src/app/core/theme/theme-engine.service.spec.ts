@@ -160,7 +160,9 @@ describe('ThemeEngineService', () => {
     expect(css).toContain('[data-theme-group="chat.transcript"] {\n  --t-bg: #101010;\n}');
     expect(css).toContain('background-image: url("clara-theme://asset/neon/wall.png");');
     expect(css).toContain('[data-theme-group="chat.transcript"] .chat-box {\n  background-color: transparent !important;');
-    expect(groupsCss()).toContain('[data-theme-group="chat.transcript"] .msg-bubble { border-radius: 0; }');
+    expect(groupsCss()).toContain(
+      '@scope ([data-theme-group="chat.transcript"]) {\n:scope .msg-bubble { border-radius: 0; }\n}',
+    );
     // Monaco surface has an overlay → editor background goes transparent.
     expect(engine.monacoTheme()?.colors['editor.background']).toBe('#00000000');
 

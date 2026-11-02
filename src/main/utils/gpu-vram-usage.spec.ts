@@ -45,6 +45,12 @@ describe('parseNvidiaSmiMemoryUsed', () => {
       { cudaIndex: 1, usedMb: 11142 },
     ]);
   });
+
+  it('reads the card model when it is queried', () => {
+    expect(parseNvidiaSmiMemoryUsed('0, 28637, NVIDIA GeForce RTX 5090\n')).toEqual([
+      { cudaIndex: 0, usedMb: 28637, name: 'NVIDIA GeForce RTX 5090' },
+    ]);
+  });
 });
 
 describe('assignAdaptersToCudaCards', () => {
@@ -57,6 +63,32 @@ describe('assignAdaptersToCudaCards', () => {
     expect(usage[0]?.dedicatedMb).toBe(Math.round(35.76 * 1024));
     expect(usage[0]?.otherMb).toBe(Math.round(10.79 * 1024));
     expect(usage[1]?.otherMb).toBe(0);
+  });
+
+  it('pairs by model when it can, even when the used memory points at the other card', () => {
+    const adapters = [
+      { key: 'big', adapterMb: 1000, dedicatedMb: 7000, llamaMb: 0 },
+      { key: 'small', adapterMb: 1040, dedicatedMb: 300, llamaMb: 0 },
+    ];
+    const names = new Map([
+      ['big', 'RTX 5090'],
+      ['small', 'RTX 5070 Ti'],
+    ]);
+    const usage = assignAdaptersToCudaCards(
+      adapters,
+      [
+        { cudaIndex: 0, usedMb: 1040, name: 'RTX 5090' },
+        { cudaIndex: 1, usedMb: 1000, name: 'RTX 5070 Ti' },
+      ],
+      names,
+    );
+    expect(usage.map((u) => u.dedicatedMb)).toEqual([7000, 300]);
+  });
+
+  it('falls back to used memory when no adapter has the card model', () => {
+    const adapters = [{ key: 'a', adapterMb: 100, dedicatedMb: 100, llamaMb: 0 }];
+    const usage = assignAdaptersToCudaCards(adapters, [{ cudaIndex: 0, usedMb: 100, name: 'RTX 5090' }], new Map());
+    expect(usage).toHaveLength(1);
   });
 
   it('leaves out a card with no adapter close to it', () => {

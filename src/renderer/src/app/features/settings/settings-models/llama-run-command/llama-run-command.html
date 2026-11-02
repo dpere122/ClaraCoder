@@ -201,6 +201,7 @@
         spellcheck='false'
         [ngModel]='command()'
         (ngModelChange)='onRawChange($event)'
+        (blur)='commitRawEdit()'
         [placeholder]="'llama-server --host 127.0.0.1 --port ' + s.managedLlamaPortToken + ' --jinja --no-webui -np 1 -hf org/model:Q4_0'"
       ></textarea>
     </label>

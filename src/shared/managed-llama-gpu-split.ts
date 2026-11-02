@@ -2,8 +2,12 @@
  * Recommend and apply llama-server GPU placement: one CUDA card vs a VRAM-weighted split.
  */
 import {
+  CTK_FLAG_NAMES,
+  CTV_FLAG_NAMES,
+  CTX_FLAG_NAMES,
   detectShellQuotingPlatform,
   findLlamaFlag,
+  NGL_FLAG_NAMES,
   readLlamaFlagValue,
   spliceOutLlamaSpans,
   upsertLlamaFlag,
@@ -28,8 +32,6 @@ export interface GpuOffloadAdvice {
 
 const FIT_RATIO = 0.9;
 const COMPUTE_OVERHEAD_MB = 1536;
-const MIN_KV_MB = 1024;
-const MAX_KV_MB = 12288;
 /**
  * KV cache for a 27B-class model with `-ctk q8_0 -ctv q8_0`. From measurements on Qwen3.8-27B
  * Q6: halving `-c` from 262144 freed about 5.5 GB across two cards.
@@ -74,33 +76,47 @@ export function cudaDeviceListArg(gpus: readonly CudaGpuDevice[]): string {
   return gpus.map((g) => `CUDA${g.cudaIndex}`).join(',');
 }
 
-function estimateKvMb(ctxTokens: number): number {
-  if (!Number.isFinite(ctxTokens) || ctxTokens <= 0) {
-    // ``-c 0`` is model-native context (Gemma 4 12B is 256k). Use the KV cap so
-    // Fastest-card vs Split does not treat Max as a tiny cache.
-    return MAX_KV_MB;
+/** What `-c 0` (model native) usually means for the large-context models Clara runs. */
+const ASSUMED_NATIVE_CTX = 262_144;
+
+/** Size of one cache cell against `q8_0`. Without `-ctk` / `-ctv`, llama.cpp uses f16. */
+function cacheTypeWeight(type: string | null): number {
+  const t = (type ?? 'f16').toLowerCase();
+  if (t === 'f32') {
+    return 4;
   }
-  return Math.min(MAX_KV_MB, Math.max(MIN_KV_MB, Math.round((ctxTokens / 1024) * KV_MB_PER_1K_CTX)));
+  if (t === 'f16' || t === 'bf16') {
+    return 2;
+  }
+  return t.startsWith('q8') ? 1 : t.startsWith('q5') ? 0.625 : t.startsWith('q4') || t.startsWith('iq4') ? 0.5 : 2;
 }
 
-function estimateNeededMb(modelBytes: number | null, ctxTokens: number): number | null {
+/** KV cache size of a command's `-ctk` / `-ctv`, as a multiple of the `q8_0` size. */
+export function managedLlamaKvCacheWeight(cmd: string): number {
+  return (cacheTypeWeight(readLlamaFlagValue(cmd, CTK_FLAG_NAMES)) + cacheTypeWeight(readLlamaFlagValue(cmd, CTV_FLAG_NAMES))) / 2;
+}
+
+function estimateNeededMb(modelBytes: number | null, ctxTokens: number, kvCacheWeight: number): number | null {
   if (modelBytes == null || !Number.isFinite(modelBytes) || modelBytes <= 0) {
     return null;
   }
-  return modelBytes / (1024 * 1024) + estimateKvMb(ctxTokens) + COMPUTE_OVERHEAD_MB;
+  const ctx = Number.isFinite(ctxTokens) && ctxTokens > 0 ? ctxTokens : ASSUMED_NATIVE_CTX;
+  return modelBytes / (1024 * 1024) + (ctx / 1024) * KV_MB_PER_1K_CTX * kvCacheWeight + COMPUTE_OVERHEAD_MB;
 }
 
 /**
  * Pick fastest-card vs VRAM split. Prefer a single GPU whenever the GGUF + a
  * conservative KV/compute reserve fits, because layer-split across unequal
  * cards stalls the faster GPU on PCIe. `usage` takes what the desktop and other
- * apps already hold off each card, when it's known.
+ * apps already hold off each card, when it's known; `kvCacheWeight` comes from
+ * {@link managedLlamaKvCacheWeight}.
  */
 export function recommendGpuOffload(
   gpus: readonly CudaGpuDevice[],
   modelBytes: number | null,
   ctxTokens: number,
   usage: readonly GpuVramCardUsage[] = [],
+  kvCacheWeight = 1,
 ): GpuOffloadAdvice | null {
   if (!gpus.length) {
     return null;
@@ -121,7 +137,7 @@ export function recommendGpuOffload(
   }
 
   const names = ordered.map((g) => `${shortCudaGpuName(g.model)} ${formatGpuVramGb(g.memoryTotalMb)}`).join(' · ');
-  const needed = estimateNeededMb(modelBytes, ctxTokens);
+  const needed = estimateNeededMb(modelBytes, ctxTokens, kvCacheWeight);
   const availableMb = (g: CudaGpuDevice): number =>
     Math.max(0, g.memoryTotalMb - (usage.find((u) => u.cudaIndex === g.cudaIndex)?.otherMb ?? 0));
   const largestFit = availableMb(primary) * FIT_RATIO;
@@ -165,6 +181,7 @@ export function recommendGpuOffload(
 const DEV_FLAG_NAMES = ['-dev', '--device'];
 const TS_FLAG_NAMES = ['-ts', '--tensor-split'];
 const MG_FLAG_NAMES = ['-mg', '--main-gpu'];
+const SPLIT_MODE_FLAG_NAMES = ['-sm', '--split-mode'];
 
 function parseCudaIndexes(raw: string): number[] {
   const out: number[] = [];
@@ -238,27 +255,17 @@ export interface GpuVramCardEstimate {
   level: GpuVramLevel;
 }
 
-/** What `-c 0` (model native) usually means for the large-context models Clara runs. */
-const ASSUMED_NATIVE_CTX = 262_144;
 /** Under this much free, opening another app can start pushing things out of VRAM. */
 const TIGHT_HEADROOM_MB = 1536;
 
-/** Size of one cache cell against `q8_0`. Without `-ctk` / `-ctv`, llama.cpp uses f16. */
-function cacheTypeWeight(type: string | null): number {
-  const t = (type ?? 'f16').toLowerCase();
-  if (t === 'f32') {
-    return 4;
-  }
-  if (t === 'f16' || t === 'bf16') {
-    return 2;
-  }
-  return t.startsWith('q8') ? 1 : t.startsWith('q5') ? 0.625 : t.startsWith('q4') || t.startsWith('iq4') ? 0.5 : 2;
-}
+/** `-ngl` at or past this means every layer, whatever the model has. */
+const ALL_LAYERS_NGL = 99;
 
 /**
  * Estimate each card's VRAM for a command before starting it. `null` when the model size or the
- * cards aren't known, or the model stays off the GPU (`-ngl 0`). Layers don't land exactly on the
- * split, so read the result as "about"; it runs a little high on the larger card.
+ * cards aren't known, or the command doesn't spread the whole model over CUDA cards: a partial
+ * `-ngl`, `-dev none` or another backend, `-sm none`. Layers don't land exactly on the split, so
+ * read the result as "about"; it runs a little high on the larger card.
  */
 export function estimateManagedLlamaVram(
   cmd: string,
@@ -266,13 +273,22 @@ export function estimateManagedLlamaVram(
   modelBytes: number | null,
   usage: readonly GpuVramCardUsage[],
 ): GpuVramCardEstimate[] | null {
-  if (modelBytes == null || !Number.isFinite(modelBytes) || modelBytes <= 0 || !gpus.length) {
+  const ctx = Number.parseInt(readLlamaFlagValue(cmd, CTX_FLAG_NAMES) ?? '', 10);
+  const neededMb = estimateNeededMb(modelBytes, ctx, managedLlamaKvCacheWeight(cmd));
+  if (neededMb === null || !gpus.length) {
     return null;
   }
-  if (readLlamaFlagValue(cmd, ['-ngl', '--gpu-layers', '--n-gpu-layers']) === '0') {
+  const layers = Number.parseInt(readLlamaFlagValue(cmd, NGL_FLAG_NAMES) ?? '', 10);
+  if (layers >= 0 && layers < ALL_LAYERS_NGL) {
     return null;
   }
   const parsed = parseManagedLlamaGpuOffload(cmd);
+  if (
+    (readLlamaFlagValue(cmd, DEV_FLAG_NAMES) && !parsed.cudaIndexes.length) ||
+    readLlamaFlagValue(cmd, SPLIT_MODE_FLAG_NAMES) === 'none'
+  ) {
+    return null;
+  }
   const chosen = parsed.cudaIndexes.length ? parsed.cudaIndexes : gpus.map((g) => g.cudaIndex);
   const cards = chosen.map((i) => gpus.find((g) => g.cudaIndex === i));
   if (cards.some((g) => !g)) {
@@ -285,13 +301,6 @@ export function estimateManagedLlamaVram(
       ? listed
       : placed.map((g) => g.memoryTotalMb);
   const weightSum = weights.reduce((a, b) => a + b, 0);
-  const ctx = Number.parseInt(readLlamaFlagValue(cmd, ['-c', '--ctx-size']) ?? '', 10);
-  const cacheWeight =
-    (cacheTypeWeight(readLlamaFlagValue(cmd, ['-ctk', '--cache-type-k'])) +
-      cacheTypeWeight(readLlamaFlagValue(cmd, ['-ctv', '--cache-type-v']))) /
-    2;
-  const kvMb = ((ctx > 0 ? ctx : ASSUMED_NATIVE_CTX) / 1024) * KV_MB_PER_1K_CTX * cacheWeight;
-  const neededMb = modelBytes / (1024 * 1024) + kvMb + COMPUTE_OVERHEAD_MB;
   return placed.map((gpu, i) => {
     const modelMb = neededMb * ((weights[i] as number) / weightSum);
     const otherMb = usage.find((u) => u.cudaIndex === gpu.cudaIndex)?.otherMb ?? 0;

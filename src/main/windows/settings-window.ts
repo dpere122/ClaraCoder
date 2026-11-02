@@ -10,6 +10,7 @@ import {
 } from '../utils/harden-browser-window';
 import {
   attachBrowserWindowRevealFallbacks,
+  returnFocusToParentOnClose,
   settingsWindowParentOptions,
 } from '../utils/reveal-browser-window';
 import { broadcastThemePreview } from '../ipc/handlers/theme-broadcast';
@@ -115,6 +116,7 @@ export function createSettingsWindow(tab?: SettingsWindowTab): void {
   hardenBrowserWindow(sw);
   sw.removeMenu();
   attachBrowserWindowRevealFallbacks(sw);
+  returnFocusToParentOnClose(sw, mainWindow);
   notifyVisibility(true);
 
   const hash = settingsHash(tab);

@@ -24,11 +24,13 @@ vi.mock('../utils/harden-browser-window', () => ({
 }));
 vi.mock('../utils/reveal-browser-window', () => ({
   attachBrowserWindowRevealFallbacks: vi.fn(),
+  returnFocusToParentOnClose: vi.fn(),
   settingsWindowParentOptions: () => ({}),
 }));
 
 import { BrowserWindow } from 'electron';
 import { mainState } from '../state';
+import { returnFocusToParentOnClose } from '../utils/reveal-browser-window';
 import {
   createSettingsWindow,
   notifySettingsRendererReady,
@@ -109,6 +111,17 @@ describe('settings tab delivery', () => {
     handlers.get('closed')!();
     expect(mainState.settingsWindow).toBeNull();
     expect(mainState.mainWindow?.webContents.send).toHaveBeenCalledWith('theme-preview', null);
+  });
+
+  it('hands focus back to the main window when Settings closes', () => {
+    mainState.settingsWindow = null as never;
+    const created = { ...fakeWin(), on: vi.fn(), removeMenu: vi.fn(), loadFile: vi.fn(), loadURL: vi.fn() };
+    vi.mocked(BrowserWindow).mockImplementationOnce(function () {
+      return created as never;
+    });
+
+    createSettingsWindow();
+    expect(returnFocusToParentOnClose).toHaveBeenCalledWith(created, mainState.mainWindow);
   });
 
   it('closes cleanly on quit, when the main webContents is gone before its window', () => {

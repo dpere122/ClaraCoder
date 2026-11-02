@@ -72,15 +72,16 @@ export class PillSelectComponent {
       }
     });
 
+    // Only a scroller around the trigger moves it away from the menu. Unrelated panes, such as a
+    // terminal following llama-server output, scroll all the time and must leave the menu open.
     const onScroll = (event: Event): void => {
       if (!this.open()) {
         return;
       }
       const target = event.target;
-      if (target instanceof Node && this.host.nativeElement.contains(target)) {
-        return;
+      if (target instanceof Node && target.contains(this.host.nativeElement)) {
+        this.open.set(false);
       }
-      this.open.set(false);
     };
     document.addEventListener('scroll', onScroll, true);
     this.destroyRef.onDestroy(() => document.removeEventListener('scroll', onScroll, true));

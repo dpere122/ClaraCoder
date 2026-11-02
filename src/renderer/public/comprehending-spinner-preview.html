@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Comprehending spinners</title>
+    <!--
+      Draft: four candidates for the 'prefill' spinner (the "comprehending" row before the first
+      token). Each is a 32×32 glyph in the app-tool-spinner tones (--t-primary / --t-secondary /
+      --t-hljs-number) so the chosen one ports into tool-spinner.html as a new @case body.
+      The resting frame of each glyph is its icon, which is what reduced motion shows.
+    -->
+    <style>
+      :root,
+      [data-theme='default'] {
+        --t-bg: #141417;
+        --t-bg-surface: #1c1c21;
+        --t-fg: #e4e4e7;
+        --t-muted: #8b8b96;
+        --t-border: #34343c;
+        --t-primary: #4da3ff;
+        --t-secondary: #ffb35c;
+        --t-hljs-number: #ff8f6b;
+      }
+      [data-theme='clara-dark'] {
+        --t-bg: #191c17;
+        --t-bg-surface: #22261f;
+        --t-fg: #d2cdc2;
+        --t-muted: #7a8470;
+        --t-border: #3d4436;
+        --t-primary: #a8b89a;
+        --t-secondary: #c9a96e;
+        --t-hljs-number: #7eb5a6;
+      }
+      [data-theme='clara-light'] {
+        --t-bg: #f5f0e8;
+        --t-bg-surface: #ebe5d9;
+        --t-fg: #2c1810;
+        --t-muted: #8a7a68;
+        --t-border: #c4b5a0;
+        --t-primary: #2c1810;
+        --t-secondary: #5c3d2e;
+        --t-hljs-number: #1a5276;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        background: var(--t-bg);
+        color: var(--t-fg);
+        font: 13px/1.45 'Segoe UI', system-ui, sans-serif;
+      }
+      body {
+        padding: 24px 16px 48px;
+        max-width: 1080px;
+        margin: 0 auto;
+      }
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 8px;
+      }
+      h1 {
+        font-size: 18px;
+        font-weight: 600;
+        margin: 0;
+      }
+      .sub {
+        color: var(--t-muted);
+        margin: 0 0 20px;
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .controls button {
+        font: inherit;
+        color: var(--t-fg);
+        background: var(--t-bg-surface);
+        border: 1px solid var(--t-border);
+        border-radius: 999px;
+        padding: 4px 12px;
+        cursor: pointer;
+      }
+      .controls button[aria-pressed='true'] {
+        border-color: var(--t-primary);
+        color: var(--t-primary);
+      }
+      h2 {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--t-muted);
+        margin: 28px 0 10px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        gap: 12px;
+      }
+      .card {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 16px;
+        background: var(--t-bg-surface);
+        border: 1px solid var(--t-border);
+        border-radius: 12px;
+      }
+      .stage {
+        display: grid;
+        place-items: center;
+        height: 132px;
+        border-radius: 8px;
+        background: var(--t-bg);
+      }
+      .stage .g {
+        width: 96px;
+        height: 96px;
+      }
+      .name {
+        font-weight: 600;
+        font-size: 14px;
+      }
+      .idea {
+        color: var(--t-muted);
+        font-size: 12px;
+        margin-top: 2px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: var(--t-bg);
+      }
+      .icons {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .icons .g {
+        width: 16px;
+        height: 16px;
+      }
+      .icons .g.s20 {
+        width: 20px;
+        height: 20px;
+      }
+
+      /* ---- the chat's live processing row (chat-box.css .processing-bubble) ---- */
+      .processing {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        min-height: 1.5em;
+      }
+      .processing .g {
+        width: 1.7rem;
+        height: 1.7rem;
+      }
+      .processing-text {
+        display: inline-flex;
+        font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+        font-size: 0.9em;
+        letter-spacing: 0.02em;
+      }
+      .processing-text span {
+        display: inline-block;
+        color: var(--t-muted);
+        animation: label-letter 2.1s ease-in-out infinite;
+      }
+      @keyframes label-letter {
+        0%,
+        100% {
+          opacity: 0.48;
+        }
+        40% {
+          opacity: 1;
+          color: var(--t-primary);
+          text-shadow: 0 0 8px color-mix(in srgb, var(--t-primary) 50%, transparent);
+        }
+      }
+
+      /* ---- glyph tones (match app-tool-spinner) ---- */
+      .g {
+        display: block;
+        overflow: visible;
+        fill: none;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .g .l { stroke: var(--t-primary); }
+      .g .h { stroke: var(--t-secondary); }
+      .g .t { stroke: var(--t-hljs-number, var(--t-primary)); }
+      .g .d { fill: var(--t-secondary); stroke: none; }
+      .g .dl { fill: var(--t-primary); stroke: none; }
+      .g .dt { fill: var(--t-hljs-number); stroke: none; }
+      .g .fp { fill: color-mix(in srgb, var(--t-primary) 14%, transparent); }
+      .g .fh { fill: color-mix(in srgb, var(--t-secondary) 22%, transparent); }
+      .g .fb { fill: var(--t-bg); }
+      .g .n { stroke-width: 1.4; }
+      .g .box { transform-box: fill-box; transform-origin: center; }
+      .g .mid { transform-origin: 16px 16px; }
+
+      /* ---- motion: only inside .live ---- */
+      .live .d1 { animation-delay: 0.3s !important; }
+      .live .d2 { animation-delay: 0.6s !important; }
+      .live .d3 { animation-delay: 0.9s !important; }
+
+      /* current: Cantor set */
+      .live .a-level { animation: level 2.2s ease-in-out infinite; }
+
+      /* bookish: a page turns over the spine while the lines are read */
+      .live .a-turn { transform-origin: 16px 16px; animation: turn 2.8s cubic-bezier(0.55, 0, 0.35, 1) infinite; }
+      .live .a-turn.d-half { animation-delay: 1.4s; }
+      .live .a-read { animation: read 2.8s ease-in-out infinite; }
+      .live .a-read.r1 { animation-delay: 0.25s; }
+      .live .a-read.r2 { animation-delay: 0.5s; }
+
+      /* artsy: paint blob morphs while a brush swash is painted through it */
+      .live .a-blob { animation: blob 4.2s ease-in-out infinite; }
+      .live .a-swash { stroke-dasharray: 1; animation: swash 2.8s ease-in-out infinite; }
+      .live .a-drip { animation: drip 2.8s ease-out infinite; }
+
+      /* modern: a dash circles the frame while a wave runs across the dot grid */
+      .live .a-trace { stroke-dasharray: 0.22 0.78; animation: trace 2.4s linear infinite; }
+      .live .a-cell { animation: cell 1.8s ease-in-out infinite; }
+
+      /* gothic: the rose window lights petal by petal around a flickering candle */
+      .live .a-rose { animation: rose 2.4s linear infinite; }
+      .live .a-wheel { animation: wheel 18s linear infinite; }
+      .live .a-flicker { animation: flicker 1.9s steps(1, end) infinite; }
+      .live .a-glow { animation: glow 1.9s ease-in-out infinite; }
+
+      @keyframes level {
+        0% { opacity: 0.12; }
+        12%, 72% { opacity: 1; }
+        88%, 100% { opacity: 0.12; }
+      }
+      @keyframes turn {
+        0%, 12% { transform: scaleX(1); opacity: 0; }
+        16% { opacity: 1; }
+        62% { transform: scaleX(-1); opacity: 1; }
+        76%, 100% { transform: scaleX(-1); opacity: 0; }
+      }
+      @keyframes read {
+        0%, 100% { opacity: 0.25; }
+        30%, 50% { opacity: 1; }
+      }
+      @keyframes blob {
+        0%, 100% { d: path('M16 6C22 6 26 10 26 16C26 22 21 26 16 26C10 26 6 22 6 16C6 10 10 6 16 6Z'); }
+        33% { d: path('M17 5C24 7 27 12 25 17C23 23 19 27 14 25C8 24 5 19 7 14C8 9 12 4 17 5Z'); }
+        66% { d: path('M15 7C21 5 27 9 26 15C25 21 22 25 16 26C11 27 5 23 6 17C7 11 10 8 15 7Z'); }
+      }
+      @keyframes swash {
+        0% { stroke-dashoffset: 1; }
+        45%, 65% { stroke-dashoffset: 0; }
+        100% { stroke-dashoffset: -1; }
+      }
+      @keyframes drip {
+        0%, 40% { transform: translateY(-2px) scale(0); opacity: 0; }
+        52% { transform: translateY(0) scale(1.2); opacity: 1; }
+        70% { transform: translateY(0) scale(1); opacity: 1; }
+        100% { transform: translateY(2.5px) scale(0.6); opacity: 0; }
+      }
+      @keyframes trace {
+        from { stroke-dashoffset: 1; }
+        to { stroke-dashoffset: 0; }
+      }
+      @keyframes cell {
+        0%, 100% { transform: scale(0.7); fill: var(--t-primary); opacity: 0.45; }
+        35% { transform: scale(1.25); fill: var(--t-secondary); opacity: 1; }
+      }
+      @keyframes rose {
+        0%, 100% { opacity: 0.2; }
+        8%, 24% { opacity: 1; }
+        40% { opacity: 0.2; }
+      }
+      @keyframes wheel {
+        to { transform: rotate(360deg); }
+      }
+      @keyframes flicker {
+        0% { opacity: 1; }
+        14% { opacity: 0.7; }
+        20% { opacity: 1; }
+        46% { opacity: 0.85; }
+        52% { opacity: 0.55; }
+        58% { opacity: 1; }
+        84% { opacity: 0.75; }
+      }
+      @keyframes glow {
+        0%, 100% { opacity: 0.25; transform: scale(0.85); }
+        50% { opacity: 0.55; transform: scale(1.1); }
+      }
+
+      .still .live *,
+      .still .processing-text span {
+        animation: none !important;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .live *,
+        .processing-text span {
+          animation: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body data-theme="default">
+    <header>
+      <h1>Comprehending spinners</h1>
+      <div class="controls">
+        <button type="button" data-theme-btn="default" aria-pressed="true">Default</button>
+        <button type="button" data-theme-btn="clara-dark" aria-pressed="false">Clara dark</button>
+        <button type="button" data-theme-btn="clara-light" aria-pressed="false">Clara light</button>
+        <button type="button" id="motion" aria-pressed="false">Pause motion</button>
+      </div>
+    </header>
+    <p class="sub">
+      Candidates for the <code>prefill</code> glyph shown beside “comprehending” before the first token. Each card
+      shows the glyph large, in the chat's processing row at its real 1.7rem size, and still at 16 and 20px.
+    </p>
+
+    <h2>Today</h2>
+    <div class="grid" id="current"></div>
+
+    <h2>Candidates</h2>
+    <div class="grid" id="styles"></div>
+
+    <script>
+      const CURRENT = [
+        ['Cantor set', 'Each level splits the one above into thirds.', `
+          <path class="l a-level" d="M4 8h24" stroke-width="3"/>
+          <path class="l a-level d1" d="M4 15h8M20 15h8" stroke-width="3"/>
+          <path class="h a-level d2" d="M4 22h2.67M9.33 22h2.67M20 22h2.67M25.33 22h2.67" stroke-width="3"/>`],
+      ];
+
+      const STYLES = [
+        ['Bookish', 'An open book. Pages turn over the spine while the lines on the right page are read in order.', `
+          <path class="l fp" d="M16 9.5C12.5 7.5 8.5 7 4 8v16c4.5-1 8.5-.5 12 1.5z"/>
+          <path class="l fp" d="M16 9.5c3.5-2 7.5-2.5 12-1.5v16c-4.5-1-8.5-.5-12 1.5z"/>
+          <path class="t n" d="M7 12.5h5.5M7 16h5.5M7 19.5h4"/>
+          <path class="h n a-read" d="M19.5 12.5H25"/>
+          <path class="h n a-read r1" d="M19.5 16H25"/>
+          <path class="h n a-read r2" d="M19.5 19.5h4"/>
+          <path class="h fh a-turn" d="M16 9.5c3.5-2 7.5-2.5 12-1.5v16c-4.5-1-8.5-.5-12 1.5z" opacity="0"/>
+          <path class="h fh a-turn d-half" d="M16 9.5c3.5-2 7.5-2.5 12-1.5v16c-4.5-1-8.5-.5-12 1.5z" opacity="0"/>`],
+        ['Artsy', 'A paint blob that keeps changing shape while a brush swash is painted through it and a drop falls off the end.', `
+          <path class="h fh a-blob" d="M16 6C22 6 26 10 26 16C26 22 21 26 16 26C10 26 6 22 6 16C6 10 10 6 16 6Z"/>
+          <path class="l a-swash" pathLength="1" d="M8.5 19.5c2.5-5 5.5-6.5 7.5-3.5s5 2.5 7.5-3.5" stroke-width="2.4"/>
+          <circle class="dt box a-drip" cx="23.6" cy="16.2" r="1.3"/>
+          <circle class="d box a-drip d2" cx="9.2" cy="22.4" r="0.9"/>`],
+        ['Modern', 'A 3×3 dot grid with a wave running across it on the diagonal, inside a rounded frame that a dash circles.', `
+          <rect class="t n" x="4" y="4" width="24" height="24" rx="7" opacity="0.35"/>
+          <rect class="l a-trace" pathLength="1" x="4" y="4" width="24" height="24" rx="7"/>
+          ${[10, 16, 22]
+            .flatMap((y, r) => [10, 16, 22].map((x, c) =>
+              `<circle class="dl box a-cell" cx="${x}" cy="${y}" r="1.9" style="animation-delay:${(r + c) * 0.15}s"/>`))
+            .join('')}`],
+        ['Gothic', 'A pointed arch with a rose window. The petals light one by one as the tracery slowly turns, around a flickering candle.', `
+          <path class="l" d="M6.5 28V15.5C6.5 9.5 10.5 5.5 16 3c5.5 2.5 9.5 6.5 9.5 12.5V28z"/>
+          <path class="t n" d="M11 28v-3.2a1.6 1.6 0 0 1 3.2 0V28M17.8 28v-3.2a1.6 1.6 0 0 1 3.2 0V28"/>
+          <circle class="t n" cx="16" cy="14.5" r="5.6"/>
+          <g class="mid a-wheel" style="transform-origin:16px 14.5px">
+            ${[0, 60, 120, 180, 240, 300]
+              .map((a, i) => {
+                const rad = (a * Math.PI) / 180;
+                const x = (16 + 3.1 * Math.cos(rad)).toFixed(2);
+                const y = (14.5 + 3.1 * Math.sin(rad)).toFixed(2);
+                return `<circle class="h n a-rose" cx="${x}" cy="${y}" r="1.55" style="animation-delay:${(i * 0.4).toFixed(1)}s"/>`;
+              })
+              .join('')}
+          </g>
+          <circle class="d box a-glow" cx="16" cy="14.5" r="2.4" opacity="0.3"/>
+          <circle class="d a-flicker" cx="16" cy="14.5" r="1.1"/>`],
+      ];
+
+      const svg = (body, cls) => `<svg class="g ${cls}" viewBox="0 0 32 32" aria-hidden="true">${body}</svg>`;
+      const label = Array.from('comprehending')
+        .map((ch, i) => `<span style="animation-delay:${(i * 0.08).toFixed(2)}s">${ch}</span>`)
+        .join('');
+      const card = ([name, idea, body]) => `
+        <div class="card">
+          <div class="stage">${svg(body, 'live')}</div>
+          <div>
+            <div class="name">${name}</div>
+            <div class="idea">${idea}</div>
+          </div>
+          <div class="row">
+            <div class="processing" role="img" aria-label="${name} spinner beside the comprehending label">
+              ${svg(body, 'live')}<span class="processing-text">${label}</span>
+            </div>
+            <div class="icons">${svg(body, '')}${svg(body, 's20')}</div>
+          </div>
+        </div>`;
+      document.getElementById('current').innerHTML = CURRENT.map(card).join('');
+      document.getElementById('styles').innerHTML = STYLES.map(card).join('');
+
+      document.querySelectorAll('[data-theme-btn]').forEach((btn) =>
+        btn.addEventListener('click', () => {
+          document.body.dataset.theme = btn.dataset.themeBtn;
+          document.querySelectorAll('[data-theme-btn]').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+        }),
+      );
+      const motion = document.getElementById('motion');
+      motion.addEventListener('click', () => {
+        const still = document.body.classList.toggle('still');
+        motion.setAttribute('aria-pressed', String(still));
+        motion.textContent = still ? 'Play motion' : 'Pause motion';
+      });
+    </script>
+  </body>
+</html>

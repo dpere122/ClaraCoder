@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 import { toolPillLabel, toolPillVerb, toolTrailStatusStreamTag } from '@shared/index';
 import { AuxStreamToolPartComponent } from '../aux-stream-tool-part/aux-stream-tool-part';
+import { PREFILL_STYLES } from '../chat-box-display';
 import { StreamToolPillComponent } from '../stream-tool-pill/stream-tool-pill';
 import { TOOL_GLYPH_IDS, toolGlyph, toolSpinnerKind } from '../tool-spinner-kind';
 import { ToolSpinnerComponent } from './tool-spinner';
@@ -20,6 +21,12 @@ const fallbackTree = renderSpinner('write').innerHTML;
 describe('ToolSpinnerComponent', () => {
   it.each(TOOL_GLYPH_IDS)('draws its own %s glyph', (glyph) => {
     const svg = renderSpinner(glyph);
+    expect(svg.querySelector('path, circle, rect, ellipse')).not.toBeNull();
+    expect(svg.innerHTML).not.toBe(fallbackTree);
+  });
+
+  it.each(PREFILL_STYLES.map((style) => style.spinner))('draws its own %s prefill spinner', (kind) => {
+    const svg = renderSpinner(kind);
     expect(svg.querySelector('path, circle, rect, ellipse')).not.toBeNull();
     expect(svg.innerHTML).not.toBe(fallbackTree);
   });

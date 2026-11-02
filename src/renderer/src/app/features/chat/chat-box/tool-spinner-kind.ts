@@ -6,8 +6,8 @@ import {
 } from '@shared/index';
 
 /**
- * Which tool spinner a running tool shows: `read` (nested squares), `run` (hex core),
- * `web` (branching signal) or `write` (fractal tree — every other tool).
+ * Which tool spinner a running tool shows: `read` (scanner), `run` (gear),
+ * `web` (branching signal) or `write` (stacking blocks — every other tool).
  */
 export type ToolSpinnerKind = 'read' | 'write' | 'run' | 'web';
 

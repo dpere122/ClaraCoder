@@ -15,20 +15,20 @@ function renderSpinner(kind: string, still = false): SVGSVGElement {
   return (fixture.nativeElement as HTMLElement).querySelector('svg.tool-spinner')!;
 }
 
-/** The fractal tree drawn by `@default`, so a glyph without its own case would match it. */
-const fallbackTree = renderSpinner('write').innerHTML;
+/** The stacking blocks drawn by `@default`, so a glyph without its own case would match them. */
+const fallbackBlocks = renderSpinner('write').innerHTML;
 
 describe('ToolSpinnerComponent', () => {
   it.each(TOOL_GLYPH_IDS)('draws its own %s glyph', (glyph) => {
     const svg = renderSpinner(glyph);
     expect(svg.querySelector('path, circle, rect, ellipse')).not.toBeNull();
-    expect(svg.innerHTML).not.toBe(fallbackTree);
+    expect(svg.innerHTML).not.toBe(fallbackBlocks);
   });
 
   it.each(PREFILL_STYLES.map((style) => style.spinner))('draws its own %s prefill spinner', (kind) => {
     const svg = renderSpinner(kind);
     expect(svg.querySelector('path, circle, rect, ellipse')).not.toBeNull();
-    expect(svg.innerHTML).not.toBe(fallbackTree);
+    expect(svg.innerHTML).not.toBe(fallbackBlocks);
   });
 
   it('marks a still glyph so its motion stops', () => {

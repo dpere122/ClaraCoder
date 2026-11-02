@@ -23,6 +23,8 @@ import type {
   OpenRouterCatalogModel,
   AnthropicCatalogModel,
   ModelManagerFileEntry,
+  ModelManagerHfDetailsResult,
+  SecretStorageMode,
   MonacoWorkspaceEditorSettings,
   MonacoWorkspaceEditorThemeId,
   SystemFontInfo,
@@ -246,6 +248,12 @@ interface TalkAudioInputDevice {
   label: string;
 }
 
+/** Hub search file-type filter on open and after Reset filters. */
+const DEFAULT_HF_FILE_TYPE = 'gguf';
+
+/** What the Model Manager detail panel shows. */
+export type ModelManagerSelection = { kind: 'hf'; id: string } | { kind: 'local'; path: string };
+
 @Injectable()
 export class SettingsStore {
   private readonly ngxSpinner = inject(NgxSpinnerService);
@@ -368,6 +376,8 @@ export class SettingsStore {
   readonly contextCompressionSystemReserve = signal(0.25);
   readonly modelManagerCustomDir = signal('');
   readonly modelManagerHfToken = signal('');
+  /** How config secrets (the HF token) land on disk; null until main reports it. */
+  readonly modelManagerSecretStorage = signal<SecretStorageMode | null>(null);
   readonly modelManagerCustomModels = signal<ModelManagerFileEntry[]>([]);
   readonly modelManagerHfQuery = signal('');
   readonly modelManagerHfRawResults = signal<HuggingFaceModelSearchItem[]>([]);
@@ -375,12 +385,15 @@ export class SettingsStore {
   readonly modelManagerHfHasMore = signal(false);
   readonly modelManagerHfTotalPages = signal(0);
   readonly modelManagerHfWindowStart = signal(0);
-  readonly modelManagerHfPageSize = 10;
+  readonly modelManagerHfPageSize = 30;
 
   /** Filter panel state for HF search. */
   readonly modelManagerHfFiltersOpen = signal(false);
-  /** Selected file-type tag (server-side HF `filter` param). '' = all file types. */
-  readonly modelManagerHfFileType = signal('');
+  /**
+   * Selected file-type tag (server-side HF `filter` param). '' = all file types. Defaults to GGUF,
+   * the only format managed llama-server can run.
+   */
+  readonly modelManagerHfFileType = signal(DEFAULT_HF_FILE_TYPE);
   /** Minimum downloads threshold (client-side filter). 0 = any. */
   readonly modelManagerHfMinDownloads = signal(0);
   /** Minimum likes threshold (client-side filter). 0 = any. */
@@ -428,8 +441,11 @@ export class SettingsStore {
   readonly modelManagerBusy = signal(false);
   readonly modelManagerHfBusy = signal(false);
 
-  /** Repo id of the currently expanded HF search card (accordion: one open at a time). */
-  readonly modelManagerHfExpandedId = signal<string | null>(null);
+  /** Model shown in the Model Manager detail panel: a Hub repo, or a local file / hub folder by path. */
+  readonly modelManagerSelection = signal<ModelManagerSelection | null>(null);
+  /** Hub repo details (owner profiles, GGUF header facts) per repo id. */
+  readonly modelManagerHfDetailsById = signal<Record<string, ModelManagerHfDetailsResult>>({});
+  readonly modelManagerHfDetailsBusyById = signal<Record<string, boolean>>({});
   /** GGUF quant files discovered per repo id. */
   readonly modelManagerHfFilesByRepo = signal<Record<string, HuggingFaceModelFile[]>>({});
   /** Per-repo loading state for the file/quant fetch. */
@@ -2033,20 +2049,34 @@ export class SettingsStore {
     this.applyManagedModelSource({ kind: 'hf', hfId: id });
   }
 
-  /** Toggle a HF search card open/closed; loads quant files on first expand. */
-  async toggleHfModelCard(repoId: string): Promise<void> {
+  /** Show a Hub repo in the detail panel; loads its quant files and details on first pick. */
+  selectHfModel(repoId: string): void {
     const id = (repoId || '').trim();
     if (!id) {
       return;
     }
-    const current = this.modelManagerHfExpandedId();
-    if (current === id) {
-      this.modelManagerHfExpandedId.set(null);
-      return;
+    this.modelManagerSelection.set({ kind: 'hf', id });
+    void this.loadHfFiles(id);
+    void this.loadHfDetails(id);
+  }
+
+  /** Show a local model; ``repoId`` (from a ``models--owner--name`` folder) also loads Hub details. */
+  selectLocalModel(model: ModelManagerFileEntry, repoId?: string | null): void {
+    this.modelManagerSelection.set({ kind: 'local', path: model.absolutePath });
+    if (repoId) {
+      void this.loadHfDetails(repoId);
     }
-    this.modelManagerHfExpandedId.set(id);
+  }
+
+  private isSelectedLocalModel(model: ModelManagerFileEntry): boolean {
+    const sel = this.modelManagerSelection();
+    return sel?.kind === 'local' && sel.path === model.absolutePath;
+  }
+
+  /** Quant files for a repo; cached per id, retried after an error. */
+  private async loadHfFiles(id: string): Promise<void> {
     const cached = this.modelManagerHfFilesByRepo()[id];
-    if (cached || this.modelManagerHfFilesBusyByRepo()[id]) {
+    if ((cached && !this.modelManagerHfFilesErrorByRepo()[id]) || this.modelManagerHfFilesBusyByRepo()[id]) {
       return;
     }
     this.modelManagerHfFilesBusyByRepo.update((m) => ({ ...m, [id]: true }));
@@ -2060,9 +2090,6 @@ export class SettingsStore {
         id,
         token: this.modelManagerHfToken().trim(),
       });
-      if (this.modelManagerHfExpandedId() !== id) {
-        return;
-      }
       if (!res.ok) {
         this.modelManagerHfFilesErrorByRepo.update((m) => ({ ...m, [id]: res.error }));
         this.modelManagerHfFilesByRepo.update((m) => ({ ...m, [id]: [] }));
@@ -2077,6 +2104,30 @@ export class SettingsStore {
       this.modelManagerHfFilesByRepo.update((m) => ({ ...m, [id]: [] }));
     } finally {
       this.modelManagerHfFilesBusyByRepo.update((m) => {
+        const next = { ...m };
+        delete next[id];
+        return next;
+      });
+    }
+  }
+
+  /** Repo details for the panel; cached per id, retried after an error. */
+  private async loadHfDetails(id: string): Promise<void> {
+    const cached = this.modelManagerHfDetailsById()[id];
+    if (cached?.ok || this.modelManagerHfDetailsBusyById()[id]) {
+      return;
+    }
+    this.modelManagerHfDetailsBusyById.update((m) => ({ ...m, [id]: true }));
+    try {
+      const res = await this.electron.modelManagerHfModelDetails({ id, token: this.modelManagerHfToken().trim() });
+      this.modelManagerHfDetailsById.update((m) => ({ ...m, [id]: res }));
+    } catch (e) {
+      this.modelManagerHfDetailsById.update((m) => ({
+        ...m,
+        [id]: { ok: false, error: e instanceof Error ? e.message : String(e) },
+      }));
+    } finally {
+      this.modelManagerHfDetailsBusyById.update((m) => {
         const next = { ...m };
         delete next[id];
         return next;
@@ -2193,14 +2244,6 @@ export class SettingsStore {
   cancelHfQuantDownload(repoId: string, file: HuggingFaceModelFile): void {
     const id = this.hfQuantDownloadId(repoId, file);
     void this.electron.modelManagerCancelHfDownload({ downloadId: id });
-  }
-
-  /** Clear expanded-card state when a new search resets the results list. */
-  private resetHfCardExpansion(): void {
-    this.modelManagerHfExpandedId.set(null);
-    this.modelManagerHfFilesByRepo.set({});
-    this.modelManagerHfFilesBusyByRepo.set({});
-    this.modelManagerHfFilesErrorByRepo.set({});
   }
 
   /** Human-readable file size for the quant list. */
@@ -2371,6 +2414,12 @@ export class SettingsStore {
     this.markSettingsDirty();
   }
 
+  /** Save the HF token now; main writes it to disk encrypted with the OS keychain when available. */
+  async saveHfToken(token: string): Promise<void> {
+    this.updateModelManagerConfig({ huggingFaceToken: token.trim() });
+    await this.applySettings();
+  }
+
   async pickModelManagerCustomDir(): Promise<void> {
     const selected = await this.electron.modelManagerPickCustomDir();
     if (!selected) {
@@ -2385,6 +2434,10 @@ export class SettingsStore {
     if (options?.clearStatus !== false) {
       this.modelManagerStatus.set('');
     }
+    void this.electron
+      .modelManagerSecretStorage()
+      .then((mode) => this.modelManagerSecretStorage.set(mode))
+      .catch(() => this.modelManagerSecretStorage.set(null));
     await this.refreshCustomModelCards();
   }
 
@@ -2496,6 +2549,9 @@ export class SettingsStore {
         return;
       }
       this.modelManagerStatus.set(`Renamed to ${res.model?.fileName ?? nextName}.`);
+      if (res.model && this.isSelectedLocalModel(model)) {
+        this.modelManagerSelection.set({ kind: 'local', path: res.model.absolutePath });
+      }
       await this.refreshCustomModelCards();
     } finally {
       this.modelManagerBusy.set(false);
@@ -2528,6 +2584,9 @@ export class SettingsStore {
         return;
       }
       this.modelManagerStatus.set(`Deleted ${model.fileName}.`);
+      if (this.isSelectedLocalModel(model)) {
+        this.modelManagerSelection.set(null);
+      }
       await this.refreshCustomModelCards();
     } finally {
       this.modelManagerBusy.set(false);
@@ -2543,13 +2602,9 @@ export class SettingsStore {
       this.modelManagerHfTotalPages.set(0);
       this.modelManagerHfWindowStart.set(0);
       this.modelManagerHfHasMore.set(false);
-      this.resetHfCardExpansion();
       return;
     }
     this.modelManagerHfBusy.set(true);
-    if (nextPage === 0) {
-      this.resetHfCardExpansion();
-    }
     try {
       const limit = this.modelManagerHfPageSize;
       const res = await this.electron.modelManagerSearchHf({
@@ -2632,7 +2687,8 @@ export class SettingsStore {
 
   /** Reset all filters to their defaults. */
   resetHfFilters(): void {
-    this.modelManagerHfFileType.set('');
+    // Goes through the chip handler so a changed file type re-runs the Hub search.
+    this.onHfFileTypeChange(DEFAULT_HF_FILE_TYPE);
     this.modelManagerHfMinDownloads.set(0);
     this.modelManagerHfMinLikes.set(0);
   }

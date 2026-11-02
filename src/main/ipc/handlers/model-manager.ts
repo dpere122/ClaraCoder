@@ -10,15 +10,19 @@ import {
   type HuggingFaceModelSearchItem,
   type ModelManagerDownloadHfResult,
   type ModelManagerFileEntry,
+  type ModelManagerHfDetailsResult,
   type ModelManagerHfFilesResult,
   type ModelManagerHfSearchResult,
   type ModelManagerListModelsResult,
   type ModelManagerMutationResult,
+  type SecretStorageMode,
 } from '../../../shared';
+import { secretStorageMode } from '../../config/load-save';
 import { mainState } from '../../state';
 import { isBlobLikeFileName, looksLikeHubRepoLayout } from '../../utils/hub-repo-layout';
 import { assertTrustedAppRenderer } from '../assert-trusted-renderer';
 import { downloadHfGgufToHubCache } from './hf-hub-download';
+import { fetchHfModelDetails } from './hf-model-details';
 
 const MODEL_EXTENSIONS = new Set(['.gguf', '.ggml']);
 
@@ -560,6 +564,11 @@ export function registerModelManagerIpc(): void {
     return result.filePaths[0] ?? null;
   });
 
+  ipcMain.handle('model-manager:secret-storage', (event): SecretStorageMode => {
+    assertTrustedAppRenderer(event);
+    return secretStorageMode();
+  });
+
   ipcMain.handle(
     'model-manager:list-custom-models',
     async (event, payload: { customDir: string }): Promise<ModelManagerListModelsResult> => {
@@ -780,6 +789,23 @@ export function registerModelManagerIpc(): void {
         const hasMore =
           totalPages != null ? pageIndex + 1 < totalPages : hasNextLink || models.length >= limit;
         return { ok: true, models, hasMore, skip, limit, totalCount, totalPages };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    'model-manager:hf-model-details',
+    async (event, payload: { id: string; token?: string }): Promise<ModelManagerHfDetailsResult> => {
+      try {
+        assertTrustedAppRenderer(event);
+      } catch {
+        return { ok: false as const, error: 'Untrusted IPC sender' };
+      }
+      try {
+        const details = await fetchHfModelDetails(String(payload?.id || ''), String(payload?.token || ''));
+        return { ok: true, details };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : String(e) };
       }

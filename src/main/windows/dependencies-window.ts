@@ -10,6 +10,7 @@ import {
 } from '../utils/harden-browser-window';
 import {
   attachBrowserWindowRevealFallbacks,
+  returnFocusToParentOnClose,
   settingsWindowParentOptions,
 } from '../utils/reveal-browser-window';
 
@@ -55,6 +56,7 @@ export function createDependenciesWindow(): void {
   hardenBrowserWindow(dw);
   dw.removeMenu();
   attachBrowserWindowRevealFallbacks(dw);
+  returnFocusToParentOnClose(dw, mainWindow);
 
   if (DEV_SERVER_URL) {
     dw.loadURL(`${DEV_SERVER_URL}/#/dependencies`);

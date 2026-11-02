@@ -89,6 +89,7 @@ import {
   turnActivitySpinnerKind,
   liveTurnPresentationSettled as computeLiveTurnPresentationSettled,
   mergeClaraBriefsFromChainIntoTimeline,
+  PREFILL_STYLES,
   TOOL_BUILDING_SYNONYMS,
   turnHasPendingHitlArtifacts,
   userMessageAttachedFiles,
@@ -173,7 +174,6 @@ const INLINE_SPINNER = {
   color: 'var(--bs-secondary-color)',
 };
 
-const PREFILL_PROCESSING_LABEL = 'comprehending';
 const THINKING_PROCESSING_LABEL = 'thinking';
 
 @Component({
@@ -540,7 +540,17 @@ export class ChatBox implements OnDestroy {
   });
 
   /** Spinner in the processing row (falls back to the think spinner). */
-  readonly processingSpinnerKind = computed(() => turnActivitySpinnerKind(this.liveTurnActivity()) ?? 'think');
+  readonly processingSpinnerKind = computed(() => {
+    const activity = this.liveTurnActivity();
+    if (activity === 'prefill') return this.prefillStyle().spinner;
+    return turnActivitySpinnerKind(activity) ?? 'think';
+  });
+
+  /** This turn's prefill word + spinner, keyed on the conversation and its message count. */
+  private readonly prefillStyle = computed(() => {
+    const key = `${this.conversationId() ?? ''}:${this.messages().length}`;
+    return PREFILL_STYLES[hashChatToolPhaseKey(key) % PREFILL_STYLES.length]!;
+  });
 
   /** Persisted turn feed (timeline + final assistant markdown). */
   turnFeedForRow(row: Extract<ChatDisplayRow, { kind: 'assistant-turn' }>): TurnFeedItem[] {
@@ -626,7 +636,7 @@ export class ChatBox implements OnDestroy {
   /** Short status word beside the think/tool spinner in the live processing row. */
   readonly processingBubbleLabel = computed(() => {
     if (this.livePrefillProcessing()) {
-      return PREFILL_PROCESSING_LABEL;
+      return this.prefillStyle().label;
     }
     if (!this.loading()) {
       return THINKING_PROCESSING_LABEL;

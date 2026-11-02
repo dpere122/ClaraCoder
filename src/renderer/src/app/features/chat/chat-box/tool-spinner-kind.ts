@@ -14,8 +14,14 @@ export type ToolSpinnerKind = 'read' | 'write' | 'run' | 'web';
 /** Spinner a live pill can host: a tool kind, or `think` for the compact thinking pill. */
 export type PillSpinnerKind = ToolSpinnerKind | 'think';
 
-/** Every spinner {@link ToolSpinnerComponent} draws: pill kinds plus `prefill` (reading the prompt). */
-export type SpinnerKind = PillSpinnerKind | 'prefill';
+/**
+ * Prompt-prefill spinners: `prefill` (a drop absorbed into a pool) plus the alternates a turn can
+ * pick while it reads the prompt — a sheet unfolding, a cipher dial, two waves falling into phase.
+ */
+export type PrefillSpinnerKind = 'prefill' | 'prefill-unfold' | 'prefill-decipher' | 'prefill-attune';
+
+/** Every spinner {@link ToolSpinnerComponent} draws: pill kinds plus the prefill set. */
+export type SpinnerKind = PillSpinnerKind | PrefillSpinnerKind;
 
 /** Shell / background-command tools (terminal spinner). */
 const RUN_TOOL_NAMES: ReadonlySet<string> = new Set<string>([

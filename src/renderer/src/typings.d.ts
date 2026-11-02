@@ -27,11 +27,13 @@ import type {
   ChatTemplateReasoningCaps,
   LlmStatus,
   MenuFileCommand,
+  ModelManagerHfDetailsResult,
   ModelManagerHfFilesResult,
   ModelManagerHfSearchResult,
   ModelManagerListModelsResult,
   ModelManagerMutationResult,
   ModelManagerDownloadHfResult,
+  SecretStorageMode,
   HfDownloadId,
   HfDownloadProgressEvent,
   LmStudioListModelsResult,
@@ -366,6 +368,7 @@ declare global {
     workspacePathIsDirectory: (absolutePath: string) => Promise<boolean>;
     showWorkspacePathInFileManager?: (absolutePath: string) => Promise<{ ok: boolean; error?: string }>;
     modelManagerPickCustomDir: () => Promise<string | null>;
+    modelManagerSecretStorage: () => Promise<SecretStorageMode>;
     modelManagerListCustomModels: (payload: { customDir: string }) => Promise<ModelManagerListModelsResult>;
     modelManagerRenameModel: (payload: {
       customDir: string;
@@ -380,6 +383,7 @@ declare global {
       skip?: number;
       fileType?: string;
     }) => Promise<ModelManagerHfSearchResult>;
+    modelManagerHfModelDetails: (payload: { id: string; token?: string }) => Promise<ModelManagerHfDetailsResult>;
     modelManagerListHfFiles: (payload: { id: string; token?: string }) => Promise<ModelManagerHfFilesResult>;
     modelManagerDownloadHfFile: (payload: {
       repoId: string;

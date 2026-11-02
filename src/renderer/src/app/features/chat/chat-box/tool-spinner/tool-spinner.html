@@ -17,10 +17,49 @@
       </g>
     }
     @case ('prefill') {
-      <!-- Cantor set: each level splits the one above into thirds. -->
-      <path class="ts-line ts-level" d="M4 8h24" stroke-width="3" />
-      <path class="ts-line ts-level ts-d1" d="M4 15h8M20 15h8" stroke-width="3" />
-      <path class="ts-hi ts-level ts-d2" d="M4 22h2.67M9.33 22h2.67M20 22h2.67M25.33 22h2.67" stroke-width="3" />
+      <!-- Absorbing: a drop falls into the pool and rings spread out from it. -->
+      <path class="ts-line" d="M2.5 23h4.5M25 23h4.5" />
+      <ellipse class="ts-third ts-pf-ripple" cx="16" cy="23" rx="3.6" ry="1.5" vector-effect="non-scaling-stroke" />
+      <ellipse class="ts-third ts-pf-ripple-2" cx="16" cy="23" rx="3.6" ry="1.5" vector-effect="non-scaling-stroke" />
+      <path class="ts-hi ts-fill-hi ts-pf-fall" d="M16 5c2.6 3.4 4 5.6 4 7.4a4 4 0 0 1-8 0c0-1.8 1.4-4 4-7.4z" />
+    }
+    @case ('prefill-unfold') {
+      <!-- Unfolding: the side panels of a folded sheet close in and open out again. -->
+      <rect class="ts-line ts-fill" x="12" y="7" width="8" height="18" rx="0.8" />
+      <path class="ts-hi ts-wave" d="M14.5 12h3" />
+      <path class="ts-hi ts-wave ts-d1" d="M14.5 16h3" />
+      <path class="ts-hi ts-wave ts-d2" d="M14.5 20h2" />
+      <g class="ts-pf-flap-l">
+        <path class="ts-third" d="M12 7L5 8.5v15L12 25" />
+        <path class="ts-third ts-thin" d="M7.5 13h2.5M7.5 17h2.5" />
+      </g>
+      <g class="ts-pf-flap-r">
+        <path class="ts-third" d="M20 7l7 1.5v15L20 25" />
+        <path class="ts-third ts-thin" d="M22 13h2.5M22 17h2.5" />
+      </g>
+    }
+    @case ('prefill-decipher') {
+      <!-- Deciphering: a cipher dial clicks round under the index mark until the key lines up. -->
+      <path class="ts-dot ts-pulse" d="M14.4 0.6h3.2L16 3z" />
+      <circle class="ts-line" cx="16" cy="16" r="12" />
+      <g class="ts-pf-dial">
+        <path
+          class="ts-third ts-thin"
+          d="M24.8 16h1.8M22.2 22.2l1.3 1.3M16 24.8v1.8M9.8 22.2l-1.3 1.3M7.2 16H5.4M9.8 9.8L8.5 8.5M22.2 9.8l1.3-1.3"
+        />
+        <path class="ts-hi ts-bold" d="M16 7.2V5.4" />
+      </g>
+      <g class="ts-pf-dial-in">
+        <circle class="ts-third" cx="16" cy="16" r="5.6" />
+        <path class="ts-hi" d="M16 10.4v2.4" />
+      </g>
+      <circle class="ts-dot" cx="16" cy="16" r="1.4" />
+    }
+    @case ('prefill-attune') {
+      <!-- Attuning: two waves drift into phase and become one; the dot lights while they agree. -->
+      <path class="ts-line ts-pf-wave-a" d="M4 16q3-8 6 0t6 0t6 0t6 0" />
+      <path class="ts-hi ts-pf-wave-b" d="M4 16q3-8 6 0t6 0t6 0t6 0" />
+      <circle class="ts-dot ts-pf-tuned" cx="16" cy="25.5" r="1.6" />
     }
     @case ('read') {
       <!-- Nested squares lighting from the outside in. -->

@@ -1,5 +1,8 @@
 export type ModelManagerEntryKind = 'file' | 'hubRepo';
 
+/** Where saved secrets land on disk: OS-keychain ciphertext, or the mode-0600 plaintext fallback. */
+export type SecretStorageMode = 'keychain' | 'plaintext';
+
 export interface ModelManagerFileEntry {
   fileName: string;
   absolutePath: string;
@@ -51,6 +54,50 @@ export type ModelManagerHfSearchResult =
       totalCount: number | null;
       totalPages: number | null;
     }
+  | { ok: false; error: string };
+
+/** Public profile of a Hugging Face org or user (uploader, or the base model's provider). */
+export interface HuggingFaceOwnerInfo {
+  name: string;
+  fullname: string;
+  kind: 'org' | 'user';
+  /** Avatar inlined as a ``data:`` URL by main (the renderer CSP blocks remote images); null when unavailable. */
+  avatarDataUrl: string | null;
+  verified: boolean;
+  numModels: number | null;
+  numFollowers: number | null;
+  /** Short profile blurb; empty when the owner has none. */
+  details: string;
+}
+
+/** Repo facts for the Model Manager detail panel, from ``/api/models/{id}`` plus owner profiles. */
+export interface HuggingFaceModelDetails {
+  id: string;
+  author: string;
+  downloads: number;
+  likes: number;
+  createdAt: string;
+  lastModified: string;
+  license: string;
+  /** ``base_model`` card entries, e.g. ``Qwen/Qwen3.8-27B``. */
+  baseModels: string[];
+  pipelineTag: string;
+  architecture: string;
+  /** Parameter count from the GGUF header; null when HF did not parse one. */
+  parameterCount: number | null;
+  contextLength: number | null;
+  /** Bytes the repo uses on the Hub (all files). */
+  storageBytes: number | null;
+  gated: boolean;
+  private: boolean;
+  tags: string[];
+  uploader: HuggingFaceOwnerInfo | null;
+  /** Owner of the first base model when it differs from the uploader; null otherwise. */
+  provider: HuggingFaceOwnerInfo | null;
+}
+
+export type ModelManagerHfDetailsResult =
+  | { ok: true; details: HuggingFaceModelDetails }
   | { ok: false; error: string };
 
 /** A single downloadable GGUF file (quant variant) discovered for a Hugging Face repo. */

@@ -15,7 +15,12 @@ import {
   isPrimaryAssistantStreamTag,
   PLANNER_STREAM_TAG,
 } from '@shared/index';
-import { toolSpinnerKind, type SpinnerKind, type ToolSpinnerKind } from './tool-spinner-kind';
+import {
+  toolSpinnerKind,
+  type PrefillSpinnerKind,
+  type SpinnerKind,
+  type ToolSpinnerKind,
+} from './tool-spinner-kind';
 
 export const DEFAULT_AUXILIARY_STREAM_PANEL_TITLE = 'Model reasoning & tools';
 import {
@@ -38,6 +43,14 @@ export const TOOL_BUILDING_SYNONYMS = [
   'structuring',
   'forming',
 ] as const;
+
+/** Word and spinner shown in the live processing row while the prompt prefills; one pair per turn. */
+export const PREFILL_STYLES = [
+  { label: 'absorbing', spinner: 'prefill' },
+  { label: 'unfolding', spinner: 'prefill-unfold' },
+  { label: 'deciphering', spinner: 'prefill-decipher' },
+  { label: 'attuning', spinner: 'prefill-attune' },
+] as const satisfies readonly { label: string; spinner: PrefillSpinnerKind }[];
 
 /** Same shape as `ConversationMessage` in `typings.d.ts` (single source for save/load). */
 export type ChatMessage = ConversationMessage;

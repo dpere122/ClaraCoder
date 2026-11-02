@@ -573,6 +573,9 @@ export {
 export type {
   HuggingFaceModelFile,
   HuggingFaceModelSearchItem,
+  HuggingFaceModelDetails,
+  HuggingFaceOwnerInfo,
+  ModelManagerHfDetailsResult,
   ModelManagerEntryKind,
   ModelManagerFileEntry,
   ModelManagerHfFilesResult,
@@ -583,6 +586,7 @@ export type {
   HfDownloadPhase,
   HfDownloadProgressEvent,
   ModelManagerDownloadHfResult,
+  SecretStorageMode,
 } from './types/model-manager';
 export type {
   DependencyActionResult,

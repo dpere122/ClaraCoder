@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none" role="img" aria-labelledby="spinnerTitle">
+  <title id="spinnerTitle">Thinking</title>
+  <style>
+    .axis {
+      transform-origin: 32px 32px;
+      animation: drift 9s linear infinite;
+    }
+    .core {
+      transform-origin: 32px 32px;
+      animation: breathe 3s ease-in-out infinite;
+    }
+    .bud-a {
+      animation: bud-a 3s ease-in-out infinite;
+    }
+    .bud-b {
+      animation: bud-b 3s ease-in-out infinite;
+      animation-delay: -1.5s;
+    }
+    .spore {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: spore 3s ease-in-out infinite;
+    }
+    .sp2 { animation-delay: -1s; }
+    .sp3 { animation-delay: -2s; }
+
+    @keyframes drift {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes breathe {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(0.88); }
+    }
+    /* Each bud swells out of the membrane, pinches off, and is reabsorbed. */
+    @keyframes bud-a {
+      0%, 100% { transform: translateX(0); }
+      55% { transform: translateX(14px); }
+    }
+    @keyframes bud-b {
+      0%, 100% { transform: translateX(0); }
+      55% { transform: translateX(-14px); }
+    }
+    @keyframes spore {
+      0%, 100% { opacity: 0.25; transform: translateY(0) scale(0.7); }
+      50% { opacity: 0.9; transform: translateY(-2px) scale(1); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .axis, .core, .bud-a, .bud-b, .spore { animation: none; }
+      .bud-a { transform: translateX(9px); }
+      .bud-b { transform: translateX(-9px); }
+      .spore { opacity: 0.6; }
+    }
+  </style>
+
+  <defs>
+    <!-- Metaball membrane: blur + alpha threshold merges the blobs, then a thin rim is cut from the result. -->
+    <filter id="ccGoo" filterUnits="userSpaceOnUse" x="0" y="0" width="64" height="64" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="2.6" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.659  0 0 0 0 0.722  0 0 0 0 0.604  0 0 0 22 -10" result="goo"/>
+      <feMorphology in="goo" operator="erode" radius="1.7" result="inner"/>
+      <feComposite in="goo" in2="inner" operator="out" result="rim"/>
+      <feColorMatrix in="goo" type="matrix" values="0 0 0 0 0.494  0 0 0 0 0.71  0 0 0 0 0.651  0 0 0 0.2 0" result="cytoplasm"/>
+      <feMerge>
+        <feMergeNode in="cytoplasm"/>
+        <feMergeNode in="rim"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Membrane -->
+  <g filter="url(#ccGoo)">
+    <g class="axis">
+      <circle class="core" cx="32" cy="32" r="10" fill="#000"/>
+      <g class="bud-a"><circle cx="34" cy="32" r="6.2" fill="#000"/></g>
+      <g class="bud-b"><circle cx="30" cy="32" r="6.2" fill="#000"/></g>
+    </g>
+  </g>
+
+  <!-- Nuclei ride along with the core and the buds. -->
+  <g class="axis">
+    <circle cx="32" cy="32" r="3.2" fill="#c9a96e" fill-opacity="0.85"/>
+    <circle cx="33.3" cy="31" r="1" fill="#d8c8a0"/>
+    <g class="bud-a"><circle cx="36" cy="32" r="1.7" fill="#7eb5a6"/></g>
+    <g class="bud-b"><circle cx="28" cy="32" r="1.7" fill="#7eb5a6"/></g>
+  </g>
+
+  <!-- Drifting spores. -->
+  <circle class="spore" cx="13" cy="15" r="1.4" fill="#a8b89a"/>
+  <circle class="spore sp2" cx="51" cy="18" r="1.1" fill="#7eb5a6"/>
+  <circle class="spore sp3" cx="47" cy="50" r="1.4" fill="#a8b89a"/>
+</svg>

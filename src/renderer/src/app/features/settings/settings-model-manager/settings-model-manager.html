@@ -1,360 +1,504 @@
-      <div class='settings-pane settings-pane--model-manager'>
-          <div class='form-section'>
-            <div class='form-section__header'>
-              <h5>Custom model directory</h5>
-              <p class='settings-copy'>Local inventory root for GGUF files and <code>-hf</code> hub folders.</p>
-            </div>
-            <div class='model-manager-dir-row'>
-              <label class='field model-manager-dir-row__path'>
-                <span>Directory</span>
-                <input
-                  type='text'
-                  [ngModel]='s.modelManagerCustomDir()'
-                  (ngModelChange)='s.updateModelManagerConfig({ customModelsDir: $event })'
-                  placeholder='~/ClaraCoder/models'
-                />
-              </label>
-              <div class='model-manager-actions'>
-                <button type='button' class='action-button action-button--compact action-button--primary' (click)='s.pickModelManagerCustomDir()'>
-                  Choose
-                </button>
-                <button
-                  type='button'
-                  class='action-button action-button--compact'
-                  [disabled]='s.modelManagerBusy() || s.modelManagerLocalLoading()'
-                  (click)='s.refreshModelManagerData()'
-                >
-                  Refresh
-                </button>
-              </div>
-            </div>
-          </div>
+<div class='settings-pane settings-pane--model-manager'>
+  <div class='mm-toolbar'>
+    <div class='mm-search'>
+      <label class='mm-search__box'>
+        <lucide-icon name='search' [size]='14' />
+        <input
+          type='search'
+          autocomplete='off'
+          spellcheck='false'
+          placeholder='Search downloaded, featured and Hugging Face models'
+          aria-label='Search models'
+          [ngModel]='s.modelManagerHfQuery()'
+          (ngModelChange)='onQueryChange($event)'
+          (keydown.enter)='searchNow()'
+        />
+        @if (s.modelManagerHfBusy()) {
+          <span class='model-card__mini-spinner' role='status' aria-label='Searching Hugging Face'></span>
+        }
+      </label>
+      <button
+        type='button'
+        class='action-button action-button--compact model-manager-filters-btn'
+        [class.is-active]='s.modelManagerHfFiltersOpen()'
+        [attr.aria-expanded]='s.modelManagerHfFiltersOpen()'
+        aria-controls='hf-filters-panel'
+        (click)='s.toggleHfFilters()'
+      >
+        Filters
+      </button>
+      <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='s.modelManagerHfBusy()' (click)='searchNow()'>
+        Search
+      </button>
+    </div>
 
-          <hr class='settings-divider' />
-
-          <div class='form-section'>
-            <p class='settings-copy'>Hub folders (<code>models--…</code>) and standalone <code>.gguf</code>/<code>.ggml</code> files.</p>
-            <details class='model-manager-accordion'>
-              <summary>
-                Local models
-                @if (s.modelManagerLocalLoading()) {
-                  <span class='settings-copy model-manager-accordion__loading-label'>Loading…</span>
-                } @else {
-                  <span class='pill'>{{ s.modelManagerCustomModels().length }}</span>
-                }
-              </summary>
-              <div class='model-card-list'>
-                <div
-                  class='cache-location-loading'
-                  [class.is-active]='s.modelManagerLocalLoading()'
-                  role='status'
-                  aria-live='polite'
-                  [attr.aria-hidden]='s.modelManagerLocalLoading() ? null : "true"'
-                  [attr.aria-label]='s.modelManagerLocalLoading() ? "Loading local models" : null'
-                >
-                  <span class='cache-location-loading__spinner-host' aria-hidden='true'>
-                    <ngx-spinner
-                      [name]='s.localModelsSpinnerName'
-                      [type]='s.cacheDetectSpinnerType'
-                      [fullScreen]='false'
-                      bdColor='rgba(0,0,0,0)'
-                      size='small'
-                      color='var(--t-primary)'
-                    ></ngx-spinner>
-                  </span>
-                  <p class='settings-copy'>Loading local models…</p>
-                </div>
-                @if (!s.modelManagerLocalLoading()) {
-                  @for (model of s.modelManagerCustomModels(); track model.absolutePath) {
-                    <article class='model-card'>
-                      <div class='model-card__main'>
-                        <div class='model-card__head'>
-                          <strong>{{ model.fileName }}</strong>
-                          <span class='pill'>{{ model.source }}</span>
-                          @if (model.entryKind === 'hubRepo') {
-                            <span class='pill'>hub</span>
-                          }
-                          <span class='settings-copy model-card__meta'>{{ s.formatModelBytes(model.sizeBytes) }} · {{ s.formatModelDate(model.modifiedMs) }}</span>
-                        </div>
-                        <p class='settings-copy model-card__path'>{{ model.absolutePath }}</p>
-                      </div>
-                      <div class='model-card__actions'>
-                        <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='s.modelManagerBusy()' (click)='s.useCustomModelInModels(model)'>Use in Models</button>
-                        <button type='button' class='action-button action-button--compact' [disabled]='s.modelManagerBusy()' (click)='s.renameCustomModel(model)'>Rename</button>
-                        <button type='button' class='action-button action-button--compact action-button--danger' [disabled]='s.modelManagerBusy()' (click)='s.deleteCustomModel(model)'>Delete</button>
-                      </div>
-                    </article>
-                  } @empty {
-                    <div class='empty-state empty-state--compact'>
-                      <p>No models found. Add GGUF files or download with <code>-hf</code>.</p>
-                    </div>
-                  }
-                }
-              </div>
-            </details>
-          </div>
-
-          <hr class='settings-divider' />
-
-          <div class='form-section'>
-
-            <div class='form-section__header'>
-              <h5>Hugging Face</h5>
-              <p class='settings-copy'>Optional token + model search. Use results with <code>llama-server -hf</code>.</p>
-            </div>
-            <label class='field'>
-              <span>Token (optional)</span>
-              <input
-                type='password'
-                autocomplete='off'
-                spellcheck='false'
-                [ngModel]='s.modelManagerHfToken()'
-                (ngModelChange)='s.updateModelManagerConfig({ huggingFaceToken: $event })'
-                placeholder='hf_...'
-              />
-            </label>
-            <div class='model-manager-actions model-manager-actions--search'>
-              <input
-                type='text'
-                [ngModel]='s.modelManagerHfQuery()'
-                (ngModelChange)='s.onModelManagerHfQueryChange($event)'
-                (keydown.enter)='s.searchHuggingFaceModels(0)'
-                placeholder='Search models…'
-              />
+    @if (s.modelManagerHfFiltersOpen()) {
+      <div class='hf-filters-panel' id='hf-filters-panel'>
+        <div class='hf-filters-panel__group'>
+          <span class='hf-filters-panel__label'>File type</span>
+          <div class='hf-filters-panel__chips'>
+            @for (opt of s.hfFileTypeOptions; track opt.value) {
               <button
                 type='button'
-                class='action-button action-button--compact model-manager-filters-btn'
-                [class.is-active]='s.modelManagerHfFiltersOpen()'
-                [attr.aria-expanded]='s.modelManagerHfFiltersOpen()'
-                aria-controls='hf-filters-panel'
-                (click)='s.toggleHfFilters()'
+                class='hf-filter-chip'
+                [class.is-active]='s.modelManagerHfFileType() === opt.value'
+                (click)='s.onHfFileTypeChange(opt.value)'
               >
-                Filters
+                {{ opt.label }}
               </button>
-              <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='s.modelManagerHfBusy()' (click)='s.searchHuggingFaceModels(0)'>
-                Search
-              </button>
-            </div>
-            @if (s.modelManagerHfFiltersOpen()) {
-              <div class='hf-filters-panel' id='hf-filters-panel'>
-                <div class='hf-filters-panel__group'>
-                  <span class='hf-filters-panel__label'>File type</span>
-                  <div class='hf-filters-panel__chips'>
-                    @for (opt of s.hfFileTypeOptions; track opt.value) {
-                      <button
-                        type='button'
-                        class='hf-filter-chip'
-                        [class.is-active]='s.modelManagerHfFileType() === opt.value'
-                        (click)='s.onHfFileTypeChange(opt.value)'
-                      >
-                        {{ opt.label }}
-                      </button>
-                    }
-                  </div>
-                </div>
-                <div class='row align-items-end g-2 hf-filters-panel__row'>
-                  <div class='col-12 col-sm-auto'>
-                    <label class='hf-filters-panel__select-field'>
-                      <span class='hf-filters-panel__label'>Min downloads</span>
-                      <app-pill-select
-                        [options]='hfCountOptions(s.hfMinDownloadsOptions, true)'
-                        [value]="s.modelManagerHfMinDownloads() + ''"
-                        (valueChange)='s.onHfMinDownloadsChange(+$event)'
-                        ariaLabel='Minimum downloads'
-                      />
-                    </label>
-                  </div>
-                  <div class='col-12 col-sm-auto'>
-                    <label class='hf-filters-panel__select-field'>
-                      <span class='hf-filters-panel__label'>Min likes</span>
-                      <app-pill-select
-                        [options]='hfCountOptions(s.hfMinLikesOptions, false)'
-                        [value]="s.modelManagerHfMinLikes() + ''"
-                        (valueChange)='s.onHfMinLikesChange(+$event)'
-                        ariaLabel='Minimum likes'
-                      />
-                    </label>
-                  </div>
-                  <div class='col-12 col-sm-auto'>
-                    <button
-                      type='button'
-                      class='action-button action-button--compact hf-filters-panel__reset-btn'
-                      (click)='s.resetHfFilters()'
-                    >
-                      Reset filters
-                    </button>
-                  </div>
-                </div>
-              </div>
             }
-            <div class='model-card-list model-card-list--hf'>
-              <div
-                class='model-card-list__content'
-                [class.is-loading]='s.modelManagerHfBusy()'
-                [attr.aria-busy]='s.modelManagerHfBusy() ? "true" : null'
-              >
-                @for (model of s.modelManagerHfResults(); track model.id) {
-                  <article
-                    class='model-card model-card--hf'
-                    [class.model-card--expanded]='s.modelManagerHfExpandedId() === model.id'
-                  >
-                    <button
-                      type='button'
-                      class='model-card__header-btn'
-                      (click)='s.toggleHfModelCard(model.id)'
-                      [attr.aria-expanded]='s.modelManagerHfExpandedId() === model.id'
-                      [attr.aria-controls]='"hf-card-" + model.id'
-                    >
-                      <span class='model-card__chevron' aria-hidden='true'></span>
-                      <span class='model-card__main'>
-                        <span class='model-card__head'>
-                          <strong>{{ model.id }}</strong>
-                          @if (model.gated || model.private) {
-                            <span class='pill'>restricted</span>
-                          }
-                          <span class='settings-copy model-card__meta'>{{ model.downloads }} dl · {{ model.likes }} likes · {{ model.lastModified || '—' }}</span>
-                        </span>
-                        <span class='settings-copy model-card__path'><code>llama-server -hf {{ model.id }}</code></span>
-                      </span>
-                    </button>
-                    @if (s.modelManagerHfExpandedId() === model.id) {
-                      <div class='model-card__versions' [attr.id]='"hf-card-" + model.id'>
-                        @if (s.modelManagerHfFilesBusyByRepo()[model.id]) {
-                          <div class='model-card__versions-status'>
-                            <span class='model-card__mini-spinner' aria-hidden='true'></span>
-                            <p class='settings-copy'>Loading quants…</p>
-                          </div>
-                        } @else if (s.modelManagerHfFilesErrorByRepo()[model.id]) {
-                          <p class='settings-copy model-card__versions-error'>{{ s.modelManagerHfFilesErrorByRepo()[model.id] }}</p>
-                        } @else {
-                          <div class='model-quant-list'>
-                            @for (file of s.modelManagerHfFilesByRepo()[model.id]; track file.fileName) {
-                              <div
-                                class='model-quant-row'
-                                [class.model-quant-row--downloading]='s.isHfQuantDownloading(model.id, file)'
-                                [class.model-quant-row--done]='s.isHfQuantDownloaded(model.id, file)'
-                              >
-                                <span class='model-quant-row__name'>{{ file.quant || file.fileName }}</span>
-                                <span class='settings-copy model-quant-row__size'>{{ s.formatFileSize(file.sizeBytes) }}</span>
-                                @if (s.isHfQuantDownloading(model.id, file)) {
-                                  <span class='model-quant-row__progress-label'>{{ s.hfQuantDownloadLabel(model.id, file) }}</span>
-                                  <button
-                                    type='button'
-                                    class='action-button action-button--compact model-quant-row__cancel'
-                                    (click)='s.cancelHfQuantDownload(model.id, file)'
-                                  >
-                                    Cancel
-                                  </button>
-                                } @else if (s.isHfQuantDownloaded(model.id, file)) {
-                                  <button
-                                    type='button'
-                                    class='action-button action-button--compact action-button--primary'
-                                    (click)='s.useHfQuantInModels(model.id, file)'
-                                  >
-                                    Use in Models
-                                  </button>
-                                } @else {
-                                  <button
-                                    type='button'
-                                    class='action-button action-button--compact action-button--primary'
-                                    (click)='s.downloadHfQuant(model.id, file)'
-                                  >
-                                    Download Model
-                                  </button>
-                                }
-                                @if (s.isHfQuantDownloading(model.id, file)) {
-                                  @let pct = s.hfQuantDownloadPercent(model.id, file);
-                                  <div
-                                    class='model-quant-row__progress'
-                                    [class.model-quant-row__progress--indeterminate]='pct === null'
-                                    role='progressbar'
-                                    aria-valuemin='0'
-                                    aria-valuemax='100'
-                                    [attr.aria-valuenow]='pct'
-                                    [attr.aria-label]="'Downloading ' + (file.quant || file.fileName)"
-                                  >
-                                    <div class='model-quant-row__progress-fill' [style.width.%]='pct ?? 30'></div>
-                                  </div>
-                                }
-                              </div>
-                            } @empty {
-                              <p class='settings-copy model-card__versions-empty'>No GGUF quant files found for this repo.</p>
-                            }
-                          </div>
-                        }
-                      </div>
-                    }
-                  </article>
-                } @empty {
-                  @if (!s.modelManagerHfBusy()) {
-                    <div class='empty-state empty-state--compact'>
-                      <p>No results yet.</p>
-                    </div>
-                  }
-                }
-              </div>
-              @if (s.modelManagerHfBusy()) {
-                <div
-                  class='model-card-list__loading-overlay'
-                  role='status'
-                  aria-live='polite'
-                  aria-label='Searching Hugging Face models'
-                >
-                  <span class='cache-location-loading__spinner-host' aria-hidden='true'>
-                    <ngx-spinner
-                      [name]='s.hfSearchSpinnerName'
-                      [type]='s.cacheDetectSpinnerType'
-                      [fullScreen]='false'
-                      bdColor='rgba(0,0,0,0)'
-                      size='small'
-                      color='var(--t-primary)'
-                    ></ngx-spinner>
-                  </span>
-                  <p class='settings-copy'>Searching Hugging Face…</p>
-                </div>
-              }
-            </div>
-            @if (s.modelManagerHfTotalPages() > 0) {
-              <div class='model-hf-pager' role='navigation' aria-label='Hugging Face search pages'>
-                <button
-                  type='button'
-                  class='action-button action-button--compact'
-                  [disabled]='s.modelManagerHfBusy() || s.modelManagerHfPage() <= 0'
-                  (click)='s.searchHuggingFaceModelsPrevPage()'
-                >
-                  Prev
-                </button>
-                <div class='model-hf-pager__pages'>
-                  @for (page of s.modelManagerHfPageNumbers(); track page) {
-                    <button
-                      type='button'
-                      class='model-hf-pager__page'
-                      [class.is-active]='page === s.modelManagerHfPage()'
-                      [disabled]='s.modelManagerHfBusy()'
-                      [attr.aria-current]='page === s.modelManagerHfPage() ? "page" : null'
-                      (click)='s.searchHuggingFaceModelsGotoPage(page)'
-                    >
-                      {{ page + 1 }}
-                    </button>
-                  }
-                </div>
-                <button
-                  type='button'
-                  class='action-button action-button--compact'
-                  [disabled]='s.modelManagerHfBusy() || s.modelManagerHfPage() + 1 >= s.modelManagerHfTotalPages()'
-                  (click)='s.searchHuggingFaceModelsNextPage()'
-                >
-                  Next
-                </button>
-              </div>
-            }
-
           </div>
+        </div>
+        <div class='row align-items-end g-2 hf-filters-panel__row'>
+          <div class='col-12 col-sm-auto'>
+            <label class='hf-filters-panel__select-field'>
+              <span class='hf-filters-panel__label'>Min downloads</span>
+              <app-pill-select
+                [options]='hfCountOptions(s.hfMinDownloadsOptions, true)'
+                [value]="s.modelManagerHfMinDownloads() + ''"
+                (valueChange)='s.onHfMinDownloadsChange(+$event)'
+                ariaLabel='Minimum downloads'
+              />
+            </label>
+          </div>
+          <div class='col-12 col-sm-auto'>
+            <label class='hf-filters-panel__select-field'>
+              <span class='hf-filters-panel__label'>Min likes</span>
+              <app-pill-select
+                [options]='hfCountOptions(s.hfMinLikesOptions, false)'
+                [value]="s.modelManagerHfMinLikes() + ''"
+                (valueChange)='s.onHfMinLikesChange(+$event)'
+                ariaLabel='Minimum likes'
+              />
+            </label>
+          </div>
+          <div class='col-12 col-sm-auto'>
+            <button type='button' class='action-button action-button--compact hf-filters-panel__reset-btn' (click)='s.resetHfFilters()'>
+              Reset filters
+            </button>
+          </div>
+        </div>
+      </div>
+    }
 
-        @if (s.modelManagerStatus()) {
-          <hr class='settings-divider' />
-          <div class='callout'>
-            <p>{{ s.modelManagerStatus() }}</p>
+    <div class='mm-settings-row'>
+      <span class='mm-setting mm-setting--path'>
+        <lucide-icon name='folder' [size]='12' />
+        <span class='mm-setting__label'>Save to</span>
+        <button
+          type='button'
+          class='mm-setting__path'
+          [title]='s.modelManagerCustomDir() || "Choose where downloaded models are saved"'
+          (click)='s.pickModelManagerCustomDir()'
+        >
+          {{ s.modelManagerCustomDir() || 'Choose a folder…' }}
+        </button>
+        <button
+          type='button'
+          class='mm-icon-button'
+          title='Rescan the folder'
+          aria-label='Rescan the model folder'
+          [disabled]='s.modelManagerBusy() || s.modelManagerLocalLoading()'
+          (click)='s.refreshModelManagerData()'
+        >
+          <lucide-icon name='refresh-cw' [size]='12' />
+        </button>
+      </span>
+      <span class='mm-setting'>
+        <span class='mm-setting__label'>HF token</span>
+        @if (tokenMask(); as mask) {
+          <code>{{ mask }}</code>
+          @switch (s.modelManagerSecretStorage()) {
+            @case ('keychain') {
+              <span class='hf-pill hf-pill--ok' title='Encrypted with the OS keychain'>
+                <lucide-icon name='shield' [size]='11' />
+                Encrypted
+              </span>
+            }
+            @case ('plaintext') {
+              <span class='hf-pill hf-pill--warn' title='OS keychain unavailable; stored in the owner-only config file'>
+                <lucide-icon name='triangle-alert' [size]='11' />
+                Not encrypted
+              </span>
+            }
+          }
+          <button type='button' class='mm-link' (click)='beginTokenEdit()'>Replace</button>
+          <button type='button' class='mm-link mm-link--danger' [disabled]='tokenSaving()' (click)='removeToken()'>Remove</button>
+        } @else {
+          <span class='hf-muted'>none</span>
+          <button type='button' class='mm-link' (click)='beginTokenEdit()'>Add</button>
+        }
+      </span>
+    </div>
+
+    @if (tokenEditing()) {
+      <form class='mm-token-form' (ngSubmit)='saveToken()'>
+        <input
+          type='password'
+          name='huggingFaceToken'
+          autocomplete='off'
+          spellcheck='false'
+          placeholder='hf_…  read token for gated and private repos'
+          aria-label='Hugging Face access token'
+          [ngModel]='tokenDraft()'
+          (ngModelChange)='tokenDraft.set($event)'
+          (keydown.escape)='cancelTokenEdit()'
+        />
+        <button type='submit' class='action-button action-button--compact action-button--primary' [disabled]='tokenSaving() || !tokenDraft().trim()'>
+          {{ tokenSaving() ? 'Saving…' : 'Save' }}
+        </button>
+        <button type='button' class='action-button action-button--compact' [disabled]='tokenSaving()' (click)='cancelTokenEdit()'>Cancel</button>
+      </form>
+    }
+  </div>
+
+  <div class='mm-browser'>
+    <div class='mm-list' role='listbox' aria-label='Models' (keydown)='onListKeydown($event)'>
+      @if (s.modelManagerLocalLoading()) {
+        <div class='mm-list__section'>Downloaded</div>
+        <div class='mm-list__note'><span class='model-card__mini-spinner' aria-hidden='true'></span> Scanning folder…</div>
+      } @else if (localRows().length) {
+        <div class='mm-list__section'>Downloaded <span>{{ localRows().length }}</span></div>
+        @for (row of localRows(); track row.key) {
+          <ng-container *ngTemplateOutlet='rowTpl; context: { $implicit: row }' />
+        }
+      }
+
+      @if (featuredRows().length) {
+        <div class='mm-list__section'>Featured <span>{{ featuredRows().length }}</span></div>
+        @for (row of featuredRows(); track row.key) {
+          <ng-container *ngTemplateOutlet='rowTpl; context: { $implicit: row }' />
+        }
+      }
+
+      @if (resultRows().length) {
+        <div class='mm-list__section'>
+          Hugging Face
+          <span>page {{ s.modelManagerHfPage() + 1 }}{{ s.modelManagerHfTotalPages() > 0 ? ' of ' + s.modelManagerHfTotalPages() : '' }}</span>
+        </div>
+        <div class='mm-list__results' [class.is-loading]='s.modelManagerHfBusy()'>
+          @for (row of resultRows(); track row.key) {
+            <ng-container *ngTemplateOutlet='rowTpl; context: { $implicit: row }' />
+          }
+        </div>
+        @if (s.modelManagerHfTotalPages() > 1) {
+          <div class='mm-pager' role='navigation' aria-label='Hugging Face search pages'>
+            <button
+              type='button'
+              class='mm-link'
+              [disabled]='s.modelManagerHfBusy() || s.modelManagerHfPage() <= 0'
+              (click)='s.searchHuggingFaceModelsPrevPage()'
+            >
+              ‹ Prev
+            </button>
+            <span>{{ s.modelManagerHfPage() + 1 }} / {{ s.modelManagerHfTotalPages() }}</span>
+            <button
+              type='button'
+              class='mm-link'
+              [disabled]='s.modelManagerHfBusy() || s.modelManagerHfPage() + 1 >= s.modelManagerHfTotalPages()'
+              (click)='s.searchHuggingFaceModelsNextPage()'
+            >
+              Next ›
+            </button>
           </div>
         }
+      } @else if (s.modelManagerHfBusy()) {
+        <div class='mm-list__section'>Hugging Face</div>
+        <div class='mm-list__note'><span class='model-card__mini-spinner' aria-hidden='true'></span> Searching…</div>
+      }
+
+      @if (!s.modelManagerLocalLoading() && !s.modelManagerHfBusy() && !localRows().length && !featuredRows().length && !resultRows().length) {
+        <div class='mm-list__note'>No models match. Press Enter to search Hugging Face.</div>
+      }
+    </div>
+
+    <section class='mm-panel' aria-label='Model details'>
+      @if (selectedLocal(); as local) {
+        <header class='mm-panel__head'>
+          <ng-container *ngTemplateOutlet='avatarTpl; context: { $implicit: selectedDetails()?.provider ?? selectedDetails()?.uploader, fallback: local.provider || local.name }' />
+          <div class='mm-panel__title'>
+            <span class='mm-panel__eyebrow'>{{ local.provider || (local.model.entryKind === 'hubRepo' ? 'Hub folder' : 'Local file') }}</span>
+            <h4>{{ local.name }}</h4>
+            <code class='mm-panel__id' [title]='local.model.absolutePath'>{{ local.model.absolutePath }}</code>
+          </div>
+        </header>
+        <div class='mm-panel__actions'>
+          <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='s.modelManagerBusy()' (click)='s.useCustomModelInModels(local.model)'>Use in Models</button>
+          <button type='button' class='action-button action-button--compact' [disabled]='s.modelManagerBusy()' (click)='s.renameCustomModel(local.model)'>Rename</button>
+          <button type='button' class='action-button action-button--compact action-button--danger' [disabled]='s.modelManagerBusy()' (click)='s.deleteCustomModel(local.model)'>Delete</button>
+          @if (local.repoId) {
+            <a class='mm-link mm-panel__external' [href]='"https://huggingface.co/" + local.repoId' target='_blank' rel='noopener noreferrer'>Open on Hugging Face ↗</a>
+          }
+        </div>
+        <dl class='mm-facts'>
+          <div><dt>Size</dt><dd>{{ s.formatModelBytes(local.model.sizeBytes) }}</dd></div>
+          <div><dt>Modified</dt><dd>{{ s.formatModelDate(local.model.modifiedMs) }}</dd></div>
+          <div><dt>Type</dt><dd>{{ local.model.entryKind === 'hubRepo' ? 'Hugging Face hub folder' : 'GGUF file' }}</dd></div>
+          <div><dt>Location</dt><dd>{{ local.model.source === 'cache' ? 'Hugging Face cache' : 'Custom folder' }}</dd></div>
+          @if (local.model.ggufAbsolutePath; as gguf) {
+            <div class='mm-facts__wide'><dt>Model file</dt><dd><code>{{ gguf }}</code></dd></div>
+          }
+          @if (local.model.mmprojAbsolutePath; as mmproj) {
+            <div class='mm-facts__wide'><dt>Projector</dt><dd><code>{{ mmproj }}</code></dd></div>
+          }
+        </dl>
+        @if (local.repoId) {
+          <h6 class='mm-panel__section'>On Hugging Face</h6>
+          <ng-container *ngTemplateOutlet='hubInfoTpl' />
+        }
+      } @else if (s.modelManagerSelection()?.kind === 'hf' && selectedRepo(); as repo) {
+        <header class='mm-panel__head'>
+          <ng-container *ngTemplateOutlet='avatarTpl; context: { $implicit: selectedDetails()?.provider ?? selectedDetails()?.uploader, fallback: selectedFeatured()?.maker || repo.provider }' />
+          <div class='mm-panel__title'>
+            <span class='mm-panel__eyebrow'>
+              {{ selectedDetails()?.provider?.fullname || selectedFeatured()?.maker || repo.provider }}
+              @if (selectedFeatured(); as f) {
+                <span class='model-tile__badge'>Featured · {{ f.tag }}</span>
+              }
+              @if (localRepoIds().has(repo.id.toLowerCase())) {
+                <span class='model-tile__badge mm-badge--ok'><lucide-icon name='check' [size]='10' /> Downloaded</span>
+              }
+            </span>
+            <h4>{{ repo.name }}</h4>
+            <code class='mm-panel__id'>{{ repo.id }}</code>
+          </div>
+          <a class='action-button action-button--compact mm-panel__external' [href]='"https://huggingface.co/" + repo.id' target='_blank' rel='noopener noreferrer'>
+            Hugging Face ↗
+          </a>
+        </header>
+        <ng-container *ngTemplateOutlet='hubInfoTpl' />
+        <div class='mm-quants'>
+          <div class='mm-quants__head'>
+            <h6>Quantizations</h6>
+            @if (s.modelManagerHfFilesByRepo()[repo.id]; as files) {
+              <span class='hf-muted'>{{ files.length }} GGUF {{ files.length === 1 ? 'file' : 'files' }} · saved to the folder above</span>
+            }
+          </div>
+          <div class='mm-quants__list'>
+            <ng-container *ngTemplateOutlet='quants; context: { $implicit: repo.id }' />
+          </div>
+        </div>
+      } @else {
+        <div class='mm-panel__empty'>
+          <lucide-icon name='package' [size]='22' />
+          <p>Select a model to see its details and quantizations.</p>
+        </div>
+      }
+    </section>
+  </div>
+
+  @if (s.modelManagerStatus()) {
+    <div class='callout mm-status'>
+      <p>{{ s.modelManagerStatus() }}</p>
+    </div>
+  }
+</div>
+
+<!-- One tight list row: name over provider + a few facts. -->
+<ng-template #rowTpl let-row>
+  <button
+    type='button'
+    class='mm-row'
+    role='option'
+    [attr.data-row-key]='row.key'
+    [class.is-selected]='row.key === selectedKey()'
+    [attr.aria-selected]='row.key === selectedKey()'
+    [attr.tabindex]='row.key === selectedKey() ? 0 : -1'
+    [title]='row.kind === "local" ? row.model.absolutePath : row.repoId'
+    (click)='select(row)'
+  >
+    <span class='mm-row__main'>
+      <span class='mm-row__name'>{{ row.name }}</span>
+      <span class='mm-row__sub'>
+        @switch (row.kind) {
+          @case ('local') {
+            {{ row.provider || (row.model.entryKind === 'hubRepo' ? 'Hub folder' : 'Local file') }} · {{ s.formatModelBytes(row.model.sizeBytes) }}
+          }
+          @case ('featured') {
+            {{ row.provider }} · {{ row.featured.size }}
+          }
+          @case ('result') {
+            {{ row.provider }} · ↓ {{ formatCount(row.item.downloads) }} · ♥ {{ formatCount(row.item.likes) }}
+          }
+        }
+      </span>
+    </span>
+    <span class='mm-row__aside'>
+      @if (row.kind === 'featured') {
+        <span class='mm-row__tag'>{{ row.featured.tag }}</span>
+      }
+      @if (row.kind === 'result' && (row.item.gated || row.item.private)) {
+        <lucide-icon name='lock' [size]='11' [attr.title]='row.item.private ? "Private" : "Gated: needs a token and accepted terms"' />
+      }
+      @if (row.kind !== 'local' && localRepoIds().has(row.repoId.toLowerCase())) {
+        <lucide-icon class='mm-row__done' name='check' [size]='12' title='Downloaded' />
+      }
+    </span>
+  </button>
+</ng-template>
+
+<!-- Owner avatar from Hugging Face, or the first letter of the name. -->
+<ng-template #avatarTpl let-owner let-fallback='fallback'>
+  @if (owner?.avatarDataUrl) {
+    <img class='mm-avatar' [src]='owner.avatarDataUrl' [alt]='owner.fullname' />
+  } @else {
+    <span class='mm-avatar mm-avatar--initial' aria-hidden='true'>{{ initial(owner?.fullname || fallback || '?') }}</span>
+  }
+</ng-template>
+
+<!-- Hub facts for the selected repo: provider / uploader profiles, model facts and tags. -->
+<ng-template #hubInfoTpl>
+  @if (selectedDetails(); as d) {
+    <div class='mm-stats'>
+      <span title='Downloads (last 30 days)'><lucide-icon name='download' [size]='12' /> {{ formatCount(d.downloads) }}</span>
+      <span title='Likes'><lucide-icon name='heart' [size]='12' /> {{ formatCount(d.likes) }}</span>
+      @if (formatDate(d.lastModified); as updated) {
+        <span title='Last updated'>Updated {{ updated }}</span>
+      }
+      @if (d.license) {
+        <span class='model-tile__badge'>{{ d.license }}</span>
+      }
+      @if (d.gated || d.private) {
+        <span class='model-tile__badge model-tile__badge--warn'><lucide-icon name='lock' [size]='10' /> {{ d.private ? 'Private' : 'Gated' }}</span>
+      }
+    </div>
+
+    <div class='mm-owners'>
+      @if (d.provider; as p) {
+        <ng-container *ngTemplateOutlet='ownerTpl; context: { $implicit: p, role: "Provider" }' />
+      }
+      @if (d.uploader; as u) {
+        <ng-container
+          *ngTemplateOutlet='ownerTpl; context: { $implicit: u, role: d.provider ? "Uploader" : d.baseModels.length ? "Provider & uploader" : "Uploader" }'
+        />
+      }
+    </div>
+
+    <dl class='mm-facts'>
+      @if (d.baseModels.length) {
+        <div class='mm-facts__wide'>
+          <dt>Base model</dt>
+          <dd>
+            @for (base of d.baseModels; track base) {
+              <a class='mm-link' [href]='"https://huggingface.co/" + base' target='_blank' rel='noopener noreferrer'>{{ base }}</a>
+            }
+          </dd>
+        </div>
+      }
+      @if (d.architecture) {
+        <div><dt>Architecture</dt><dd>{{ d.architecture }}</dd></div>
+      }
+      @if (formatParams(d.parameterCount); as params) {
+        <div><dt>Parameters</dt><dd>{{ params }}</dd></div>
+      }
+      @if (formatContext(d.contextLength); as ctx) {
+        <div><dt>Context</dt><dd>{{ ctx }} tokens</dd></div>
+      }
+      @if (d.pipelineTag) {
+        <div><dt>Task</dt><dd>{{ d.pipelineTag }}</dd></div>
+      }
+      @if (d.storageBytes != null) {
+        <div><dt>Repo size</dt><dd>{{ s.formatFileSize(d.storageBytes) }} (all files)</dd></div>
+      }
+      @if (formatDate(d.createdAt); as created) {
+        <div><dt>Created</dt><dd>{{ created }}</dd></div>
+      }
+      <div class='mm-facts__wide'><dt>Run</dt><dd><code>llama-server -hf {{ d.id }}</code></dd></div>
+    </dl>
+
+    @if (d.tags.length) {
+      <div class='mm-tags'>
+        @for (tag of d.tags; track tag) {
+          <span class='hf-filter-chip mm-tag'>{{ tag }}</span>
+        }
       </div>
+    }
+  } @else if (selectedDetailsBusy()) {
+    <div class='mm-list__note'><span class='model-card__mini-spinner' aria-hidden='true'></span> Loading details from Hugging Face…</div>
+  } @else if (selectedDetailsError(); as err) {
+    <p class='settings-copy model-card__versions-error'>{{ err }}</p>
+  }
+</ng-template>
+
+<ng-template #ownerTpl let-owner let-role='role'>
+  <div class='mm-owner'>
+    <ng-container *ngTemplateOutlet='avatarTpl; context: { $implicit: owner, fallback: owner.name }' />
+    <div class='mm-owner__body'>
+      <span class='mm-owner__role'>{{ role }}</span>
+      <a class='mm-owner__name' [href]='"https://huggingface.co/" + owner.name' target='_blank' rel='noopener noreferrer'>
+        {{ owner.fullname }}
+        @if (owner.verified) {
+          <lucide-icon name='check' [size]='11' title='Verified organization' />
+        }
+      </a>
+      <span class='mm-owner__meta'>
+        {{ owner.kind === 'org' ? 'Organization' : 'User' }}
+        @if (owner.numModels != null) {
+          · {{ formatCount(owner.numModels) }} models
+        }
+        @if (owner.numFollowers != null) {
+          · {{ formatCount(owner.numFollowers) }} followers
+        }
+      </span>
+      @if (owner.details) {
+        <span class='mm-owner__details'>{{ owner.details }}</span>
+      }
+    </div>
+  </div>
+</ng-template>
+
+<!-- Quant files for one HF repo, as list rows. -->
+<ng-template #quants let-repoId>
+  @if (s.modelManagerHfFilesBusyByRepo()[repoId]) {
+    <div class='model-card__versions-status'>
+      <span class='model-card__mini-spinner' aria-hidden='true'></span>
+      <p class='settings-copy'>Loading quants…</p>
+    </div>
+  } @else if (s.modelManagerHfFilesErrorByRepo()[repoId]) {
+    <p class='settings-copy model-card__versions-error'>{{ s.modelManagerHfFilesErrorByRepo()[repoId] }}</p>
+  } @else {
+    <div class='model-quant-list'>
+      @for (file of s.modelManagerHfFilesByRepo()[repoId]; track file.fileName) {
+        <div
+          class='model-quant-row'
+          [class.model-quant-row--downloading]='s.isHfQuantDownloading(repoId, file)'
+          [class.model-quant-row--done]='s.isHfQuantDownloaded(repoId, file)'
+          [title]='file.fileName'
+        >
+          <span class='model-quant-row__name'>{{ file.quant || file.fileName }}</span>
+          <span class='settings-copy model-quant-row__size'>{{ s.formatFileSize(file.sizeBytes) }}</span>
+          @if (s.isHfQuantDownloading(repoId, file)) {
+            <span class='model-quant-row__progress-label'>{{ s.hfQuantDownloadLabel(repoId, file) }}</span>
+            <button type='button' class='action-button action-button--compact model-quant-row__cancel' (click)='s.cancelHfQuantDownload(repoId, file)'>
+              Cancel
+            </button>
+          } @else if (s.isHfQuantDownloaded(repoId, file)) {
+            <button type='button' class='action-button action-button--compact action-button--primary' (click)='s.useHfQuantInModels(repoId, file)'>
+              Use in Models
+            </button>
+          } @else {
+            <button type='button' class='action-button action-button--compact' (click)='s.downloadHfQuant(repoId, file)'>
+              Download
+            </button>
+          }
+          @if (s.isHfQuantDownloading(repoId, file)) {
+            @let pct = s.hfQuantDownloadPercent(repoId, file);
+            <div
+              class='model-quant-row__progress'
+              [class.model-quant-row__progress--indeterminate]='pct === null'
+              role='progressbar'
+              aria-valuemin='0'
+              aria-valuemax='100'
+              [attr.aria-valuenow]='pct'
+              [attr.aria-label]="'Downloading ' + (file.quant || file.fileName)"
+            >
+              <div class='model-quant-row__progress-fill' [style.width.%]='pct ?? 30'></div>
+            </div>
+          }
+        </div>
+      } @empty {
+        <p class='settings-copy model-card__versions-empty'>No GGUF quant files found for this repo.</p>
+      }
+    </div>
+  }
+</ng-template>

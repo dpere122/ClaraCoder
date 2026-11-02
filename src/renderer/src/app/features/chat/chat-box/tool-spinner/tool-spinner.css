@@ -81,10 +81,6 @@ app-tool-spinner .ts-pulse {
   animation: ts-pulse 1.5s ease-in-out infinite;
 }
 
-app-tool-spinner .ts-level {
-  animation: ts-level 2.2s ease-in-out infinite;
-}
-
 app-tool-spinner .ts-wave {
   animation: ts-wave 1.6s ease-in-out infinite;
 }
@@ -279,22 +275,6 @@ app-tool-spinner .ts-plug {
 
   35% {
     opacity: 1;
-  }
-}
-
-@keyframes ts-level {
-  0% {
-    opacity: 0.12;
-  }
-
-  12%,
-  72% {
-    opacity: 1;
-  }
-
-  88%,
-  100% {
-    opacity: 0.12;
   }
 }
 
@@ -730,6 +710,157 @@ app-tool-spinner .ts-plug {
 
   50% {
     transform: translateY(-1.6px);
+  }
+}
+
+/* Prefill set. Resting frames: the drop above a ringed pool, the sheet open, the dial at rest, the waves in phase. */
+app-tool-spinner .ts-pf-fall {
+  animation: ts-pf-fall 2s ease-in infinite;
+}
+
+app-tool-spinner .ts-pf-ripple,
+app-tool-spinner .ts-pf-ripple-2 {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+app-tool-spinner .ts-pf-ripple {
+  animation: ts-pf-ripple 2s ease-out infinite;
+}
+
+app-tool-spinner .ts-pf-ripple-2 {
+  animation: ts-pf-ripple-2 2s ease-out infinite;
+}
+
+app-tool-spinner .ts-pf-flap-l {
+  transform-origin: 12px 16px;
+  animation: ts-pf-flap 2.4s ease-in-out infinite;
+}
+
+app-tool-spinner .ts-pf-flap-r {
+  transform-origin: 20px 16px;
+  animation: ts-pf-flap 2.4s ease-in-out 0.25s infinite;
+}
+
+app-tool-spinner .ts-pf-dial {
+  transform-origin: 16px 16px;
+  animation: ts-spin 3.2s steps(8) infinite;
+}
+
+app-tool-spinner .ts-pf-dial-in {
+  transform-origin: 16px 16px;
+  animation: ts-spin 2.4s steps(6) infinite reverse;
+}
+
+app-tool-spinner .ts-pf-wave-a {
+  animation: ts-pf-wave 2.6s ease-in-out infinite;
+  --ts-dx: -3px;
+}
+
+app-tool-spinner .ts-pf-wave-b {
+  animation: ts-pf-wave 2.6s ease-in-out infinite;
+  --ts-dx: 3px;
+}
+
+app-tool-spinner .ts-pf-tuned {
+  animation: ts-pf-tuned 2.6s ease-in-out infinite;
+}
+
+@keyframes ts-pf-fall {
+  0% {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+
+  10% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  38% {
+    opacity: 1;
+    transform: translateY(6.5px);
+  }
+
+  46%,
+  100% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes ts-pf-ripple {
+  0%,
+  38% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+
+  44% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(3);
+  }
+}
+
+@keyframes ts-pf-ripple-2 {
+  0%,
+  54% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+
+  60% {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(2.2);
+  }
+}
+
+@keyframes ts-pf-flap {
+  0%,
+  20%,
+  100% {
+    transform: scaleX(1);
+  }
+
+  45%,
+  60% {
+    transform: scaleX(0.1);
+  }
+}
+
+@keyframes ts-pf-wave {
+  0%,
+  100% {
+    transform: translateX(var(--ts-dx));
+  }
+
+  40%,
+  70% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes ts-pf-tuned {
+  0%,
+  25%,
+  85%,
+  100% {
+    opacity: 0.2;
+  }
+
+  45%,
+  65% {
+    opacity: 1;
   }
 }
 

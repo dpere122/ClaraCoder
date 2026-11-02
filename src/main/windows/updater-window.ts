@@ -10,6 +10,7 @@ import {
 } from '../utils/harden-browser-window';
 import {
   attachBrowserWindowRevealFallbacks,
+  returnFocusToParentOnClose,
   settingsWindowParentOptions,
 } from '../utils/reveal-browser-window';
 
@@ -55,6 +56,7 @@ export function createUpdaterWindow(): void {
   hardenBrowserWindow(uw);
   uw.removeMenu();
   attachBrowserWindowRevealFallbacks(uw);
+  returnFocusToParentOnClose(uw, mainWindow);
 
   if (DEV_SERVER_URL) {
     uw.loadURL(`${DEV_SERVER_URL}/#/updater`);

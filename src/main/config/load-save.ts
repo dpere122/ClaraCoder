@@ -20,6 +20,7 @@ import type {
   McpServerTransport,
   McpToolDecision,
   McpTrust,
+  SecretStorageMode,
   WorkspaceToolsConfig,
 } from '../../shared';
 import {
@@ -124,6 +125,11 @@ function warnKeychainFallbackOnce(): void {
   console.warn(
     '[config] OS keychain encryption unavailable; persisting secrets as plaintext in mode-0600 config file.',
   );
+}
+
+/** How {@link encryptSecretForDisk} will store secrets on this host right now. */
+export function secretStorageMode(): SecretStorageMode {
+  return tryGetSafeStorage()?.isEncryptionAvailable() ? 'keychain' : 'plaintext';
 }
 
 function encryptSecretForDisk(plain: string): string {

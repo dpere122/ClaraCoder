@@ -54,6 +54,22 @@ export function attachBrowserWindowRevealFallbacks(
 }
 
 /**
+ * Focus `parent` while `child` is closing. On Windows, destroying the active owned window otherwise
+ * activates whatever app was next in z-order, sending the main window behind it. Runs on `close`
+ * (not `closed`) so the app still owns the foreground and is allowed to move focus. Skipped when
+ * the child was not active, so closing it never steals focus from another app.
+ */
+export function returnFocusToParentOnClose(child: BrowserWindow, parent: BrowserWindow | null | undefined): void {
+  if (!parent) return;
+  child.on('close', () => {
+    if (!child.isFocused() || parent.isDestroyed() || !parent.isVisible() || parent.isMinimized()) {
+      return;
+    }
+    parent.focus();
+  });
+}
+
+/**
  * Parent/modal options for the settings BrowserWindow.
  * Non-modal on every platform so the main window stays interactive while Settings is open
  * (mirrors the Health window). Modal child windows are also unreliable on Linux Wayland

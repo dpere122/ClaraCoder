@@ -37,11 +37,13 @@ import type {
   LlmStatus,
   MenuFileCommand,
   McpHostStatus,
+  ModelManagerHfDetailsResult,
   ModelManagerHfFilesResult,
   ModelManagerHfSearchResult,
   ModelManagerListModelsResult,
   ModelManagerMutationResult,
   ModelManagerDownloadHfResult,
+  SecretStorageMode,
   HfDownloadId,
   HfDownloadProgressEvent,
   MaybeAutoTitleResult,
@@ -1318,6 +1320,11 @@ export class ElectronService {
     return this.api?.modelManagerPickCustomDir() ?? Promise.resolve(null);
   }
 
+  /** How the Hugging Face token (and other config secrets) are stored on disk; null outside Electron. */
+  modelManagerSecretStorage(): Promise<SecretStorageMode | null> {
+    return this.api?.modelManagerSecretStorage() ?? Promise.resolve(null);
+  }
+
   modelManagerListCustomModels(payload: { customDir: string }): Promise<ModelManagerListModelsResult> {
     return (
       this.api?.modelManagerListCustomModels(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
@@ -1350,6 +1357,13 @@ export class ElectronService {
   }): Promise<ModelManagerHfSearchResult> {
     return (
       this.api?.modelManagerSearchHf(payload) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  modelManagerHfModelDetails(payload: { id: string; token?: string }): Promise<ModelManagerHfDetailsResult> {
+    return (
+      this.api?.modelManagerHfModelDetails(payload) ??
       Promise.resolve({ ok: false, error: 'API not available' })
     );
   }

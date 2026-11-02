@@ -129,6 +129,10 @@ export function bridgeStringify(value: unknown, base64: BridgeBase64): string {
     if (raw instanceof Error) {
       return { [TAG]: 'error', name: raw.name, message: raw.message } satisfies Tagged;
     }
+    // String objects (SecretValue) cross real IPC as their text; their toJSON would send "[REDACTED]".
+    if (raw instanceof String) {
+      return String(raw);
+    }
     return encoded;
   });
 }

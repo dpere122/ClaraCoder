@@ -26,6 +26,9 @@ files:
 npmRebuild: false
 
 extraResources:
+  # Third-party attribution; scripts/verify-packed-runtime.mjs asserts the entry.
+  - from: NOTICE
+    to: NOTICE
   - from: python
     to: python
     filter:

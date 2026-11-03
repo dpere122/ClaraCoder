@@ -75,6 +75,11 @@ function stderrTail(text, max = 2000) {
 }
 
 function checkResourcesDir(resourcesDir, failures) {
+  const notice = path.join(resourcesDir, 'NOTICE');
+  if (!existsSync(notice)) {
+    failures.push(`missing third-party attribution: ${notice}`);
+  }
+
   const pythonExe = packedInterpreter(resourcesDir);
   if (!existsSync(pythonExe)) {
     failures.push(`missing packed interpreter: ${pythonExe}`);

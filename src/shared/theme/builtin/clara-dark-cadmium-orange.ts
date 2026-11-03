@@ -64,7 +64,7 @@ export const CLARA_DARK_CADMIUM_ORANGE_THEME: ClaraThemeDocument = {
     '--t-user-fg': '#eef6f7',
     '--t-user-border': '#4fc1c955',
     '--t-assistant-bg': '#191513',
-    '--t-assistant-fg': '#ddd3ca',
+    '--t-assistant-fg': '#ece4dc',
     '--t-assistant-border': '#43372f',
 
     // Code

@@ -17,6 +17,7 @@ import type {
 } from '../shared';
 import { ANTHROPIC_EFFORT_ORDER, anthropicReasoningCaps, flattenLlmProvidersToConnections } from '../shared';
 import { anthropicKeyHint, getAnthropicApiKey, getAnthropicKeyStorage } from './anthropic-key-store';
+import { envProxyFetch } from './env-proxy-fetch';
 import { clearCachedChatTemplateReasoning, setCachedChatTemplateReasoning } from './chat-template-reasoning-cache';
 
 /** Model metadata changes rarely; one list per hour unless Settings asks for a refresh. */
@@ -31,7 +32,7 @@ type ModelsClient = Pick<Anthropic, 'models'>;
 type ClientFactory = (apiKey: string) => ModelsClient;
 
 const defaultClientFactory: ClientFactory = (apiKey) =>
-  new Anthropic({ apiKey, timeout: LIST_TIMEOUT_MS, maxRetries: 1 });
+  new Anthropic({ apiKey, timeout: LIST_TIMEOUT_MS, maxRetries: 1, fetch: envProxyFetch });
 
 let clientFactory: ClientFactory = defaultClientFactory;
 
@@ -132,6 +133,11 @@ export async function listAnthropicModels(apiKey: string): Promise<AnthropicCata
     }
   }
   return models.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
+}
+
+/** One small authenticated request, for the composer's source ping. Throws the SDK's typed errors. */
+export async function pingAnthropicApi(apiKey: string, timeoutMs: number): Promise<void> {
+  await clientFactory(apiKey).models.list({ limit: 1 }, { timeout: timeoutMs });
 }
 
 async function loadCatalog(force: boolean): Promise<CatalogState | null> {

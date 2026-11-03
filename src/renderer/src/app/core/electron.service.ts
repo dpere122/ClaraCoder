@@ -43,6 +43,7 @@ import type {
   AnthropicSetModelResult,
   AnthropicStatus,
   ChatTemplateReasoningCaps,
+  LlmSourcePingResult,
   LmStudioListModelsResult,
   LmStudioMutationResult,
   LlmStatus,
@@ -1746,6 +1747,11 @@ export class ElectronService {
     return (
       this.api?.llamacppManagedListModels(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
     );
+  }
+
+  /** Can the selected (non-managed) chat source take a request right now? */
+  llmSourcePing(payload: { modelId: string; config: AppConfig }): Promise<LlmSourcePingResult> {
+    return this.api?.llmSourcePing(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
   }
 
   llamacppOpenAiListModels(payload: { baseUrl: string; apiKey: string }): Promise<LlamacppManagedListModelsResult> {

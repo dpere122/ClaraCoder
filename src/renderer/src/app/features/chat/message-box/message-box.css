@@ -72,6 +72,8 @@
 }
 
 .composer-entry-row {
+  /* Height of one text line in the entry: the prompt and the buttons match it as the entry grows. */
+  --composer-entry-line: 1.66rem;
   display: flex;
   flex-wrap: nowrap;
   align-items: stretch;
@@ -348,16 +350,10 @@
   align-items: stretch;
 }
 
-.composer-input-wrap--multiline {
-  align-items: flex-start;
-}
-
-.composer-input-wrap--multiline .composer-prompt {
-  align-self: flex-start;
-  padding-top: 0.2rem;
-}
-
 .composer-prompt {
+  /* Stays beside the first line of text as the entry grows. */
+  align-self: flex-start;
+  height: var(--composer-entry-line);
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -435,19 +431,38 @@
   cursor: not-allowed;
 }
 
-.composer-entry-row .form-control--multiline {
+/* Grows with its wrapped text, however it got there (typing, paste, restored draft, panel resize). */
+.composer-entry-row .composer-field {
   resize: none;
   overflow-y: auto;
-  min-height: 2rem;
+  /* Replaces Bootstrap's taller textarea minimum, so one line matches the prompt and buttons. */
+  min-height: var(--composer-entry-line);
   max-height: min(40vh, 12rem);
-  padding-top: 0.375rem;
-  padding-bottom: 0.375rem;
   line-height: 1.35;
   field-sizing: content;
 }
 
+.composer-entry-row .composer-field--expanded {
+  min-height: calc(3lh + 0.44rem);
+}
+
 .composer-entry-row .btn-send {
   border-radius: var(--chat-radius) !important;
+}
+
+/* Stay at the bottom edge at one line tall as the entry grows. */
+.composer-entry-row .btn-send,
+.composer-entry-row .btn-abort {
+  align-self: flex-end;
+  height: var(--composer-entry-line);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+:host ::ng-deep .send-icon svg {
+  stroke: currentColor;
+  fill: none;
 }
 
 .composer-entry-row .btn:disabled {

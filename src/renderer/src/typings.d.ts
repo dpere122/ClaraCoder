@@ -46,6 +46,7 @@ import type {
   SecretStorageMode,
   HfDownloadId,
   HfDownloadProgressEvent,
+  LlmSourcePingResult,
   LmStudioListModelsResult,
   LmStudioMutationResult,
   MaybeAutoTitleResult,
@@ -462,6 +463,7 @@ declare global {
       modelId: string;
       config: AppConfig;
     }) => Promise<LlamacppManagedListModelsResult>;
+    llmSourcePing: (payload: { modelId: string; config: AppConfig }) => Promise<LlmSourcePingResult>;
     llamacppOpenAiListModels: (payload: {
       baseUrl: string;
       apiKey: string;

@@ -93,6 +93,7 @@ export const createAppServicesApi = (ipcRenderer: PreloadIpc) => ({
     ipcRenderer.invoke('llama-server:launched-command', payload),
   llamacppManagedListModels: (payload: { modelId: string; config: AppConfig }) =>
     ipcRenderer.invoke('llamacpp-managed:list-models', payload),
+  llmSourcePing: (payload: { modelId: string; config: AppConfig }) => ipcRenderer.invoke('llm-source:ping', payload),
   llamacppOpenAiListModels: (payload: { baseUrl: string; apiKey: string }) =>
     ipcRenderer.invoke('llamacpp-openai:list-models', payload),
   openRouterListModels: (payload: { baseUrl: string; apiKey: string }) =>

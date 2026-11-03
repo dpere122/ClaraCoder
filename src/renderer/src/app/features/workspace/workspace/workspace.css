@@ -56,23 +56,69 @@ app-workspace .file-tree:focus-visible {
 
 app-workspace .workspace-interpreter-footer {
   flex-shrink: 0;
-  padding: 0.55rem 0.6rem 0.45rem;
+  padding: 0.1rem 0.25rem;
   border-top: 1px solid var(--t-border-subtle);
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.15rem;
 }
 
-app-workspace .workspace-interpreter-label {
+/* Nothing to show (no Python env, outline or error): no empty strip above the status bar. */
+app-workspace .workspace-interpreter-footer:not(:has(.workspace-outline-dock, .workspace-env, .workspace-settings-error)) {
+  display: none;
+}
+
+/* A hidden outline dock shouldn't add a gap above the Python env bar. */
+app-workspace app-workspace-outline-dock:empty {
+  display: none;
+}
+
+app-workspace .workspace-env {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+app-workspace .workspace-env__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.04rem 0.2rem;
+  line-height: 1.3;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--t-text-muted);
   font-size: 0.68rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+app-workspace .workspace-env__bar:hover {
+  background: var(--t-hover-bg);
+}
+
+app-workspace .workspace-env__label {
+  flex-shrink: 0;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--t-text-muted);
+}
+
+app-workspace .workspace-env__selected {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
 }
 
 app-workspace .workspace-interpreter-select {
   width: 100%;
-  margin-bottom: 0.45rem;
 }
 
 app-workspace .workspace-interpreter-error {
@@ -87,28 +133,6 @@ app-workspace .workspace-settings-error {
   font-size: 0.68rem;
   line-height: 1.35;
   color: var(--t-danger, #c44);
-}
-
-app-workspace .workspace-footer-model-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-app-workspace .workspace-footer-model-row app-managed-llama-controls {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-app-workspace .workspace-footer-model-row .workspace-icon-btn {
-  border-radius: 999px;
-}
-
-app-workspace .workspace-footer-model-row .managed-llama-controls {
-  padding-top: 0;
-  border-top: none;
-  margin-top: 0;
 }
 
 app-workspace .workspace-icon-btn {

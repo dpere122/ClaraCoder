@@ -288,7 +288,13 @@
   flex: 0 1 auto;
   min-width: 0;
   overflow: visible;
+  gap: 0.35rem;
   padding-left: 0.35rem;
+}
+
+.app-status-footer__source {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .app-status-footer__end {

@@ -211,9 +211,8 @@ app-conversation-manager .conv-context-menu {
   border-radius: var(--chat-radius) !important;
 }
 
-/* Managed llama-server row in the workspace footer: Start/Stop, settings. */
+/* Managed llama-server Start/Stop, and the workspace settings cog. */
 app-managed-llama-controls .managed-llama-controls__btn,
-app-workspace .workspace-footer-model-row .workspace-icon-btn,
 app-workspace .workspace-tree-cog {
   border-radius: 999px !important;
 }

@@ -15,7 +15,6 @@ import { LucideAngularModule } from 'lucide-angular';
 import type { AppConfig, PythonInterpreterListItem, Workspace, WorkspaceFilesChangedMessage } from '@shared/index';
 import { lspServerKindForWorkspaceRelativePath, RUNTIME_VENV_INTERPRETER_ID } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
-import { ManagedLlamaControlsComponent } from '../../status/managed-llama-controls/managed-llama-controls';
 import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { workspaceEntryDeletePrompt } from '../../../shared/themed-confirm-dialog/format-delete-prompt';
@@ -64,7 +63,7 @@ import {
 
 @Component({
   selector: 'app-workspace',
-  imports: [LucideAngularModule, WorkspaceOutlineDockComponent, ManagedLlamaControlsComponent, PillSelectComponent],
+  imports: [LucideAngularModule, WorkspaceOutlineDockComponent, PillSelectComponent],
   templateUrl: './workspace.html',
   styleUrl: './workspace.css',
   encapsulation: ViewEncapsulation.None,
@@ -81,7 +80,7 @@ export class WorkspaceComponent implements OnDestroy {
   readonly activeFileRelativePath = input<string | null>(null);
   /** Document outline symbols from the active Monaco tab. */
   readonly outlineSymbols = input<readonly EditorOutlineSymbol[]>([]);
-  /** Live app config from the shell; drives the managed llama-server Start/Stop controls in the footer. */
+  /** Live app config from the shell; drives the move confirmation. */
   readonly appConfig = input<AppConfig | null>(null);
   /** Relative path for the active outline (from Monaco). */
   readonly outlineRelativePath = input<string | null>(null);
@@ -174,6 +173,12 @@ export class WorkspaceComponent implements OnDestroy {
   protected readonly pythonInterpreterLoading = signal(false);
   protected readonly pythonInterpreterError = signal('');
   private pythonInterpreterLoadRequestId = 0;
+  /** Python env section; collapsed by default, its bar names the selection meanwhile. */
+  protected readonly pythonEnvExpanded = signal(false);
+  protected readonly pythonInterpreterSelectedLabel = computed(() => {
+    const id = this.pythonInterpreterSelectedId();
+    return this.pythonInterpreterRows().find((row) => row.id === id)?.label ?? '';
+  });
 
   /** From ``GET /lsp/status`` — whether the Python LSP subprocess for this session is running. */
   protected readonly lspPythonServerRunning = signal(false);
@@ -362,6 +367,10 @@ export class WorkspaceComponent implements OnDestroy {
 
   /** Expose path normalizer to template for active file comparison. */
   protected normalizePathSlashes = normalizePathSlashes;
+
+  protected togglePythonEnv(): void {
+    this.pythonEnvExpanded.update((v) => !v);
+  }
 
   protected onOutlineSymbolReveal(sym: EditorOutlineSymbol): void {
     const rel = this.outlineRelativePath()?.trim() || this.activeFileRelativePath()?.trim();

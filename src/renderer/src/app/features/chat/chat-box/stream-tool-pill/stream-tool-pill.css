@@ -6,6 +6,7 @@
 app-stream-tool-pill {
   display: block;
   min-width: 0;
+  container-type: inline-size;
 }
 
 app-stream-tool-pill .stream-tool-pill {
@@ -95,7 +96,7 @@ app-stream-tool-pill .stream-tool-pill__chevron {
 
 /* Quieter than the agent's prose (`--t-assistant-fg`) so the reply is what stands out in a turn. */
 app-stream-tool-pill .stream-tool-pill__name {
-  flex-shrink: 0;
+  min-width: 0;
   max-width: 14rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -118,8 +119,23 @@ app-stream-tool-pill .stream-tool-pill--error .stream-tool-pill__meta {
   color: var(--t-log-level-error);
 }
 
+/*
+ * Too narrow for four glyphs, a few words and the run time: keep one glyph so the row fits
+ * instead of pushing the run time out and scrolling the whole transcript.
+ */
+@container (max-width: 17rem) {
+  app-stream-tool-pill .stream-tool-pill {
+    gap: 0.3rem;
+  }
+
+  app-stream-tool-pill .stream-tool-pill__icon:not(:first-child) {
+    display: none;
+  }
+}
+
 /* Target and detail (`chat-box.css · +3 −1`): monospace, truncates first. */
 app-stream-tool-pill .stream-tool-pill__meta {
+  flex-shrink: 1000;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

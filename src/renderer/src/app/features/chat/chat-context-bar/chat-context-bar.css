@@ -26,15 +26,7 @@
 }
 
 .chat-context-bar--empty {
-  min-height: 0;
-}
-
-.chat-context-bar-hint {
-  font-size: 0.72rem;
-  font-style: italic;
-  color: var(--t-text-muted);
   padding: 0;
-  pointer-events: none;
 }
 
 .chat-context-chip {

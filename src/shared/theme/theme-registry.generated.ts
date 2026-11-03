@@ -416,13 +416,13 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
   },
   {
     id: "workspace.footer",
-    label: "Workspace footer",
+    label: "LLM source controls",
     category: "workspace",
     categoryLabel: "Workspace",
-    description: "Managed llama-server controls and workspace actions.",
+    description: "LLM source picker and managed llama-server controls in the status bar.",
     selector: "[data-theme-group=\"workspace.footer\"]",
-    component: "app/features/workspace/workspace",
-    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-danger", "--t-glow", "--t-hover-bg", "--t-primary", "--t-secondary", "--t-text-muted"],
+    component: "app/features/shell",
+    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-fg-muted", "--t-font", "--t-font-mono", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-muted", "--t-primary", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text", "--t-warn"],
     supportsBackground: false,
   },
   {

@@ -537,6 +537,9 @@
   @if (electron.isElectron && currentWorkspaceId()) {
     <footer class="app-status-footer" data-theme-group="shell.status-bar">
       <div class="app-status-footer__start">
+        <div class="app-status-footer__source" data-theme-group="workspace.footer">
+          <app-managed-llama-controls layout="status-bar" [appConfig]="appConfig()" />
+        </div>
         <app-llama-status-indicator [appConfig]="appConfig()" />
       </div>
       <div class="app-status-footer__end">

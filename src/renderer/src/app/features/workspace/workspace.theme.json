@@ -41,7 +41,7 @@
     },
     "workspace.footer": {
       "label": "Workspace footer",
-      "description": "Managed llama-server controls and workspace actions.",
+      "description": "LLM source picker and managed llama-server controls in the status bar.",
       "styleSources": ["features/status/managed-llama-controls"]
     }
   }

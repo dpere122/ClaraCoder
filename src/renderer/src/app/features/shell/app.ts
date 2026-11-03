@@ -126,6 +126,7 @@ import {
 } from '../status/context-capacity/context-capacity.utils';
 import { EditorLspStatusComponent } from './editor-lsp-status/editor-lsp-status';
 import { LlamaStatusIndicator } from '../status/llama-status-indicator/llama-status-indicator';
+import { ManagedLlamaControlsComponent } from '../status/managed-llama-controls/managed-llama-controls';
 import { MainPanelEmptyStateComponent } from './main-panel-empty-state/main-panel-empty-state';
 import { TutorialCoordinator } from '../tutorial/tutorial-coordinator';
 import { WorkspaceComponent } from '../workspace/workspace/workspace';
@@ -235,6 +236,7 @@ export function editorGridSlotView(slot: EditorGridSlot): EditorGridSlotView {
     ChatConversationHubComponent,
     EditorLspStatusComponent,
     LlamaStatusIndicator,
+    ManagedLlamaControlsComponent,
     MainPanelEmptyStateComponent,
     LucideAngularModule,
     WorkspaceComponent,

@@ -50,7 +50,7 @@ const INVENTORY_SPINNER = {
 
 /**
  * LLM source picker + managed ``llama-server`` Start/Stop controls, shown in
- * the workspace panel below the system prompt area. A dropdown lists every
+ * the status bar and the home Runtime panel. A dropdown lists every
  * LLM source and switches the active one; the Start/Stop button is enabled
  * only for a managed (non-URL-only) llamacpp source — i.e. the local llama
  * server — and disabled for everything else. An inline loading spinner shows
@@ -70,6 +70,8 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
 
   /** Live app config from the shell; drives the active source and start/stop IPC calls. */
   readonly appConfig = input<AppConfig | null>(null);
+  /** `status-bar`: compact single row for the app footer. */
+  readonly layout = input<'default' | 'status-bar'>('default');
 
   protected readonly phase = signal<ManagedLlamaPhase>('idle');
   /** Why the last start failed, which is what the server said when it exited. */

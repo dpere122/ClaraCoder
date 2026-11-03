@@ -1,5 +1,10 @@
 @if (show()) {
-  <div class="managed-llama-controls" role="group" aria-label="LLM source and managed llama-server controls">
+  <div
+    class="managed-llama-controls"
+    [class.managed-llama-controls--status-bar]="layout() === 'status-bar'"
+    role="group"
+    aria-label="LLM source and managed llama-server controls"
+  >
     <div class="managed-llama-controls__row">
       <app-pill-select
         class="managed-llama-controls__source-select"

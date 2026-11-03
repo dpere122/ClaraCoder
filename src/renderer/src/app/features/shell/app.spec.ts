@@ -648,8 +648,7 @@ describe('App', () => {
     expect(compiled.querySelector('app-workspace')).toBeNull();
     expect(compiled.querySelector('.sidebar')).toBeNull();
     expect(compiled.querySelector('app-chat-conversation-hub')).toBeNull();
-    // The source picker lives in the home Runtime panel, not the (absent) workspace footer.
-    expect(compiled.querySelector('.workspace-footer-model-row')).toBeNull();
+    // The source picker lives in the home Runtime panel, not the (absent) status bar.
     expect(compiled.querySelector('.home__runtime app-managed-llama-controls')).toBeTruthy();
     // No status bar on the home screen: the Runtime panel already shows model status.
     expect(compiled.querySelector('.app-status-footer')).toBeNull();

@@ -76,6 +76,17 @@ describe('the source menu', () => {
   });
 });
 
+describe('the layout', () => {
+  it('is compact only when asked for the status bar', async () => {
+    const { fixture } = setup();
+    const el = await render(fixture);
+    expect(el.querySelector('.managed-llama-controls--status-bar')).toBeNull();
+    fixture.componentRef.setInput('layout', 'status-bar');
+    await render(fixture);
+    expect(el.querySelector('.managed-llama-controls--status-bar')).toBeTruthy();
+  });
+});
+
 describe('a start that fails', () => {
   it('says what the server said, and goes back to Start', async () => {
     const { fixture } = setup();

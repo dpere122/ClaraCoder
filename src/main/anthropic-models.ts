@@ -134,6 +134,11 @@ export async function listAnthropicModels(apiKey: string): Promise<AnthropicCata
   return models.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
 }
 
+/** One small authenticated request, for the composer's source ping. Throws the SDK's typed errors. */
+export async function pingAnthropicApi(apiKey: string, timeoutMs: number): Promise<void> {
+  await clientFactory(apiKey).models.list({ limit: 1 }, { timeout: timeoutMs });
+}
+
 async function loadCatalog(force: boolean): Promise<CatalogState | null> {
   const key = await getAnthropicApiKey();
   if (!key) {

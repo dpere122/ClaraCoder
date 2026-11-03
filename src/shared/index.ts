@@ -387,6 +387,7 @@ export {
 } from './llm-provider-ids';
 export { lmStudioOpenAiBaseUrlToRestOrigin } from './lm-studio-url';
 export type { LmStudioModelCard, LmStudioListModelsResult, LmStudioMutationResult } from './lm-studio-ipc';
+export type { LlmSourcePingResult } from './llm-source-ping-ipc';
 export type {
   OpenRouterCatalogModel,
   OpenRouterListModelsResult,

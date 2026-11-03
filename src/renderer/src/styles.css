@@ -1036,9 +1036,9 @@ html app-message-box .composer-input-wrap .form-control:focus {
   outline-offset: -1px;
 }
 
-html app-message-box .composer-input-wrap .form-control--multiline {
-  padding-top: 0.1rem;
-  padding-bottom: 0.1rem;
+html app-message-box .composer-entry-row .composer-input-wrap .composer-field {
+  padding-top: 0.22rem;
+  padding-bottom: 0.22rem;
   line-height: 1.35;
 }
 
@@ -1066,6 +1066,7 @@ html app-message-box .composer-entry-row .composer-prompt {
   border-radius: var(--chat-radius) !important;
 }
 
+html app-message-box .composer-entry-row .btn-send,
 html app-message-box .composer-entry-row .btn-abort {
   padding: 0.2rem 0.6rem;
   min-width: 2.15rem;

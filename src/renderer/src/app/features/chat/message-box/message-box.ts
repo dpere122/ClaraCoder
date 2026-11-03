@@ -1,4 +1,4 @@
-import { afterNextRender, Component, computed, DestroyRef, effect, ElementRef, inject, Injector, input, model, output, signal, viewChild } from '@angular/core';
+import { Component, computed, DestroyRef, effect, ElementRef, inject, input, model, output, signal, untracked, viewChild } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import {
@@ -21,6 +21,7 @@ import {
   type LlamaServerProcessExitEvent,
   type LlmReasoningEffort,
   type LlmReasoningSettingChange,
+  type LlmSourcePingResult,
 } from '@shared/index';
 import { LucideAngularModule } from 'lucide-angular';
 import { filter, merge } from 'rxjs';
@@ -36,7 +37,9 @@ import { ChatContextBar } from '../chat-context-bar/chat-context-bar';
 import { type ChatContextDroppedPath } from '../chat-context-bar/chat-context-drop';
 import { type ChatContextFile } from '../chat-context-bar/chat-context-file';
 
-type ComposerField = HTMLInputElement | HTMLTextAreaElement;
+const CONTEXT_FULL_HINT = 'Context full: turn on context compaction in Settings or start a new conversation';
+/** How often the selected source is re-checked, so Send follows a server going down or coming back. */
+const SOURCE_POLL_MS = 15_000;
 
 @Component({
   selector: 'app-message-box',
@@ -115,10 +118,20 @@ export class MessageBox {
   });
   /** True while the managed local llama-server is accepting traffic. */
   private readonly llamaLive = signal(false);
+  /** The managed llama-server process is up but stopped answering its health check. */
+  private readonly llamaUnresponsive = signal(false);
   private llamaStatusProbeId = 0;
+  /** Last answer from the selected non-managed source; null until the first one arrives. */
+  private readonly sourcePing = signal<LlmSourcePingResult | null>(null);
+  private sourcePingId = 0;
+  /** Identifies what is being pinged: a new endpoint must not inherit the old one's answer. */
+  private readonly pingedEndpoint = computed(() => {
+    const conn = this.activeConnection();
+    return conn && !this.managedLocalLlama() ? `${conn.id}\n${conn.baseUrl}` : '';
+  });
   /**
-   * Send is allowed when a chat source is selected and, for local llama.cpp, the server is running.
-   * Remote / LM Studio / OpenAI sources are treated as active once a connection is resolvable.
+   * Send is allowed once the selected source has proven it can take a request: a managed llama-server
+   * is running and healthy, any other source answered its last ping.
    */
   protected readonly sourceActive = computed(() => {
     if (!this.activeConnection()) {
@@ -127,24 +140,37 @@ export class MessageBox {
     if (this.managedLocalLlama()) {
       return this.llamaLive();
     }
-    return true;
+    return this.sourcePing()?.ok === true;
+  });
+  /** Why the source can't take a message; empty when it can, or while its first ping is out. */
+  private readonly sourceBlockedReason = computed(() => {
+    if (!this.activeConnection()) {
+      return 'No LLM source selected';
+    }
+    if (this.managedLocalLlama()) {
+      if (this.llamaLive()) {
+        return '';
+      }
+      return this.llamaUnresponsive() ? "The local llama-server isn't responding" : 'Start the local llama-server to send';
+    }
+    const ping = this.sourcePing();
+    return ping && !ping.ok ? ping.error : '';
   });
   /** Composer send is blocked by a full context window or an inactive LLM source. */
   protected readonly sendDisabled = computed(() => this.contextBlocked() || !this.sourceActive());
   /** Something to send: while a reply streams, Send (which interrupts it) only shows then. */
   protected readonly hasDraft = computed(() => this.composerDraft().trim().length > 0 || this.attachmentCount() > 0);
+  /** Composer field hint: why nothing can be sent right now. */
+  protected readonly composerPlaceholder = computed(() =>
+    this.contextBlocked() ? CONTEXT_FULL_HINT : this.sourceBlockedReason(),
+  );
   /** Tooltip for the Send button when it is disabled. */
   protected readonly sendTitle = computed(() => {
-    if (this.contextBlocked()) {
-      return 'Context full: turn on context compaction in Settings or start a new conversation';
+    const blocked = this.composerPlaceholder();
+    if (blocked) {
+      return blocked;
     }
-    if (!this.activeConnection()) {
-      return 'No LLM source selected';
-    }
-    if (this.managedLocalLlama() && !this.llamaLive()) {
-      return 'Start the local llama-server to send';
-    }
-    return 'Send message';
+    return this.sourceActive() ? 'Send message' : 'Checking the connection…';
   });
   private readonly liveCaps = computed(() => {
     const id = this.activeConnection()?.id;
@@ -191,6 +217,8 @@ export class MessageBox {
   readonly usedPercentage = input(0);
   private readonly session = inject(ConversationSessionService);
   private readonly generationRate = inject(GenerationRateService);
+  /** A reply is streaming in any conversation, which all share the selected source. */
+  private readonly turnInFlight = computed(() => this.loading() || this.session.pendingIds().size > 0);
   /** An interrupt is still stopping the previous reply; the next send waits for it. */
   protected readonly draining = computed(() => {
     const id = this.session.activeConversationId();
@@ -234,11 +262,13 @@ export class MessageBox {
   readonly abortRequested = output<void>();
   /** Draft text bound to the composer input (parent may restore a prior user prompt here). */
   readonly composerDraft = model('');
-  /** Session-scoped multiline composer toggle (prompt button). */
+  /**
+   * Session-scoped multiline toggle (prompt button): Enter adds a line and the entry holds a taller
+   * minimum height. Long text wraps with or without it; this only changes what Enter does and the height.
+   */
   protected readonly multilineMode = signal(false);
   /** `#messageInput` in template; used to restore focus after send. */
-  private readonly messageInputEl = viewChild<ElementRef<ComposerField>>('messageInput');
-  private readonly injector = inject(Injector);
+  private readonly messageInputEl = viewChild<ElementRef<HTMLTextAreaElement>>('messageInput');
 
   constructor() {
     effect(() => {
@@ -269,13 +299,30 @@ export class MessageBox {
       });
 
     effect(() => {
-      const cfg = this.appConfig();
-      const loc = this.managedLocalLlama();
-      if (!cfg || !loc) {
-        this.llamaLive.set(false);
-        return;
+      this.pingedEndpoint();
+      this.sourcePing.set(null);
+    });
+
+    // Re-check on any config change, and when a turn starts or ends: a failed turn is often the
+    // first sign that the source went away.
+    effect(() => {
+      this.appConfig();
+      this.managedLocalLlama();
+      this.turnInFlight();
+      untracked(() => this.probeSource());
+    });
+
+    const pollSource = (): void => {
+      // A busy server can miss a ping, and a running turn already shows whether the source works.
+      if (!document.hidden && !this.turnInFlight()) {
+        this.probeSource();
       }
-      void this.probeLlamaLive(cfg, loc.model.id);
+    };
+    const pollTimer = window.setInterval(pollSource, SOURCE_POLL_MS);
+    window.addEventListener('focus', pollSource);
+    this.destroyRef.onDestroy(() => {
+      window.clearInterval(pollTimer);
+      window.removeEventListener('focus', pollSource);
     });
 
     // A saved effort the model does not offer (Default, on/off, another model's) would still be
@@ -360,79 +407,41 @@ export class MessageBox {
   toggleMultilineMode(event: MouseEvent): void {
     event.stopPropagation();
     if (this.multilineMode()) {
-      this.disableMultilineMode();
-    } else {
-      this.enableMultilineMode();
+      const text = this.composerDraft();
+      if (text.includes('\n')) {
+        this.composerDraft.set(text.replace(/\n+/g, ' ').trim());
+      }
     }
+    this.multilineMode.update((on) => !on);
+    this.focusInput();
   }
 
   /**
-   * Single-line keyboard routing: Enter sends; Shift+Enter enables multiline.
-   *
-   * @param event - Native keydown from the input.
-   */
-  onSingleLineKeydown(event: KeyboardEvent): void {
-    if (event.key !== 'Enter') {
-      return;
-    }
-    event.preventDefault();
-    if (event.shiftKey) {
-      this.enableMultilineMode();
-      return;
-    }
-    this.send();
-  }
-
-  /** Enables multiline mode and prepares the draft for a new line. */
-  private enableMultilineMode(): void {
-    if (this.multilineMode()) {
-      return;
-    }
-    const current = this.composerDraft();
-    const wasEmpty = current.length === 0;
-    if (wasEmpty) {
-      this.composerDraft.set('\n');
-    } else if (!current.endsWith('\n')) {
-      this.composerDraft.set(`${current}\n`);
-    }
-    this.multilineMode.set(true);
-    this.focusComposerAfterRender(wasEmpty ? 0 : undefined);
-  }
-
-  /** Disables multiline mode and collapses embedded newlines. */
-  private disableMultilineMode(): void {
-    if (!this.multilineMode()) {
-      return;
-    }
-    const text = this.composerDraft();
-    if (text.includes('\n')) {
-      this.composerDraft.set(text.replace(/\n+/g, ' ').trim());
-    }
-    this.multilineMode.set(false);
-    this.focusComposerAfterRender();
-  }
-
-  /**
-   * Multiline keyboard routing: Escape blurs; Enter inserts a newline; Shift+Enter sends.
+   * Keyboard routing. Single-line: Enter sends; Ctrl/Shift+Enter expands the entry without touching
+   * the text or the caret. Multiline: Enter adds a line; Ctrl/Shift+Enter sends; Escape blurs.
    *
    * @param event - Native keydown from the textarea.
    */
   onComposerKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Escape') {
+    const multiline = this.multilineMode();
+    if (event.key === 'Escape' && multiline) {
       event.preventDefault();
       this.messageInputEl()?.nativeElement.blur();
       return;
     }
-    if (event.key !== 'Enter' || !event.shiftKey) {
+    if (event.key !== 'Enter') {
+      return;
+    }
+    const modified = event.ctrlKey || event.shiftKey;
+    if (multiline && !modified) {
       return;
     }
     event.preventDefault();
+    if (!multiline && modified) {
+      this.multilineMode.set(true);
+      return;
+    }
     this.send();
-  }
-
-  /** Re-syncs textarea height after content or wrap changes. */
-  onTextareaInput(): void {
-    this.adjustTextareaHeight();
   }
 
   /**
@@ -448,11 +457,7 @@ export class MessageBox {
     if (!msg && this.attachmentCount() === 0) return;
     this.messageSent.emit(msg);
     this.composerDraft.set('');
-    if (this.multilineMode()) {
-      this.multilineMode.set(false);
-      this.focusComposerAfterRender();
-      return;
-    }
+    this.multilineMode.set(false);
     this.focusInput();
   }
 
@@ -495,68 +500,12 @@ export class MessageBox {
     input.focus({ preventScroll: true });
   }
 
-  /** Grows the multiline textarea to fit content up to the CSS max-height. */
-  private adjustTextareaHeight(): void {
-    const el = this.messageInputEl()?.nativeElement;
-    if (!(el instanceof HTMLTextAreaElement)) {
-      return;
-    }
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
-  }
-
-  /**
-   * Focuses the composer after Angular swaps input/textarea on toggle.
-   * Height is synced first; focus is deferred so layout can expand cleanly.
-   *
-   * @param cursor - Optional caret position; defaults to end of current value.
-   */
-  private focusComposerAfterRender(cursor?: number): void {
-    afterNextRender(() => {
-      this.syncComposerFieldLayout();
-
-      requestAnimationFrame(() => {
-        this.syncComposerFieldLayout();
-
-        window.setTimeout(() => {
-          this.focusComposerField(cursor);
-        }, 0);
-      });
-    }, { injector: this.injector });
-  }
-
-  /** Syncs multiline textarea height without moving focus. */
-  private syncComposerFieldLayout(): void {
-    if (this.multilineMode()) {
-      this.adjustTextareaHeight();
-    }
-  }
-
-  /**
-   * Moves focus into the composer and restores the caret.
-   *
-   * @param cursor - Optional caret position; defaults to end of current value.
-   */
-  private focusComposerField(cursor?: number): void {
-    const el = this.messageInputEl()?.nativeElement;
-    if (!el) {
-      return;
-    }
-    const active = document.activeElement;
-    if (active instanceof HTMLElement && active !== el) {
-      active.blur();
-    }
-    el.focus({ preventScroll: true });
-    const caret = cursor ?? el.value.length;
-    el.setSelectionRange(caret, caret);
-    this.syncComposerFieldLayout();
-  }
-
   /**
    * Mirrors llama Start/Stop into Send availability. If a turn is in flight when the
    * chat server dies, emit abort so the parent can drop the hung Stop button.
    */
   private applyLlamaLifecycleEvent(e: LlamaServerLifecycleEvent | LlamaServerProcessExitEvent): void {
+    this.llamaUnresponsive.set(false);
     if ('phase' in e) {
       this.llamaLive.set(e.phase === 'running');
       if (e.phase === 'stopped' && this.loading()) {
@@ -573,7 +522,22 @@ export class MessageBox {
     }
   }
 
-  /** Probe whether the managed local llama-server is currently running. */
+  /** Checks whichever way the selected source can be reached. */
+  private probeSource(): void {
+    const cfg = this.appConfig();
+    const llama = this.managedLocalLlama();
+    if (cfg && llama) {
+      void this.probeLlamaLive(cfg, llama.model.id);
+      return;
+    }
+    this.llamaLive.set(false);
+    this.llamaUnresponsive.set(false);
+    if (cfg && this.activeConnection()) {
+      void this.pingSource(cfg, cfg.activeLlmModelId);
+    }
+  }
+
+  /** Probe whether the managed local llama-server is running and answering. */
   private async probeLlamaLive(cfg: AppConfig, modelId: string): Promise<void> {
     const req = ++this.llamaStatusProbeId;
     try {
@@ -581,12 +545,29 @@ export class MessageBox {
       if (req !== this.llamaStatusProbeId) {
         return;
       }
-      this.llamaLive.set(!!(res.ok && res.running));
+      const hung = !!(res.ok && res.running && res.chat.health === 'error');
+      this.llamaUnresponsive.set(hung);
+      this.llamaLive.set(!!(res.ok && res.running) && !hung);
     } catch {
       if (req !== this.llamaStatusProbeId) {
         return;
       }
+      this.llamaUnresponsive.set(false);
       this.llamaLive.set(false);
+    }
+  }
+
+  /** Ping the selected non-managed source; a stale answer from a previous source is dropped. */
+  private async pingSource(cfg: AppConfig, modelId: string): Promise<void> {
+    const req = ++this.sourcePingId;
+    let result: LlmSourcePingResult;
+    try {
+      result = await this.electron.llmSourcePing({ modelId, config: cfg });
+    } catch (err) {
+      result = { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+    if (req === this.sourcePingId) {
+      this.sourcePing.set(result);
     }
   }
 }

@@ -21,6 +21,7 @@ import { loadConfig } from '../../config/load-save';
 import { fetchOpenAiCompatibleModelIds } from '../../openai-compatible-models';
 import { findOpenRouterConnection, refreshOpenRouterReasoningForConnection } from '../../openrouter-reasoning';
 import { findAnthropicConnection, refreshAnthropicReasoningForConnection } from '../../anthropic-models';
+import { pingLlmSource } from '../../llm-source-ping';
 import { pythonControlFetch } from '../../python/http-client';
 import { assertTrustedAppRenderer, assertTrustedMainRendererOrThrow } from '../assert-trusted-renderer';
 
@@ -75,6 +76,19 @@ export function registerLlamaServerIpc(): void {
       return { ok: false as const, error: 'Missing model id.' };
     }
     return getManagedLlamaStatus(modelId, payload.config);
+  });
+
+  ipcMain.handle('llm-source:ping', async (event, payload: LlamaServerIpcPayload) => {
+    try {
+      assertTrustedMainRendererOrThrow(event);
+    } catch {
+      return { ok: false as const, error: 'Untrusted IPC sender' };
+    }
+    const modelId = normalizeLlamaModelId(payload.modelId);
+    if (!modelId) {
+      return { ok: false as const, error: 'No LLM source selected' };
+    }
+    return pingLlmSource(modelId, payload.config);
   });
 
   ipcMain.handle('llama-server:chat-template-reasoning', async (event, payload: { modelId?: string }) => {

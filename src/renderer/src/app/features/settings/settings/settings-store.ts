@@ -1919,26 +1919,18 @@ export class SettingsStore {
     this.applyManagedModelSource({ kind: 'hf', hfId: sel.hfId });
   }
 
-  /** Activates the source "Use in Models" fills: the selected local source, else the first, else a new one. */
-  private activateLocalSourceForUse(): void {
-    const selected = this.selectedProvider();
-    let local =
-      selected && this.isManagedLlamacppSource(selected)
-        ? selected
-        : this.llmProviders().find((p) => this.isManagedLlamacppSource(p));
-    if (!local) {
-      this.addProvider();
-      local = this.selectedProvider() ?? undefined;
-    }
-    if (local?.models[0]) {
-      this.selectedModelId.set(local.models[0].id);
-      this.activateSource(local.id);
+  /** "Use in Models" gets a source of its own, selected and active, so existing sources stay as they are. */
+  private activateNewLocalSourceForUse(): void {
+    this.addProvider();
+    const source = this.selectedProvider();
+    if (source) {
+      this.activateSource(source.id);
     }
   }
 
   useCustomModelInModels(model: ModelManagerFileEntry): void {
     this.selectTab('models');
-    this.activateLocalSourceForUse();
+    this.activateNewLocalSourceForUse();
     const localGguf = (model.ggufAbsolutePath || '').trim();
     if (localGguf) {
       this.applyManagedModelSource(
@@ -1978,7 +1970,7 @@ export class SettingsStore {
       return;
     }
     this.selectTab('models');
-    this.activateLocalSourceForUse();
+    this.activateNewLocalSourceForUse();
     this.managedHfIdDraft.set(id);
     this.applyManagedModelSource({ kind: 'hf', hfId: id }, { keepCustomFlags: true });
   }
@@ -2079,7 +2071,7 @@ export class SettingsStore {
     const localPath = this.modelManagerHfDownloaded()[this.hfQuantDownloadId(repo, file)];
     if (localPath) {
       this.selectTab('models');
-      this.activateLocalSourceForUse();
+      this.activateNewLocalSourceForUse();
       this.applyManagedModelSource(
         {
           kind: 'gguf',

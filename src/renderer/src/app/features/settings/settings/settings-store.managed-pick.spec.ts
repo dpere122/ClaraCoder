@@ -459,68 +459,91 @@ describe('the Local model picker and a projector', () => {
 describe('Use in Models', () => {
   const HAND = `llama-server --port {{PORT}} -m ${MIMO} -c 50000 -dev CUDA1 --no-mmap --cache-ram 4096 -t 12 --seed 7`;
   const hubRow = INVENTORY[0] as ModelManagerFileEntry;
+  const QUANT: HuggingFaceModelFile = { fileName: 'gemma-4-12B-it-Q4_0.gguf', quant: 'Q4_0', sizeBytes: 1 };
+  const QUANT_KEY = `ggml-org/gemma-4-12B-it-GGUF/${QUANT.fileName}`;
 
-  it('on the selected model changes nothing, as the Local model picker does', async () => {
+  it('adds a selected, active source and leaves the existing one as it was', async () => {
+    const { store } = setup({ chatRunCommand: HAND });
+    const before = structuredClone(store.llmProviders()[0]);
+    store.useCustomModelInModels(hubRow);
+    await settled(store);
+    expect(store.llmProviders()).toHaveLength(2);
+    expect(store.llmProviders()[0]).toEqual(before);
+    const created = store.selectedProvider()!;
+    expect(created.id).not.toBe(before!.id);
+    expect(store.activeLlmModelId()).toBe(created.models[0]!.id);
+    expect(store.selectedSettingsTab()).toBe('models');
+    expect(store.settingsDirty()).toBe(true);
+  });
+
+  it('starts the new source clean, with none of the flags of the one that was selected', async () => {
+    const { store } = setup({ chatRunCommand: HAND });
+    store.useCustomModelInModels(hubRow);
+    const { chatRunCommand } = await settled(store);
+    expect(flagValue(chatRunCommand, '-m')).toBe(hubRow.ggufAbsolutePath);
+    expect(flagValue(chatRunCommand, '--cache-ram')).not.toBe('4096');
+    expect(flagValue(chatRunCommand, '-t')).toBeUndefined();
+    expect(flagValue(chatRunCommand, '--seed')).toBeUndefined();
+    expect(chatRunCommand).not.toContain('--no-mmap');
+  });
+
+  it('adds another source each time, even for the same model', async () => {
     const { store } = setup({ chatRunCommand: PRESET });
     store.useCustomModelInModels(hubRow);
-    const { chatRunCommand, autoTuned } = await settled(store);
-    expect(diffLlamaCommands(PRESET, chatRunCommand, null)).toEqual([]);
-    expect(autoTuned).toBeUndefined();
-    expect(store.selectedSettingsTab()).toBe('models');
-    expect(store.activeLlmModelId()).toBe('m1');
+    await settled(store);
+    store.useCustomModelInModels(hubRow);
+    await settled(store);
+    expect(store.llmProviders()).toHaveLength(3);
+    expect(new Set(store.llmProviders().map((p) => p.id)).size).toBe(3);
+    expect(new Set(store.llmProviders().map((p) => p.name)).size).toBe(3);
   });
 
-  it('on the selected repo with no local file keeps the custom flags too', async () => {
-    const hfPreset = PRESET.replace(`-m ${SWIFT}`, '-hf ajgazin/Swift');
-    const { store } = setup({ chatRunCommand: hfPreset });
-    store.useCustomModelInModels({ ...hubRow, ggufAbsolutePath: undefined });
+  it('adds a source when there are no local sources yet', async () => {
+    const { store } = setup({ chatRunCommand: PRESET });
+    store.llmProviders.set([]);
+    store.useCustomModelInModels(loose(GEMMA));
     const { chatRunCommand } = await settled(store);
-    expect(diffLlamaCommands(hfPreset, chatRunCommand, null)).toEqual([]);
+    expect(store.llmProviders()).toHaveLength(1);
+    expect(flagValue(chatRunCommand, '-m')).toBe(GEMMA);
   });
 
-  it('moving to a model with a companion head matches the Local model picker, draft-mtp on that head', async () => {
+  it('with a companion head matches picking that model on a new source, draft-mtp off until asked for', async () => {
     const { store } = setup({ chatRunCommand: PRESET });
     store.useCustomModelInModels(loose(GEMMA));
     const used = (await settled(store)).chatRunCommand;
-    expect(flagValue(used, '--spec-type')).toBe('draft-mtp');
-    expect(flagValue(used, '--spec-draft-model')).toBe(GEMMA_HEAD);
-    expect(flagValue(used, '--cache-ram')).toBe('-1');
-    expect(flagValue(used, '--load-mode')).toBe('auto');
+    expect(flagValue(used, '--spec-type')).toBeUndefined();
     TestBed.resetTestingModule();
     const picker = setup({ chatRunCommand: PRESET }).store;
+    picker.addProvider();
     picker.onManagedInventoryPick(`gguf:${GEMMA}`);
     expect((await settled(picker)).chatRunCommand).toBe(used);
   });
 
-  it('on a downloaded quant keeps the hand-written flags', async () => {
+  it('on a downloaded quant gets one new source with the preset its file name says', async () => {
     const { store } = setup({ chatRunCommand: HAND });
-    const file: HuggingFaceModelFile = { fileName: 'gemma-4-12B-it-Q4_0.gguf', quant: 'Q4_0', sizeBytes: 1 };
-    store.modelManagerHfDownloaded.set({ [`ggml-org/gemma-4-12B-it-GGUF/${file.fileName}`]: GEMMA });
-    store.useHfQuantInModels('ggml-org/gemma-4-12B-it-GGUF', file);
+    store.modelManagerHfDownloaded.set({ [QUANT_KEY]: GEMMA });
+    store.useHfQuantInModels('ggml-org/gemma-4-12B-it-GGUF', QUANT);
     const { chatRunCommand } = await settled(store);
+    expect(store.llmProviders()).toHaveLength(2);
     expect(flagValue(chatRunCommand, '-m')).toBe(GEMMA);
-    expect(flagValue(chatRunCommand, '--cache-ram')).toBe('4096');
-    expect(flagValue(chatRunCommand, '-t')).toBe('12');
-    expect(flagValue(chatRunCommand, '--seed')).toBe('7');
-    expect(chatRunCommand).toContain('--no-mmap');
-  });
-
-  it('on a downloaded quant gets the preset its file name says, as the Local model picker does', async () => {
-    const { store } = setup({ chatRunCommand: HAND });
-    const file: HuggingFaceModelFile = { fileName: 'gemma-4-12B-it-Q4_0.gguf', quant: 'Q4_0', sizeBytes: 1 };
-    store.modelManagerHfDownloaded.set({ [`ggml-org/gemma-4-12B-it-GGUF/${file.fileName}`]: GEMMA });
-    store.useHfQuantInModels('ggml-org/gemma-4-12B-it-GGUF', file);
-    await settled(store);
     expect(store.selectedModel()?.optimizationPreset).toBe('gemma');
   });
 
-  it('on an -hf id keeps the hand-written flags', async () => {
+  it('on a quant not downloaded yet gets one new source with its -hf id', async () => {
+    const { store } = setup({ chatRunCommand: HAND });
+    store.useHfQuantInModels('ggml-org/gemma-4-12B-it-GGUF', QUANT);
+    const { chatRunCommand } = await settled(store);
+    expect(store.llmProviders()).toHaveLength(2);
+    expect(flagValue(chatRunCommand, '-hf')).toBe('ggml-org/gemma-4-12B-it-GGUF:Q4_0');
+  });
+
+  it('on an -hf id gets one new source with that id', async () => {
     const { store } = setup({ chatRunCommand: HAND });
     store.useHfModelInModels('org/model:Q4_0');
     const { chatRunCommand } = await settled(store);
+    expect(store.llmProviders()).toHaveLength(2);
     expect(flagValue(chatRunCommand, '-hf')).toBe('org/model:Q4_0');
-    expect(flagValue(chatRunCommand, '--cache-ram')).toBe('4096');
-    expect(chatRunCommand).toContain('--no-mmap');
+    expect(chatRunCommand).not.toContain('--no-mmap');
   });
 
   it('leaves Reset defaults as the one way to drop them', async () => {

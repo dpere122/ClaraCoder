@@ -12,7 +12,8 @@ the next turn first answers the tool calls it left open (:mod:`~clara_coder_back
 Main sessions also bind the sub-agent tools and
 :class:`~clara_coder_backend.middleware.subagent_results_middleware.SubagentResultsMiddleware`; sub-agent
 events go on their own bus (:mod:`~clara_coder_backend.lang_agent.subagents`), and only the end-of-turn
-waiting pill rides this stream's nested queue.
+waiting pill rides this stream's nested queue. The checkpoint keeps every message; what a model call sees of
+them is :class:`~clara_coder_backend.middleware.context_compaction_middleware.ContextCompactionMiddleware`'s view.
 """
 
 from __future__ import annotations
@@ -27,12 +28,17 @@ from typing import Any, AsyncIterator
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
+from langgraph.errors import GraphRecursionError
 
 from clara_coder_backend.lang_agent.streaming import sse_line, status_event
 from clara_coder_backend.lang_agent.interrupt_repair import repair_interrupted_tool_calls
 from clara_coder_backend.lang_agent.loop import AgentLoopOutcome, LangGraphWorkerOutcome
 from clara_coder_backend.hitl.accept_command import accept_command_sse_payload
 from clara_coder_backend.middleware.accept_command_review_middleware import AcceptCommandReviewAfterToolMiddleware
+from clara_coder_backend.middleware.context_compaction_middleware import (
+    CompactionContinueMiddleware,
+    ContextCompactionMiddleware,
+)
 from clara_coder_backend.middleware.context_pack_activation_middleware import ContextPackActivationMiddleware
 from clara_coder_backend.hitl.command_risk_assess import maybe_enrich_pending_command_risk
 from clara_coder_backend.session.checkpointing import get_graph_checkpointer, outer_agent_thread_id
@@ -41,7 +47,6 @@ from clara_coder_backend.tools.delete import delete_confirm_sse_payload
 from clara_coder_backend.middleware.delete_review_middleware import DeleteReviewAfterToolMiddleware
 from clara_coder_backend.middleware.empty_response_middleware import EmptyResponseNudgeMiddleware
 from clara_coder_backend.middleware.gemma_native_tool_middleware import GemmaNativeToolMiddleware
-from clara_coder_backend.middleware.mid_turn_compaction_middleware import MidTurnContextCompactionMiddleware
 from clara_coder_backend.middleware.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
 from clara_coder_backend.middleware.pseudo_tool_xml_middleware import PseudoToolXmlMiddleware
 from clara_coder_backend.middleware.subagent_results_middleware import SubagentResultsMiddleware
@@ -68,14 +73,23 @@ from clara_coder_backend.llm.factory import build_llm
 from clara_coder_backend.llm.http_transport import abort_in_flight_llm_requests
 from clara_coder_backend.logging.llm_interaction_logging import log_llm_failure
 from clara_coder_backend.llm.messages import (
+    USER_TURN_KEY,
     build_system_prompt,
     compose_outer_turn_human_content,
     session_to_messages,
 )
-from clara_coder_backend.session.state import current_stream_apply_mode, get_session
+from clara_coder_backend.session.state import (
+    current_stream_apply_mode,
+    drop_frozen_prompt_tree,
+    get_session,
+    reset_for_new_thread,
+)
 from clara_coder_backend.hitl.tool_registry import worker_tools_and_map
 
 logger = logging.getLogger('clara.agent.langgraph')
+
+#: The answer of a turn that ran out of graph steps. Its finished steps stay; the next turn goes on from them.
+_STEP_LIMIT_TEXT = 'Stopped: this turn reached the step limit. Send a message to continue from here.'
 
 
 def _stream_watchdog_timeout_sec() -> float:
@@ -92,9 +106,13 @@ def _stream_is_genuinely_stalled(session: SessionState, main_state: GraphStreamS
     A tool currently running (``pending_tool_runs``) covers long-running tools (npm/pytest) and active HITL pauses
     (the tool node has not emitted ``on_tool_end`` yet). A HITL pause that is awaiting confirmation also keeps
     ``agent_pause_event`` set or a ``pending_*_request`` populated. Running sub-agents cover the end-of-turn wait
-    for their reports. In all those cases the idle wait is legitimate and the watchdog must not fire.
+    for their reports. A compaction notes call streams with no graph events, and the HTTP idle timeout bounds it.
+    In all those cases the idle wait is legitimate and the watchdog must not fire. While a model call is open its
+    tool entries are only previews of the call being generated, so they do not count.
     """
-    if main_state.pending_tool_runs:
+    if main_state.pending_tool_runs and not main_state.model_call_open:
+        return False
+    if session.compaction_notes_call_open:
         return False
     if has_running_subagents(session):
         return False
@@ -113,12 +131,14 @@ def build_clara_single_outer_graph(
     extra_middleware: list[Any] | None = None,
     tools_provider: Callable[..., tuple[list[Any], dict[str, Any]]] | None = None,
     allow_subagents: bool = False,
+    compaction_pin_ratio: float = 0.25,
 ) -> Any:
     """Same ``create_agent`` shape as the live Clara stream (checkpoint-compatible).
 
     ``allow_subagents`` binds the sub-agent tools and report delivery (main sessions' chat turns, plan
     discovery and plan execution; sub-agents never get them). A ``tools_provider`` takes it as
-    ``include_subagent_tool``.
+    ``include_subagent_tool``. ``compaction_pin_ratio`` is the share of the window the current request
+    may take once compaction removed its message.
     """
     if tools_provider is not None:
         tools, _ = tools_provider(apply_mode, session=session, include_subagent_tool=allow_subagents)
@@ -130,7 +150,7 @@ def build_clara_single_outer_graph(
         # First, so its after-model wait runs last (after tool-call promotion; see the class).
         core_middleware.append(SubagentResultsMiddleware())
     core_middleware += [
-        MidTurnContextCompactionMiddleware(),
+        CompactionContinueMiddleware(),
         UserEventInjectionMiddleware(),
         ContextPackActivationMiddleware(),
         ConnectionParallelToolCallsMiddleware(),
@@ -139,6 +159,7 @@ def build_clara_single_outer_graph(
         PseudoToolXmlMiddleware(),
         EmptyResponseNudgeMiddleware(),
         VisionImageInjectionMiddleware(),
+        ContextCompactionMiddleware(pin_ratio=compaction_pin_ratio),
     ]
     if extra_middleware:
         core_middleware.extend(extra_middleware)
@@ -537,6 +558,7 @@ async def _stream_langgraph_tool_agent(
     ``deliver_subagent_reports``: sub-agent reports waiting on the session go into this turn's input,
     ahead of the user's message (main-session chat turns).
     """
+    session.harness_final_text = ''
     try:
         llm = build_llm()
     except Exception as exc:
@@ -556,8 +578,6 @@ async def _stream_langgraph_tool_agent(
         )
         return
 
-    _graph_make = outer_graph_builder or _default_outer_graph_builder
-    graph = _graph_make(llm, session, apply_mode, extra_middleware)
     thread_id = outer_agent_thread_id(
         cfg.checkpoint_session_key or cfg.session_id,
         cfg.thread_kind,
@@ -571,6 +591,17 @@ async def _stream_langgraph_tool_agent(
     rid = (resume_checkpoint_id or '').strip()
     if rid:
         config['configurable']['checkpoint_id'] = rid
+
+    # Before the graph is built: its system prompt renders the tree this resets.
+    if await get_graph_checkpointer().aget_tuple(config) is None:
+        reset_for_new_thread(session)
+    elif session.prompt_tree_thread != thread_id:
+        # A kept thread, as on the next plan: what this session was told since went to another thread.
+        drop_frozen_prompt_tree(session)
+    session.prompt_tree_thread = thread_id
+
+    _graph_make = outer_graph_builder or _default_outer_graph_builder
+    graph = _graph_make(llm, session, apply_mode, extra_middleware)
 
     prior = await graph.aget_state(config)
     vals = getattr(prior, 'values', None) or {}
@@ -586,17 +617,14 @@ async def _stream_langgraph_tool_agent(
         reports = drain_subagent_reports(session)
         if reports:
             pending_event_messages.append(HumanMessage(content=format_subagent_reports(reports)))
+    user_turn = HumanMessage(content=human_content, additional_kwargs={USER_TURN_KEY: True})
     if has_checkpoint_messages:
         # A stopped turn's open tool calls get their results first, so the new input follows a
         # complete step (``[*repairs, *notes, Human]``).
         repairs = await _interrupted_call_repairs(config, session, cfg.graph_name)
-        input_messages: list[Any] = [*repairs, *pending_event_messages, HumanMessage(content=human_content)]
+        input_messages: list[Any] = [*repairs, *pending_event_messages, user_turn]
     else:
-        input_messages = [
-            *session_to_messages(session),
-            *pending_event_messages,
-            HumanMessage(content=human_content),
-        ]
+        input_messages = [*session_to_messages(session), *pending_event_messages, user_turn]
     inputs: dict[str, Any] = {'messages': input_messages}
 
     events_q: asyncio.Queue = asyncio.Queue()
@@ -745,6 +773,25 @@ async def _stream_langgraph_tool_agent(
                         yield line
             else:
                 await pump_task
+        except GraphRecursionError:
+            # Not a failed turn: that would delete the thread, and every step of this one is saved.
+            logger.warning('Turn reached the graph step limit (%s, %d steps)', cfg.graph_name, rec_lim)
+            for line in finalize_unconsumed_gemma_previews(
+                main_state, agent_role=cfg.agent_role, stream_tag=main_stream_tag
+            ):
+                yield line
+            yield sse_line(
+                status_event(
+                    cfg.run_error_event_id,
+                    cfg.status_label,
+                    detail=_STEP_LIMIT_TEXT,
+                    # Not 'error': to the renderer that means the thread is gone, and its context reading with it.
+                    state='complete',
+                    agent_role=cfg.agent_role,
+                )
+            )
+            session.harness_final_text = _STEP_LIMIT_TEXT
+            outcome.mark_completed(final_text=_STEP_LIMIT_TEXT, partial_text=main_state.partial_stream_text)
         except Exception as exc:
             logger.exception('LangGraph agent failed (%s)', cfg.graph_name)
             log_llm_failure(exc, context=cfg.graph_name, agent_role=cfg.agent_role)
@@ -770,7 +817,7 @@ async def _stream_langgraph_tool_agent(
                 # Stall watchdog already reported the failure; do not overwrite it with a completion.
                 pass
             else:
-                final_text = main_state.last_final_text
+                final_text = session.harness_final_text or main_state.last_final_text
                 if not final_text.strip():
                     final_text = cfg.empty_final_user_hint
                 outcome.mark_completed(

@@ -4,6 +4,9 @@ import { homedir } from 'os';
 import path = require('path');
 import {
   hubSnapshotManagedPaths,
+  isDraftSidecarGgufFileName,
+  isMmprojGgufFileName,
+  isMtpCompanionGgufFileName,
   type HfDownloadId,
   type HfDownloadProgressEvent,
   type HuggingFaceModelFile,
@@ -896,15 +899,27 @@ export function registerModelManagerIpc(): void {
         }
 
         const files: HuggingFaceModelFile[] = ggufFiles
-          .map((fileName) => {
+          .map((fileName): HuggingFaceModelFile => {
             const base = fileName.slice(0, -5); // strip ".gguf"
             return {
               fileName,
               quant: parseGgufQuant(base),
               sizeBytes: sizeByName.get(fileName) ?? null,
+              ...(isMtpCompanionGgufFileName(fileName)
+                ? { role: 'mtp' as const }
+                : isDraftSidecarGgufFileName(fileName)
+                  ? { role: 'draft' as const }
+                  : isMmprojGgufFileName(fileName)
+                    ? { role: 'mmproj' as const }
+                    : {}),
             };
           })
-          .sort((a, b) => quantRank(a.quant) - quantRank(b.quant) || a.fileName.localeCompare(b.fileName));
+          .sort(
+            (a, b) =>
+              Number(!!a.role) - Number(!!b.role) ||
+              quantRank(a.quant) - quantRank(b.quant) ||
+              a.fileName.localeCompare(b.fileName),
+          );
 
         return { ok: true, files };
       } catch (e) {

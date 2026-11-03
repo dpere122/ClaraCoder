@@ -191,6 +191,15 @@ def test_chat_template_reasoning_caps_optional() -> None:
     assert r2.chatTemplateReasoning.reasoningEffortValues == ['low', 'medium']
 
 
+def test_chat_template_reasoning_vision_is_unknown_unless_reported() -> None:
+    def caps(**fields: object) -> object:
+        return RuntimeConnectionRequest.model_validate({**_CONN, 'chatTemplateReasoning': fields}).chatTemplateReasoning
+
+    assert caps(enableThinking=True).vision is None
+    assert caps(vision=False).vision is False
+    assert caps(vision=True).vision is True
+
+
 def test_whisper_audio_provider_and_custom_models_dir() -> None:
     body = {
         'activeConnectionId': 'x',

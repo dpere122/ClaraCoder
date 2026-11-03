@@ -2,6 +2,7 @@ import { Component, DestroyRef, ViewEncapsulation, computed, inject, signal } fr
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
+import { isDraftSidecarGgufFileName, isMmprojGgufFileName, isMtpCompanionGgufFileName } from '@shared/index';
 import type {
   HuggingFaceModelDetails,
   HuggingFaceModelSearchItem,
@@ -52,6 +53,20 @@ export class SettingsModelManager {
   }
 
   private readonly filter = computed(() => this.s.modelManagerHfQuery().trim().toLowerCase());
+
+  /** What a separate head or projector file is, which works beside a model and can't load as one. Empty for anything else. */
+  protected companionKind(model: ModelManagerFileEntry): string {
+    if (model.entryKind === 'hubRepo') {
+      return '';
+    }
+    return isMtpCompanionGgufFileName(model.fileName)
+      ? 'MTP head'
+      : isDraftSidecarGgufFileName(model.fileName)
+        ? 'Draft head'
+        : isMmprojGgufFileName(model.fileName)
+          ? 'Vision projector'
+          : '';
+  }
 
   private matches(...fields: string[]): boolean {
     const f = this.filter();

@@ -117,6 +117,10 @@ describe('toolGlyph', () => {
     expect(new Set(glyphs).size).toBe(tools.length);
   });
 
+  it('draws the context compaction pill with the context glyph', () => {
+    expect(toolGlyph('compact_context', '')).toBe('context');
+  });
+
   it('matches tool families by prefix and language-routed LSP writes', () => {
     expect(toolGlyph('xml_overview', '')).toBe('xml');
     expect(toolGlyph('json_get_path', '')).toBe('json');

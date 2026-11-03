@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 
 from clara_coder_backend.domain import SessionState
+from clara_coder_backend.llm.messages import prompt_tree_moved, prompt_tree_paths, too_many_changes_to_tell
 from clara_coder_backend.workspace_index.incremental import enqueue_semantic_index_changes, schedule_semantic_index_background
 from clara_coder_backend.workspace_index.embeddings_factory import embeddings_available
 from clara_coder_backend.workspace_index.lifecycle import invalidate_workspace_index_disk
@@ -57,6 +58,41 @@ router = APIRouter()
 logger = logging.getLogger('clara.http.routes')
 
 _NPM_HINT_MAX_DEPTH = 4
+_PROMPT_TREE_CHANGE_KINDS = frozenset({'created', 'deleted', 'renamed'})
+_PROMPT_TREE_CHANGES_CAP = 200
+
+
+def _record_prompt_tree_changes(sess: SessionState, paths: list[str], kinds: list[str]) -> None:
+    """Note what the frozen prompt tree no longer shows, for the next turn's preamble.
+
+    One entry per path with its latest kind: a path whose kind changes moves to the end, unreported
+    again. Before the tree freezes there is nothing to note: it will show these paths itself.
+
+    A path the tree already agrees with is no change: an agent's atomic save arrives as ``created``, and a
+    file made and removed within one batch as ``deleted``.
+    """
+    if not sess.prompt_tree:
+        return
+    in_tree = prompt_tree_paths(sess.prompt_tree)
+    told = sess.prompt_tree_changes_reported
+    reported = {path for _kind, path in sess.prompt_tree_changes[:told]}
+    latest = {path: kind for kind, path in sess.prompt_tree_changes}
+    for raw, kind in zip(paths, kinds):
+        path = raw.strip().replace('\\', '/').lstrip('/')
+        if kind not in _PROMPT_TREE_CHANGE_KINDS or path in ('', '.') or path.startswith('[staging] '):
+            continue
+        if '.git' in path.split('/') or latest.get(path) == kind:
+            continue
+        if path not in latest and (path in in_tree) == (kind != 'deleted'):
+            continue
+        latest.pop(path, None)
+        latest[path] = kind
+        reported.discard(path)
+    dropped = max(0, len(latest) - _PROMPT_TREE_CHANGES_CAP)
+    sess.prompt_tree_changes = [(kind, path) for path, kind in latest.items()][dropped:]
+    sess.prompt_tree_changes_reported = max(0, len(reported) - dropped)
+    if too_many_changes_to_tell(sess):
+        state.drop_frozen_prompt_tree(sess)
 
 
 def _forward_disk_changes_to_lsp(session_id: str, paths: list[str], kinds: list[str]) -> None:
@@ -244,14 +280,24 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
         sess.npm_discovery_at = None
         sess.typescript_lsp_resolved_root = ''
         sess.java_lsp_resolved_root = ''
+        state.drop_frozen_prompt_tree(sess)
+
+    ch = request.workspace_file_changes
+    told_by_batch = bool(ch and any(kind in _PROMPT_TREE_CHANGE_KINDS for kind in ch.kinds))
+    if not told_by_batch and prompt_tree_moved(sess, request.workspace_context):
+        # No batch tells this session what moved (another conversation was active, or `.gitignore` changed, which
+        # reads as an update): the next turn freezes again.
+        state.drop_frozen_prompt_tree(sess)
 
     sess.workspace_path = request.workspace_path
-    sess.workspace_context = request.workspace_context
+    # A failed read pushes no tree: the next push still compares against the last real one.
+    if request.workspace_context.strip() or workspace_path_changed or not new_path:
+        sess.workspace_context = request.workspace_context
     sess.workspace_id = (request.workspace_id or '').strip()
     sess.workspace_system_prompt = (request.workspace_system_prompt or '').strip()
 
-    ch = request.workspace_file_changes
     if ch and ch.paths:
+        _record_prompt_tree_changes(sess, ch.paths, ch.kinds)
         enqueue_semantic_index_changes(sess, ch.paths, ch.kinds)
         if not workspace_path_changed:
             _forward_disk_changes_to_lsp(request.session_id, list(ch.paths), list(ch.kinds))
@@ -281,8 +327,11 @@ async def set_workspace_context(request: WorkspaceContextRequest) -> dict[str, b
     if interp:
         entry = find_interpreter_entry_by_id(Path(new_path), interp)
         if entry is not None:
+            # Every watcher push carries the id: a restart here must mean the interpreter really changed.
+            interpreter_changed = interp != sess.python_interpreter_choice_id
             apply_python_interpreter_entry(sess, Path(new_path), entry)
-            shutdown_session_python_lsp(request.session_id)
+            if interpreter_changed:
+                shutdown_session_python_lsp(request.session_id)
         else:
             logger.warning(
                 'unknown python_interpreter_id=%r for workspace session=%s',

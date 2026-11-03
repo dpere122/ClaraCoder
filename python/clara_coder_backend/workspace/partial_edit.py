@@ -505,9 +505,9 @@ def line_range_edit_tool_feedback(
             return (
                 '\n---\nLine-range edit detail:\n'
                 '- Mode: empty baseline — replaced the virtual span at lines 1–1 (convention for an empty file).\n'
-                f'- Inserted {len(ins)} new line(s) (split on ``\\n`` in ``new_snippet``).\n'
+                f'- Inserted {len(ins)} new line(s) (split on ``\\n`` in ``new_content``).\n'
                 f'- LSP insertion point (0-based line, UTF-16 character): (0, 0) — zero-width; new text follows.\n'
-                f'{_clip_block("Inserted text (verbatim new_snippet):", ns, max_excerpt_chars)}'
+                f'{_clip_block("Inserted text (verbatim new_content):", ns, max_excerpt_chars)}'
             )
         last = lines[-1]
         line0 = n - 1
@@ -519,7 +519,7 @@ def line_range_edit_tool_feedback(
             f'- LSP insertion point after last character removed: '
             f'({line0}, {ch0}) — 0-based line/UTF-16 character; zero-width range.\n'
             f'- Inserted {len(ins)} new line(s).\n'
-            f'{_clip_block("Inserted text (verbatim new_snippet):", ns, max_excerpt_chars)}'
+            f'{_clip_block("Inserted text (verbatim new_content):", ns, max_excerpt_chars)}'
         )
 
     if start_line > n or end_line > n:
@@ -559,9 +559,9 @@ def line_range_edit_tool_feedback(
         f'- LSP-style range — 0-based line/UTF-16 ``character``, end exclusive: '
         f'{{"start": {{"line": {start_l0}, "character": {start_ch0}}}, '
         f'"end": {{"line": {end_l0}, "character": {end_ch0}}}}}\n'
-        f'- Inserted {len(ins_lines)} new line(s) from ``new_snippet``.\n'
+        f'- Inserted {len(ins_lines)} new line(s) from ``new_content``.\n'
         f'{_clip_block("Removed baseline text (verbatim lines merged out):", removed_body, max_excerpt_chars)}\n'
-        f'{_clip_block("Inserted text (verbatim new_snippet):", ins_body, max_excerpt_chars)}'
+        f'{_clip_block("Inserted text (verbatim new_content):", ins_body, max_excerpt_chars)}'
     )
 
 

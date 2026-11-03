@@ -317,10 +317,10 @@ export class App implements OnInit, OnDestroy {
     { planId: string; relativePath: string; active: boolean }
   >();
   /**
-   * Last measured prompt token count per conversation (from API usage metadata, or that
-   * value adjusted by a mid/post-turn compaction delta). Kept across chat switches in this
-   * session — the UI transcript heuristic can dwarf the real prompt after compaction / HITL
-   * cards, and falling back to it on reload falsely reports 100% and locks the composer.
+   * Last prompt token reading per conversation (from API usage metadata, or the estimate a
+   * compaction reports for the prompt it left). Kept across chat switches in this session — the
+   * UI transcript heuristic can dwarf the real prompt after compaction / HITL cards, and falling
+   * back to it on reload falsely reports 100%.
    */
   protected readonly measuredPromptTokensByConversation = signal<Record<string, number>>({});
   /**
@@ -622,9 +622,18 @@ export class App implements OnInit, OnDestroy {
       measuredBaselineFallbackTokens: this.activeMeasuredBaselineFallbackTokens(),
     });
   });
-  protected readonly contextChatBlocked = computed(
-    () => this.contextCapacity().usedPercentage >= CONTEXT_CHAT_BLOCKED_PERCENT,
-  );
+  /**
+   * Compaction keeps the prompt inside the window, so it never locks the composer. With compaction
+   * off only a measured reading does: the transcript heuristic can dwarf the real prompt.
+   */
+  protected readonly contextChatBlocked = computed(() => {
+    const cc = this.appConfig()?.contextCompression;
+    if (cc?.enabled !== false) {
+      return false;
+    }
+    const c = this.contextCapacity();
+    return c.measuredFromApi && c.usedPercentage >= CONTEXT_CHAT_BLOCKED_PERCENT;
+  });
 
   // Layout
   protected readonly workspaceWidth = signal(App.defaultWorkspaceWidthPx());
@@ -868,38 +877,27 @@ export class App implements OnInit, OnDestroy {
       if (inputTokens <= 0) {
         return;
       }
-      // token_usage is an absolute measurement of the last prompt sent to the model. Only let it
-      // RAISE the meter (or set the initial value). Decreases are driven exclusively by the
-      // contextCompressed$ event (mid-turn compaction). Without this guard, a llama.cpp context
-      // checkpoint restore reports a lower input_tokens after silently truncating context, which
-      // would reset the meter mid-conversation even though the transcript is unchanged.
-      const existing = this.measuredPromptTokensByConversation()[conversationId];
-      if (
-        typeof existing === 'number' &&
-        Number.isFinite(existing) &&
-        existing > 0 &&
-        inputTokens < existing
-      ) {
-        return;
-      }
+      // token_usage is an absolute measurement of the last prompt sent to the model.
       this.setMeasuredPromptTokensForConversation(conversationId, inputTokens);
     });
 
-    this.electron.contextCompressed$.pipe(takeUntilDestroyed()).subscribe(
-      ({ conversationId, tokensBefore, tokensAfter }) => {
-        // Mid-turn estimates are checkpoint-only (no system prompt / tool schemas). Never treat
-        // tokensAfter as an absolute measurement — apply the freed delta to the last API reading.
-        const freed = Math.max(0, tokensBefore - tokensAfter);
-        if (freed <= 0) {
-          return;
-        }
-        const existing = this.measuredPromptTokensByConversation()[conversationId];
-        if (typeof existing !== 'number' || !Number.isFinite(existing) || existing <= 0) {
-          return;
-        }
-        this.setMeasuredPromptTokensForConversation(conversationId, Math.max(1, existing - freed));
-      },
-    );
+    this.electron.contextCompressed$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, tokensAfter }) => {
+      // tokensAfter is an absolute estimate of the full prompt the compaction left. It needs no
+      // earlier reading: a provider that reports no usage has none.
+      if (tokensAfter > 0) {
+        this.setMeasuredPromptTokensForConversation(conversationId, tokensAfter);
+      }
+    });
+
+    this.electron.llmStatus$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, status }) => {
+      // The turn failed (a failed tool call has source `tool`) and its thread was deleted, so the
+      // reading describes a prompt that is gone. With compaction off it could lock the composer, and
+      // no later reading would ever lower it. `done$` cannot tell: Python ends every turn with
+      // [DONE], which main reports as `completed`.
+      if (status.state === 'error' && status.source === 'agent') {
+        this.removeContextMetricsForConversation(conversationId);
+      }
+    });
 
     this.electron.config$.pipe(takeUntilDestroyed()).subscribe((config) => {
       const previousWorkspaceId = this.currentWorkspaceId();
@@ -1599,6 +1597,8 @@ export class App implements OnInit, OnDestroy {
     // Forget the deleted sub-agents first: their cards are stale, a still-running one's are not.
     this.conversationSession.forgetConversations(result.deletedSubagentIds ?? []);
     this.conversationSession.applyRestoredMessages(this.conversationSession.abandonStaleHitl(result.messages));
+    // The restore deleted the conversation's threads: the last reading describes a prompt that is gone.
+    this.removeContextMetricsForConversation(convId);
     this.conversationSession.removePending(convId);
     this.conversationSession.updateConversationMeta(convId, { updatedAt: new Date().toISOString() });
     this.composerDraft.set(draft);

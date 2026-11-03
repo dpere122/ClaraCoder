@@ -189,6 +189,27 @@ def log_llm_chat_response(
     logger.info('LLM response %s%s %s', ' '.join(bits), stream_part, json.dumps(summary, ensure_ascii=False, default=str))
 
 
+def log_llm_call_stats(message: AIMessage, *, context: str, llm_step: int | None = None) -> None:
+    """One line per model call: prompt size and cache reuse, speed (llama-server ``timings``), stop reason."""
+    if not logger.isEnabledFor(logging.INFO):
+        return
+    usage = message.usage_metadata or {}
+    meta = message.response_metadata or {}
+    timings = meta.get('timings') or {}
+    stats = {
+        'prompt_tokens': usage.get('input_tokens'),
+        'cached': (usage.get('input_token_details') or {}).get('cache_read'),
+        'prompt_ms': timings.get('prompt_ms'),
+        'predicted_n': timings.get('predicted_n'),
+        'predicted_per_second': timings.get('predicted_per_second'),
+        'finish_reason': meta.get('finish_reason') or meta.get('stop_reason'),
+    }
+    bits = [f'context={context}']
+    if llm_step is not None:
+        bits.append(f'llm_step={llm_step}')
+    logger.info('LLM call stats %s %s', ' '.join(bits), json.dumps(stats, default=str))
+
+
 def log_llm_chat_request_from_event_input(
     raw_input: Any,
     *,

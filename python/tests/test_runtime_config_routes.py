@@ -113,6 +113,30 @@ def test_runtime_config_updates_imported_runtime_config_references() -> None:
         state.runtime_config.tools = orig.tools
 
 
+def test_runtime_config_passes_server_vision_through() -> None:
+    from clara_coder_backend.main import app
+    from clara_coder_backend.session import state
+
+    orig = deepcopy(state.runtime_config)
+    body = _payload()
+    caps = {'enableThinking': True, 'reasoningEffortValues': None, 'vision': False}
+    body['connections'][0]['chatTemplateReasoning'] = caps
+    try:
+        with TestClient(app) as client:
+            assert client.post('/runtime-config', json=body).status_code == 200
+            assert state.get_active_connection().chat_template_reasoning['vision'] is False
+
+            del caps['vision']
+            assert client.post('/runtime-config', json=body).status_code == 200
+            assert state.get_active_connection().chat_template_reasoning['vision'] is None
+    finally:
+        state.runtime_config.active_connection_id = orig.active_connection_id
+        state.runtime_config.connections = orig.connections
+        state.runtime_config.audio = orig.audio
+        state.runtime_config.host = orig.host
+        state.runtime_config.tools = orig.tools
+
+
 def test_runtime_config_applies_whisper_custom_models_dir() -> None:
     import os
 

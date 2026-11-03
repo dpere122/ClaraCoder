@@ -37,7 +37,7 @@ import { SecretValue } from '../../shared/types/app-config';
 import { FIRST_THEME_ID } from '../constants';
 
 /** Bump when persisted `config.json` needs a one-time migration step (see `migrateConfig`). */
-export const APP_CONFIG_SCHEMA_VERSION = 8;
+export const APP_CONFIG_SCHEMA_VERSION = 9;
 
 function defaultLmStudioModelProfile(): LlmModelProfile {
   const defaultLmStudioModel = process.env.LM_STUDIO_MODEL || 'local-model';

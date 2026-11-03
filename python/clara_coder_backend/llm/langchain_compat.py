@@ -15,6 +15,9 @@ encrypted ones (``reasoning.encrypted``, e.g. Gemini thought signatures) that ca
 readable text. OpenRouter asks clients to send those blocks back unchanged on the assistant
 message of a tool loop so the model keeps its reasoning state between tool calls. They are
 kept on ``additional_kwargs['reasoning_details']`` and echoed on outgoing assistant dicts.
+
+``llama-server`` reports call speed in a top-level ``timings`` field that LangChain drops; it is
+kept on the message's ``response_metadata`` for the per-call stats log.
 """
 
 from __future__ import annotations
@@ -115,6 +118,12 @@ def reasoning_details_text(items: Any) -> str:
         if isinstance(val, str):
             parts.append(val)
     return ''.join(parts)
+
+
+def output_was_truncated(message: AIMessage) -> bool:
+    """True when the model stopped at its output or context limit (OpenAI and Anthropic metadata)."""
+    meta = message.response_metadata or {}
+    return meta.get('finish_reason') == 'length' or meta.get('stop_reason') == 'max_tokens'
 
 
 def install_langchain_reasoning_content_compat() -> None:
@@ -228,6 +237,26 @@ def install_langchain_reasoning_content_compat() -> None:
         return result
 
     ChatOpenAI._create_chat_result = _create_chat_result  # type: ignore[method-assign]
+
+    _orig_generation_chunk = lc_openai_base.BaseChatOpenAI._convert_chunk_to_generation_chunk
+
+    def _convert_chunk_to_generation_chunk(
+        self: Any,
+        chunk: dict,
+        default_chunk_class: type,
+        base_generation_info: dict | None,
+    ) -> Any:
+        """Wrap stream chunk→generation: keep ``timings`` from the usage chunk (empty ``choices``) only.
+
+        On a second chunk, ``merge_dicts`` would raise while adding the chunks up and fail the call.
+        """
+        generation = _orig_generation_chunk(self, chunk, default_chunk_class, base_generation_info)
+        timings = chunk.get('timings')
+        if generation is not None and not chunk.get('choices') and isinstance(timings, dict):
+            generation.message.response_metadata['timings'] = timings
+        return generation
+
+    lc_openai_base.BaseChatOpenAI._convert_chunk_to_generation_chunk = _convert_chunk_to_generation_chunk  # type: ignore[method-assign]
 
 
 # Apply as soon as this package is imported (before first ChatOpenAI use).

@@ -16,7 +16,7 @@ export interface ModelManagerFileEntry {
   /**
    * Snapshot language GGUF inside a hub repo folder when exactly one non-mmproj
    * model file is present. Used so Settings can emit ``-m`` instead of ``-hf``.
-   * Projector files named ``*mmproj*`` do not count against this.
+   * Projector files named ``*mmproj*``, MTP heads named ``mtp-*`` and draft heads do not count against this.
    */
   ggufAbsolutePath?: string;
   /**
@@ -24,6 +24,8 @@ export interface ModelManagerFileEntry {
    * pick among several). Auto writes this as ``--mmproj`` on ``-m`` commands.
    */
   mmprojAbsolutePath?: string;
+  /** Snapshot MTP head GGUF when the hub folder has one, for ``--spec-draft-model``. */
+  mtpAbsolutePath?: string;
 }
 
 export type ModelManagerListModelsResult =
@@ -108,6 +110,8 @@ export interface HuggingFaceModelFile {
   quant: string;
   /** File size in bytes when the HF tree API exposed it; null when unknown. */
   sizeBytes: number | null;
+  /** Set for a separate MTP or draft head, which works beside a model and can't load as one. */
+  role?: 'mtp' | 'draft' | 'mmproj';
 }
 
 export type ModelManagerHfFilesResult =

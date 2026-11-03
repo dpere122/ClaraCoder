@@ -268,7 +268,7 @@ async def test_load_keeps_a_settled_checkpoint_that_matches(monkeypatch: pytest.
         cfg = {'configurable': {'thread_id': outer_agent_thread_id('s-keep', 'single', apply_mode=True)}}
         await g.ainvoke({'messages': [HumanMessage('one')]}, cfg)
         await g.ainvoke({'messages': [HumanMessage('two')]}, cfg)
-        await settle_outer_thread('s-keep', apply_mode=True, history=_history('one', 'two'), freed_tokens=100)
+        await settle_outer_thread('s-keep', apply_mode=True, history=_history('one', 'two'))
 
         loaded = [
             {'role': 'user', 'message': 'one'},
@@ -277,7 +277,7 @@ async def test_load_keeps_a_settled_checkpoint_that_matches(monkeypatch: pytest.
             {'role': 'assistant', 'content': 'reply 1'},
         ]
         result = await load_session(LoadRequest(session_id='s-keep', messages=loaded, keep_matching_checkpoint=True))
-        assert result == {'ok': True, 'kept_checkpoint': True, 'context_tokens': 800}
+        assert result == {'ok': True, 'kept_checkpoint': True, 'context_tokens': 900}
         kept = (await g.aget_state(cfg)).values.get('messages')
         assert [m.content for m in kept] == ['one', 'r1', 'two', 'r2']
 
@@ -346,6 +346,108 @@ async def test_load_without_keep_flag_still_deletes(monkeypatch: pytest.MonkeyPa
         result = await load_session(LoadRequest(session_id='s-nokeep', messages=_history('one')))
         assert result == {'ok': True}
         assert not (await g.aget_state(cfg)).values.get('messages')
+    finally:
+        await shutdown_graph_checkpointing()
+
+
+def _plan_phase_thread_ids(session_id: str) -> list[str]:
+    return [
+        f'{session_id}:{kind}:{kind}:{mode}'
+        for kind in ('plan_exec', 'plan_discover', 'plan_discover_followup')
+        for mode in ('apply', 'read')
+    ]
+
+
+async def _seed_threads(thread_ids: list[str]) -> None:
+    from clara_coder_backend.session.checkpointing import get_graph_checkpointer
+
+    llm = FakeListChatModel(responses=['ok'])
+    g = create_agent(llm, [], system_prompt='sys', name='t', checkpointer=get_graph_checkpointer())
+    for tid in thread_ids:
+        await g.ainvoke({'messages': [HumanMessage('hello')]}, {'configurable': {'thread_id': tid}})
+
+
+async def _existing_threads(thread_ids: list[str]) -> list[str]:
+    from clara_coder_backend.session.checkpointing import get_graph_checkpointer
+
+    saver = get_graph_checkpointer()
+    return [tid for tid in thread_ids if await saver.aget_tuple({'configurable': {'thread_id': tid}})]
+
+
+@pytest.mark.asyncio(loop_scope='function')
+async def test_clear_removes_plan_phase_threads(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setenv('CLARA_CHECKPOINT_DB', str(tmp_path / 'plan-clear.sqlite'))
+    from clara_coder_backend.routes.session import clear_session
+    from clara_coder_backend.session.checkpointing import init_graph_checkpointing, shutdown_graph_checkpointing
+    from clara_coder_backend.session.schemas import ClearRequest
+
+    await init_graph_checkpointing()
+    try:
+        cleared = _plan_phase_thread_ids('s-plan')
+        other_conversation = _plan_phase_thread_ids('s-plan-other')
+        await _seed_threads([*cleared, *other_conversation])
+        assert await _existing_threads(cleared) == cleared
+
+        assert await clear_session(ClearRequest(session_id='s-plan')) == {'ok': True}
+
+        assert await _existing_threads(cleared) == []
+        assert await _existing_threads(other_conversation) == other_conversation
+    finally:
+        await shutdown_graph_checkpointing()
+
+
+@pytest.mark.asyncio(loop_scope='function')
+async def test_load_drops_plan_phase_threads_and_keeps_a_matching_agent_thread(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv('CLARA_CHECKPOINT_DB', str(tmp_path / 'plan-load.sqlite'))
+    from clara_coder_backend.routes.session import load_session
+    from clara_coder_backend.session.checkpointing import (
+        init_graph_checkpointing,
+        outer_agent_thread_id,
+        settle_outer_thread,
+        shutdown_graph_checkpointing,
+    )
+    from clara_coder_backend.session.schemas import LoadRequest
+
+    await init_graph_checkpointing()
+    try:
+        plan_threads = _plan_phase_thread_ids('s-plan-load')
+        await _seed_threads(plan_threads)
+        g = _agent_with_usage(['r1'], input_tokens=70)
+        cfg = {'configurable': {'thread_id': outer_agent_thread_id('s-plan-load', 'single', apply_mode=True)}}
+        await g.ainvoke({'messages': [HumanMessage('one')]}, cfg)
+        await settle_outer_thread('s-plan-load', apply_mode=True, history=_history('one'))
+
+        result = await load_session(
+            LoadRequest(session_id='s-plan-load', messages=_history('one'), keep_matching_checkpoint=True)
+        )
+
+        assert result == {'ok': True, 'kept_checkpoint': True, 'context_tokens': 70}
+        assert await _existing_threads(plan_threads) == []
+    finally:
+        await shutdown_graph_checkpointing()
+
+
+@pytest.mark.asyncio(loop_scope='function')
+async def test_deleting_one_kind_leaves_plan_phase_threads(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """After a plan turn the composer drops the ``single`` threads; the plan's own threads are not part of that."""
+    monkeypatch.setenv('CLARA_CHECKPOINT_DB', str(tmp_path / 'plan-kind.sqlite'))
+    from clara_coder_backend.session.checkpointing import (
+        delete_outer_threads_for_session,
+        init_graph_checkpointing,
+        shutdown_graph_checkpointing,
+    )
+
+    await init_graph_checkpointing()
+    try:
+        plan_threads = _plan_phase_thread_ids('s-plan-kind')
+        await _seed_threads([*plan_threads, 's-plan-kind:single:apply'])
+
+        await delete_outer_threads_for_session('s-plan-kind', 'single')
+
+        assert await _existing_threads(['s-plan-kind:single:apply']) == []
+        assert await _existing_threads(plan_threads) == plan_threads
     finally:
         await shutdown_graph_checkpointing()
 

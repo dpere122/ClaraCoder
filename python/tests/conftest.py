@@ -9,7 +9,7 @@ import pytest
 
 from clara_coder_backend.domain import RuntimeToolsConfig
 from clara_coder_backend.lsp.manager import shutdown_session_lsp
-from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
+from clara_coder_backend.session.state import current_session_id, get_session, runtime_config, sessions
 
 
 @pytest.fixture(autouse=True)
@@ -31,16 +31,19 @@ def _sidecar_auth_optional(monkeypatch):
 def _reset_turns_and_subagents():
     """Per-session turn locks bind to the loop that first waited on them; tests each get a new loop.
 
-    The sub-agent registry and its event bus (buffered events, subscribers) are process-wide too.
+    The sub-agent registry and its event bus (buffered events, subscribers) are process-wide too, and
+    so is the session store: past its prune threshold, a ``get_session`` evicts a test's untouched session.
     """
     from clara_coder_backend.lang_agent.subagents import reset_subagents_for_tests
     from clara_coder_backend.session.turns import reset_turns_for_tests
 
     reset_turns_for_tests()
     reset_subagents_for_tests()
+    sessions.clear()
     yield
     reset_turns_for_tests()
     reset_subagents_for_tests()
+    sessions.clear()
 
 
 @pytest.fixture()

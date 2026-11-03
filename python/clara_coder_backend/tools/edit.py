@@ -39,7 +39,14 @@ from clara_coder_backend.session.state import (
 )
 from clara_coder_backend.domain import SessionState
 from clara_coder_backend.tools.edit_diffs import edit_unified_diff, record_edit_diff
-from clara_coder_backend.tools.tool_conventions import ONE_BASED, RELATIVE_PATH, VERIFY_LSP, describe, tool_output_cap
+from clara_coder_backend.tools.tool_conventions import (
+    NO_CHANGE_PREFIX,
+    ONE_BASED,
+    RELATIVE_PATH,
+    VERIFY_LSP,
+    describe,
+    tool_output_cap,
+)
 from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
 from clara_coder_backend.workspace.formatters import format_python_source_str, format_source_via_prettier
 from clara_coder_backend.workspace.partial_edit import line_range_edit_tool_feedback, merge_partial_edit
@@ -48,6 +55,7 @@ from clara_coder_backend.workspace.workspace_text_io import (
     DiskNewline,
     NewlineMode,
     decode_for_tools,
+    encode_for_disk,
     parse_newline_mode,
     resolve_newline_for_write,
     validate_workspace_encoding,
@@ -242,6 +250,17 @@ def _changed_in_batch_error(t: _EditTarget, consequence: str) -> str:
     )
 
 
+def _already_on_disk(t: _EditTarget, content: str) -> bool:
+    """Writing ``content`` would leave the file's bytes as they are, line endings and encoding included."""
+    if not t.existed:
+        return False
+    try:
+        return t.path.read_bytes() == encode_for_disk(content, t.encoding, t.newline)
+    except (OSError, UnicodeEncodeError):
+        # Writing reports these.
+        return False
+
+
 def write_workspace_text(relative_path: str, content: str, *, encoding: str = '', newline: str = '') -> str:
     """Internal (non-tool) whole-file write through the same journal/format/LSP path, e.g. for bootstraps."""
     with _edit_target(relative_path, encoding, newline) as t:
@@ -249,6 +268,9 @@ def write_workspace_text(relative_path: str, content: str, *, encoding: str = ''
             return t
         if t.existed and batch_line_map(t.path_key) is not None:
             return _changed_in_batch_error(t, 'rewriting the whole file now would discard that change')
+        if _already_on_disk(t, content or ''):
+            # A model in a loop rewrites the same file over and over; "Updated" only tells it to go on.
+            return f'{NO_CHANGE_PREFIX} `{t.rel}` already has exactly this content, so nothing was written. Go on to the next step.'
         return _write_through(t, content or '', 'full-file')
 
 
@@ -293,7 +315,7 @@ def replace_workspace_lines(
     relative_path: Annotated[str, RELATIVE_PATH],
     start_line: Annotated[int, ONE_BASED],
     end_line: Annotated[int, ONE_BASED],
-    new_content: Annotated[str, 'replacement lines; empty deletes'] = '',
+    new_content: Annotated[str, 'replacement lines; empty deletes'],
     encoding: Annotated[str, _ENCODING_HINT] = '',
     newline: Annotated[str, _NEWLINE_HINT] = '',
 ) -> str:
@@ -350,7 +372,7 @@ def replace_workspace_lines(
 def replace_workspace_snippet(
     relative_path: Annotated[str, RELATIVE_PATH],
     old_snippet: Annotated[str, 'unique raw anchor text; no line-number gutters'],
-    new_snippet: Annotated[str, 'replacement text; empty removes the match'] = '',
+    new_snippet: Annotated[str, 'replacement text; empty removes the match'],
     encoding: Annotated[str, _ENCODING_HINT] = '',
     newline: Annotated[str, _NEWLINE_HINT] = '',
 ) -> str:

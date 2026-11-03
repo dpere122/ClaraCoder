@@ -31,6 +31,13 @@ async def test_stream_is_genuinely_stalled_false_while_tool_running() -> None:
     assert _stream_is_genuinely_stalled(SessionState(), state) is False
 
 
+async def test_stream_is_genuinely_stalled_true_when_only_a_preview_waits_on_an_open_model_call() -> None:
+    state = GraphStreamState()
+    state.pending_tool_runs['native-tool-preview-1'] = ('write_workspace_file', {})
+    state.model_call_open = True
+    assert _stream_is_genuinely_stalled(SessionState(), state) is True
+
+
 async def test_stream_is_genuinely_stalled_false_during_hitl_pause() -> None:
     session = SessionState()
     session.agent_pause_event = asyncio.Event()
@@ -41,6 +48,15 @@ async def test_stream_is_genuinely_stalled_false_with_pending_delete_request() -
     session = SessionState()
     session.pending_delete_request = {'request_id': 'x'}
     assert _stream_is_genuinely_stalled(session, GraphStreamState()) is False
+
+
+async def test_stream_is_genuinely_stalled_false_while_a_compaction_notes_call_runs() -> None:
+    """It streams with no graph events, and the HTTP idle timeout bounds it."""
+    session = SessionState()
+    session.compaction_notes_call_open = True
+    assert _stream_is_genuinely_stalled(session, GraphStreamState()) is False
+    session.compaction_notes_call_open = False
+    assert _stream_is_genuinely_stalled(session, GraphStreamState()) is True
 
 
 async def test_hitl_pause_lock_serializes_concurrent_waiters() -> None:
@@ -86,7 +102,7 @@ async def test_stream_single_agent_langgraph_aborts_while_waiting_for_events(
     mock_build_llm: MagicMock,
     mock_build_graph: MagicMock,
 ) -> None:
-    mock_get_cp.return_value = MagicMock()
+    mock_get_cp.return_value = MagicMock(aget_tuple=AsyncMock(return_value=None))
     mock_build_llm.return_value = MagicMock()
 
     async def _hung_stream(*_args: Any, **_kwargs: Any):
@@ -130,7 +146,7 @@ async def test_stream_single_agent_langgraph_allocates_nested_events_queue(
     mock_build_graph: MagicMock,
 ) -> None:
     """Outer chat stream must set planning_nested_events_q so tool_exec_* tools can stream."""
-    mock_get_cp.return_value = MagicMock()
+    mock_get_cp.return_value = MagicMock(aget_tuple=AsyncMock(return_value=None))
     mock_build_llm.return_value = MagicMock()
 
     async def _hung_stream(*_args: Any, **_kwargs: Any):
@@ -177,7 +193,7 @@ async def test_stream_watchdog_ends_stalled_stream(
     _mock_wd: MagicMock,
 ) -> None:
     """A hung model call with no active tool/HITL must end via the watchdog, not hang forever."""
-    mock_get_cp.return_value = MagicMock()
+    mock_get_cp.return_value = MagicMock(aget_tuple=AsyncMock(return_value=None))
     mock_build_llm.return_value = MagicMock()
 
     async def _hung_stream(*_args: Any, **_kwargs: Any):
@@ -220,7 +236,7 @@ async def test_stream_watchdog_does_not_fire_while_tool_running(
     _mock_wd: MagicMock,
 ) -> None:
     """A long-running tool (on_tool_start, no on_tool_end yet) must not trip the watchdog."""
-    mock_get_cp.return_value = MagicMock()
+    mock_get_cp.return_value = MagicMock(aget_tuple=AsyncMock(return_value=None))
     mock_build_llm.return_value = MagicMock()
 
     async def _tool_then_hang(*_args: Any, **_kwargs: Any):
@@ -312,7 +328,7 @@ async def test_abort_mid_step_reports_uncommitted_text_and_uses_sync_durability(
 ) -> None:
     from langchain_core.messages import AIMessageChunk
 
-    mock_get_cp.return_value = MagicMock()
+    mock_get_cp.return_value = MagicMock(aget_tuple=AsyncMock(return_value=None))
     mock_build_llm.return_value = MagicMock()
     seen_kwargs: dict[str, Any] = {}
 

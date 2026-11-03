@@ -7,24 +7,32 @@ import {
   CTK_FLAG_NAMES,
   CTV_FLAG_NAMES,
   CTX_FLAG_NAMES,
+  DRAFT_MODEL_FLAG_NAMES,
   FA_FLAG_NAMES,
   HF_FLAG_NAMES,
   isLlamaFlagToken,
+  isLlamaFlashAttnOff,
   MODEL_FLAG_NAMES,
   NGL_FLAG_NAMES,
   normalizeLlamaFlagName,
   parseLlamaFlagOccurrences,
+  QUANTIZED_CACHE_TYPE_RE,
   quoteLlamaFlagValue,
   scanLlamaCommandTokens,
+  SPEC_TYPE_FLAG_NAMES,
   spliceOutLlamaSpans,
   tokenizeManagedLlamaCommand,
   type LlamaFlagOccurrence,
   type ShellQuotingPlatform,
 } from './llama-command-tokens';
 import { appendJinjaFlagToManagedChatCommand, PORT_TOKEN } from './llama-cpp-managed';
+import { ggufProfileAllowsQuantizedCache, type GgufProfile } from './managed-llama-gpu-split';
 import {
   ensureManagedLlamaDefaultServerFlags,
+  ensureManagedLlamaFitContextFloor,
   ensureManagedLlamaGemmaReasoningFormat,
+  limitManagedLlamaCacheRam,
+  parseManagedLlamaModelSelection,
   promoteManagedSentinelNglToAuto,
 } from './managed-llama-model-pick';
 
@@ -167,6 +175,7 @@ const CORE_FLAG_GROUPS: readonly (readonly string[])[] = [
   ['-mg', '--main-gpu'],
   ['-np', '--parallel'],
   ['-cram', '--cache-ram'],
+  ['-fitc', '--fit-ctx'],
   ['--jinja', '--no-jinja'],
   ['--ui', '--webui', '--no-ui', '--no-webui'],
   ['--mmproj-auto', '--no-mmproj', '--no-mmproj-auto'],
@@ -246,18 +255,29 @@ export interface LlamaAnalyzeOptions {
   requestOverrides?: readonly { names: readonly string[]; label: string }[];
   optimizationPreset?: string;
   platform: ShellQuotingPlatform;
+  /** Header of the model the command loads, when read: lets the checks that depend on the model run. */
+  profile?: GgufProfile | null;
+  /** This machine's RAM, when known; a small machine gets a prompt cache limit at start. */
+  totalRamBytes?: number | null;
 }
 
 /**
  * Flags Clara appends to a chat command at start, when missing: ``--jinja``, the server defaults,
- * and the Gemma reasoning format. Expects the binary already resolved.
+ * a context floor for ``--fit``, the Gemma reasoning format, and on a small machine a prompt cache
+ * limit. Expects the binary already resolved.
  */
-function appendManagedStartFlags(command: string, optimizationPreset: string | undefined): string {
-  let out = ensureManagedLlamaDefaultServerFlags(appendJinjaFlagToManagedChatCommand(command));
+function appendManagedStartFlags(
+  command: string,
+  optimizationPreset: string | undefined,
+  totalRamBytes: number | null | undefined,
+): string {
+  let out = ensureManagedLlamaFitContextFloor(
+    ensureManagedLlamaDefaultServerFlags(appendJinjaFlagToManagedChatCommand(command)),
+  );
   if ((optimizationPreset || '').trim().toLowerCase() === 'gemma') {
     out = ensureManagedLlamaGemmaReasoningFormat(out);
   }
-  return out;
+  return totalRamBytes == null ? out : limitManagedLlamaCacheRam(out, totalRamBytes);
 }
 
 /** The command Clara spawns for a saved chat command, before ``{{PORT}}`` is filled in. */
@@ -265,15 +285,17 @@ export function buildManagedChatStartCommand(
   command: string,
   optimizationPreset: string | undefined,
   platform: ShellQuotingPlatform,
+  totalRamBytes?: number | null,
 ): string {
-  return appendManagedStartFlags(promoteManagedSentinelNglToAuto(command, platform), optimizationPreset);
+  return appendManagedStartFlags(promoteManagedSentinelNglToAuto(command, platform), optimizationPreset, totalRamBytes);
 }
 
 const ADDED_FLAG_NOTES: Readonly<Record<string, string>> = {
   '--jinja': 'Clara needs the model chat template.',
   '--no-webui': 'Clara is the UI, so the server skips its own.',
   '-np': 'One slot for Clara’s one conversation at a time.',
-  '--cache-ram': 'Stops the host-RAM prompt cache growing over long sessions.',
+  '--fit-ctx': 'If --fit has to shrink the context, it stops here, with room for Clara’s prompt.',
+  '--cache-ram': 'This machine has under 24 GB of RAM, so the prompt cache stays small.',
   '--reasoning-format': 'Lets Clara split Gemma thinking while it streams.',
 };
 
@@ -286,8 +308,6 @@ function arityFrom(index: Map<string, LlamaFlagSpec>): (name: string) => boolean
 }
 
 const SPECULATIVE_TUNING_RE = /^--(?:spec-draft-n-|spec-draft-p-|spec-ngram-)/;
-const DRAFT_MODEL_NAMES = ['-md', '--model-draft', '--spec-draft-model', '-hfd', '-hfrd', '--spec-draft-hf', '--hf-repo-draft'];
-const QUANTIZED_CACHE_RE = /^(?:q\d|iq\d)/i;
 
 interface ClassifyContext {
   value(names: readonly string[]): string | null;
@@ -311,21 +331,41 @@ function interactionNote(entry: LlamaCommandEntry, ctx: ClassifyContext): string
   if (
     names.some((name) => SPECULATIVE_TUNING_RE.test(name)) &&
     (!speculative || speculative === 'none') &&
-    !ctx.has(DRAFT_MODEL_NAMES)
+    !ctx.has(DRAFT_MODEL_FLAG_NAMES)
   ) {
     return 'Speculative decoding is off (no --spec-type), so this does nothing.';
   }
   return '';
 }
 
+/** What makes the server exit with this model, read from its header. Empty when the entry is fine. */
+function modelProblem(entry: LlamaCommandEntry, profile: GgufProfile, ctx: ClassifyContext): string {
+  if (
+    SPEC_TYPE_FLAG_NAMES.includes(entry.name) &&
+    (entry.value ?? '').split(',').includes('draft-mtp') &&
+    profile.nextnLayers === 0 &&
+    !ctx.has(DRAFT_MODEL_FLAG_NAMES)
+  ) {
+    return 'This model has no MTP head, so the server would exit at start. Remove draft-mtp or add --spec-draft-model.';
+  }
+  if (
+    [...CTK_FLAG_NAMES, ...CTV_FLAG_NAMES].includes(entry.name) &&
+    /^q\d/i.test(entry.value ?? '') &&
+    !ggufProfileAllowsQuantizedCache(profile)
+  ) {
+    return 'This model’s key and value lengths don’t divide by 32, so the server would exit at start. Use f16.';
+  }
+  return '';
+}
+
 /** Parse a command into entries, each with what the server does with it. */
 export function analyzeLlamaRunCommand(command: string, options: LlamaAnalyzeOptions): LlamaCommandAnalysis {
-  const { catalog = null, requestOverrides = [], optimizationPreset, platform } = options;
+  const { catalog = null, requestOverrides = [], optimizationPreset, platform, profile, totalRamBytes } = options;
   const trimmed = (command || '').trim();
   const verified = !!catalog?.flags.length;
   const index = catalogIndex(catalog);
   const arity = arityFrom(index);
-  const startCommand = trimmed ? buildManagedChatStartCommand(trimmed, optimizationPreset, platform) : '';
+  const startCommand = trimmed ? buildManagedChatStartCommand(trimmed, optimizationPreset, platform, totalRamBytes) : '';
   const promoted = trimmed ? promoteManagedSentinelNglToAuto(trimmed, platform) : '';
   const appended = startCommand.slice(promoted.length);
   const addedOccurrences = appended ? parseLlamaFlagOccurrences(`x ${appended}`, arity) : [];
@@ -403,6 +443,12 @@ export function analyzeLlamaRunCommand(command: string, options: LlamaAnalyzeOpt
       entry.note = 'Clara picks a free port at start.';
       continue;
     }
+    const problem = profile ? modelProblem(entry, profile, ctx) : '';
+    if (problem) {
+      entry.status = 'invalid';
+      entry.note = problem;
+      continue;
+    }
     const override = requestOverrides.find((o) => o.names.some((n) => names.includes(n)));
     if (override) {
       entry.status = 'request';
@@ -451,7 +497,7 @@ export function analyzeLlamaRunCommand(command: string, options: LlamaAnalyzeOpt
     } else if (ctx.has(MODEL_FLAG_NAMES) && ctx.has(HF_FLAG_NAMES)) {
       warnings.push('Both -m and -hf are set. Keep one.');
     }
-    if (lastValue(FA_FLAG_NAMES) === 'off' && QUANTIZED_CACHE_RE.test(lastValue(CTV_FLAG_NAMES) ?? '')) {
+    if (isLlamaFlashAttnOff(lastValue(FA_FLAG_NAMES)) && QUANTIZED_CACHE_TYPE_RE.test(lastValue(CTV_FLAG_NAMES) ?? '')) {
       warnings.push('A quantized -ctv cache needs flash attention, but -fa is off.');
     }
   }
@@ -574,20 +620,44 @@ const MODEL_IDENTITY_FLAGS = [
   '--no-mmproj-auto',
 ];
 
+/** ``--spec-type`` as written, without draft-mtp; empty when nothing else is listed. */
+function specTypeWithoutDraftMtp(occ: LlamaFlagOccurrence, written: string): string {
+  const types = (occ.value ?? '').split(',');
+  if (!types.includes('draft-mtp')) {
+    return written;
+  }
+  const others = types.filter((type) => type !== 'draft-mtp');
+  return others.length ? `${occ.written} ${others.join(',')}` : '';
+}
+
 /**
  * Copy flags from the previous command that a rebuilt one lacks, so picking another model keeps the
- * user's tuning (``--no-mmap``, ``--spec-type``, ...). The model flags themselves stay as rebuilt.
+ * user's tuning (``--no-mmap``, ``--cache-ram``, ...). The model flags themselves stay as rebuilt, and
+ * so does ``-c``: the caller decides it. A draft model and draft-mtp stay only with the same model:
+ * with another one the server exits at start when it has no head, or aborts when a draft model doesn't
+ * match it.
  */
 export function carryCustomLlamaFlags(previous: string, rebuilt: string): string {
+  const sameModel =
+    JSON.stringify(parseManagedLlamaModelSelection(previous)) === JSON.stringify(parseManagedLlamaModelSelection(rebuilt));
   const present = new Set(parseLlamaFlagOccurrences(rebuilt).map((occ) => flagKey(occ.name, null)));
   let out = rebuilt;
   for (const occ of parseLlamaFlagOccurrences(previous)) {
     const key = flagKey(occ.name, null);
-    if (present.has(key) || MODEL_IDENTITY_FLAGS.includes(occ.name)) {
+    if (
+      present.has(key) ||
+      MODEL_IDENTITY_FLAGS.includes(occ.name) ||
+      CTX_FLAG_NAMES.includes(occ.name) ||
+      (!sameModel && DRAFT_MODEL_FLAG_NAMES.includes(occ.name))
+    ) {
       continue;
     }
-    present.add(key);
-    out = `${out} ${previous.slice(occ.start, occ.tailEnd)}`;
+    const written = previous.slice(occ.start, occ.tailEnd);
+    const flag = !sameModel && SPEC_TYPE_FLAG_NAMES.includes(occ.name) ? specTypeWithoutDraftMtp(occ, written) : written;
+    if (flag) {
+      present.add(key);
+      out = `${out} ${flag}`;
+    }
   }
   return out;
 }

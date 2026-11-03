@@ -46,6 +46,7 @@ import {
   normalizeWorkspaceMonacoScrollByWorkspaceId,
   normalizeWorkspaceOpenTabsByWorkspaceId,
   getDefaultContextCompression,
+  maxContextCompressionTarget,
   TTS_SPEECH_SPEED_DEFAULT,
   TTS_SPEECH_SPEED_MAX,
   TTS_SPEECH_SPEED_MIN,
@@ -869,6 +870,10 @@ function normalizeLlamaCppManagedField(model: LlmModelProfile): boolean {
     migrated = true;
   }
   const next: LlamaCppManaged = { chatRunCommand, embeddingRunCommand };
+  const tuned = raw.autoTuned as LlamaCppManaged['autoTuned'];
+  if (tuned && typeof tuned.c === 'number' && typeof tuned.ctk === 'string' && typeof tuned.ctv === 'string') {
+    next.autoTuned = { c: tuned.c, ctk: tuned.ctk, ctv: tuned.ctv };
+  }
   model.llamaCppManaged = next;
   return migrated;
 }
@@ -1337,6 +1342,38 @@ export function migrateConfig(config: AppConfig): AppConfig {
         monaco.theme = 'follow-app';
       }
     }
+    if (schemaVersion < 9) {
+      // Compaction was rewritten: the old flag controlled a different, harmful behaviour, so saved
+      // configs turn on. A deliberate off cannot be told from the old default and flips once; the
+      // release note says so. The old default ratios move; custom ones stay.
+      const cc = (newConfig as AppConfig).contextCompression;
+      if (cc && typeof cc === 'object') {
+        // The old compaction's own settings: nothing reads them any more.
+        for (const key of ['protectTailMessages', 'recentToolBodyMaxChars', 'oldToolBodyMaxChars', 'systemReserveRatio']) {
+          delete (cc as unknown as Record<string, unknown>)[key];
+        }
+        cc.enabled = true;
+        if (cc.triggerRatio === 0.7) {
+          cc.triggerRatio = 0.8;
+        }
+        if (cc.targetRatio === 0.55) {
+          cc.targetRatio = 0.5;
+        }
+      }
+      // Only the flag the app's own builder wrote, in its order: `--cache-ram -1` or a value the
+      // user placed elsewhere stays, and later saves are not touched (this runs once).
+      for (const provider of newConfig.llmProviders) {
+        for (const model of provider.models) {
+          const managed = model.llamaCppManaged;
+          if (managed && typeof managed.chatRunCommand === 'string') {
+            managed.chatRunCommand = managed.chatRunCommand.replace(
+              /(-np\s+1\s+--no-webui)\s+--cache-ram\s+0(?=\s|$)/g,
+              '$1',
+            );
+          }
+        }
+      }
+    }
     (newConfig as { configSchemaVersion: number }).configSchemaVersion = APP_CONFIG_SCHEMA_VERSION;
     migrated = true;
   }
@@ -1743,51 +1780,20 @@ export function migrateConfig(config: AppConfig): AppConfig {
   } else {
     const cc = ccRaw;
     if (typeof cc.enabled !== 'boolean') {
-      cc.enabled = false;
+      cc.enabled = true;
       migrated = true;
     }
     if (typeof cc.triggerRatio !== 'number' || cc.triggerRatio < 0.5 || cc.triggerRatio > 0.95) {
-      cc.triggerRatio = 0.7;
+      cc.triggerRatio = 0.8;
       migrated = true;
     }
     if (typeof cc.targetRatio !== 'number' || cc.targetRatio < 0.4 || cc.targetRatio > 0.9) {
-      cc.targetRatio = 0.55;
+      cc.targetRatio = 0.5;
       migrated = true;
     }
-    if (cc.targetRatio > cc.triggerRatio) {
-      cc.targetRatio = Math.min(cc.triggerRatio, 0.55);
-      migrated = true;
-    }
-    if (
-      typeof cc.protectTailMessages !== 'number' ||
-      cc.protectTailMessages < 8 ||
-      cc.protectTailMessages > 100
-    ) {
-      cc.protectTailMessages = 24;
-      migrated = true;
-    }
-    if (
-      typeof cc.recentToolBodyMaxChars !== 'number' ||
-      cc.recentToolBodyMaxChars < 200 ||
-      cc.recentToolBodyMaxChars > 20_000
-    ) {
-      cc.recentToolBodyMaxChars = 2000;
-      migrated = true;
-    }
-    if (
-      typeof cc.oldToolBodyMaxChars !== 'number' ||
-      cc.oldToolBodyMaxChars < 100 ||
-      cc.oldToolBodyMaxChars > 10_000
-    ) {
-      cc.oldToolBodyMaxChars = 400;
-      migrated = true;
-    }
-    if (
-      typeof cc.systemReserveRatio !== 'number' ||
-      cc.systemReserveRatio < 0.1 ||
-      cc.systemReserveRatio > 0.5
-    ) {
-      cc.systemReserveRatio = 0.25;
+    const maxTarget = maxContextCompressionTarget(cc.triggerRatio);
+    if (cc.targetRatio > maxTarget) {
+      cc.targetRatio = Math.min(maxTarget, 0.5);
       migrated = true;
     }
   }

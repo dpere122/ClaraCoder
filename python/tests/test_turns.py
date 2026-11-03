@@ -230,7 +230,6 @@ async def test_chat_stream_relays_the_detached_composer_turn(_session) -> None:
     with (
         patch('clara_coder_backend.composer.build_llm', return_value=MagicMock()),
         patch('clara_coder_backend.composer.stream_single_agent_langgraph', side_effect=_fake_stream),
-        patch('clara_coder_backend.composer.maybe_compact_outer_checkpoint', return_value=None),
     ):
         response = await chat_stream(ChatRequest(session_id=SID, message='hello'))
         lines = [line async for line in response.body_iterator]

@@ -223,7 +223,9 @@
           </div>
         </header>
         <div class='mm-panel__actions'>
-          <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='s.modelManagerBusy()' (click)='s.useCustomModelInModels(local.model)'>Use in Models</button>
+          @if (!companionKind(local.model)) {
+            <button type='button' class='action-button action-button--compact action-button--primary' [disabled]='s.modelManagerBusy()' (click)='s.useCustomModelInModels(local.model)'>Use in Models</button>
+          }
           <button type='button' class='action-button action-button--compact' [disabled]='s.modelManagerBusy()' (click)='s.renameCustomModel(local.model)'>Rename</button>
           <button type='button' class='action-button action-button--compact action-button--danger' [disabled]='s.modelManagerBusy()' (click)='s.deleteCustomModel(local.model)'>Delete</button>
           @if (local.repoId) {
@@ -233,13 +235,16 @@
         <dl class='mm-facts'>
           <div><dt>Size</dt><dd>{{ s.formatModelBytes(local.model.sizeBytes) }}</dd></div>
           <div><dt>Modified</dt><dd>{{ s.formatModelDate(local.model.modifiedMs) }}</dd></div>
-          <div><dt>Type</dt><dd>{{ local.model.entryKind === 'hubRepo' ? 'Hugging Face hub folder' : 'GGUF file' }}</dd></div>
+          <div><dt>Type</dt><dd>{{ local.model.entryKind === 'hubRepo' ? 'Hugging Face hub folder' : companionKind(local.model) ? companionKind(local.model) + ' for a model' : 'GGUF file' }}</dd></div>
           <div><dt>Location</dt><dd>{{ local.model.source === 'cache' ? 'Hugging Face cache' : 'Custom folder' }}</dd></div>
           @if (local.model.ggufAbsolutePath; as gguf) {
             <div class='mm-facts__wide'><dt>Model file</dt><dd><code>{{ gguf }}</code></dd></div>
           }
           @if (local.model.mmprojAbsolutePath; as mmproj) {
             <div class='mm-facts__wide'><dt>Projector</dt><dd><code>{{ mmproj }}</code></dd></div>
+          }
+          @if (local.model.mtpAbsolutePath; as mtp) {
+            <div class='mm-facts__wide'><dt>MTP head</dt><dd><code>{{ mtp }}</code></dd></div>
           }
         </dl>
         @if (local.repoId) {
@@ -465,7 +470,7 @@
           [class.model-quant-row--done]='s.isHfQuantDownloaded(repoId, file)'
           [title]='file.fileName'
         >
-          <span class='model-quant-row__name'>{{ file.quant || file.fileName }}</span>
+          <span class='model-quant-row__name'>{{ file.role === 'mtp' ? 'MTP head ' : file.role === 'draft' ? 'Draft head ' : file.role === 'mmproj' ? 'Vision projector ' : '' }}{{ file.quant || file.fileName }}</span>
           <span class='settings-copy model-quant-row__size'>{{ s.formatFileSize(file.sizeBytes) }}</span>
           @if (s.isHfQuantDownloading(repoId, file)) {
             <span class='model-quant-row__progress-label'>{{ s.hfQuantDownloadLabel(repoId, file) }}</span>
@@ -473,9 +478,11 @@
               Cancel
             </button>
           } @else if (s.isHfQuantDownloaded(repoId, file)) {
-            <button type='button' class='action-button action-button--compact action-button--primary' (click)='s.useHfQuantInModels(repoId, file)'>
-              Use in Models
-            </button>
+            @if (!file.role) {
+              <button type='button' class='action-button action-button--compact action-button--primary' (click)='s.useHfQuantInModels(repoId, file)'>
+                Use in Models
+              </button>
+            }
           } @else {
             <button type='button' class='action-button action-button--compact' (click)='s.downloadHfQuant(repoId, file)'>
               Download

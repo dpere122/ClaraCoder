@@ -103,9 +103,9 @@ export const SETTINGS_SUB_TAB_CATALOG: Partial<Record<SettingsTab, SettingsSubTa
     },
     {
       id: 'compression',
-      label: 'Context compression',
+      label: 'Context compaction',
       description:
-        'Shortens older tool result bodies in the LangGraph checkpoint when usage exceeds the trigger threshold.',
+        'Replaces older messages with a summary in what the model sees when a conversation nears the context window. Saved chats do not change.',
     },
     {
       id: 'encoding',

@@ -4,6 +4,7 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'child_process';
 import { existsSync, promises as fs, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import * as net from 'net';
+import { totalmem } from 'os';
 import path = require('path');
 
 import type {
@@ -352,6 +353,13 @@ function logTailForStream(bucket: StreamBuf, which: StreamKind): string {
   return redactSecrets(`${out}\n${err}`.slice(-12_000));
 }
 
+/** Enough of the log to hold llama-server's last error lines. */
+const LAST_OUTPUT_CHARS = 1500;
+
+function lastOutputForStream(bucket: StreamBuf, which: StreamKind): string {
+  return logTailForStream(bucket, which).trim().slice(-LAST_OUTPUT_CHARS);
+}
+
 /**
  * Persisted ``customModelsDir`` is authoritative for managed ``llama-server`` so Hugging Face / llama cache
  * env vars match Settings → Model Manager even if the renderer IPC snapshot is stale. HF token may still
@@ -581,20 +589,23 @@ export function managedLlamaCommandToSpawnArgv(
   return { ok: true, bin: allowed.bin, args };
 }
 
+/** A real auth failure: "401" can be part of a size, and "huggingface" of a model's path or download URL. */
+export function hfAuthFailureInLogs(logs: string): boolean {
+  return /\bhttp[^\n]*\b401\b|\b401\b[^\n]*(?:http|unauthorized)|unauthorized[^\n]*\b401\b|hf_token|hf token|gated model|model is private|private or does not exist|provide a valid hf token|invalid credentials/.test(
+    logs.toLowerCase(),
+  );
+}
+
 function hfWarmHintFromLogs(logBuf: StreamBuf, kind: StreamKind): string {
   const t = logTailForStream(logBuf, kind).toLowerCase();
-  if (
-    /401|hf_token|hf token|hugging\s*face|gated model|model is private|private or does not exist|provide a valid hf token|invalid credentials/.test(
-      t,
-    )
-  ) {
+  if (hfAuthFailureInLogs(t)) {
     return ' Hugging Face rejected the request (often HTTP 401 for gated or private repos). Set a read token in Clara → Settings → Model Manager → Hugging Face token (used when you Start managed servers), or set HF_TOKEN in your user environment.';
   }
   if (/repository not found|"error":\s*"repository not found"|manifests\//i.test(t)) {
     return ' Hugging Face returned 404 (unknown repo, branch, or manifest/quantization tag in your chat `-hf` command). Fix chat first: the embedding server starts only after chat is healthy, so a bad chat preset used to abort an embed download mid-way.';
   }
   if (/head failed,\s*status:\s*404|no remote preset found/.test(t)) {
-    return ' A remote preset or file returned 404—verify the model id and file name. Some downloads still require a Hugging Face token.';
+    return ' A remote preset or file returned 404. Verify the model id and file name. Some downloads still require a Hugging Face token.';
   }
   return '';
 }
@@ -639,6 +650,7 @@ function attachLlamaStreams(
       `${which} llama-server spawn error modelId=${modelId} pid=${proc.pid ?? '?'} error=${err.message}`,
     );
   });
+  let crashed = false;
   proc.on('exit', (code, signal) => {
     const flushedOut = stdoutRedact.flush();
     if (flushedOut) {
@@ -660,6 +672,7 @@ function attachLlamaStreams(
       `${which} llama-server process exited modelId=${modelId} pid=${proc.pid ?? '?'} ` +
         `code=${code} signal=${signal ?? ''} unexpected=${unexpected}`,
     );
+    crashed = unexpected && code !== 0;
     sendToRenderer('llama-server-process-exit', {
       modelId,
       stream: which,
@@ -667,9 +680,10 @@ function attachLlamaStreams(
       signal: signal != null ? String(signal) : null,
     });
     // Chat death ends the managed pair. Intentional stop deletes from ``running`` first
-    // so this path only runs on unexpected exit (or a race after stop).
+    // so this path only runs on unexpected exit (or a race after stop). During start the
+    // health wait reports the exit instead, with the server's last output.
     if (which === 'chat') {
-      if (unexpected) {
+      if (unexpected && st?.chatReady) {
         void stopManagedLlamaServers(modelId);
       }
       return;
@@ -686,6 +700,15 @@ function attachLlamaStreams(
     invalidateManagedStatusCache(modelId);
     if (st.ready) {
       void syncWithManagedLlamaOverrides();
+    }
+  });
+  // After 'exit' the last output can still be on its way, and it's what says why the server died.
+  proc.on('close', () => {
+    if (crashed) {
+      logLlamaLifecycle(
+        'WARNING',
+        `${which} llama-server last output modelId=${modelId}:\n${lastOutputForStream(bucket, which)}`,
+      );
     }
   });
 }
@@ -765,6 +788,7 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
     savedChatCmd,
     loc.model.optimizationPreset,
     detectShellQuotingPlatform(),
+    totalmem(),
   );
   const chatTemplateFile = parseManagedLlamaChatTemplateFile(chatCmd);
   if (chatTemplateFile && !existsSync(chatTemplateFile)) {
@@ -1002,7 +1026,11 @@ function shortEarlyExitError(label: string, proc: ChildProcess, logBuf: StreamBu
   const sig = proc.signalCode;
   const why =
     code !== null ? `exit ${code}` : sig != null ? `signal ${sig}` : 'exited unexpectedly';
-  return `${label} llama-server process ended (${why}). See the llama.cpp server terminal tab for process output.${hfWarmHintFromLogs(logBuf, kind)}`;
+  const output = lastOutputForStream(logBuf, kind);
+  return (
+    `${label} llama-server process ended (${why}). See the llama.cpp server terminal tab for process output.` +
+    `${hfWarmHintFromLogs(logBuf, kind)}${output ? `\nLast output:\n${output}` : ''}`
+  );
 }
 
 function fetchWithTimeout(url: string, ms: number, init?: RequestInit): Promise<Response> {

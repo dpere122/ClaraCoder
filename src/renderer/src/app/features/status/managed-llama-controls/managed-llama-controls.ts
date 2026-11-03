@@ -73,6 +73,10 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
   readonly appConfig = input<AppConfig | null>(null);
 
   protected readonly phase = signal<ManagedLlamaPhase>('idle');
+  /** Why the last start failed, which is what the server said when it exited. */
+  protected readonly startError = signal('');
+  /** The user cancelled the start in flight, so its failure isn't news. */
+  private cancelled = false;
 
   /** Monotonic id for the latest in-flight status probe; stale completions are ignored. */
   private probeRequestId = 0;
@@ -293,6 +297,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     if (!mid) {
       return;
     }
+    this.startError.set('');
     await this.electron.setActiveLlmModel(mid);
   }
 
@@ -311,10 +316,15 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
       return;
     }
     this.phase.set('starting');
+    this.startError.set('');
+    this.cancelled = false;
     try {
       const res = await this.electron.llamaServerStart({ modelId: mid, config: cfg });
       if (!res.ok) {
         this.phase.set('idle');
+        if (!this.cancelled) {
+          this.startError.set(res.error);
+        }
       }
       // success path is driven by the 'running' lifecycle event
     } catch {
@@ -328,6 +338,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     if (!cfg || !mid || (!this.running() && !this.busy())) {
       return;
     }
+    this.cancelled = true;
     try {
       await this.electron.llamaServerStop({ modelId: mid, config: cfg });
       // 'stopped' lifecycle event resets phase to idle

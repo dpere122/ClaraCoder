@@ -7,7 +7,7 @@ This module is the thin orchestrator above the graph runners:
    - ``composer_mode == 'plan'`` → :func:`stream_plan_execute_langgraph`
    - otherwise → :func:`stream_single_agent_langgraph` (``lang_agent.graph``)
 3. It relays SSE lines to the Electron renderer, then handles post-stream chores
-   (checkpoint compact / cleanup, in-memory history commit, checkpoint sync record for ``/load``,
+   (checkpoint cleanup, in-memory history commit, checkpoint sync record for ``/load``,
    ``final_text``, ``[DONE]``).
 
 HITL pauses (diff / copy / delete / accept-command review) happen *inside* the graph
@@ -43,7 +43,6 @@ from clara_coder_backend.session.checkpointing import (
     forget_outer_thread_sync,
     settle_outer_thread,
 )
-from clara_coder_backend.lang_agent.context_compression import maybe_compact_outer_checkpoint
 from clara_coder_backend.lang_agent.streaming import model_chunk_sse_line, sse_line, status_event
 from clara_coder_backend.config import MAX_TOOL_STATUS_LINE
 from clara_coder_backend.domain import SessionState
@@ -220,20 +219,7 @@ async def stream_agent_reply(
                     break
                 yield line
 
-        # --- Post-stream: compact / drop checkpoints based on outcome ---
-        compact_freed = 0
-        if (
-            graph_outcome.state == AgentLoopOutcome.COMPLETED
-            and mode != 'plan'
-            and session.active_langgraph_agent_streams == 0
-            and not is_subagent
-        ):
-            # Shrink outer checkpoint when the single-agent turn finished cleanly.
-            compact_stats = await maybe_compact_outer_checkpoint(session_id, apply_mode, session)
-            if compact_stats is not None and compact_stats.changed:
-                compact_freed = max(0, compact_stats.tokens_before - compact_stats.tokens_after)
-                yield sse_line(compact_stats.to_sse_payload())
-
+        # --- Post-stream: drop checkpoints based on outcome ---
         # A stopped agent turn keeps its thread: the next turn repairs its open tool calls instead.
         kept_interrupted = graph_outcome.state == AgentLoopOutcome.ABORTED and mode != 'plan'
         if graph_outcome.state != AgentLoopOutcome.COMPLETED and not kept_interrupted:
@@ -261,12 +247,7 @@ async def stream_agent_reply(
                     await delete_outer_threads_for_session(session_id, 'single')
                 elif graph_outcome.state == AgentLoopOutcome.COMPLETED or kept_interrupted:
                     # The thread now covers this turn: record that for ``/load``, prune it.
-                    await settle_outer_thread(
-                        session_id,
-                        apply_mode=apply_mode,
-                        history=session.history,
-                        freed_tokens=compact_freed,
-                    )
+                    await settle_outer_thread(session_id, apply_mode=apply_mode, history=session.history)
                 else:
                     # This thread is gone; the other Editor mode's one does not have this turn either.
                     await delete_outer_thread(session_id, 'single', apply_mode=not apply_mode)

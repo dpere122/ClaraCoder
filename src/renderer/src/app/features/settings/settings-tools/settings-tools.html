@@ -281,11 +281,11 @@
                     [ngModel]='s.contextCompressionEnabled()'
                     (ngModelChange)='s.onContextCompressionEnabledChange($event)'
                   />
-                  <span>Enable checkpoint context compression</span>
+                  <span>Enable context compaction</span>
                 </label>
               </div>
               <label class='field'>
-                <span>Compact when usage ≥ (ratio)</span>
+                <span>Compact when usage reaches (ratio of window)</span>
                 <input
                   type='number'
                   min='0.5'
@@ -297,7 +297,7 @@
                 />
               </label>
               <label class='field'>
-                <span>Target ratio (reserved)</span>
+                <span>Usage after compacting (ratio of window)</span>
                 <input
                   type='number'
                   min='0.4'
@@ -305,54 +305,6 @@
                   step='0.05'
                   [ngModel]='s.contextCompressionTargetRatio()'
                   (ngModelChange)='s.onContextCompressionTargetRatioChange($event)'
-                  [disabled]='!s.contextCompressionEnabled()'
-                />
-              </label>
-              <label class='field'>
-                <span>Protected tail messages</span>
-                <input
-                  type='number'
-                  min='8'
-                  max='100'
-                  step='1'
-                  [ngModel]='s.contextCompressionProtectTail()'
-                  (ngModelChange)='s.onContextCompressionProtectTailChange($event)'
-                  [disabled]='!s.contextCompressionEnabled()'
-                />
-              </label>
-              <label class='field'>
-                <span>System reserve (ratio)</span>
-                <input
-                  type='number'
-                  min='0.1'
-                  max='0.5'
-                  step='0.05'
-                  [ngModel]='s.contextCompressionSystemReserve()'
-                  (ngModelChange)='s.onContextCompressionSystemReserveChange($event)'
-                  [disabled]='!s.contextCompressionEnabled()'
-                />
-              </label>
-              <label class='field'>
-                <span>Recent tool body max chars</span>
-                <input
-                  type='number'
-                  min='200'
-                  max='20000'
-                  step='100'
-                  [ngModel]='s.contextCompressionRecentToolChars()'
-                  (ngModelChange)='s.onContextCompressionRecentToolCharsChange($event)'
-                  [disabled]='!s.contextCompressionEnabled()'
-                />
-              </label>
-              <label class='field'>
-                <span>Older tool body max chars</span>
-                <input
-                  type='number'
-                  min='100'
-                  max='10000'
-                  step='50'
-                  [ngModel]='s.contextCompressionOldToolChars()'
-                  (ngModelChange)='s.onContextCompressionOldToolCharsChange($event)'
                   [disabled]='!s.contextCompressionEnabled()'
                 />
               </label>

@@ -11,6 +11,7 @@ import {
   setLlamaEntryValue,
   type LlamaAnalyzeOptions,
 } from './llama-run-command';
+import type { GgufProfile } from './managed-llama-gpu-split';
 import { parseManagedLlamaContextSize, parseManagedLlamaModelSelection, parseManagedLlamaNgl } from './managed-llama-model-pick';
 import {
   hasLlamaFlag,
@@ -95,6 +96,24 @@ const HELP = `----- common params -----
 const catalog = parseLlamaServerHelp(HELP, 'build 10867');
 const options: LlamaAnalyzeOptions = { catalog, platform: 'posix' };
 const BASE = 'llama-server --host 127.0.0.1 --port {{PORT}} --jinja -m /m/a.gguf --no-webui -np 1 --cache-ram 0';
+const GIB = 1024 * 1024 * 1024;
+/** MiMo's header: no MTP head, lengths that divide into q8 blocks. */
+const NO_HEAD_PROFILE: GgufProfile = {
+  contextTrain: 262144,
+  embeddingOut: 4096,
+  nextnLayers: 0,
+  tensorBytes: 9516533760,
+  hostBytes: 1080688640,
+  headBytes: 0,
+  recurrentStateBytes: 52690944,
+  fullKeys: 8192,
+  fullValues: 8192,
+  maxFullKey: 1024,
+  swaKeys: 0,
+  swaValues: 0,
+  slidingWindow: 0,
+  cacheLengths: [256],
+};
 
 function entry(command: string, flag: string, opts: LlamaAnalyzeOptions = options) {
   const found = analyzeLlamaRunCommand(command, opts).entries.filter((e) => e.flag === flag);
@@ -262,15 +281,63 @@ describe('analyzeLlamaRunCommand', () => {
   it('lists what Clara appends at start, and marks a flag that loses to it', () => {
     const bare = 'llama-server --port {{PORT}} -m /m/a.gguf';
     const result = analyzeLlamaRunCommand(bare, options);
-    expect(result.addedAtStart.map((f) => f.flag)).toEqual(['--jinja', '--no-webui', '-np', '--cache-ram']);
-    expect(result.startCommand).toBe(`${bare} --jinja --no-webui -np 1 --cache-ram 0`);
+    expect(result.addedAtStart.map((f) => f.flag)).toEqual(['--jinja', '--no-webui', '-np', '--fit-ctx']);
+    expect(result.startCommand).toBe(`${bare} --jinja --no-webui -np 1 --fit-ctx 16384`);
     expect(entry(`${bare} --no-jinja`, '--no-jinja')?.status).toBe('overridden');
+  });
+
+  it('shows the prompt cache limit a small machine gets at start, and none on a bigger one', () => {
+    const bare = 'llama-server --port {{PORT}} -m /m/a.gguf';
+    const small = analyzeLlamaRunCommand(bare, { ...options, totalRamBytes: 16 * GIB });
+    expect(small.startCommand).toBe(`${bare} --jinja --no-webui -np 1 --fit-ctx 16384 --cache-ram 2048`);
+    expect(small.addedAtStart.find((f) => f.flag === '--cache-ram')?.note).toContain('24 GB');
+    expect(analyzeLlamaRunCommand(bare, { ...options, totalRamBytes: 31 * GIB }).startCommand).toBe(
+      `${bare} --jinja --no-webui -np 1 --fit-ctx 16384`,
+    );
+    expect(analyzeLlamaRunCommand(bare, { ...options, totalRamBytes: null }).startCommand).toBe(
+      `${bare} --jinja --no-webui -np 1 --fit-ctx 16384`,
+    );
+    expect(analyzeLlamaRunCommand(`${bare} -cram 512`, { ...options, totalRamBytes: 16 * GIB }).startCommand).not.toContain(
+      '--cache-ram',
+    );
+  });
+
+  describe('with the model header', () => {
+    const cmd = `${BASE} --spec-type draft-mtp`;
+    const withProfile = (profile: GgufProfile): LlamaAnalyzeOptions => ({ ...options, profile });
+
+    it('marks draft-mtp invalid on a model with no head', () => {
+      const spec = entry(cmd, '--spec-type', withProfile(NO_HEAD_PROFILE));
+      expect(spec?.status).toBe('invalid');
+      expect(spec?.note).toContain('no MTP head');
+      expect(entry(`${BASE} --spec-type ngram-mod,draft-mtp`, '--spec-type', withProfile(NO_HEAD_PROFILE))?.status).toBe('invalid');
+    });
+
+    it('accepts draft-mtp with a head in the file or a draft model', () => {
+      expect(entry(cmd, '--spec-type', withProfile({ ...NO_HEAD_PROFILE, nextnLayers: 1 }))?.status).toBe('used');
+      expect(entry(`${cmd} --spec-draft-model /m/mtp-a.gguf`, '--spec-type', withProfile(NO_HEAD_PROFILE))?.status).toBe('used');
+      expect(entry(`${BASE} --spec-type ngram-mod`, '--spec-type', withProfile(NO_HEAD_PROFILE))?.status).toBe('used');
+    });
+
+    it('marks a q8 cache invalid when the lengths do not divide into its blocks', () => {
+      const odd = withProfile({ ...NO_HEAD_PROFILE, cacheLengths: [256, 100] });
+      expect(entry(`${BASE} -ctk q8_0`, '-ctk', odd)?.status).toBe('invalid');
+      expect(entry(`${BASE} -ctv q8_0`, '-ctv', { ...odd, catalog: null })?.status).toBe('invalid');
+      expect(entry(`${BASE} --cache-type-v q8_0`, '--cache-type-v', { ...odd, catalog: null })?.status).toBe('invalid');
+      expect(entry(`${BASE} -ctk f16`, '-ctk', odd)?.status).toBe('used');
+      expect(entry(`${BASE} -ctk q8_0`, '-ctk', withProfile(NO_HEAD_PROFILE))?.status).toBe('used');
+    });
+
+    it('checks nothing before the header has been read', () => {
+      expect(entry(cmd, '--spec-type')?.status).toBe('used');
+      expect(entry(cmd, '--spec-type', { ...options, profile: null })?.status).toBe('used');
+    });
   });
 
   it('adds the Gemma reasoning format only for the Gemma preset', () => {
     const opts = { ...options, optimizationPreset: 'gemma' };
-    expect(analyzeLlamaRunCommand(BASE, opts).addedAtStart.map((f) => f.flag)).toEqual(['--reasoning-format']);
-    expect(analyzeLlamaRunCommand(BASE, options).addedAtStart).toEqual([]);
+    expect(analyzeLlamaRunCommand(`${BASE} -c 1`, opts).addedAtStart.map((f) => f.flag)).toEqual(['--reasoning-format']);
+    expect(analyzeLlamaRunCommand(`${BASE} -c 1`, options).addedAtStart).toEqual([]);
   });
 
   it('reports command-level problems', () => {
@@ -285,6 +352,14 @@ describe('analyzeLlamaRunCommand', () => {
       analyzeLlamaRunCommand('llama-server --port {{PORT}} -m a -fa off -ctv q8_0', options).warnings[0],
     ).toContain('flash attention');
     expect(analyzeLlamaRunCommand('llama-server --port {{PORT}} -m a -fa off -ctk q8_0', options).warnings).toEqual([]);
+  });
+
+  it.each(['0', 'false', 'disabled'])('warns about a quantized -ctv under -fa %s too', (off) => {
+    const warnings = (command: string) => analyzeLlamaRunCommand(command, options).warnings;
+    const bare = 'llama-server --port {{PORT}} -m a';
+    expect(warnings(`${bare} -fa ${off} -ctv q8_0`)[0]).toContain('flash attention');
+    expect(warnings(`${bare} --flash-attn ${off} -ctv q8_0`)[0]).toContain('flash attention');
+    expect(warnings(`${bare} -fa ${off} -ctv f16`)).toEqual([]);
   });
 
   it('keeps entry ids stable when a value changes', () => {
@@ -325,8 +400,56 @@ describe('editing', () => {
 describe('buildManagedChatStartCommand', () => {
   it('promotes -ngl 99 and appends the managed defaults', () => {
     expect(buildManagedChatStartCommand('llama-server --port {{PORT}} -ngl 99', undefined, 'posix')).toBe(
-      'llama-server --port {{PORT}} -ngl auto --jinja --no-webui -np 1 --cache-ram 0',
+      'llama-server --port {{PORT}} -ngl auto --jinja --no-webui -np 1 --fit-ctx 16384',
     );
+  });
+
+  describe('the context floor for --fit', () => {
+    const bare = 'llama-server --port {{PORT}} -m /a.gguf';
+
+    it('holds a command with no -c above the prompt, for a -hf model too', () => {
+      expect(readLlamaFlagValue(buildManagedChatStartCommand(bare, undefined, 'posix'), ['--fit-ctx'])).toBe('16384');
+      const hf = buildManagedChatStartCommand('llama-server --port {{PORT}} -hf org/a', undefined, 'posix');
+      expect(readLlamaFlagValue(hf, ['--fit-ctx'])).toBe('16384');
+    });
+
+    // After -c 0 the flag would turn the shrink back on, and -c N has no shrink to stop.
+    it.each(['-c 0', '-c 65536', '--ctx-size 8192', '--ctx_size 8192', '-fitc 8192', '--fit-ctx 8192', '--fit_ctx 8192'])(
+      'stays out of a command with %s',
+      (flag) => {
+        const command = `${bare} ${flag}`;
+        expect(buildManagedChatStartCommand(command, undefined, 'posix')).toBe(`${command} --jinja --no-webui -np 1`);
+      },
+    );
+
+    it('is listed with the flags Clara adds, and the preview is what spawns', () => {
+      const analysis = analyzeLlamaRunCommand(bare, { platform: 'posix' });
+      const added = analysis.addedAtStart.find((f) => f.flag === '--fit-ctx');
+      expect(added?.value).toBe('16384');
+      expect(added?.note).toContain('--fit');
+      expect(analysis.startCommand).toBe(buildManagedChatStartCommand(bare, undefined, 'posix'));
+    });
+
+    it('counts -fitc and --fit-ctx as one flag before the server has been asked', () => {
+      expect(diffLlamaCommands(`${bare} -fitc 16384`, `${bare} --fit-ctx 16384`, null)).toEqual([]);
+    });
+  });
+
+  it('starts the user preset exactly as saved, on any machine', () => {
+    const preset =
+      'llama-server --host 127.0.0.1 --port {{PORT}} --jinja -m /m/swift.gguf -c 128000 -np 1 --cache-ram -1 -fa on ' +
+      '-ctk q8_0 -ctv q8_0 --metrics --no-webui --spec-draft-n-max 4 --spec-type draft-mtp -dev CUDA0,CUDA1 ' +
+      '--tensor-split 27,21 --main-gpu 0 -ngl auto --no-mmproj --load-mode auto';
+    for (const ram of [undefined, null, 16 * GIB, 64 * GIB]) {
+      expect(buildManagedChatStartCommand(preset, 'qwen', 'win32', ram)).toBe(preset);
+    }
+  });
+
+  it('adds the prompt cache limit only when told a small machine runs it', () => {
+    const bare = 'llama-server --port {{PORT}} -m /a.gguf';
+    expect(buildManagedChatStartCommand(bare, undefined, 'posix', 16 * GIB)).toContain('--cache-ram 2048');
+    expect(buildManagedChatStartCommand(bare, undefined, 'posix', 31 * GIB)).not.toContain('--cache-ram');
+    expect(buildManagedChatStartCommand(bare, undefined, 'posix')).not.toContain('--cache-ram');
   });
 });
 
@@ -413,10 +536,66 @@ describe('carryCustomLlamaFlags', () => {
   });
 
   it('keeps custom tuning when the model changes, but not the old model or a stale duplicate', () => {
-    const previous = `llama-server --port {{PORT}} -m '/old model.gguf' -c 4096 --no-mmap --spec-type draft-mtp -mm /old-mm.gguf`;
+    const previous = `llama-server --port {{PORT}} -m '/old model.gguf' -c 4096 --no-mmap --spec-draft-n-max 4 -mm /old-mm.gguf`;
     const rebuilt = 'llama-server --port {{PORT}} -m /new.gguf -c 8192';
     expect(carryCustomLlamaFlags(previous, rebuilt)).toBe(
-      'llama-server --port {{PORT}} -m /new.gguf -c 8192 --no-mmap --spec-type draft-mtp',
+      'llama-server --port {{PORT}} -m /new.gguf -c 8192 --no-mmap --spec-draft-n-max 4',
     );
+  });
+
+  it('keeps the -np and --cache-ram a rebuilt command no longer sets', () => {
+    const previous = 'llama-server --port {{PORT}} -m /old.gguf -np 4 --cache-ram -1';
+    expect(carryCustomLlamaFlags(previous, 'llama-server --port {{PORT}} -m /new.gguf')).toBe(
+      'llama-server --port {{PORT}} -m /new.gguf -np 4 --cache-ram -1',
+    );
+  });
+
+  it('leaves -c to the caller, so a -c 0 does not come back on a rebuilt command', () => {
+    expect(carryCustomLlamaFlags('llama-server -m /a.gguf -c 0 --metrics', 'llama-server -m /a.gguf')).toBe(
+      'llama-server -m /a.gguf --metrics',
+    );
+  });
+
+  describe('MTP decoding', () => {
+    const flags = '--spec-type draft-mtp --spec-draft-model /m/mtp-a.gguf --spec-draft-n-max 4 --cache-ram -1';
+
+    it('stays when the same model is picked again', () => {
+      expect(carryCustomLlamaFlags(`llama-server -m /m/a.gguf ${flags}`, 'llama-server -m /m/a.gguf')).toBe(
+        `llama-server -m /m/a.gguf ${flags}`,
+      );
+      expect(carryCustomLlamaFlags('llama-server -hf org/a --spec-type draft-mtp', 'llama-server -hf org/a')).toBe(
+        'llama-server -hf org/a --spec-type draft-mtp',
+      );
+    });
+
+    it('knows the same model however its path is quoted', () => {
+      const path = 'C:\\Users\\me\\models\\Swift Dynamic-MTP.gguf';
+      expect(carryCustomLlamaFlags(`llama-server -m '${path}' --spec-type draft-mtp`, `llama-server -m "${path}"`)).toBe(
+        `llama-server -m "${path}" --spec-type draft-mtp`,
+      );
+    });
+
+    it('stays behind when the model changes, with nothing else lost', () => {
+      expect(carryCustomLlamaFlags(`llama-server -m /m/a.gguf ${flags}`, 'llama-server -m /m/b.gguf')).toBe(
+        'llama-server -m /m/b.gguf --spec-draft-n-max 4 --cache-ram -1',
+      );
+    });
+
+    it('leaves every spelling of a draft model behind when the model changes', () => {
+      for (const flag of ['-md /m/d.gguf', '--model-draft /m/d.gguf', '-hfd org/d', '--spec-draft-hf org/d']) {
+        expect(carryCustomLlamaFlags(`llama-server -m /m/a.gguf ${flag} --no-mmap`, 'llama-server -m /m/b.gguf')).toBe(
+          'llama-server -m /m/b.gguf --no-mmap',
+        );
+      }
+    });
+
+    it('keeps the other speculative types in a list', () => {
+      expect(carryCustomLlamaFlags('llama-server -m /m/a.gguf --spec-type draft-mtp,ngram-mod', 'llama-server -m /m/b.gguf')).toBe(
+        'llama-server -m /m/b.gguf --spec-type ngram-mod',
+      );
+      expect(carryCustomLlamaFlags('llama-server -m /m/a.gguf --spec-type ngram-mod', 'llama-server -m /m/b.gguf')).toBe(
+        'llama-server -m /m/b.gguf --spec-type ngram-mod',
+      );
+    });
   });
 });

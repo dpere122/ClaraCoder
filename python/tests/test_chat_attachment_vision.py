@@ -14,7 +14,7 @@ from clara_coder_backend.chat.chat_attachment_vision import (
     attached_image_paths_from_text,
     prepare_chat_attachment_vision_turn,
 )
-from clara_coder_backend.session.state import current_session_id, get_session
+from clara_coder_backend.session.state import current_session_id, get_active_connection, get_session
 from clara_coder_backend.tools.workspace_image import vision_payload_from_data_url
 
 
@@ -113,6 +113,22 @@ def test_prepare_chat_attachment_vision_turn_image_only_with_preamble(workspace_
     assert len(model_blocks) == 3
     assert 'chat attachment' in str(model_blocks[1]['text'])
     assert model_blocks[2]['type'] == 'image_url'
+
+
+def test_prepare_chat_attachment_vision_turn_stays_text_on_a_text_only_server(workspace_session, monkeypatch) -> None:
+    """Only the hint line goes out; the model's ``read_workspace_image`` call then gets the tool error."""
+    _write_png(workspace_session / 'mockup.png')
+    monkeypatch.setattr(get_active_connection(), 'chat_template_reasoning', {'vision': False})
+    hint = (
+        f'{ATTACHED_IMAGE_PREFIX}mockup.png '
+        '(use read_workspace_image with relative_path="mockup.png" for visual analysis)'
+    )
+    user_blocks = [
+        {'type': 'text', 'text': 'What is in this screenshot?'},
+        {'type': 'text', 'text': hint},
+    ]
+
+    assert prepare_chat_attachment_vision_turn(user_blocks) == user_blocks
 
 
 def test_prepare_chat_attachment_vision_turn_plain_string_is_unchanged() -> None:

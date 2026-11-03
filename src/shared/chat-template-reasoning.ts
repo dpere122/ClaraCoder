@@ -13,6 +13,8 @@ export interface ChatTemplateReasoningCaps {
   reasoningEffortValues: readonly string[] | null;
   /** Claude only: the model accepts ``thinking: {type: "adaptive"}`` (from the Models API). */
   adaptiveThinking?: boolean;
+  /** llama-server only: ``modalities.vision`` from ``GET /props``; absent when the server does not say. */
+  vision?: boolean;
 }
 
 /** API effort tokens recognized in Jinja allow-lists (not UI aliases on/off). */
@@ -94,13 +96,22 @@ function llamaCapsSupportReasoningEffort(caps: unknown): boolean {
   return (caps as { supports_reasoning_effort?: unknown }).supports_reasoning_effort === true;
 }
 
+function llamaModalitiesVision(modalities: unknown): boolean | undefined {
+  if (!modalities || typeof modalities !== 'object') {
+    return undefined;
+  }
+  const vision = (modalities as { vision?: unknown }).vision;
+  return typeof vision === 'boolean' ? vision : undefined;
+}
+
 function utf8ByteLength(s: string): number {
   return new TextEncoder().encode(s).length;
 }
 
 /**
  * Read reasoning caps from a llama-server ``GET /props`` JSON body.
- * Merges ``chat_template_caps.supports_reasoning_effort`` when the regex missed effort.
+ * Merges ``chat_template_caps.supports_reasoning_effort`` when the regex missed effort,
+ * and carries ``modalities.vision``.
  */
 export function parseLlamaServerPropsReasoning(body: unknown): {
   caps: ChatTemplateReasoningCaps;
@@ -116,8 +127,13 @@ export function parseLlamaServerPropsReasoning(body: unknown): {
   if (effort == null && llamaCapsSupportReasoningEffort(obj['chat_template_caps'])) {
     effort = GENERIC_REASONING_EFFORT_VALUES;
   }
+  const vision = llamaModalitiesVision(obj['modalities']);
   return {
-    caps: { enableThinking: parsed.enableThinking, reasoningEffortValues: effort },
+    caps: {
+      enableThinking: parsed.enableThinking,
+      reasoningEffortValues: effort,
+      ...(vision !== undefined ? { vision } : {}),
+    },
     templateBytes: utf8ByteLength(template),
     missingTemplate,
   };

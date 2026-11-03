@@ -170,6 +170,11 @@ export type GemmaArchitectureHint = 'auto' | 'dense';
 export interface LlamaCppManaged {
   chatRunCommand: string;
   embeddingRunCommand: string;
+  /**
+   * The app's last ``-c`` / ``-ctk`` / ``-ctv`` choice for this command; a user's own flag differs from
+   * it. An empty ``ctk`` / ``ctv`` means the user's own flag stayed.
+   */
+  autoTuned?: { c: number; ctk: string; ctv: string };
 }
 
 /**
@@ -218,7 +223,8 @@ export interface LlmModelProfile {
    */
   optimizationPreset: LlmOptimizationPreset;
   /**
-   * Hard cap on completion length sent to the API (max_tokens). 0 = omit max_tokens (no Clara-side limit).
+   * Hard cap on completion length sent to the API (max_tokens). 0 = no limit on the model client; local
+   * servers get the 24576 per-step default from the backend's ``bounded_step_settings``.
    */
   maxOutputTokens: number;
   /** Managed ``llama-server`` launch profile (``llamacpp`` provider). */
@@ -709,37 +715,27 @@ export interface WorkspaceToolsConfig {
   enableAgentFormatters?: boolean;
 }
 
-/** LangGraph checkpoint compaction; synced to Python `/runtime-config`. */
+/** Context compaction; synced to Python `/runtime-config`. */
 export interface ContextCompressionConfig {
-  /**
-   * When false, checkpoint compaction is skipped (post-turn and mid-turn before
-   * each model call).
-   */
+  /** When false, older messages are never removed from what is sent to the model. */
   enabled: boolean;
-  /** Start compaction when checkpoint estimate ≥ this × usable budget (0.5–0.95). */
+  /** Start compacting when the prompt reaches this share of the context window (0.5–0.95). */
   triggerRatio: number;
-  /** Reserved for a future compaction phase; Phase 1 compacts tool bodies only. */
+  /** Bring the prompt down to about this share of the window (0.4–0.9, at least 0.1 under the trigger). */
   targetRatio: number;
-  /** Recent checkpoint messages left verbatim (8–100). */
-  protectTailMessages: number;
-  /** Max tool body chars for messages just outside the protected tail. */
-  recentToolBodyMaxChars: number;
-  /** Max tool body chars for older tool messages outside the tail. */
-  oldToolBodyMaxChars: number;
-  /** Fraction of context window reserved for system prompt + output (0.1–0.5). */
-  systemReserveRatio: number;
 }
 
 export function getDefaultContextCompression(): ContextCompressionConfig {
   return {
-    enabled: false,
-    triggerRatio: 0.7,
-    targetRatio: 0.55,
-    protectTailMessages: 24,
-    recentToolBodyMaxChars: 2000,
-    oldToolBodyMaxChars: 400,
-    systemReserveRatio: 0.25,
+    enabled: true,
+    triggerRatio: 0.8,
+    targetRatio: 0.5,
   };
+}
+
+/** Highest allowed target for a trigger: a compaction has to free something. Rounded: 0.8 - 0.1 is 0.7000000000000001. */
+export function maxContextCompressionTarget(triggerRatio: number): number {
+  return Math.round((triggerRatio - 0.1) * 100) / 100;
 }
 
 /** A selectable font choice for the app-wide font pickers (Settings → General). */

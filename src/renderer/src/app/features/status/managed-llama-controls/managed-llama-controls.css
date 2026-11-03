@@ -21,6 +21,19 @@
   min-width: 0;
 }
 
+/* The reason is at the end of the server's last output; column-reverse keeps that end in view. */
+.managed-llama-controls__error {
+  flex: 1 0 100%;
+  display: flex;
+  flex-direction: column-reverse;
+  max-height: 8rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  color: #ff8e8e;
+}
+
 .managed-llama-controls__btn {
   display: inline-flex;
   align-items: center;

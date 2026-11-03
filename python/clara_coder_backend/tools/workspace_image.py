@@ -15,7 +15,7 @@ from typing import Annotated
 from langchain_core.tools import tool
 from PIL import Image, UnidentifiedImageError
 
-from clara_coder_backend.session.state import current_session_id
+from clara_coder_backend.session.state import current_session_id, get_active_connection
 from clara_coder_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
 
@@ -125,6 +125,12 @@ def vision_payload_from_data_url(
     )
 
 
+def _server_reports_no_vision() -> bool:
+    """True only on the server's word (``/props`` ``modalities.vision``); unknown still tries the image."""
+    caps = get_active_connection().chat_template_reasoning
+    return isinstance(caps, dict) and caps.get('vision') is False
+
+
 def load_workspace_image(relative_path: str, *, focus: str = '') -> tuple[str, VisionImagePayload | None]:
     """Read a workspace image and prepare a vision payload for middleware injection."""
     rel = (relative_path or '').strip()
@@ -133,6 +139,13 @@ def load_workspace_image(relative_path: str, *, focus: str = '') -> tuple[str, V
 
     if not current_session_id.get():
         return 'Tool error: no active session.', None
+
+    if _server_reports_no_vision():
+        # A text-only llama-server answers an image with HTTP 500, which fails the turn and loses the thread.
+        return (
+            'Tool error: the running model has no vision support, so images cannot be read. '
+            'Continue without the image, or tell the user to start a vision model (llama.cpp: with an mmproj file).'
+        ), None
 
     try:
         root = get_active_workspace_root()

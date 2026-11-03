@@ -2,14 +2,20 @@ import {
   buildManagedLlamaChatCommand,
   classifyHubSnapshotGgufPaths,
   ensureManagedLlamaDefaultServerFlags,
+  ensureManagedLlamaFitContextFloor,
   ensureManagedLlamaGemmaReasoningFormat,
   formatReadyDefaultsSummary,
   hubCacheFolderToHfId,
   hubSnapshotManagedPaths,
   inferOptimizationPresetFromModelHint,
+  isDraftSidecarGgufFileName,
   isMmprojGgufFileName,
+  isMtpCompanionGgufFileName,
+  languageGgufStem,
+  limitManagedLlamaCacheRam,
   managedLlamaCommandHasNoHost,
   managedLlamaCommandHasNoMmproj,
+  managedMtpHead,
   optimizationPresetDefaultsPatch,
   outerAgentBriefEnabled,
   parseCustomManagedContextTokens,
@@ -25,6 +31,7 @@ import {
   pickPreferredMmprojPath,
   resolveMmprojPathForManagedGguf,
   resolveMmprojPathForManagedSelection,
+  resolveMtpPathForManagedGguf,
   managedPickerValueForCmd,
   promoteManagedSentinelNglToAuto,
   suggestContextWindowTokens,
@@ -35,10 +42,17 @@ import {
   syncFlashAttnInManagedChatCommand,
   syncManagedVisionProjectorInChatCommand,
   syncMmprojFlagInManagedChatCommand,
+  syncMtpDraftInManagedChatCommand,
   syncNglFlagInManagedChatCommand,
   syncNoHostFlagInManagedChatCommand,
   syncNoMmprojFlagInManagedChatCommand,
   syncUbatchSizeInManagedChatCommand,
+  tunePickedManagedChatCommand,
+  withoutAutoTunedFlags,
+  type CudaGpuDevice,
+  type GgufProfile,
+  type ModelManagerFileEntry,
+  type PickedManagedModelFacts,
 } from '@shared/index';
 
 describe('hubCacheFolderToHfId', () => {
@@ -251,6 +265,119 @@ describe('hub snapshot mmproj detection', () => {
   });
 });
 
+describe('MTP head files', () => {
+  const swift = '/models/models--ajgazin--Swift/snapshots/abc/Swift-1.5-Qwen3.8-27B-Uncensored-Dynamic-MTP-UD-Q6_K_XL.gguf';
+  const gemma = '/models/gemma/gemma-4-12B-it-Q4_0.gguf';
+  const head = '/models/gemma/mtp-gemma-4-12B-it-Q4_0.gguf';
+  const loose = (absolutePath: string): ModelManagerFileEntry => ({
+    fileName: absolutePath.split('/').pop() as string,
+    absolutePath,
+    sizeBytes: 1,
+    modifiedMs: 0,
+    source: 'custom',
+  });
+
+  it('are named with an mtp- prefix, which a model with a head inside it is not', () => {
+    expect(isMtpCompanionGgufFileName('mtp-gemma-4-12B-it-Q4_0.gguf')).toBe(true);
+    expect(isMtpCompanionGgufFileName('MTP-gemma.gguf')).toBe(true);
+    expect(isMtpCompanionGgufFileName(head)).toBe(true);
+    expect(isMtpCompanionGgufFileName('C:\\models\\mtp-gemma.gguf')).toBe(true);
+    expect(isMtpCompanionGgufFileName(swift)).toBe(false);
+    expect(isMtpCompanionGgufFileName('/models/mtp-dir/model.gguf')).toBe(false);
+  });
+
+  it('do not count as the language model of a hub folder, so it still pins -m', () => {
+    expect(hubSnapshotManagedPaths([gemma, head])).toEqual({ ggufAbsolutePath: gemma, mtpAbsolutePath: head });
+    expect(classifyHubSnapshotGgufPaths([gemma, head]).languagePaths).toEqual([gemma]);
+    expect(hubSnapshotManagedPaths([swift])).toEqual({ ggufAbsolutePath: swift });
+    expect(hubSnapshotManagedPaths([head])).toEqual({ mtpAbsolutePath: head });
+  });
+
+  it('share a stem with their model, whatever its quant', () => {
+    expect(languageGgufStem(head)).toBe('gemma-4-12b-it');
+    expect(languageGgufStem(head)).toBe(languageGgufStem(gemma));
+    expect(languageGgufStem('/models/gemma/gemma-4-12B-it-Q8_0.gguf')).toBe(languageGgufStem(head));
+  });
+
+  it('do not stop a generic projector pairing with the one model beside them', () => {
+    const mmproj = '/models/gemma/mmproj-F16.gguf';
+    expect(resolveMmprojPathForManagedGguf(gemma, [loose(gemma), loose(head), loose(mmproj)])).toBe(mmproj);
+    expect(resolveMmprojPathForManagedGguf(gemma, [loose(gemma), loose('/models/gemma/other.gguf'), loose(mmproj)])).toBeNull();
+  });
+
+  it('are found beside the model by stem, or in its hub folder', () => {
+    expect(resolveMtpPathForManagedGguf(gemma, [loose(gemma), loose(head)])).toBe(head);
+    expect(resolveMtpPathForManagedGguf('/models/gemma/gemma-4-12B-it-Q8_0.gguf', [loose(head)])).toBe(head);
+    expect(resolveMtpPathForManagedGguf('/models/gemma/other-Q4_0.gguf', [loose(head)])).toBeNull();
+    expect(resolveMtpPathForManagedGguf('/elsewhere/gemma-4-12B-it-Q4_0.gguf', [loose(head)])).toBeNull();
+    expect(resolveMtpPathForManagedGguf('', [loose(head)])).toBeNull();
+    const hub: ModelManagerFileEntry = {
+      ...loose('/hub/models--org--repo'),
+      entryKind: 'hubRepo',
+      mtpAbsolutePath: '/hub/models--org--repo/snapshots/a/mtp-repo-Q4_0.gguf',
+    };
+    expect(resolveMtpPathForManagedGguf('/hub/models--org--repo/snapshots/a/repo-Q4_0.gguf', [hub])).toBe(hub.mtpAbsolutePath);
+    expect(resolveMtpPathForManagedGguf('/hub/models--org--repo2/snapshots/a/repo-Q4_0.gguf', [hub])).toBeNull();
+  });
+});
+
+describe('draft head files', () => {
+  const model = '/models/qwen/Qwen3.6-27B-Q4_K_M.gguf';
+  const head = '/models/qwen/dflash-Qwen3.6-27B-Q8_0.gguf';
+  const loose = (absolutePath: string): ModelManagerFileEntry => ({
+    fileName: absolutePath.split('/').pop() as string,
+    absolutePath,
+    sizeBytes: 1,
+    modifiedMs: 0,
+    source: 'custom',
+  });
+
+  it.each([
+    'eagle3-gpt-oss-20b-BF16.gguf',
+    'dflash-Qwen3.6-27B-Q8_0.gguf',
+    'dspark-model-Q8_0.gguf',
+    'laguna-s-2.1-DFlash-BF16.gguf',
+    'Qwen3-4B-DFlash.gguf',
+    'C:\\models\\EAGLE3-a.ggml',
+    '/models/qwen/model_dflash_Q8_0.gguf',
+  ])('are told by the kind in the name: %s', (name) => {
+    expect(isDraftSidecarGgufFileName(name)).toBe(true);
+    expect(isMtpCompanionGgufFileName(name)).toBe(false);
+  });
+
+  it.each([
+    'gpt-oss-20b-MXFP4.gguf',
+    'Qwen3.6-27B-Q4_K_M.gguf',
+    'Swift-1.5-Qwen3.8-27B-Uncensored-Dynamic-MTP-UD-Q6_K_XL.gguf',
+    'mtp-gemma-4-12B-it-Q4_0.gguf',
+    'dflashy-Q4_0.gguf',
+    'eagle-Q4_0.gguf',
+    '/models/dflash/model-Q4_0.gguf',
+    '/models/models--z-lab--Qwen3-4B-DFlash/snapshots/a/other-Q4_0.gguf',
+  ])('are not confused with %s', (name) => {
+    expect(isDraftSidecarGgufFileName(name)).toBe(false);
+  });
+
+  it('do not count as the language model of a hub folder, so it still pins -m', () => {
+    expect(hubSnapshotManagedPaths([model, head])).toEqual({ ggufAbsolutePath: model });
+    expect(classifyHubSnapshotGgufPaths([model, head]).languagePaths).toEqual([model]);
+  });
+
+  it('are never pinned as the model, or taken for an MTP head', () => {
+    expect(hubSnapshotManagedPaths([head])).toEqual({});
+    expect(classifyHubSnapshotGgufPaths([head]).mtpPath).toBeNull();
+    expect(resolveMtpPathForManagedGguf(model, [loose(model), loose(head)])).toBeNull();
+  });
+
+  it('do not stop a generic projector pairing with the one model beside them', () => {
+    const mmproj = '/models/qwen/mmproj-BF16.gguf';
+    expect(resolveMmprojPathForManagedGguf(model, [loose(model), loose(head), loose(mmproj)])).toBe(mmproj);
+    expect(
+      resolveMmprojPathForManagedGguf(model, [loose(model), loose('/models/qwen/other.gguf'), loose(mmproj)]),
+    ).toBeNull();
+  });
+});
+
 describe('buildManagedLlamaChatCommand', () => {
   it('builds a GGUF -m command with context', () => {
     const cmd = buildManagedLlamaChatCommand(
@@ -263,9 +390,9 @@ describe('buildManagedLlamaChatCommand', () => {
     expect(cmd).toContain('-m /models/a.gguf');
     expect(cmd).toContain('-c 32768');
     expect(cmd).toContain('--jinja');
-    expect(cmd).toContain('-np 1');
-    expect(cmd).toContain('--no-webui');
-    expect(cmd).toContain('--cache-ram 0');
+    expect(cmd).not.toContain('-np');
+    expect(cmd).not.toContain('--no-webui');
+    expect(cmd).not.toContain('--cache-ram');
     expect(cmd).not.toContain('--chat-template-file');
     expect(cmd).not.toContain('--ctx-checkpoints');
     expect(cmd).not.toContain('--checkpoint-every-n-tokens');
@@ -285,14 +412,14 @@ describe('buildManagedLlamaChatCommand', () => {
     expect(cmd).toContain('-c 16384');
   });
 
-  it('emits -c 0 for model-native max context', () => {
+  it('leaves -c out for model-native max context, so --fit can still shrink it', () => {
     const cmd = buildManagedLlamaChatCommand(
       { kind: 'gguf', absolutePath: '/models/a.gguf' },
       0,
       'posix',
     );
-    expect(cmd).toContain('-c 0');
-    expect(cmd).not.toContain('-c 256');
+    expect(parseManagedLlamaContextSize(cmd)).toBeNull();
+    expect(cmd).toContain('--metrics');
   });
 
   it('attaches --mmproj on a local -m command when a projector path is known', () => {
@@ -567,9 +694,9 @@ describe('flash attn / mmproj / batch / cache flags', () => {
 });
 
 describe('ensureManagedLlamaDefaultServerFlags', () => {
-  it('appends --no-webui, -np 1 and --cache-ram 0 when missing', () => {
+  it('appends --no-webui and -np 1 when missing, and no --cache-ram', () => {
     expect(ensureManagedLlamaDefaultServerFlags('llama-server --port {{PORT}} -m /a.gguf')).toBe(
-      'llama-server --port {{PORT}} -m /a.gguf --no-webui -np 1 --cache-ram 0',
+      'llama-server --port {{PORT}} -m /a.gguf --no-webui -np 1',
     );
   });
 
@@ -578,15 +705,290 @@ describe('ensureManagedLlamaDefaultServerFlags', () => {
     expect(ensureManagedLlamaDefaultServerFlags(cmd)).toBe(cmd);
   });
 
-  it('respects the short -cram alias', () => {
-    const cmd = 'llama-server --no-webui -np 1 -cram 512 --port {{PORT}}';
-    expect(ensureManagedLlamaDefaultServerFlags(cmd)).toBe(cmd);
-  });
-
   it('treats --no-ui as already disabling the web UI', () => {
     expect(ensureManagedLlamaDefaultServerFlags('llama-server --no-ui --port {{PORT}}')).toBe(
-      'llama-server --no-ui --port {{PORT}} -np 1 --cache-ram 0',
+      'llama-server --no-ui --port {{PORT}} -np 1',
     );
+  });
+});
+
+describe('limitManagedLlamaCacheRam', () => {
+  const GIB = 1024 * 1024 * 1024;
+  const cmd = 'llama-server --port {{PORT}} -m /a.gguf';
+
+  it('caps the prompt cache under 24 GiB of RAM', () => {
+    expect(limitManagedLlamaCacheRam(cmd, 16 * GIB)).toBe(`${cmd} --cache-ram 2048`);
+    expect(limitManagedLlamaCacheRam(cmd, 24 * GIB - 1)).toBe(`${cmd} --cache-ram 2048`);
+  });
+
+  it('keeps the server default from 24 GiB up', () => {
+    expect(limitManagedLlamaCacheRam(cmd, 24 * GIB)).toBe(cmd);
+    expect(limitManagedLlamaCacheRam(cmd, 32 * GIB)).toBe(cmd);
+  });
+
+  it('never overrides what the command sets, in either spelling', () => {
+    for (const flag of ['--cache-ram 0', '--cache-ram -1', '--cache-ram 8192', '-cram 512']) {
+      expect(limitManagedLlamaCacheRam(`${cmd} ${flag}`, 8 * GIB)).toBe(`${cmd} ${flag}`);
+    }
+  });
+
+  it('leaves an empty command empty', () => {
+    expect(limitManagedLlamaCacheRam('', 8 * GIB)).toBe('');
+  });
+});
+
+describe('ensureManagedLlamaFitContextFloor', () => {
+  const bare = 'llama-server -m /m/a.gguf';
+
+  it('holds --fit above the prompt when the command sets no context', () => {
+    expect(ensureManagedLlamaFitContextFloor(bare)).toBe(`${bare} --fit-ctx 16384`);
+  });
+
+  it('leaves a command with a -c, which already stops the shrink, or its own floor', () => {
+    for (const flag of ['-c 0', '-c 8192', '--ctx-size 8192', '-fitc 4096', '--fit-ctx 4096']) {
+      expect(ensureManagedLlamaFitContextFloor(`${bare} ${flag}`)).toBe(`${bare} ${flag}`);
+    }
+  });
+
+  it('leaves an empty command empty', () => {
+    expect(ensureManagedLlamaFitContextFloor('  ')).toBe('  ');
+  });
+});
+
+describe('withoutAutoTunedFlags', () => {
+  const autoTuned = { c: 65536, ctk: 'q8_0', ctv: 'q8_0' };
+
+  it('takes out what the plan wrote, and nothing else', () => {
+    expect(withoutAutoTunedFlags('llama-server -m /a.gguf -c 65536 -ctk q8_0 -ctv q8_0 --no-mmap', autoTuned, 'posix')).toBe(
+      'llama-server -m /a.gguf --no-mmap',
+    );
+  });
+
+  it('leaves what the user wrote', () => {
+    const command = 'llama-server -m /a.gguf -c 50000 -ctk f16 -ctv f16';
+    expect(withoutAutoTunedFlags(command, autoTuned, 'posix')).toBe(command);
+    expect(withoutAutoTunedFlags(command, { c: 65536, ctk: '', ctv: '' }, 'posix')).toBe(command);
+  });
+
+  it('leaves a command with no plan on file', () => {
+    const command = 'llama-server -m /a.gguf -c 65536 -ctk q8_0 -ctv q8_0';
+    expect(withoutAutoTunedFlags(command, undefined, 'posix')).toBe(command);
+    expect(withoutAutoTunedFlags('llama-server -m /a.gguf', undefined, 'posix')).toBe('llama-server -m /a.gguf');
+  });
+});
+
+describe('managed MTP decoding', () => {
+  /** Only the fields these helpers read. */
+  const profile = (over: Partial<GgufProfile>): GgufProfile => ({
+    contextTrain: 262144,
+    embeddingOut: 3840,
+    nextnLayers: 0,
+    tensorBytes: 7 * 1024 ** 3,
+    hostBytes: 0,
+    headBytes: 0,
+    recurrentStateBytes: 0,
+    fullKeys: 4096,
+    fullValues: 4096,
+    maxFullKey: 512,
+    swaKeys: 0,
+    swaValues: 0,
+    slidingWindow: 0,
+    cacheLengths: [512, 256],
+    ...over,
+  });
+  const companion = profile({ nextnLayers: 4, tensorBytes: 227 * 1024 ** 2 });
+  const path = '/m/mtp-a.gguf';
+
+  describe('managedMtpHead', () => {
+    it('prefers a head inside the model', () => {
+      expect(managedMtpHead(profile({ nextnLayers: 1 }), path, companion)).toEqual({ companionPath: null });
+      expect(managedMtpHead(profile({ nextnLayers: 1 }), null, null)).toEqual({ companionPath: null });
+    });
+
+    it('takes a companion only with a header that pairs with the model', () => {
+      expect(managedMtpHead(profile({}), path, companion)).toEqual({ companionPath: path });
+      expect(managedMtpHead(profile({}), path, { ...companion, embeddingOut: 2560 })).toBeNull();
+      expect(managedMtpHead(profile({}), path, { ...companion, nextnLayers: 0 })).toBeNull();
+      expect(managedMtpHead(profile({}), path, null)).toBeNull();
+      expect(managedMtpHead(profile({}), null, null)).toBeNull();
+    });
+  });
+
+  describe('syncMtpDraftInManagedChatCommand', () => {
+    it('writes the flags for a companion head', () => {
+      expect(syncMtpDraftInManagedChatCommand('llama-server -m /m/a.gguf', { companionPath: path }, 'posix')).toBe(
+        `llama-server -m /m/a.gguf --spec-type draft-mtp --spec-draft-model ${path} --spec-draft-n-max 4`,
+      );
+    });
+
+    it('names no file for a head inside the model, and takes away a stale one', () => {
+      expect(syncMtpDraftInManagedChatCommand('llama-server -md /old.gguf', { companionPath: null }, 'posix')).toBe(
+        'llama-server --spec-type draft-mtp --spec-draft-n-max 4',
+      );
+    });
+
+    it('keeps the user n-max and other speculative types', () => {
+      expect(
+        syncMtpDraftInManagedChatCommand('llama-server --spec-draft-n-max 2 --spec-type ngram-mod', { companionPath: null }, 'posix'),
+      ).toBe('llama-server --spec-draft-n-max 2 --spec-type ngram-mod,draft-mtp');
+    });
+
+    it('changes nothing when it is already on', () => {
+      const on = 'llama-server --spec-type draft-mtp --spec-draft-n-max 4';
+      expect(syncMtpDraftInManagedChatCommand(on, { companionPath: null }, 'posix')).toBe(on);
+    });
+
+    it('quotes a companion path that needs it', () => {
+      expect(syncMtpDraftInManagedChatCommand('llama-server', { companionPath: '/a b/mtp.gguf' }, 'posix')).toContain(
+        "--spec-draft-model '/a b/mtp.gguf'",
+      );
+    });
+  });
+
+  describe('tunePickedManagedChatCommand', () => {
+    const gpu: CudaGpuDevice = { cudaIndex: 0, model: 'NVIDIA GeForce RTX 5070 Ti', memoryTotalMb: 15995 };
+    const facts = (over: Partial<PickedManagedModelFacts>): PickedManagedModelFacts => ({
+      command: 'llama-server -m /m/a.gguf --metrics',
+      previous: '',
+      autoTuned: undefined,
+      profile: profile({}),
+      companionPath: null,
+      companion: null,
+      gpus: [gpu],
+      usage: [{ cudaIndex: 0, dedicatedMb: 0, otherMb: 1000 }],
+      ...over,
+    });
+    const auto = { c: 131072, ctk: 'q8_0', ctv: 'q8_0' };
+
+    it('writes the plan into a fresh command and remembers it', () => {
+      expect(tunePickedManagedChatCommand(facts({}), 'posix')).toEqual({
+        command: 'llama-server -m /m/a.gguf --metrics -c 131072 -ctk q8_0 -ctv q8_0',
+        autoTuned: auto,
+      });
+    });
+
+    it('replaces -c 0, which old configs hold', () => {
+      expect(tunePickedManagedChatCommand(facts({ command: 'llama-server -m /m/a.gguf -c 0' }), 'posix').command).toBe(
+        'llama-server -m /m/a.gguf -c 131072 -ctk q8_0 -ctv q8_0',
+      );
+    });
+
+    it('never touches a hand-written -c, -dev or --tensor-split', () => {
+      const command = 'llama-server -m /m/a.gguf -c 128000 -dev CUDA0,CUDA1 --tensor-split 27,21';
+      expect(tunePickedManagedChatCommand(facts({ command }), 'posix')).toEqual({ command, autoTuned: undefined });
+      expect(tunePickedManagedChatCommand(facts({ command, autoTuned: auto }), 'posix')).toEqual({ command, autoTuned: auto });
+    });
+
+    it('moves its own last choice in place, and stays still when the plan has not changed', () => {
+      const command = 'llama-server -m /m/a.gguf -c 65536 -ctk q8_0 -ctv q8_0 --metrics';
+      const tuned = tunePickedManagedChatCommand(facts({ command, autoTuned: { ...auto, c: 65536 } }), 'posix');
+      expect(tuned.command).toBe('llama-server -m /m/a.gguf -c 131072 -ctk q8_0 -ctv q8_0 --metrics');
+      expect(tuned.autoTuned).toEqual(auto);
+      expect(tunePickedManagedChatCommand(facts({ command: tuned.command, autoTuned: auto }), 'posix')).toEqual(tuned);
+    });
+
+    it('keeps a cache type the user wrote, and does not claim it as its own', () => {
+      const tuned = tunePickedManagedChatCommand(facts({ command: 'llama-server -m /m/a.gguf -ctk f16 -ctv f16' }), 'posix');
+      expect(tuned.command).toBe('llama-server -m /m/a.gguf -ctk f16 -ctv f16 -c 131072');
+      expect(tuned.autoTuned).toEqual({ c: 131072, ctk: '', ctv: '' });
+      expect(tunePickedManagedChatCommand(facts({ command: tuned.command, autoTuned: tuned.autoTuned }), 'posix').command).toBe(
+        tuned.command,
+      );
+    });
+
+    it('replaces its own q8 when the next model cannot use it', () => {
+      const command = 'llama-server -m /m/b.gguf -c 131072 -ctk q8_0 -ctv q8_0';
+      const tuned = tunePickedManagedChatCommand(
+        facts({ command, autoTuned: auto, profile: profile({ cacheLengths: [100] }) }),
+        'posix',
+      );
+      expect(tuned.command).toBe('llama-server -m /m/b.gguf -c 131072 -ctk f16 -ctv f16');
+    });
+
+    describe('with no plan to replace its own q8', () => {
+      const noQ8 = profile({ cacheLengths: [80] });
+
+      it('takes it out under a hand-written -c when the next model cannot load it', () => {
+        const command = 'llama-server -m /m/phi.gguf -c 64000 -ctk q8_0 -ctv q8_0';
+        expect(tunePickedManagedChatCommand(facts({ command, autoTuned: auto, profile: noQ8 }), 'posix')).toEqual({
+          command: 'llama-server -m /m/phi.gguf -c 64000',
+          autoTuned: { ...auto, ctk: '', ctv: '' },
+        });
+      });
+
+      it('takes it out before the cards are known too', () => {
+        const command = 'llama-server -m /m/phi.gguf -c 131072 -ctk q8_0 -ctv q8_0';
+        expect(tunePickedManagedChatCommand(facts({ command, autoTuned: auto, profile: noQ8, gpus: [] }), 'posix')).toEqual({
+          command: 'llama-server -m /m/phi.gguf -c 131072',
+          autoTuned: { ...auto, ctk: '', ctv: '' },
+        });
+      });
+
+      it('keeps it under a hand-written -c on a model that can load it', () => {
+        const command = 'llama-server -m /m/a.gguf -c 64000 -ctk q8_0 -ctv q8_0';
+        expect(tunePickedManagedChatCommand(facts({ command, autoTuned: auto }), 'posix')).toEqual({ command, autoTuned: auto });
+      });
+
+      it('leaves q8 the user wrote, for the editor to flag', () => {
+        const command = 'llama-server -m /m/phi.gguf -c 64000 -ctk q8_0 -ctv q8_0';
+        expect(tunePickedManagedChatCommand(facts({ command, profile: noQ8 }), 'posix')).toEqual({ command, autoTuned: undefined });
+      });
+    });
+
+    it('leaves room for the projector, when its size was read', () => {
+      const command = 'llama-server -m /m/a.gguf --mmproj /m/mmproj-BF16.gguf';
+      const small: CudaGpuDevice = { ...gpu, memoryTotalMb: 12288 };
+      const usage = [{ cudaIndex: 0, dedicatedMb: 0, otherMb: 0 }];
+      const unread = tunePickedManagedChatCommand(facts({ command, gpus: [small], usage, projectorBytes: null }), 'posix').autoTuned?.c;
+      const read = tunePickedManagedChatCommand(facts({ command, gpus: [small], usage, projectorBytes: 2 * 1024 ** 3 }), 'posix').autoTuned?.c;
+      expect(read).toBeLessThan(unread ?? 0);
+    });
+
+    it('takes out its own choice when the new model has no plan, so --fit can shrink the context', () => {
+      const command = 'llama-server -m /m/big.gguf -c 131072 -ctk q8_0 -ctv q8_0 --metrics';
+      const big = profile({ tensorBytes: 40 * 1024 ** 3 });
+      expect(tunePickedManagedChatCommand(facts({ command, autoTuned: auto, profile: big }), 'posix')).toEqual({
+        command: 'llama-server -m /m/big.gguf --metrics',
+        autoTuned: undefined,
+      });
+    });
+
+    it('leaves the command alone until the cards are known', () => {
+      const command = 'llama-server -m /m/a.gguf -c 65536 -ctk q8_0 -ctv q8_0';
+      const autoTuned = { ...auto, c: 65536 };
+      expect(tunePickedManagedChatCommand(facts({ command, autoTuned, gpus: [] }), 'posix')).toEqual({ command, autoTuned });
+    });
+
+    it('restores draft-mtp when the user had it and the new model has a head', () => {
+      const previous = 'llama-server -m /m/old.gguf --spec-type draft-mtp -c 8192';
+      const command = 'llama-server -m /m/a.gguf -c 8192';
+      expect(tunePickedManagedChatCommand(facts({ command, previous }), 'posix').command).toBe(command);
+      expect(tunePickedManagedChatCommand(facts({ command, previous, profile: profile({ nextnLayers: 1 }) }), 'posix').command).toBe(
+        `${command} --spec-type draft-mtp --spec-draft-n-max 4`,
+      );
+      expect(tunePickedManagedChatCommand(facts({ command, previous, companionPath: path, companion }), 'posix').command).toBe(
+        `${command} --spec-type draft-mtp --spec-draft-model ${path} --spec-draft-n-max 4`,
+      );
+    });
+
+    it('never turns MTP on by itself', () => {
+      const command = 'llama-server -m /m/a.gguf -c 8192';
+      const previous = 'llama-server -m /m/old.gguf -c 8192';
+      expect(tunePickedManagedChatCommand(facts({ command, previous, companionPath: path, companion }), 'posix').command).toBe(command);
+      expect(tunePickedManagedChatCommand(facts({ command, previous, profile: profile({ nextnLayers: 1 }) }), 'posix').command).toBe(command);
+    });
+
+    it('plans around the head it restores', () => {
+      const small: CudaGpuDevice = { ...gpu, memoryTotalMb: 12288 };
+      const previous = 'llama-server -m /m/old.gguf --spec-type draft-mtp';
+      const command = 'llama-server -m /m/a.gguf';
+      const headless = tunePickedManagedChatCommand(facts({ command, gpus: [small], usage: [] }), 'posix').autoTuned?.c ?? 0;
+      const withHead = tunePickedManagedChatCommand(
+        facts({ command, previous, companionPath: path, companion, gpus: [small], usage: [] }),
+        'posix',
+      ).autoTuned?.c;
+      expect(withHead).toBeLessThan(headless);
+    });
   });
 });
 

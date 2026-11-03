@@ -898,9 +898,9 @@
                   <label class='field'>
                     <span class='sampling-label'>
                       Max output 0–200k
-                      <span class='field-help' tabindex='0' aria-label='0 is no max output limit.'>
+                      <span class='field-help' tabindex='0' aria-label='0 uses the default limit. On llama.cpp and LM Studio that is 24,576 tokens per reply. Any other value replaces it.'>
                         ?
-                        <span class='field-help__popup' role='tooltip'>0 is no max output limit.</span>
+                        <span class='field-help__popup' role='tooltip'>0 uses the default limit. On llama.cpp and LM Studio that is 24,576 tokens per reply. Any other value replaces it.</span>
                       </span>
                     </span>
                     <input
@@ -908,7 +908,7 @@
                       min='0'
                       max='200000'
                       step='256'
-                      placeholder='0 = no limit'
+                      placeholder='0 = default limit'
                       [ngModel]='connection.maxOutputTokens'
                       (ngModelChange)='s.onMaxOutputTokensChange($event)'
                     />

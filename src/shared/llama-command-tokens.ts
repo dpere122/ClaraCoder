@@ -15,6 +15,21 @@ export const NGL_FLAG_NAMES = ['-ngl', '--gpu-layers', '--n-gpu-layers'];
 export const FA_FLAG_NAMES = ['-fa', '--flash-attn'];
 export const CTK_FLAG_NAMES = ['-ctk', '--cache-type-k'];
 export const CTV_FLAG_NAMES = ['-ctv', '--cache-type-v'];
+export const QUANTIZED_CACHE_TYPE_RE = /^(?:q\d|iq\d)/i;
+export const SPEC_TYPE_FLAG_NAMES = ['--spec-type'];
+export const LOCAL_DRAFT_MODEL_FLAG_NAMES = ['-md', '--model-draft', '--spec-draft-model'];
+export const DRAFT_MODEL_FLAG_NAMES = [
+  ...LOCAL_DRAFT_MODEL_FLAG_NAMES,
+  '-hfd',
+  '-hfrd',
+  '--spec-draft-hf',
+  '--hf-repo-draft',
+];
+
+/** The ``-fa`` values llama.cpp reads as off. It matches them exactly, like its ``is_falsey``. */
+export function isLlamaFlashAttnOff(value: string | null): boolean {
+  return value === 'off' || value === 'disabled' || value === 'false' || value === '0';
+}
 
 export function detectShellQuotingPlatform(): ShellQuotingPlatform {
   const proc = (globalThis as { process?: { platform?: string } }).process;
@@ -277,6 +292,11 @@ export function readLlamaFlagValue(command: string, names: readonly string[]): s
 
 export function hasLlamaFlag(command: string, names: readonly string[]): boolean {
   return findLlamaFlag(command, names).length > 0;
+}
+
+/** True when the command asks for MTP decoding. llama.cpp adds up repeated ``--spec-type`` flags. */
+export function llamaCommandUsesDraftMtp(command: string): boolean {
+  return findLlamaFlag(command, SPEC_TYPE_FLAG_NAMES).some((occ) => (occ.value ?? '').split(',').includes('draft-mtp'));
 }
 
 /** Remove source spans (and the whitespace before each) without touching anything else. */

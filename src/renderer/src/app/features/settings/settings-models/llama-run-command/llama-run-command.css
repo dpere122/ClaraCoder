@@ -108,6 +108,11 @@
   color: var(--t-warn, #e8b931);
 }
 
+.run-command__notice--offer {
+  align-items: center;
+  color: var(--t-muted);
+}
+
 .run-command__changes {
   flex-basis: 100%;
   margin: 0;
@@ -295,6 +300,10 @@
   align-items: center;
   gap: 4px 10px;
   margin-top: 4px;
+}
+
+.run-placement .run-command__views {
+  flex-wrap: wrap;
 }
 
 .run-placement .run-command__views button:disabled {

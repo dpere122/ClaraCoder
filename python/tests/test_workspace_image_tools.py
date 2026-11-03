@@ -14,7 +14,7 @@ from clara_coder_backend.middleware.vision_tool_middleware import (
     VisionImageInjectionMiddleware,
     tool_responses_before_interjections,
 )
-from clara_coder_backend.session.state import current_session_id, get_session
+from clara_coder_backend.session.state import current_session_id, get_active_connection, get_session
 from clara_coder_backend.tools.workspace_image import (
     READ_WORKSPACE_IMAGE_NAME,
     VisionImagePayload,
@@ -76,6 +76,67 @@ def test_load_workspace_image_rejects_non_image(workspace_session) -> None:
     summary, payload = load_workspace_image('notes.txt')
     assert payload is None
     assert 'not a supported image type' in summary
+
+
+def test_load_workspace_image_refused_by_a_text_only_server(workspace_session, monkeypatch) -> None:
+    _write_png(workspace_session / 'shot.png')
+    monkeypatch.setattr(get_active_connection(), 'chat_template_reasoning', {'vision': False})
+
+    summary, payload = load_workspace_image('shot.png')
+
+    assert payload is None
+    assert summary.startswith('Tool error: ')
+    assert 'no vision support' in summary
+
+
+@pytest.mark.parametrize(
+    'caps',
+    [None, {'enableThinking': True, 'reasoningEffortValues': None}, {'vision': None}, {'vision': True}],
+)
+def test_load_workspace_image_refused_only_when_the_server_says_so(workspace_session, monkeypatch, caps) -> None:
+    """LM Studio, hosted providers and older llama-server builds report nothing: those still try."""
+    _write_png(workspace_session / 'shot.png')
+    monkeypatch.setattr(get_active_connection(), 'chat_template_reasoning', caps)
+
+    summary, payload = load_workspace_image('shot.png')
+
+    assert payload is not None
+    assert 'Loaded image: shot.png' in summary
+
+
+def test_vision_middleware_injects_nothing_on_a_text_only_server(workspace_session, monkeypatch) -> None:
+    """Regression: an injected image made llama-server answer HTTP 500, which failed the turn and lost the thread."""
+    _write_png(workspace_session / 'ui.png')
+    monkeypatch.setattr(get_active_connection(), 'chat_template_reasoning', {'vision': False})
+
+    async def handler(_request):
+        return await read_workspace_image.ainvoke(
+            {
+                'name': READ_WORKSPACE_IMAGE_NAME,
+                'args': {'relative_path': 'ui.png'},
+                'id': 'call-text-only',
+                'type': 'tool_call',
+            }
+        )
+
+    mw = VisionImageInjectionMiddleware()
+    req = type(
+        'Req',
+        (),
+        {
+            'tool_call': {
+                'name': READ_WORKSPACE_IMAGE_NAME,
+                'id': 'call-text-only',
+                'args': {'relative_path': 'ui.png'},
+            }
+        },
+    )()
+
+    result = asyncio.run(mw.awrap_tool_call(req, handler))
+
+    assert isinstance(result, ToolMessage)
+    assert str(result.content).startswith('Tool error: ')
+    assert result.artifact is None
 
 
 def test_read_workspace_image_returns_content_and_artifact(workspace_session) -> None:

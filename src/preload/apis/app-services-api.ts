@@ -66,6 +66,8 @@ export const createAppServicesApi = (ipcRenderer: PreloadIpc) => ({
   llamaServerFlagCatalog: () => ipcRenderer.invoke('llama-server:flag-catalog'),
   llamaServerVramUsage: () => ipcRenderer.invoke('llama-server:vram-usage'),
   llamaServerGgufSize: (payload: { path: string }) => ipcRenderer.invoke('llama-server:gguf-size', payload),
+  llamaServerGgufProfile: (payload: { path: string }) => ipcRenderer.invoke('llama-server:gguf-profile', payload),
+  llamaServerTotalRam: () => ipcRenderer.invoke('llama-server:total-ram'),
   llamaServerLaunchedCommand: (payload: { modelId: string }) =>
     ipcRenderer.invoke('llama-server:launched-command', payload),
   llamacppManagedListModels: (payload: { modelId: string; config: AppConfig }) =>

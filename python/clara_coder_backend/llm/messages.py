@@ -13,6 +13,7 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
+from clara_coder_backend.config import CLARA_CONTEXT_WINDOW_FALLBACK
 from clara_coder_backend.domain import SessionState
 from clara_coder_backend.llm.gemma_output import (
     gemma_content_needs_parsing,
@@ -67,6 +68,19 @@ _RE_KNOWN_PSEUDO_TAG = re.compile(
 _RE_BARE_AMP = re.compile(r'&(?!(?:#\d+|#[xX][0-9a-fA-F]+|amp|lt|gt|quot|apos);)')
 _RE_JSON_LIKE = re.compile(r'^\s*[\[{"]')
 
+#: ``additional_kwargs`` tag on a real user turn; Human messages also carry reports and notes. Stays off the wire.
+USER_TURN_KEY = 'clara_user_turn'
+_SESSION_TRUTH_PREFIX = '**Session truth'
+
+
+def is_user_turn(message: BaseMessage) -> bool:
+    """True for a real user turn: tagged, or opening with the turn preamble (checkpoints older than the tag)."""
+    if not isinstance(message, HumanMessage):
+        return False
+    if message.additional_kwargs.get(USER_TURN_KEY):
+        return True
+    return stringify_content(message.content).startswith(_SESSION_TRUTH_PREFIX)
+
 
 def session_to_messages(session: SessionState) -> list[BaseMessage]:
     """Map session.history entries to LangChain message objects for the LLM."""
@@ -79,12 +93,15 @@ def session_to_messages(session: SessionState) -> list[BaseMessage]:
         elif role == 'system':
             result.append(SystemMessage(content=content))
         else:
-            result.append(HumanMessage(content=content))
+            result.append(HumanMessage(content=content, additional_kwargs={USER_TURN_KEY: True}))
     return result
 
 
 def outer_turn_authority_preamble(session: SessionState, apply_mode: bool) -> str:
-    """Compact live-settings block prepended to each outer Clara turn so the model attends to current truth."""
+    """Compact live-settings block prepended to each outer Clara turn so the model attends to current truth.
+
+    Build it once per turn: it reports the workspace changes not yet told (:func:`workspace_changes_line`).
+    """
     editor_s = 'on' if apply_mode else 'off'
     auto_s = 'on' if session.auto_apply_mode else 'off'
     admin_s = 'on' if session.admin_elevation_granted else 'off'
@@ -97,14 +114,18 @@ def outer_turn_authority_preamble(session: SessionState, apply_mode: bool) -> st
     subagents_line = running_subagents_line(session)
     if subagents_line:
         subagents_line = f'\n{subagents_line}'
+    changes_line = workspace_changes_line(session)
+    if changes_line:
+        changes_line = f'- {changes_line}\n'
     return (
-        '**Session truth (authoritative for this message; older assistant replies may be outdated):**\n'
+        f'{_SESSION_TRUTH_PREFIX} (authoritative for this message; older assistant replies may be outdated):**\n'
         f'- Editor (toolbar, this turn): **{editor_s}**\n'
         f'- Auto Run (commands run without an approval card; edits never ask): **{auto_s}**\n'
         f'- Admin (composer chip): **{admin_s}**'
         f'{overlap_line}{subagents_line}\n'
         '- If any line above conflicts with earlier assistant prose in this chat, trust **this block** and the **current** '
         'system instructions—not stale narration.\n'
+        f'{changes_line}'
     )
 
 
@@ -445,28 +466,112 @@ def extract_pseudo_tool_calls(text: str) -> list[dict[str, Any]]:
 
 
 _STAGING_TREE_SECTION_MARKER = '\n\nNested edit staging tree ('
+_RE_WORKSPACE_TREE_HEADER = re.compile(r'\AWorkspace tree \(.*\):\n?')
+_EMPTY_TREE = '[empty]'
+_TREE_SHORTENED_NOTE = '... [shortened to save context, deepest entries first; use list_workspace_directory]'
+_WORKSPACE_CHANGES_SHOWN = 20
 
 
-def _workspace_context_without_staging(workspace_context: str) -> str:
-    """Strip the appended staging-tree section from a combined workspace/staging snapshot."""
-    if not workspace_context:
+def tree_budget_chars(n_ctx: int) -> int:
+    """Characters of system prompt the workspace tree may take: 6% of the window at 4 chars per token."""
+    return max(2000, min(16000, int(n_ctx * 0.06 * 4)))
+
+
+_RE_TREE_ENTRY = re.compile(r'^((?:\|  |   )*)(?:\|-- |`-- )(.+?)(?: \[symlink\])?/?$')
+
+
+def _tree_line_depth(line: str) -> int:
+    """Nesting level of a tree line: each level indents by three characters of ``|`` and space."""
+    return (len(line) - len(line.lstrip('| '))) // 3
+
+
+def normalize_prompt_tree(ctx: str, budget: int) -> str:
+    """The bare tree of a workspace context push, in at most ``budget`` characters.
+
+    The watcher adds a ``Workspace tree (path):`` header and a staging section and the renderer sends
+    the tree alone: both give the same bytes here. Over budget, the deepest lines go first (the last
+    of a level before the first), then a note says so. An empty workspace gives ``''``.
+    """
+    tree = _RE_WORKSPACE_TREE_HEADER.sub('', ctx.partition(_STAGING_TREE_SECTION_MARKER)[0]).rstrip()
+    if tree == _EMPTY_TREE:
         return ''
-    before, marker, _after = workspace_context.partition(_STAGING_TREE_SECTION_MARKER)
-    if not marker:
-        return workspace_context
-    return before.rstrip()
+    if len(tree) <= budget:
+        return tree
+    lines = tree.split('\n')
+    size = len(_TREE_SHORTENED_NOTE)
+    kept: list[int] = []
+    for index in sorted(range(len(lines)), key=lambda i: (_tree_line_depth(lines[i]), i)):
+        size += len(lines[index]) + 1
+        if size > budget:
+            break
+        kept.append(index)
+    return '\n'.join([*(lines[index] for index in sorted(kept)), _TREE_SHORTENED_NOTE])
 
 
-def _workspace_hint(session: SessionState, *, include_staging: bool = False) -> str:
+def prompt_tree_paths(tree: str) -> set[str]:
+    """The relative paths a tree lists, folders included."""
+    paths: set[str] = set()
+    parents: list[str] = []
+    for line in tree.split('\n'):
+        entry = _RE_TREE_ENTRY.match(line)
+        if entry is not None:
+            parents[len(entry.group(1)) // 3 :] = [entry.group(2)]
+            paths.add('/'.join(parents))
+    return paths
+
+
+def frozen_prompt_tree(session: SessionState) -> str:
+    """The tree this thread's system prompt shows: frozen at its first non-empty value.
+
+    A later push must not touch the prompt prefix; what it changed reaches the model through
+    :func:`workspace_changes_line`. A thread with no checkpoint freezes again (``reset_for_new_thread``), and
+    so does one whose tree moved with no change list to tell it by (:func:`prompt_tree_moved`).
+    """
+    if not session.prompt_tree:
+        session.prompt_tree = _prompt_tree_of(session.workspace_context or '')
+    return session.prompt_tree
+
+
+def _prompt_tree_of(workspace_context: str) -> str:
+    window = get_active_connection().context_window_tokens or CLARA_CONTEXT_WINDOW_FALLBACK
+    return normalize_prompt_tree(workspace_context, tree_budget_chars(window))
+
+
+def prompt_tree_moved(session: SessionState, workspace_context: str) -> bool:
+    """Whether a push's tree differs from the session's last push, once its tree is frozen.
+
+    Not from the frozen tree: that one lags by design, by what the model was told in its place. A push of
+    no tree (a failed read gives ``''``) moves nothing.
+    """
+    if not session.prompt_tree:
+        return False
+    fresh = _prompt_tree_of(workspace_context)
+    return bool(fresh) and fresh != _prompt_tree_of(session.workspace_context or '')
+
+
+def too_many_changes_to_tell(session: SessionState) -> bool:
+    """More changes wait than the line names, so telling them would leave the tree wrong (a build, a checkout)."""
+    return len(session.prompt_tree_changes) - session.prompt_tree_changes_reported > _WORKSPACE_CHANGES_SHOWN
+
+
+def workspace_changes_line(session: SessionState) -> str:
+    """Tree changes the model has not been told about, newest last, each told once ('' if none)."""
+    told = session.prompt_tree_changes_reported
+    pending = session.prompt_tree_changes[told:]
+    session.prompt_tree_changes_reported = len(session.prompt_tree_changes)
+    if not pending:
+        return ''
+    # A renamed path is the new name: to the tree above, it is an added path.
+    parts = [f'{"-" if kind == "deleted" else "+"} {path}' for kind, path in pending]
+    return f'Workspace changes since the tree above: {", ".join(parts)}'
+
+
+def _workspace_hint(session: SessionState) -> str:
     if not session.workspace_path:
         return 'No workspace is attached to this conversation.'
-    workspace_context = session.workspace_context or ''
-    if not include_staging:
-        workspace_context = _workspace_context_without_staging(workspace_context)
-    label = 'Workspace context snapshot' if include_staging else 'Workspace tree snapshot'
     return (
         f'Workspace path: {session.workspace_path}\n\n'
-        f'{label}:\n{workspace_context or "[empty]"}'
+        f'Workspace tree snapshot:\n{frozen_prompt_tree(session) or _EMPTY_TREE}'
     )
 
 

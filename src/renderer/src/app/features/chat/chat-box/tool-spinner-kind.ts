@@ -96,6 +96,7 @@ const TOOL_GLYPHS: Readonly<Record<string, ToolGlyph>> = {
   search_structured: 'tree-search',
   read_structured_section: 'section',
   activate_context: 'context',
+  compact_context: 'context',
   lsp_get_diagnostics: 'diagnostics',
   lsp_hover: 'hover',
   lsp_find_definition: 'definition',

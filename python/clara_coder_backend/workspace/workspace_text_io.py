@@ -247,10 +247,10 @@ def resolve_newline_for_write(
 def encode_for_disk(text: str, encoding: str, disk_newline: DiskNewline) -> bytes:
     """Convert internal ``\\n`` to on-disk newlines and encode (strict: unmappable chars raise)."""
     enc = validate_workspace_encoding(encoding)
+    # A model's text can carry CRLF of its own.
+    body = text.replace('\r\n', '\n')
     if disk_newline == 'crlf':
-        body = text.replace('\n', '\r\n')
-    else:
-        body = text
+        body = body.replace('\n', '\r\n')
     return body.encode(enc, errors='strict')
 
 

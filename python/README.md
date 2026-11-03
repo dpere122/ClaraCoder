@@ -101,7 +101,7 @@ Staged code review does not run pytest; use `run_command` on the outer agent whe
 | **Session**                                       |                                                                             |
 | `clara_coder_backend/session/`                    | Config, domain types, Pydantic schemas, in-memory state, checkpointing.     |
 | **LLM**                                           |                                                                             |
-| `clara_coder_backend/llm/`                        | `build_llm` factory, messages, model tuning, compression, prompt blocks.    |
+| `clara_coder_backend/llm/`                        | `build_llm` factory, messages, model tuning, prompt blocks.                 |
 | `clara_coder_backend/llm/factory.py`              | `ChatOpenAI` / connection factory.                                          |
 | **HITL**                                          |                                                                             |
 | `clara_coder_backend/hitl/`                       | Tool registry, deferred HITL, accept-command, risk assess, tool budget.     |

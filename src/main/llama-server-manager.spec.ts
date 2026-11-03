@@ -18,6 +18,7 @@ import {
   createSecretChunkRedactor,
   createLineBuffer,
   managedLlamaHealthHost,
+  hfAuthFailureInLogs,
 } from './llama-server-manager';
 
 describe('tokenizeManagedLlamaCommand', () => {
@@ -226,5 +227,26 @@ describe('managedLlamaHealthHost', () => {
   it('keeps specific bind hosts', () => {
     expect(managedLlamaHealthHost('127.0.0.1')).toBe('127.0.0.1');
     expect(managedLlamaHealthHost('10.0.0.1')).toBe('10.0.0.1');
+  });
+});
+
+describe('hfAuthFailureInLogs', () => {
+  it.each([
+    'common_download_file: HTTP 401 for https://huggingface.co/org/model',
+    'error: 401 Unauthorized',
+    'Set HF_TOKEN to download this file',
+    'this is a gated model, request access first',
+    'Repository is private or does not exist',
+  ])('reads %j as an auth failure', (line) => {
+    expect(hfAuthFailureInLogs(line)).toBe(true);
+  });
+
+  it.each([
+    'failed to allocate CUDA0 buffer of size 14017.31 MiB',
+    'loaded 401 tensors',
+    'llama_model_load_from_file: C:\\Users\\me\\.cache\\huggingface\\hub\\model.gguf',
+    'common_download_file: fetching https://huggingface.co/org/model/resolve/main/m.gguf',
+  ])('does not read %j as one', (line) => {
+    expect(hfAuthFailureInLogs(line)).toBe(false);
   });
 });

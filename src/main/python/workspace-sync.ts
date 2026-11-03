@@ -175,7 +175,7 @@ export function embeddingsConfiguredForWire(_c: LlmConnectionConfig): boolean {
   return false;
 }
 
-function chatTemplateReasoningWire(
+export function chatTemplateReasoningWire(
   caps: ChatTemplateReasoningCaps | undefined,
 ): Record<string, unknown> | undefined {
   if (!caps) {
@@ -185,6 +185,7 @@ function chatTemplateReasoningWire(
     enableThinking: caps.enableThinking,
     reasoningEffortValues: caps.reasoningEffortValues == null ? null : [...caps.reasoningEffortValues],
     ...(caps.adaptiveThinking !== undefined ? { adaptiveThinking: caps.adaptiveThinking } : {}),
+    ...(caps.vision !== undefined ? { vision: caps.vision } : {}),
   };
 }
 
@@ -385,10 +386,6 @@ async function postRuntimeConfigToPython(
           enabled: config.contextCompression.enabled,
           triggerRatio: config.contextCompression.triggerRatio,
           targetRatio: config.contextCompression.targetRatio,
-          protectTailMessages: config.contextCompression.protectTailMessages,
-          recentToolBodyMaxChars: config.contextCompression.recentToolBodyMaxChars,
-          oldToolBodyMaxChars: config.contextCompression.oldToolBodyMaxChars,
-          systemReserveRatio: config.contextCompression.systemReserveRatio,
         },
         huggingFaceToken: unwrapSecret(config.modelManager?.huggingFaceToken ?? ''),
         mcpServers: wireMcpServers(config),

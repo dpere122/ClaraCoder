@@ -265,6 +265,25 @@ def test_build_llm_gemma_thinking_mode_on(
 @patch('clara_coder_backend.llm.factory.ChatOpenAI')
 @patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
 @patch('clara_coder_backend.llm.factory.get_active_connection')
+def test_build_llm_gemma_stops_the_empty_channel_loop_on_local_servers(
+    mock_get: MagicMock,
+    _mock_log: MagicMock,
+    mock_ctor: MagicMock,
+) -> None:
+    from clara_coder_backend.llm.factory import build_llm
+
+    mock_get.return_value = _gemma_conn()
+    build_llm()
+    assert mock_ctor.call_args.kwargs.get('stop') == ['<|channel>thought\n<channel|>' * 8]
+
+    mock_get.return_value = _gemma_conn(optimization_preset='generic')
+    build_llm()
+    assert 'stop' not in mock_ctor.call_args.kwargs
+
+
+@patch('clara_coder_backend.llm.factory.ChatOpenAI')
+@patch('clara_coder_backend.llm.factory.log_llm_connection_settings')
+@patch('clara_coder_backend.llm.factory.get_active_connection')
 def test_build_llm_gemma_thinking_mode_off(
     mock_get: MagicMock,
     _mock_log: MagicMock,

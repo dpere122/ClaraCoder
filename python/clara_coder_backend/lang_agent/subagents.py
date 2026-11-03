@@ -51,8 +51,8 @@ from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import Any
 
-from clara_coder_backend.config import CLARA_SUBAGENT_MAX_CONCURRENCY
-from clara_coder_backend.domain import SessionState
+from clara_coder_backend.config import CLARA_CONTEXT_WINDOW_FALLBACK, CLARA_SUBAGENT_MAX_CONCURRENCY
+from clara_coder_backend.domain import RuntimeConnection, SessionState
 from clara_coder_backend.lang_agent.loop import AgentLoopOutcome, LangGraphWorkerOutcome
 from clara_coder_backend.lang_agent.subagent_bus import SUBAGENT_BUS
 from clara_coder_backend.session import state
@@ -175,10 +175,19 @@ def _retire(child_id: str) -> None:
         _retired.popitem(last=False)
 
 
+def _active_connection() -> RuntimeConnection | None:
+    return state.get_active_connection() if state.runtime_config.connections else None
+
+
 def parent_subagent_semaphore(parent: SessionState) -> asyncio.Semaphore:
-    """This parent's concurrency cap (``CLARA_SUBAGENT_MAX_CONCURRENCY``), created on first use."""
+    """This parent's concurrency cap (``CLARA_SUBAGENT_MAX_CONCURRENCY``), created on first use.
+
+    One at a time on a local server: sub-agents alternating on its one slot would evict each other's prefix.
+    """
     if parent.subagent_semaphore is None:
-        parent.subagent_semaphore = asyncio.Semaphore(CLARA_SUBAGENT_MAX_CONCURRENCY)
+        connection = _active_connection()
+        local = connection is not None and connection.provider in ('llamacpp', 'lmstudio')
+        parent.subagent_semaphore = asyncio.Semaphore(1 if local else CLARA_SUBAGENT_MAX_CONCURRENCY)
     return parent.subagent_semaphore
 
 
@@ -190,7 +199,7 @@ def fork_subagent_session(parent_sid: str, parent: SessionState, child_id: str, 
     per user turn for the whole family. Auto Run follows the parent; Admin is always off.
     """
     child = SessionState(
-        workspace=dataclasses.replace(parent.workspace, semantic_index_pending=[]),
+        workspace=dataclasses.replace(parent.workspace, semantic_index_pending=[], prompt_tree_changes=[]),
         lsp=parent.lsp,
         edits=parent.edits,
     )
@@ -424,7 +433,17 @@ def subagent_report(run: SubagentRun) -> str:
     """The report of a sub-agent that ended: status line, its final reply (capped), files, stopped commands."""
     outcome = run.outcome
     label = f'Sub-agent `{run.name}`'
-    if run.finish == 'completed':
+    if run.finish == 'completed' and run.child.harness_final_text:
+        # The harness ended its turn (step limit, cut-off or empty replies, no progress): that notice is for
+        # the user, not a report, and a finished sub-agent takes no message. An answer can stand before the
+        # notice in that text; the partial output carries it.
+        notice = run.child.harness_final_text.strip().rpartition('\n\n')[2]
+        head = (
+            f'{label} did not finish. The harness stopped it with this notice to the user: '
+            f'"{notice}" It cannot be continued; start a new sub-agent for what is left. Its partial output:'
+        )
+        body = outcome.partial_text
+    elif run.finish == 'completed':
         head, body = f'{label} finished. Its report:', outcome.final_text
     elif run.finish == 'error':
         detail = (outcome.error_detail or 'unknown error').strip()
@@ -497,8 +516,18 @@ def requeue_subagent_reports(parent: SessionState, reports: Iterable[SubagentRep
 
 
 def format_subagent_reports(reports: Iterable[SubagentReport], *, closing: str = '') -> str:
-    """One message carrying several reports (injected before a model call or as a continue turn)."""
-    blocks = [report.text.strip() for report in reports]
+    """One message carrying several reports (injected before a model call or as a continue turn).
+
+    Reports reach the model outside any tool call, so the tool output budget applies here.
+    """
+    # Lazy: compaction imports the message helpers, which import this module.
+    from clara_coder_backend.lang_agent.context_compaction import tool_output_cap_chars
+
+    reports = list(reports)
+    connection = _active_connection()
+    window = (connection.context_window_tokens if connection is not None else 0) or CLARA_CONTEXT_WINDOW_FALLBACK
+    cap = tool_output_cap_chars(window, len(reports), 0)
+    blocks = [tool_output_cap(report.text.strip(), cap) for report in reports]
     text = '\n\n'.join([REPORTS_ARRIVED_HEADER, *blocks])
     return f'{text}\n\n{closing}' if closing else text
 

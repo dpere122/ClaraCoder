@@ -207,21 +207,28 @@
     </label>
   }
 
+  @if (mtpOffer(); as head) {
+    <p class='run-command__notice run-command__notice--offer'>
+      <span>{{ mtpOfferText(head) }}</span>
+      <button type='button' class='action-button action-button--compact' (click)='addMtpFlags(head)'>Add flags</button>
+    </p>
+  }
+
   @if (s.cudaGpus().length) {
     <div class='run-placement'>
       <span class='run-placement__label'>GPU placement</span>
       <div class='run-command__views' role='radiogroup' aria-label='GPU placement'>
-        @for (placement of gpuPlacements; track placement.mode) {
+        @for (placement of gpuPlacements(); track placement.id) {
           <button
             type='button'
             role='radio'
-            [attr.aria-checked]='s.managedGpuOffloadMode() === placement.mode'
-            [class.is-active]='s.managedGpuOffloadMode() === placement.mode'
+            [attr.aria-checked]='isActivePlacement(placement)'
+            [class.is-active]='isActivePlacement(placement)'
             [disabled]='placement.mode === "split" && s.cudaGpus().length < 2'
-            [title]='placementDetail(placement.mode)'
-            (click)='s.onManagedGpuOffloadChange(placement.mode)'
+            [title]='placementDetail(placement)'
+            (click)='choosePlacement(placement)'
           >
-            {{ placement.label }}{{ isRecommendedPlacement(placement.mode) ? ' (recommended)' : '' }}
+            {{ placement.label }}{{ isRecommendedPlacement(placement) ? ' (recommended)' : '' }}
           </button>
         }
       </div>

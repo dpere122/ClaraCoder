@@ -9,8 +9,6 @@ Modules
 ``langchain_compat`` — patches for ``reasoning_content`` on some gateways
 ``gemma_output`` — Gemma-specific output handling
 ``prompt_blocks`` — reusable system-prompt blocks
-
-Checkpoint compaction lives in :mod:`clara_coder_backend.lang_agent.context_compression`.
 """
 
 from clara_coder_backend.llm.factory import build_llm

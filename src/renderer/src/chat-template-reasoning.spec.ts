@@ -149,6 +149,19 @@ describe('parseLlamaServerPropsReasoning', () => {
     expect(r.templateBytes).toBe(0);
     expect(r.caps).toEqual({ enableThinking: false, reasoningEffortValues: null });
   });
+
+  it('reads modalities.vision from /props JSON', () => {
+    const props = (vision: boolean) => ({ chat_template: PLAIN_CHATML, modalities: { vision, audio: false } });
+    expect(parseLlamaServerPropsReasoning(props(false)).caps.vision).toBe(false);
+    expect(parseLlamaServerPropsReasoning(props(true)).caps.vision).toBe(true);
+  });
+
+  it('leaves vision out when /props does not report it', () => {
+    for (const modalities of [undefined, null, 'vision', {}, { vision: 'false' }]) {
+      const r = parseLlamaServerPropsReasoning({ chat_template: PLAIN_CHATML, modalities });
+      expect(r.caps).not.toHaveProperty('vision');
+    }
+  });
 });
 
 describe('parseLlamaServerPropsNctx', () => {

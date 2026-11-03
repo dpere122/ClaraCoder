@@ -26,6 +26,7 @@ import type {
   LlamaServerStartResult,
   LlamaServerStatusResult,
   EmbeddingsStatusResult,
+  GgufProfile,
   GpuVramCardUsage,
   LlamaFlagCatalog,
   LlamacppManagedListModelsResult,
@@ -1687,6 +1688,14 @@ export class ElectronService {
 
   llamaServerGgufSize(payload: { path: string }): Promise<number | null> {
     return this.api?.llamaServerGgufSize?.(payload) ?? Promise.resolve(null);
+  }
+
+  llamaServerGgufProfile(payload: { path: string }): Promise<GgufProfile | null> {
+    return this.api?.llamaServerGgufProfile?.(payload) ?? Promise.resolve(null);
+  }
+
+  llamaServerTotalRam(): Promise<number | null> {
+    return this.api?.llamaServerTotalRam?.() ?? Promise.resolve(null);
   }
 
   llamaServerLaunchedCommand(payload: {

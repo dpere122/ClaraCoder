@@ -917,6 +917,32 @@ describe('durable tutorial progress', () => {
       rmSync(tempDir, { recursive: true, force: true });
     }
   });
+  it('restarts only a finished or dismissed tour, keeping what a newer release wrote', () => {
+    const opaque = { status: 'future-resolution' };
+    const finished = normalizeTutorialProgress({
+      revision: 7,
+      phases: { intro: 'completed', 'local-engine': 'skipped', 'featured-models': 'dismissed', 'local-source': opaque, 'future-phase': 'completed' },
+      active: null,
+      sourceId: 'old-source',
+    });
+    const restarted = applyTutorialTransition(finished, { action: 'restart', expectedRevision: 7 });
+    expect(restarted.applied).toBe(true);
+    expect(restarted.progress).toEqual({
+      revision: 8, phases: { 'local-source': opaque, 'future-phase': 'completed' }, active: null,
+    });
+
+    const midway = normalizeTutorialProgress({ revision: 3, phases: { intro: 'completed' }, active: { phaseId: 'local-engine', stepId: 'engine-intro' } });
+    expect(applyTutorialTransition(midway, { action: 'restart', expectedRevision: 3 }).applied).toBe(false);
+    const offered = normalizeTutorialProgress({ revision: 3, phases: { intro: 'completed' }, active: null });
+    expect(applyTutorialTransition(offered, { action: 'restart', expectedRevision: 3 }).applied).toBe(false);
+    const future = normalizeTutorialProgress({
+      revision: 3,
+      phases: Object.fromEntries(TUTORIAL_PHASE_REGISTRY.map((phase) => [phase.id, 'completed'])),
+      active: { phaseId: 'future-phase', stepId: 'future-step' },
+    });
+    expect(applyTutorialTransition(future, { action: 'restart', expectedRevision: 3 }).applied).toBe(false);
+  });
+
   it('waits for a recent live lock owner but reclaims one that has long expired', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'clara-tutorial-recycled-pid-'));
     process.env.CLARA_TEST_CONFIG_DIR = tempDir;

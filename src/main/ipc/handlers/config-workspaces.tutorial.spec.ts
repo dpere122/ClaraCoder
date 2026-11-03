@@ -86,6 +86,35 @@ describe('tutorial cross-window IPC', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it('lets only Settings toggle the tour, ending the current lease without a revision check', async () => {
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ unrelated: 'kept' }), 'utf8');
+    await invoke<TutorialClaimResult>('tutorial:claim', home, 'home');
+    await invoke<TutorialTransitionResult>('tutorial:transition', home, { action: 'start', expectedRevision: 0 });
+    await expect(invoke('tutorial:set-enabled', home, false)).rejects.toThrow('Settings');
+    await expect(invoke('tutorial:set-enabled', settings, 'off')).rejects.toThrow('Invalid');
+
+    const off = await invoke<TutorialTransitionResult>('tutorial:set-enabled', settings, false);
+    expect(off.applied).toBe(true);
+    expect(off.snapshot.ownerId).toBeNull();
+    expect(off.snapshot.progress.active).toBeNull();
+    expect(off.snapshot.progress.phases['intro']).toBe('dismissed');
+    expect(home.send).toHaveBeenLastCalledWith('tutorial:updated', off.snapshot);
+    // The window that held the lease cannot keep writing to the tour it had.
+    const stale = await invoke<TutorialTransitionResult>('tutorial:transition', home, { action: 'start', expectedRevision: off.snapshot.progress.revision });
+    expect(stale.applied).toBe(false);
+
+    const on = await invoke<TutorialTransitionResult>('tutorial:set-enabled', settings, true);
+    expect(on.applied).toBe(true);
+    expect(on.snapshot.progress.phases).toEqual({});
+    expect((await invoke<TutorialClaimResult>('tutorial:claim', home, 'home')).acquired).toBe(true);
+
+    // Already on: nothing to restart, and the window showing the invitation keeps its lease.
+    const again = await invoke<TutorialTransitionResult>('tutorial:set-enabled', settings, true);
+    expect(again.applied).toBe(false);
+    expect(again.snapshot.ownerId).toBe(home.id);
+    expect(JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8')).unrelated).toBe('kept');
+  });
+
   it('grants only one competing window and verifies the claimed role', async () => {
     const [a, b] = await Promise.all([
       invoke<TutorialClaimResult>('tutorial:claim', home, 'home'),

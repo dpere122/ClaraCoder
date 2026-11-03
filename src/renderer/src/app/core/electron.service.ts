@@ -1540,6 +1540,10 @@ export class ElectronService {
     return this.api?.releaseTutorial?.(requestedWindow) ?? this.getTutorialSnapshot();
   }
 
+  setTutorialEnabled(enabled: boolean): Promise<TutorialTransitionResult> {
+    return this.api?.setTutorialEnabled?.(enabled) ?? this.getTutorialSnapshot().then((snapshot) => ({ applied: false, snapshot }));
+  }
+
   onTutorialUpdated(callback: (snapshot: TutorialSnapshot) => void): () => void {
     return this.api?.onTutorialUpdated?.((snapshot) => this.zone.run(() => callback(snapshot))) ?? (() => {});
   }

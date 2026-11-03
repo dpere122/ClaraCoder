@@ -85,7 +85,7 @@ export const SETTINGS_SUB_TAB_CATALOG: Partial<Record<SettingsTab, SettingsSubTa
     {
       id: 'behavior',
       label: 'Behavior',
-      description: 'Confirmation prompts for workspace actions such as moving files and folders.',
+      description: 'Confirmation prompts for workspace actions, and the guided tour.',
     },
   ],
   themes: buildThemesSubTabs(),

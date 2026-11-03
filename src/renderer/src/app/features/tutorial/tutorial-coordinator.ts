@@ -229,6 +229,8 @@ export class TutorialCoordinator {
   private acceptSnapshot(snapshot: TutorialSnapshot): void {
     const previous = this.snapshot();
     if (previous && snapshot.progress.revision < previous.progress.revision) return;
+    // Nothing else moves a snoozed tour, so a newer revision is the user's Settings choice.
+    if (previous && snapshot.progress.revision > previous.progress.revision) this.paused.set(false);
     const oldKey = previous && `${previous.progress.revision}:${previous.ownerId}:${previous.requestedWindow}`;
     const newKey = `${snapshot.progress.revision}:${snapshot.ownerId}:${snapshot.requestedWindow}`;
     if (oldKey !== newKey) this.attemptedClaim = '';

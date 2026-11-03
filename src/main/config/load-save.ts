@@ -2334,6 +2334,23 @@ export async function updateTutorialProgress(
   });
 }
 
+/** Apply the Settings checkbox to the current progress; a saved preference has no revision to compare. */
+export async function setTutorialEnabled(enabled: boolean): Promise<{ applied: boolean; progress: TutorialProgress }> {
+  return runSerializedConfigMutation(async () => {
+    const document = await readTutorialConfigDocument();
+    const progress = normalizeTutorialProgress(document['tutorial']);
+    const result = applyTutorialTransition(progress, {
+      action: enabled ? 'restart' : 'dismiss-all',
+      expectedRevision: progress.revision,
+    });
+    if (result.applied) {
+      document['tutorial'] = result.progress;
+      await writeConfigDocumentToDiskUnsafe(document);
+    }
+    return result;
+  });
+}
+
 /** Read only tutorial data without decrypting or migrating unrelated config fields. */
 export async function loadTutorialProgress(): Promise<TutorialProgress> {
   return runSerializedConfigMutation(async () => normalizeTutorialProgress((await readTutorialConfigDocument())['tutorial']));

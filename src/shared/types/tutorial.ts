@@ -70,7 +70,7 @@ export interface TutorialSnapshot {
 
 export interface TutorialTransition {
   expectedRevision: number;
-  action: 'start' | 'advance' | 'skip-phase' | 'dismiss-all' | 'recover-source';
+  action: 'start' | 'advance' | 'skip-phase' | 'dismiss-all' | 'recover-source' | 'restart';
   /** Supplied only when advancing after the user creates a managed source draft. */
   sourceId?: string;
 }
@@ -134,7 +134,7 @@ export function normalizeTutorialProgress(value: unknown): TutorialProgress {
   return { ...value, revision, phases, active } as TutorialProgress;
 }
 
-/** Forward transitions are registry-defined; the only rewind is explicit lost-source recovery. */
+/** Forward transitions are registry-defined; the only rewinds are lost-source recovery and an explicit restart. */
 export function applyTutorialTransition(
   current: TutorialProgress,
   request: TutorialTransition,
@@ -181,6 +181,16 @@ export function applyTutorialTransition(
       active = { ...active, phaseId: 'local-source', stepId: 'sources-add' };
       changed = true;
     }
+  } else if (request.action === 'restart') {
+    // Re-offer only a finished or dismissed tour. Opaque records and a future cursor belong to a newer release.
+    if (!active && !firstUnresolved()) {
+      for (const phase of registry) {
+        if (isKnownTutorialPhaseResolution(phases[phase.id])) {
+          delete phases[phase.id];
+          changed = true;
+        }
+      }
+    }
   } else if ((request.action === 'advance' || request.action === 'skip-phase') && active) {
     const phase = registry.find((item) => item.id === active!.phaseId);
     const index = phase?.steps.indexOf(active.stepId) ?? -1;
@@ -204,7 +214,7 @@ export function applyTutorialTransition(
       delete progress.sourceId;
     }
   }
-  if (request.action === 'recover-source' ||
+  if (request.action === 'recover-source' || request.action === 'restart' ||
       (current.active?.phaseId === 'local-source' && active?.phaseId !== 'local-source') ||
       (request.action === 'dismiss-all' && !active)) {
     delete progress.sourceId;

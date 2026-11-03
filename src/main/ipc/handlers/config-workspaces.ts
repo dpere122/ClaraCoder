@@ -24,7 +24,7 @@ import {
 } from '../../../shared/types/tutorial';
 import { FIRST_THEME_ID } from '../../constants';
 import { mainState } from '../../state';
-import { loadConfig, loadTutorialProgress, mergeSettingsConfigSave, updateConfig, updateTutorialProgress } from '../../config/load-save';
+import { loadConfig, loadTutorialProgress, mergeSettingsConfigSave, setTutorialEnabled, updateConfig, updateTutorialProgress } from '../../config/load-save';
 import { getLlamaManagedRuntimeOverrides } from '../../llama-server-manager';
 import {
   syncRuntimeConfigToPython,
@@ -302,6 +302,21 @@ export function registerConfigWorkspacesIpc(): void {
       transition,
       () => admitted && tutorialOwner === event.sender && tutorialLeaseGeneration === leaseGeneration && !event.sender.isDestroyed(),
     );
+    const snapshot = tutorialSnapshot(result.progress);
+    if (result.applied) broadcastTutorial(snapshot);
+    return { applied: result.applied, snapshot };
+  });
+
+  ipcMain.handle('tutorial:set-enabled', async (event, enabled: unknown) => {
+    if (assertTutorialSender(event) !== 'settings') throw new Error('The tutorial toggle belongs to Settings');
+    if (typeof enabled !== 'boolean') throw new Error('Invalid tutorial toggle');
+    const result = await setTutorialEnabled(enabled);
+    if (result.applied) {
+      // The old lease and any reserved handoff describe a tour this choice just replaced.
+      tutorialOwner = null;
+      tutorialLeaseGeneration++;
+      clearTutorialHandoff();
+    }
     const snapshot = tutorialSnapshot(result.progress);
     if (result.applied) broadcastTutorial(snapshot);
     return { applied: result.applied, snapshot };

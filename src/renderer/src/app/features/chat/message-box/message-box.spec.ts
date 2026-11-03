@@ -184,22 +184,97 @@ describe('MessageBox', () => {
     expect(send.disabled).toBe(false);
   });
 
-  it('keeps Send off while a running llama-server fails its health check', async () => {
-    llamaServerStatus.mockResolvedValue({
+  describe('a running llama-server missing health checks', () => {
+    const missing = {
       ok: true,
       running: true,
       modelId: 'local-model',
       chat: { port: 8080, health: 'error' },
-    });
-    const fixture = TestBed.createComponent(MessageBox);
-    fixture.componentRef.setInput('appConfig', localLlamaConfig());
-    fixture.detectChanges();
-    await flush();
-    fixture.detectChanges();
+    } as LlamaServerStatusResult;
+    const healthy = { ...missing, chat: { port: 8080, health: 'ok' } } as LlamaServerStatusResult;
 
-    const send = (fixture.nativeElement as HTMLElement).querySelector('.btn-send') as HTMLButtonElement;
-    expect(send.disabled).toBe(true);
-    expect(send.title).toBe("The local llama-server isn't responding");
+    async function setup(): Promise<{ fixture: ComponentFixture<MessageBox>; send: HTMLButtonElement }> {
+      const fixture = TestBed.createComponent(MessageBox);
+      fixture.componentRef.setInput('appConfig', localLlamaConfig());
+      fixture.detectChanges();
+      await flush();
+      fixture.detectChanges();
+      const send = (fixture.nativeElement as HTMLElement).querySelector('.btn-send') as HTMLButtonElement;
+      return { fixture, send };
+    }
+
+    async function reprobe(fixture: ComponentFixture<MessageBox>): Promise<void> {
+      window.dispatchEvent(new Event('focus'));
+      await flush();
+      fixture.detectChanges();
+    }
+
+    it('stays on after one miss: the server may only be busy', async () => {
+      llamaServerStatus.mockResolvedValue(missing);
+      const { send } = await setup();
+      expect(send.disabled).toBe(false);
+    });
+
+    it('locks after a second miss in a row, and unlocks when it answers again', async () => {
+      llamaServerStatus.mockResolvedValue(missing);
+      const { fixture, send } = await setup();
+      await reprobe(fixture);
+      expect(send.disabled).toBe(true);
+      expect(send.title).toBe("The local llama-server isn't responding");
+
+      llamaServerStatus.mockResolvedValue(healthy);
+      await reprobe(fixture);
+      expect(send.disabled).toBe(false);
+    });
+
+    it('does not count separated misses as a row', async () => {
+      llamaServerStatus.mockResolvedValue(missing);
+      const { fixture, send } = await setup();
+      llamaServerStatus.mockResolvedValue(healthy);
+      await reprobe(fixture);
+      llamaServerStatus.mockResolvedValue(missing);
+      await reprobe(fixture);
+      expect(send.disabled).toBe(false);
+    });
+
+    it('does not count misses during a turn, when the server is expected to be busy', async () => {
+      llamaServerStatus.mockResolvedValue(healthy);
+      const { fixture, send } = await setup();
+      llamaServerStatus.mockResolvedValue(missing);
+      pendingIds.set(new Set(['conv-2']));
+      fixture.detectChanges();
+      await flush();
+      fixture.detectChanges();
+      await reprobe(fixture);
+      expect(send.disabled).toBe(false);
+    });
+
+    it('keeps the reason when only the embedding server exits', async () => {
+      llamaServerStatus.mockResolvedValue(missing);
+      const { fixture, send } = await setup();
+      await reprobe(fixture);
+
+      processExitSubject.next({ modelId: 'local-model', stream: 'embed', code: 1, signal: null });
+      fixture.detectChanges();
+      expect(send.disabled).toBe(true);
+      expect(send.title).toBe("The local llama-server isn't responding");
+    });
+
+    it('lets a lifecycle event win over a status probe that was already out', async () => {
+      llamaServerStatus.mockResolvedValue(healthy);
+      const { fixture, send } = await setup();
+      let answer: (result: LlamaServerStatusResult) => void = () => undefined;
+      llamaServerStatus.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+      window.dispatchEvent(new Event('focus'));
+
+      lifecycleSubject.next({ phase: 'stopped', modelId: 'local-model' });
+      answer(healthy);
+      await flush();
+      fixture.detectChanges();
+
+      expect(send.disabled).toBe(true);
+      expect(send.title).toBe('Start the local llama-server to send');
+    });
   });
 
   it('does not ping a managed llama-server: its status and lifecycle events cover it', async () => {
@@ -291,6 +366,50 @@ describe('MessageBox', () => {
     expect(llmSourcePing).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps checking a locked source during a turn, so it can unlock', async () => {
+    llmSourcePing.mockResolvedValue({ ok: false, error: 'down' });
+    const fixture = TestBed.createComponent(MessageBox);
+    fixture.componentRef.setInput('appConfig', openaiConfig());
+    fixture.detectChanges();
+    await flush();
+    pendingIds.set(new Set(['conv-2']));
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    const send = (fixture.nativeElement as HTMLElement).querySelector('.btn-send') as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+
+    llmSourcePing.mockResolvedValue({ ok: true });
+    window.dispatchEvent(new Event('focus'));
+    await flush();
+    fixture.detectChanges();
+    expect(send.disabled).toBe(false);
+  });
+
+  it('does not lock on a ping missed mid-turn, but does if it still fails when the turn ends', async () => {
+    const fixture = TestBed.createComponent(MessageBox);
+    fixture.componentRef.setInput('appConfig', openaiConfig());
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    const send = (fixture.nativeElement as HTMLElement).querySelector('.btn-send') as HTMLButtonElement;
+
+    llmSourcePing.mockResolvedValue({ ok: false, error: 'down' });
+    pendingIds.set(new Set(['conv-2']));
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    expect(llmSourcePing).toHaveBeenCalledTimes(2);
+    expect(send.disabled).toBe(false);
+
+    pendingIds.set(new Set());
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    expect(send.disabled).toBe(true);
+    expect(send.title).toBe('down');
+  });
+
   it('forgets the last answer when the source changes, but not on an unrelated config change', async () => {
     const fixture = TestBed.createComponent(MessageBox);
     const cfg = openaiConfig();
@@ -378,6 +497,23 @@ describe('MessageBox', () => {
         expect((fixture.nativeElement as HTMLElement).querySelector('textarea.form-control')).toBe(field);
       },
     );
+
+    it('does not run on from expanding into sending when the chord is held', async () => {
+      const { field, sent, press } = await setup('half a thought');
+      press({ ctrlKey: true });
+      expect(press({ ctrlKey: true, repeat: true }).defaultPrevented).toBe(true);
+      expect(sent).toEqual([]);
+      expect(field.classList.contains('composer-field--expanded')).toBe(true);
+    });
+
+    it('does not re-expand from a held chord after sending', async () => {
+      const { field, sent, press } = await setup('hello');
+      press({ ctrlKey: true });
+      press({ ctrlKey: true });
+      press({ ctrlKey: true, repeat: true });
+      expect(sent).toEqual(['hello']);
+      expect(field.classList.contains('composer-field--expanded')).toBe(false);
+    });
 
     it('expands an empty entry without putting a line in it', async () => {
       const { fixture, field, press } = await setup('');

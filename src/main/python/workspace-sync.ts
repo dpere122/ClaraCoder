@@ -93,7 +93,7 @@ export function normalizeBindAllHostToLocalhost(url: string): string {
     const raw = hasUrlScheme(s) ? s : `http://${s}`;
     const u = new URL(raw);
     const h = u.hostname.toLowerCase();
-    if (h !== '0.0.0.0' && h !== '::') {
+    if (h !== '0.0.0.0' && h !== '[::]') {
       return s;
     }
     u.hostname = '127.0.0.1';

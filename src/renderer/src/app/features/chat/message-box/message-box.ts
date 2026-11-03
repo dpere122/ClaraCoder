@@ -40,6 +40,8 @@ import { type ChatContextFile } from '../chat-context-bar/chat-context-file';
 const CONTEXT_FULL_HINT = 'Context full: turn on context compaction in Settings or start a new conversation';
 /** How often the selected source is re-checked, so Send follows a server going down or coming back. */
 const SOURCE_POLL_MS = 15_000;
+/** Missed ``/health`` probes in a row before a running llama-server counts as hung, not just busy. */
+const LLAMA_HUNG_AFTER_MISSES = 2;
 
 @Component({
   selector: 'app-message-box',
@@ -121,6 +123,8 @@ export class MessageBox {
   /** The managed llama-server process is up but stopped answering its health check. */
   private readonly llamaUnresponsive = signal(false);
   private llamaStatusProbeId = 0;
+  /** Status probes in a row that got no ``/health`` answer outside a turn. */
+  private llamaHealthMisses = 0;
   /** Last answer from the selected non-managed source; null until the first one arrives. */
   private readonly sourcePing = signal<LlmSourcePingResult | null>(null);
   private sourcePingId = 0;
@@ -313,8 +317,9 @@ export class MessageBox {
     });
 
     const pollSource = (): void => {
-      // A busy server can miss a ping, and a running turn already shows whether the source works.
-      if (!document.hidden && !this.turnInFlight()) {
+      // A busy server can miss a ping and a running turn already shows the source works, so only a
+      // source that is locked keeps being checked mid-turn: it must be able to unlock.
+      if (!document.hidden && (!this.turnInFlight() || !this.sourceActive())) {
         this.probeSource();
       }
     };
@@ -437,6 +442,10 @@ export class MessageBox {
       return;
     }
     event.preventDefault();
+    // Holding the chord must not run on from expanding the entry into sending the draft.
+    if (modified && event.repeat) {
+      return;
+    }
     if (!multiline && modified) {
       this.multilineMode.set(true);
       return;
@@ -505,15 +514,18 @@ export class MessageBox {
    * chat server dies, emit abort so the parent can drop the hung Stop button.
    */
   private applyLlamaLifecycleEvent(e: LlamaServerLifecycleEvent | LlamaServerProcessExitEvent): void {
+    if (!('phase' in e) && e.stream !== 'chat') {
+      return;
+    }
+    // A status probe still out predates this event, so its answer must not overwrite it.
+    this.llamaStatusProbeId++;
+    this.llamaHealthMisses = 0;
     this.llamaUnresponsive.set(false);
     if ('phase' in e) {
       this.llamaLive.set(e.phase === 'running');
       if (e.phase === 'stopped' && this.loading()) {
         this.abort();
       }
-      return;
-    }
-    if (e.stream !== 'chat') {
       return;
     }
     this.llamaLive.set(false);
@@ -545,7 +557,10 @@ export class MessageBox {
       if (req !== this.llamaStatusProbeId) {
         return;
       }
-      const hung = !!(res.ok && res.running && res.chat.health === 'error');
+      // A server stalled on a long prompt can miss one probe, and during a turn it is expected to.
+      const missed = !!(res.ok && res.running && res.chat.health === 'error') && !this.turnInFlight();
+      this.llamaHealthMisses = missed ? this.llamaHealthMisses + 1 : 0;
+      const hung = this.llamaHealthMisses >= LLAMA_HUNG_AFTER_MISSES;
       this.llamaUnresponsive.set(hung);
       this.llamaLive.set(!!(res.ok && res.running) && !hung);
     } catch {
@@ -566,8 +581,13 @@ export class MessageBox {
     } catch (err) {
       result = { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
-    if (req === this.sourcePingId) {
-      this.sourcePing.set(result);
+    if (req !== this.sourcePingId) {
+      return;
     }
+    // A busy server can miss a ping mid-turn; the check when the turn ends has the last word.
+    if (!result.ok && this.turnInFlight() && this.sourcePing()?.ok) {
+      return;
+    }
+    this.sourcePing.set(result);
   }
 }

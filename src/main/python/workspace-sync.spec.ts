@@ -5,6 +5,7 @@ import {
   embeddingsConfiguredForWire,
   embeddingsEnabledForWire,
   ensureOpenAiV1Base,
+  normalizeBindAllHostToLocalhost,
 } from './workspace-sync';
 
 function llamacppConn(overrides: Partial<LlmConnectionConfig> = {}): LlmConnectionConfig {
@@ -26,6 +27,19 @@ function llamacppConn(overrides: Partial<LlmConnectionConfig> = {}): LlmConnecti
     ...overrides,
   };
 }
+
+describe('normalizeBindAllHostToLocalhost', () => {
+  it.each([
+    ['http://0.0.0.0:8080/v1', 'http://127.0.0.1:8080/v1'],
+    ['http://[::]:8080/v1', 'http://127.0.0.1:8080/v1'],
+  ])('rewrites the bind address in %s', (raw, expected) => {
+    expect(normalizeBindAllHostToLocalhost(raw)).toBe(expected);
+  });
+
+  it('leaves a concrete host alone', () => {
+    expect(normalizeBindAllHostToLocalhost('http://[::1]:8080/v1')).toBe('http://[::1]:8080/v1');
+  });
+});
 
 describe('ensureOpenAiV1Base', () => {
   it('appends /v1 when the user pasted a host-only LM Studio URL', () => {

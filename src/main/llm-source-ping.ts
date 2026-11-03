@@ -12,6 +12,8 @@ import { parseAllowedHttpUrl } from '../shared/safe-http-url';
 import { unwrapSecret } from '../shared/types/app-config';
 import { getAnthropicApiKey } from './anthropic-key-store';
 import { pingAnthropicApi } from './anthropic-models';
+import { envProxyFetch } from './env-proxy-fetch';
+import { ensureOpenAiV1Base, normalizeBindAllHostToLocalhost } from './python/workspace-sync';
 
 const PING_TIMEOUT_MS = 4_000;
 /** One retry so a dropped packet does not lock the composer until the next poll. */
@@ -33,32 +35,42 @@ function httpStatusFailure(name: string, status: number): string | null {
   return status >= 500 ? `${name} returned HTTP ${status}` : null;
 }
 
-/** Same rule as ``normalize_openai_api_base``: trailing slash off, ``/v1`` on. */
-function withV1Suffix(raw: string): string {
-  const base = raw.trim().replace(/\/+$/, '');
-  return base.toLowerCase().endsWith('/v1') ? base : `${base}/v1`;
+/** The backend's blank-URL default for a provider: its environment variable, then the built-in one. */
+function envOr(name: string, fallback: string): string {
+  return (process.env[name] ?? '').trim() || fallback;
 }
 
-/** ``0.0.0.0`` is a listen address: the backend rewrites it to loopback, and so must a ping. */
-function pingUrl(raw: string): URL | null {
-  const url = parseAllowedHttpUrl(raw);
-  if (url && (url.hostname === '0.0.0.0' || url.hostname === '[::]')) {
-    url.hostname = '127.0.0.1';
+/** ``fetch`` refuses a URL with ``user:pw@``; httpx sends those as Basic auth, so the ping does too. */
+function withoutCredentials(raw: string): { target: string; basicAuth: string } {
+  const target = raw.includes('://') ? raw : `http://${raw}`;
+  try {
+    const url = new URL(target);
+    if (!url.username && !url.password) {
+      return { target, basicAuth: '' };
+    }
+    const credentials = `${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`;
+    url.username = '';
+    url.password = '';
+    return { target: url.href, basicAuth: Buffer.from(credentials).toString('base64') };
+  } catch {
+    return { target, basicAuth: '' };
   }
-  return url;
 }
 
-async function pingHttp(name: string, target: string, apiKey: string): Promise<LlmSourcePingResult> {
-  const url = pingUrl(target);
+async function pingHttp(name: string, rawTarget: string, apiKey: string): Promise<LlmSourcePingResult> {
+  const { target, basicAuth } = withoutCredentials(normalizeBindAllHostToLocalhost(rawTarget));
+  const url = parseAllowedHttpUrl(target);
   if (!url) {
     return { ok: false, error: `${name} has an invalid base URL. Check it in Settings.` };
   }
   const headers: Record<string, string> = { Accept: 'application/json' };
-  if (apiKey) {
+  if (basicAuth) {
+    headers.Authorization = `Basic ${basicAuth}`;
+  } else if (apiKey) {
     headers.Authorization = `Bearer ${apiKey}`;
   }
   const attempt = async (): Promise<number> => {
-    const res = await fetch(url, { headers, signal: AbortSignal.timeout(PING_TIMEOUT_MS) });
+    const res = await envProxyFetch(url, { headers, signal: AbortSignal.timeout(PING_TIMEOUT_MS) });
     // The status is the answer; a model catalog can be megabytes.
     void res.body?.cancel().catch(() => undefined);
     return res.status;
@@ -76,7 +88,7 @@ async function pingHttp(name: string, target: string, apiKey: string): Promise<L
 }
 
 async function pingAnthropic(name: string): Promise<LlmSourcePingResult> {
-  const key = await getAnthropicApiKey();
+  const key = (await getAnthropicApiKey()) || (process.env.ANTHROPIC_API_KEY ?? '').trim();
   if (!key) {
     return { ok: false, error: `Add a ${name} API key in Settings to send` };
   }
@@ -102,22 +114,24 @@ function pingOpenAiCompatible(provider: LlmProviderConfig): Promise<LlmSourcePin
   switch (provider.provider) {
     case 'openai': {
       const apiKey = key || (process.env.OPENAI_API_KEY ?? '').trim();
-      const base = baseUrl.trim() || (process.env.OPENAI_BASE_URL ?? '').trim() || DEFAULT_OPENAI_BASE_URL;
+      const base = baseUrl.trim() || envOr('OPENAI_BASE_URL', DEFAULT_OPENAI_BASE_URL);
       return apiKey ? pingHttp(name, `${base.replace(/\/+$/, '')}/models`, apiKey) : Promise.resolve(missingKey);
     }
     case 'openrouter': {
       // OpenRouter's model list is public, so only ``/key`` proves the key works.
       const apiKey = key || (process.env.OPENROUTER_API_KEY ?? '').trim();
-      const base = withV1Suffix(baseUrl.trim() || OPENROUTER_DEFAULT_BASE_URL);
+      const base = ensureOpenAiV1Base(baseUrl.trim() || envOr('OPENROUTER_BASE_URL', OPENROUTER_DEFAULT_BASE_URL));
       return apiKey ? pingHttp(name, `${base}/key`, apiKey) : Promise.resolve(missingKey);
     }
     case 'lmstudio': {
       const apiKey = key || (process.env.LM_STUDIO_API_KEY ?? '').trim();
-      return pingHttp(name, `${withV1Suffix(baseUrl.trim() || DEFAULT_LM_STUDIO_BASE_URL)}/models`, apiKey);
+      const base = ensureOpenAiV1Base(baseUrl.trim() || envOr('LM_STUDIO_BASE_URL', DEFAULT_LM_STUDIO_BASE_URL));
+      return pingHttp(name, `${base}/models`, apiKey);
     }
     case 'llamacpp': {
       const apiKey = key || (process.env.LLAMACPP_API_KEY ?? '').trim();
-      return pingHttp(name, `${withV1Suffix(baseUrl.trim() || DEFAULT_LLAMACPP_BASE_URL)}/models`, apiKey);
+      const base = ensureOpenAiV1Base(baseUrl.trim() || envOr('LLAMACPP_BASE_URL', DEFAULT_LLAMACPP_BASE_URL));
+      return pingHttp(name, `${base}/models`, apiKey);
     }
     default:
       return Promise.resolve({ ok: false, error: `${name} can't be used for chat` });

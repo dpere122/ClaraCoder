@@ -47,7 +47,7 @@ function setup() {
         },
       },
       { provide: AnthropicService, useValue: {} },
-      { provide: ThemedConfirmDialogService, useValue: {} },
+      { provide: ThemedConfirmDialogService, useValue: { open: vi.fn(async () => 'cancel') } },
       { provide: ThemedPromptDialogService, useValue: {} },
       { provide: NgxSpinnerService, useValue: { getSpinner: () => NEVER, show: vi.fn(), hide: vi.fn() } },
       { provide: ThemeEngineService, useValue: { library: signal([]) } },
@@ -109,6 +109,78 @@ function llamaSource(id: string): LlmProviderConfig {
 function target(host: HTMLElement, name: string): HTMLElement | null {
   return host.querySelector<HTMLElement>(`[data-tutorial="${name}"]`);
 }
+
+describe('the sources list', () => {
+  const rowIdsAroundSeparator = (host: HTMLElement) => {
+    const children = Array.from(host.querySelector('.sources-list')!.children) as HTMLElement[];
+    const at = children.findIndex((el) => el.matches('.sources-list__separator'));
+    const ids = (rows: HTMLElement[]) => rows.map((el) => el.dataset['tutorialSourceId']);
+    return at < 0 ? null : { before: ids(children.slice(0, at)), after: ids(children.slice(at + 1)) };
+  };
+  const other = (id: string) => ({ ...llamaSource(id), provider: 'openai', models: [] }) as LlmProviderConfig;
+
+  it('sets local models apart below every other provider', () => {
+    const fixture = setup();
+    const store = TestBed.inject(SettingsStore);
+    store.llmProviders.set([llamaSource('local-a'), other('other-a'), llamaSource('local-b'), other(PINNED_LLAMA_SERVER_URL_PROVIDER_ID)]);
+    fixture.detectChanges();
+    expect(rowIdsAroundSeparator(fixture.nativeElement)).toEqual({
+      before: [PINNED_LLAMA_SERVER_URL_PROVIDER_ID, 'other-a'],
+      after: ['local-a', 'local-b'],
+    });
+  });
+
+  it.each([
+    ['no local models', ['other-a'], []],
+    ['only local models', [], ['local-a']],
+  ])('has no separator with %s', (_name, others, locals) => {
+    const fixture = setup();
+    TestBed.inject(SettingsStore).llmProviders.set([...others.map(other), ...locals.map(llamaSource)]);
+    fixture.detectChanges();
+    expect(rowIdsAroundSeparator(fixture.nativeElement)).toBeNull();
+  });
+});
+
+describe('removing a source', () => {
+  function withSources() {
+    const fixture = setup();
+    const store = TestBed.inject(SettingsStore);
+    const other = { ...llamaSource('other-a'), provider: 'openai', models: [] } as LlmProviderConfig;
+    store.llmProviders.set([other, llamaSource('local-a')]);
+    fixture.detectChanges();
+    const open = TestBed.inject(ThemedConfirmDialogService).open as ReturnType<typeof vi.fn>;
+    const removeRow = (id: string) => {
+      const row = (fixture.nativeElement as HTMLElement).querySelector(`[data-tutorial-source-id="${id}"]`);
+      row!.querySelector<HTMLButtonElement>('.source-row__remove')!.click();
+      return fixture.whenStable();
+    };
+    const ids = () => store.llmProviders().map((p) => p.id);
+    return { store, open, removeRow, ids };
+  }
+
+  it('keeps a local model source when the dialog is cancelled', async () => {
+    const { store, open, removeRow, ids } = withSources();
+    await removeRow('local-a');
+    expect(open).toHaveBeenCalledOnce();
+    expect(open.mock.calls[0]![0].message).toContain(store.sourceDisplayName(llamaSource('local-a')));
+    expect(ids()).toEqual(['other-a', 'local-a']);
+    expect(store.settingsDirty()).toBe(false);
+  });
+
+  it('removes a local model source once confirmed', async () => {
+    const { open, removeRow, ids } = withSources();
+    open.mockResolvedValueOnce('confirm');
+    await removeRow('local-a');
+    expect(ids()).toEqual(['other-a']);
+  });
+
+  it('removes other sources without asking', async () => {
+    const { open, removeRow, ids } = withSources();
+    await removeRow('other-a');
+    expect(open).not.toHaveBeenCalled();
+    expect(ids()).toEqual(['local-a']);
+  });
+});
 
 describe('local source tutorial', () => {
   it('targets managed local defaults and advanced controls, not LM Studio or a URL-only server', () => {

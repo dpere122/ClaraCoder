@@ -2781,6 +2781,7 @@
         "models-sources__count",
         "models-sources__add",
         "sources-list",
+        "sources-list__separator",
         "source-row-wrap",
         "is-selected",
         "is-activated",
@@ -2938,8 +2939,7 @@
         "model-quant-row",
         "model-quant-row--downloading",
         "model-quant-row--done",
-        "model-quant-row__name",
-        "model-quant-row__size"
+        "model-quant-row__name"
       ]
     },
     {
@@ -3080,6 +3080,7 @@
         "models-sources__count",
         "models-sources__add",
         "sources-list",
+        "sources-list__separator",
         "source-row-wrap",
         "is-selected",
         "is-activated",
@@ -3218,8 +3219,7 @@
         "mm-row__tag",
         "mm-row__done",
         "mm-avatar",
-        "mm-avatar--initial",
-        "mm-stats"
+        "mm-avatar--initial"
       ]
     },
     {
@@ -3345,6 +3345,8 @@
         "home__row-age",
         "home__empty",
         "home__col--side",
+        "home__heading-row",
+        "home__heading-action",
         "home__runtime",
         "home__runtime-source",
         "home__runtime-label",
@@ -3709,6 +3711,8 @@
         "home__row-age",
         "home__empty",
         "home__col--side",
+        "home__heading-row",
+        "home__heading-action",
         "home__runtime",
         "home__runtime-source",
         "home__runtime-label",
@@ -3859,9 +3863,7 @@
         "chat-area__tab-strip-overlay",
         "is-overflowing",
         "chat-area__tab-strip-overlay-thumb",
-        "pill-select",
-        "is-open",
-        "is-up"
+        "pill-select"
       ]
     },
     {

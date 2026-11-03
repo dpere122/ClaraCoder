@@ -25,7 +25,6 @@ import type {
 import {
   findLlmModelLocation,
   findManagedLocalLlamaLocation,
-  isPinnedLlamaCppLocalProviderId,
   isPinnedLlamaServerUrlProviderId,
   isPinnedLmStudioProviderId,
   isPinnedOpenRouterProviderId,
@@ -102,7 +101,6 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     const list = cfg.llmProviders;
     const pinLm = list.find((p) => isPinnedLmStudioProviderId(p.id));
     const pinUrl = list.find((p) => isPinnedLlamaServerUrlProviderId(p.id));
-    const pinLocal = list.find((p) => isPinnedLlamaCppLocalProviderId(p.id));
     const pinOpenRouter = list.find((p) => isPinnedOpenRouterProviderId(p.id));
     const pinAnthropic = list.find((p) => isPinnedAnthropicProviderId(p.id));
     const rest = list.filter((p) => !isPinnedLlmSourceId(p.id));
@@ -113,20 +111,22 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     if (pinUrl) {
       head.push(pinUrl);
     }
-    if (pinLocal) {
-      head.push(pinLocal);
-    }
     if (pinOpenRouter) {
       head.push(pinOpenRouter);
     }
     if (pinAnthropic) {
       head.push(pinAnthropic);
     }
-    return [...head, ...rest];
+    return [...head, ...rest.filter((p) => p.provider !== 'llamacpp'), ...rest.filter((p) => p.provider === 'llamacpp')];
   });
 
+  /** Custom sources form their own menu section, set apart from the pinned rows. */
   protected readonly sourceOptions = computed(() =>
-    this.sources().map((provider) => ({ id: provider.id, label: this.sourceLabel(provider) })),
+    this.sources().map((provider) => ({
+      id: provider.id,
+      label: this.sourceLabel(provider),
+      group: isPinnedLlmSourceId(provider.id) ? '' : 'Custom',
+    })),
   );
 
   protected readonly show = computed(() => this.sources().length > 0);

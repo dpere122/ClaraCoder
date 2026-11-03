@@ -213,6 +213,39 @@
   color: var(--t-text-muted);
 }
 
+.home__heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.home__heading-row .home__heading {
+  margin: 0;
+}
+
+/* Negative margins keep the row as tall as a plain heading, so the columns stay level. */
+.home__heading-action {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin: -0.5rem 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--chat-radius-sm);
+  background: transparent;
+  color: var(--t-text-muted);
+  cursor: pointer;
+}
+
+.home__heading-action:hover {
+  background: var(--t-hover-bg);
+  color: var(--t-fg);
+}
+
 .home__list {
   list-style: none;
   margin: 0 0 0 -0.5rem;
@@ -252,6 +285,7 @@
 }
 
 .home__action:focus-visible,
+.home__heading-action:focus-visible,
 .home__row-main:focus-visible,
 .home__row-action:focus-visible,
 .home__row-grip:focus-visible,

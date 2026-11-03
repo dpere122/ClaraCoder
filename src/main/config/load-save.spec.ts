@@ -5,15 +5,16 @@ import { createHash } from 'crypto';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import type { AppConfig, ContextCompressionConfig, LlamaCppManaged, McpServerConfig } from '../../shared';
-import { createEmptyMcpServer, getDefaultContextCompression, unwrapSecret } from '../../shared';
+import { createEmptyMcpServer, getDefaultContextCompression, isPinnedLlmSourceId, unwrapSecret } from '../../shared';
 import {
-  PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
   PINNED_OPENROUTER_PROVIDER_ID,
   PINNED_ANTHROPIC_PROVIDER_ID,
 } from '../../shared';
 import { SecretValue } from '../../shared/types/app-config';
 import { APP_CONFIG_SCHEMA_VERSION, createDefaultConfig } from './defaults';
+
+const isLocalSource = (p: AppConfig['llmProviders'][number]) => p.provider === 'llamacpp' && !isPinnedLlmSourceId(p.id);
 
 vi.mock('../paths', () => ({
   getConfigPath: () => join(process.env.CLARA_TEST_CONFIG_DIR ?? '', 'config.json'),
@@ -522,10 +523,10 @@ describe('migrateConfig managed --cache-ram 0', () => {
 
   function managedAfterMigration(chatRunCommand: string, configSchemaVersion = 8): LlamaCppManaged {
     const cfg = sampleConfig({ configSchemaVersion });
-    const local = cfg.llmProviders.find((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID)!;
+    const local = cfg.llmProviders.find(isLocalSource)!;
     local.models[0]!.llamaCppManaged = { chatRunCommand, embeddingRunCommand: 'embed --cache-ram 0', autoTuned: tuned };
     const migrated = migrateConfig(cfg);
-    return migrated.llmProviders.find((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID)!.models[0]!.llamaCppManaged!;
+    return migrated.llmProviders.find(isLocalSource)!.models[0]!.llamaCppManaged!;
   }
 
   it('drops the flag the builder wrote and nothing else', () => {
@@ -564,9 +565,9 @@ describe('migrateConfig managed --cache-ram 0', () => {
       '-ctk q8_0 -ctv q8_0 --metrics --no-webui --spec-draft-n-max 4 --spec-type draft-mtp -dev CUDA0,CUDA1 ' +
       '--tensor-split 27,21 --main-gpu 0 -ngl auto --no-mmproj --load-mode auto';
     const cfg = sampleConfig({ configSchemaVersion: 8 });
-    const local = cfg.llmProviders.find((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID)!;
+    const local = cfg.llmProviders.find(isLocalSource)!;
     local.models[0]!.llamaCppManaged = { chatRunCommand: preset, embeddingRunCommand: '' };
-    const managed = migrateConfig(cfg).llmProviders.find((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID)!.models[0]!
+    const managed = migrateConfig(cfg).llmProviders.find(isLocalSource)!.models[0]!
       .llamaCppManaged!;
     expect(managed.chatRunCommand).toBe(preset);
     expect(managed.autoTuned).toBeUndefined();
@@ -576,7 +577,7 @@ describe('migrateConfig managed --cache-ram 0', () => {
 describe('migrateConfig openrouter pin', () => {
   it('inserts the pinned OpenRouter source without changing the active model', () => {
     const cfg = sampleConfig();
-    const local = cfg.llmProviders.find((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID);
+    const local = cfg.llmProviders.find(isLocalSource);
     const active = local?.models[0]?.id ?? '';
     expect(active).not.toBe('');
     cfg.activeLlmModelId = active;
@@ -588,8 +589,8 @@ describe('migrateConfig openrouter pin', () => {
     expect(openrouter?.baseUrl).toBe('https://openrouter.ai/api/v1');
     expect(openrouter?.models[0]?.model).toBe('');
     expect(migrated.activeLlmModelId).toBe(active);
-    const localIdx = migrated.llmProviders.findIndex((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID);
-    expect(migrated.llmProviders[localIdx + 1]?.id).toBe(PINNED_OPENROUTER_PROVIDER_ID);
+    const urlIdx = migrated.llmProviders.findIndex((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID);
+    expect(migrated.llmProviders[urlIdx + 1]?.id).toBe(PINNED_OPENROUTER_PROVIDER_ID);
   });
 
   it('keeps the pinned OpenRouter model empty across repeated migrations', () => {
@@ -643,22 +644,60 @@ describe('migrateConfig openrouter pin', () => {
   });
 });
 
+describe('local model sources', () => {
+  it('starts a new config with one ordinary local source after the pinned rows', () => {
+    const first = createDefaultConfig().llmProviders;
+    const locals = first.filter(isLocalSource);
+    expect(locals).toHaveLength(1);
+    expect(first.at(-1)).toBe(locals[0]);
+    expect(isPinnedLlmSourceId(locals[0]!.id)).toBe(false);
+    expect(createDefaultConfig().llmProviders.find(isLocalSource)?.id).not.toBe(locals[0]!.id);
+  });
+
+  it('keeps a removed local source removed', () => {
+    const cfg = sampleConfig();
+    cfg.llmProviders = cfg.llmProviders.filter((p) => !isLocalSource(p));
+    expect(migrateConfig(cfg).llmProviders.some(isLocalSource)).toBe(false);
+  });
+
+  it('keeps the old default local row as an ordinary source with its settings', () => {
+    const cfg = sampleConfig();
+    const local = cfg.llmProviders.find(isLocalSource)!;
+    local.id = 'llamacpp-local-default';
+    local.models[0]!.llamaCppManaged = { chatRunCommand: 'llama-server -m /a.gguf', embeddingRunCommand: '' };
+    cfg.activeLlmModelId = local.models[0]!.id;
+    const migrated = migrateConfig(cfg);
+    const kept = migrated.llmProviders.find((p) => p.id === 'llamacpp-local-default');
+    expect(kept?.models[0]?.llamaCppManaged?.chatRunCommand).toBe('llama-server -m /a.gguf');
+    expect(isPinnedLlmSourceId('llamacpp-local-default')).toBe(false);
+    expect(migrated.activeLlmModelId).toBe(local.models[0]!.id);
+  });
+});
+
 describe('migrateConfig managed llama source names', () => {
   it('renames old default names on local sources to numbered Local Model names', () => {
     const cfg = sampleConfig();
-    const local = cfg.llmProviders.find((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID)!;
+    const local = cfg.llmProviders.find(isLocalSource)!;
     local.name = 'Llama server (local)';
     cfg.llmProviders.push({ ...structuredClone(local), id: 'extra-local', name: 'Llama Server 2' });
     const migrated = migrateConfig(cfg);
-    expect(migrated.llmProviders.find((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID)?.name).toBe('Local Model');
+    expect(migrated.llmProviders.find(isLocalSource)?.name).toBe('Local Model');
     expect(migrated.llmProviders.find((p) => p.id === 'extra-local')?.name).toBe('Local Model 2');
   });
 
-  it('keeps the remote URL source name', () => {
-    const migrated = migrateConfig(sampleConfig());
-    expect(migrated.llmProviders.find((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID)?.name).toBe(
-      'Llama server (URL)',
-    );
+  const urlSourceNameAfterMigrating = (name: string) => {
+    const cfg = sampleConfig();
+    cfg.llmProviders.find((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID)!.name = name;
+    return migrateConfig(cfg).llmProviders.find((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID)?.name;
+  };
+
+  it('renames old default names on the remote URL source', () => {
+    expect(urlSourceNameAfterMigrating('Llama server (URL)')).toBe('Custom OpenAI Endpoint');
+    expect(urlSourceNameAfterMigrating('llama.cpp')).toBe('Custom OpenAI Endpoint');
+  });
+
+  it('keeps a name the user gave the remote URL source', () => {
+    expect(urlSourceNameAfterMigrating('My GPU box')).toBe('My GPU box');
   });
 });
 

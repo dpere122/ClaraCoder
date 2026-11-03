@@ -10,7 +10,6 @@ import type {
   LlamaServerStatusResult,
 } from '@shared/index';
 import {
-  PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   PINNED_LM_STUDIO_PROVIDER_ID,
   SecretValue,
 } from '@shared/index';
@@ -25,7 +24,7 @@ function localLlamaConfig(modelId = 'local-model'): AppConfig {
     activeLlmModelId: modelId,
     llmProviders: [
       {
-        id: PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
+        id: 'local-source',
         name: 'Local llama.cpp',
         provider: 'llamacpp',
         baseUrl: '',

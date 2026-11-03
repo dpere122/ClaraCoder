@@ -131,7 +131,6 @@ import {
   withoutAutoTunedFlags,
   isPinnedLlmSourceId,
   isPinnedLmStudioProviderId,
-  isPinnedLlamaCppLocalProviderId,
   isPinnedLlamaServerUrlProviderId,
   isPinnedOpenRouterProviderId,
   isPinnedAnthropicProviderId,
@@ -157,7 +156,11 @@ import {
   discardSettingsChangesPrompt,
   unsavedWorkspaceSwitchPrompt,
 } from '../../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
-import { customModelDeletePrompt, workspaceRemovePrompt } from '../../../shared/themed-confirm-dialog/format-delete-prompt';
+import {
+  customModelDeletePrompt,
+  localSourceRemovePrompt,
+  workspaceRemovePrompt,
+} from '../../../shared/themed-confirm-dialog/format-delete-prompt';
 import { DEFAULT_THEME_ID, resolveLegacyThemeId } from '@shared/theme';
 import { applyAppFontOverrides } from '../../../core/theme/app-font-overrides';
 import { ThemeEngineService } from '../../../core/theme/theme-engine.service';
@@ -534,12 +537,11 @@ export class SettingsStore {
     const tab = this.tabs.find((t) => t.id === parent) ?? this.tabs[0];
     return { label: tab.label, description: tab.description, parentLabel: null as string | null };
   });
-  /** Pinned sources first: LM Studio, remote llama URL, local managed llama, OpenRouter, Claude; remaining rows keep file order. */
+  /** Pinned sources first: LM Studio, remote llama URL, OpenRouter, Claude; then other sources, then local models, each in file order. */
   readonly sourcesOrdered = computed(() => {
     const list = this.llmProviders();
     const pinLm = list.find((p) => isPinnedLmStudioProviderId(p.id));
     const pinUrl = list.find((p) => isPinnedLlamaServerUrlProviderId(p.id));
-    const pinLocal = list.find((p) => isPinnedLlamaCppLocalProviderId(p.id));
     const pinOpenRouter = list.find((p) => isPinnedOpenRouterProviderId(p.id));
     const pinAnthropic = list.find((p) => isPinnedAnthropicProviderId(p.id));
     const rest = list.filter((p) => !isPinnedLlmSourceId(p.id));
@@ -550,17 +552,22 @@ export class SettingsStore {
     if (pinUrl) {
       head.push(pinUrl);
     }
-    if (pinLocal) {
-      head.push(pinLocal);
-    }
     if (pinOpenRouter) {
       head.push(pinOpenRouter);
     }
     if (pinAnthropic) {
       head.push(pinAnthropic);
     }
-    return [...head, ...rest];
+    return [
+      ...head,
+      ...rest.filter((p) => !this.isManagedLlamacppSource(p)),
+      ...rest.filter((p) => this.isManagedLlamacppSource(p)),
+    ];
   });
+  /** Where local models start in {@link sourcesOrdered}, for the list's separator; -1 when there are none. */
+  readonly firstLocalSourceIndex = computed(() =>
+    this.sourcesOrdered().findIndex((p) => this.isManagedLlamacppSource(p)),
+  );
   readonly lmStudioInventory = signal<LmStudioModelCard[]>([]);
   readonly lmStudioInventoryError = signal<string | null>(null);
   readonly lmStudioListInFlight = signal(false);
@@ -1454,6 +1461,17 @@ export class SettingsStore {
     this.markSettingsDirty();
   }
 
+  /** A source row's remove button: a local model source asks first. */
+  async requestRemoveProvider(provider: LlmProviderConfig): Promise<void> {
+    if (this.isManagedLlamacppSource(provider)) {
+      const prompt = localSourceRemovePrompt(this.sourceDisplayName(provider));
+      if ((await this.themedConfirm.open(prompt)) !== 'confirm') {
+        return;
+      }
+    }
+    this.removeProvider(provider.id);
+  }
+
   removeProvider(providerId: string): void {
     if (isPinnedLlmSourceId(providerId)) {
       return;
@@ -1590,12 +1608,13 @@ export class SettingsStore {
     return optimizationPresetsForProvider(provider);
   }
 
-  providerKindLabel(kind: LlmProviderConfig['provider']): string {
+  providerKindLabel(provider: LlmProviderConfig): string {
+    const kind = provider.provider;
     if (kind === 'lmstudio') {
       return 'LM Studio';
     }
     if (kind === 'llamacpp') {
-      return 'llama.cpp';
+      return this.isManagedLlamacppSource(provider) ? 'Local Model' : 'OpenAI-compatible';
     }
     if (kind === 'openrouter') {
       return 'OpenRouter';
@@ -1900,13 +1919,18 @@ export class SettingsStore {
     this.applyManagedModelSource({ kind: 'hf', hfId: sel.hfId });
   }
 
+  /** "Use in Models" gets a source of its own, selected and active, so existing sources stay as they are. */
+  private activateNewLocalSourceForUse(): void {
+    this.addProvider();
+    const source = this.selectedProvider();
+    if (source) {
+      this.activateSource(source.id);
+    }
+  }
+
   useCustomModelInModels(model: ModelManagerFileEntry): void {
     this.selectTab('models');
-    const local = this.llmProviders().find((p) => isPinnedLlamaCppLocalProviderId(p.id));
-    if (local?.models[0]) {
-      this.selectedModelId.set(local.models[0].id);
-      this.activateSource(local.id);
-    }
+    this.activateNewLocalSourceForUse();
     const localGguf = (model.ggufAbsolutePath || '').trim();
     if (localGguf) {
       this.applyManagedModelSource(
@@ -1946,11 +1970,7 @@ export class SettingsStore {
       return;
     }
     this.selectTab('models');
-    const local = this.llmProviders().find((p) => isPinnedLlamaCppLocalProviderId(p.id));
-    if (local?.models[0]) {
-      this.selectedModelId.set(local.models[0].id);
-      this.activateSource(local.id);
-    }
+    this.activateNewLocalSourceForUse();
     this.managedHfIdDraft.set(id);
     this.applyManagedModelSource({ kind: 'hf', hfId: id }, { keepCustomFlags: true });
   }
@@ -2051,11 +2071,7 @@ export class SettingsStore {
     const localPath = this.modelManagerHfDownloaded()[this.hfQuantDownloadId(repo, file)];
     if (localPath) {
       this.selectTab('models');
-      const local = this.llmProviders().find((p) => isPinnedLlamaCppLocalProviderId(p.id));
-      if (local?.models[0]) {
-        this.selectedModelId.set(local.models[0].id);
-        this.activateSource(local.id);
-      }
+      this.activateNewLocalSourceForUse();
       this.applyManagedModelSource(
         {
           kind: 'gguf',
@@ -2179,7 +2195,7 @@ export class SettingsStore {
       if (current && p?.provider === 'llamacpp' && !this.isUrlOnlyLlamacpp()) {
         return current;
       }
-      const local = this.llmProviders().find((x) => isPinnedLlamaCppLocalProviderId(x.id));
+      const local = this.llmProviders().find((x) => this.isManagedLlamacppSource(x));
       if (!local?.models[0]) {
         return null;
       }

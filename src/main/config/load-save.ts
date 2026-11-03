@@ -25,7 +25,6 @@ import type {
 } from '../../shared';
 import {
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
-  DEFAULT_MANAGED_LLAMA_SOURCE_NAME,
   uniqueManagedLlamaSourceName,
   defaultLlamaCppManaged,
   DEFAULT_KOKORO_TTS_VOICE,
@@ -53,9 +52,9 @@ import {
   type ShellQuotingPlatform,
 } from '../../shared';
 import {
-  PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   PINNED_LM_STUDIO_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
+  DEFAULT_URL_SOURCE_NAME,
   PINNED_OPENROUTER_PROVIDER_ID,
   PINNED_ANTHROPIC_PROVIDER_ID,
   OPENROUTER_DEFAULT_BASE_URL,
@@ -83,7 +82,6 @@ import {
   createDefaultConfig,
   createPinnedLmStudioProvider,
   createPinnedLlamaServerUrlProvider,
-  createPinnedLocalManagedLlamaProvider,
   createPinnedOpenRouterProvider,
   createPinnedAnthropicProvider,
   getDefaultAudioTranscription,
@@ -1056,7 +1054,7 @@ function ensurePinnedLlamaServerUrlProvider(providers: LlmProviderConfig[]): boo
 }
 
 /**
- * Ensure the pinned OpenRouter row exists after the local llama source, with its fixed provider
+ * Ensure the pinned OpenRouter row exists after the remote URL source, with its fixed provider
  * and name (Settings offers no rename). Does not change the active model.
  */
 function ensurePinnedOpenRouterProvider(providers: LlmProviderConfig[]): boolean {
@@ -1073,8 +1071,8 @@ function ensurePinnedOpenRouterProvider(providers: LlmProviderConfig[]): boolean
     }
     return changed;
   }
-  const localIdx = providers.findIndex((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID);
-  const insert = localIdx >= 0 ? localIdx + 1 : providers.length;
+  const urlIdx = providers.findIndex((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID);
+  const insert = urlIdx >= 0 ? urlIdx + 1 : providers.length;
   providers.splice(insert, 0, createPinnedOpenRouterProvider());
   return true;
 }
@@ -1123,22 +1121,21 @@ function renameLegacyManagedLlamaSourceNames(providers: LlmProviderConfig[]): bo
   return changed;
 }
 
-/** Ensure pinned managed local ``llama-server`` row exists (after LM Studio + remote URL). */
-function ensurePinnedLocalManagedLlamaProvider(providers: LlmProviderConfig[]): boolean {
-  if (providers.some((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID)) {
+/** Rename the pinned URL source if it still has an old default name; a name the user chose stays. */
+function renameLegacyUrlSourceName(providers: LlmProviderConfig[]): boolean {
+  const url = providers.find((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID);
+  if (url?.name !== 'Llama server (URL)' && url?.name !== 'llama.cpp') {
     return false;
   }
-  const urlIdx = providers.findIndex((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID);
-  const at = urlIdx >= 0 ? urlIdx + 1 : providers.length;
-  providers.splice(at, 0, createPinnedLocalManagedLlamaProvider());
+  url.name = DEFAULT_URL_SOURCE_NAME;
   return true;
 }
 
 /**
- * Ensure the three pinned sources exist in order (LM Studio, remote URL, local managed),
- * preserving user data where possible. Additional non-pinned sources are kept after them.
+ * Ensure LM Studio and the remote URL source exist and lead the list, preserving user data
+ * where possible. All other sources are kept after them.
  */
-function migrateLlmProvidersToThreePinnedSources(
+function migrateLlmProvidersToLeadingPinnedSources(
   providers: LlmProviderConfig[],
   activeModelId: string,
 ): { providers: LlmProviderConfig[]; activeModelId: string } {
@@ -1153,31 +1150,6 @@ function migrateLlmProvidersToThreePinnedSources(
   lm.provider = 'lmstudio';
 
   const used = new Set<string>([lm.id]);
-
-  let local: LlmProviderConfig;
-  const localPinned = pool.find((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID);
-  if (localPinned) {
-    local = localPinned;
-  } else {
-    const cand = pool.find(
-      (p) =>
-        !used.has(p.id) &&
-        p.provider === 'llamacpp' &&
-        (p.models?.[0]?.llamaCppManaged?.chatRunCommand ?? '').trim(),
-    );
-    if (cand) {
-      absorbedIds.add(cand.id);
-      local = structuredClone(cand) as LlmProviderConfig;
-    } else {
-      local = createPinnedLocalManagedLlamaProvider();
-    }
-  }
-  local.id = PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID;
-  if (!local.name?.trim()) {
-    local.name = DEFAULT_MANAGED_LLAMA_SOURCE_NAME;
-  }
-  local.provider = 'llamacpp';
-  used.add(local.id);
 
   let url: LlmProviderConfig;
   const urlPinned = pool.find((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID);
@@ -1199,7 +1171,7 @@ function migrateLlmProvidersToThreePinnedSources(
   }
   url.id = PINNED_LLAMA_SERVER_URL_PROVIDER_ID;
   if (!url.name?.trim()) {
-    url.name = 'Llama server (URL)';
+    url.name = DEFAULT_URL_SOURCE_NAME;
   }
   url.provider = 'llamacpp';
   if (!(url.embeddingsBaseUrl ?? '').trim()) {
@@ -1207,14 +1179,9 @@ function migrateLlmProvidersToThreePinnedSources(
       process.env.LLAMA_SERVER_EMBEDDINGS_BASE_URL || 'http://127.0.0.1:8081/v1';
   }
 
-  const pinnedTriple = [lm, url, local];
-  const pinnedIdSet = new Set([
-    PINNED_LM_STUDIO_PROVIDER_ID,
-    PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
-    PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
-  ]);
+  const pinnedIdSet = new Set([PINNED_LM_STUDIO_PROVIDER_ID, PINNED_LLAMA_SERVER_URL_PROVIDER_ID]);
   const extras = pool.filter((p) => !pinnedIdSet.has(p.id) && !absorbedIds.has(p.id));
-  const out = [...pinnedTriple, ...extras];
+  const out = [lm, url, ...extras];
   let nextActive = activeModelId;
   if (!findLlmModelLocation(out, nextActive)) {
     const fallback = lm.models[0]?.id ?? out[0]!.models[0]!.id;
@@ -1319,7 +1286,7 @@ export function migrateConfig(config: AppConfig): AppConfig {
       newConfig.activeLlmModelId =
         newConfig.llmProviders[0]?.models[0]?.id ?? 'default-lmstudio';
     } else if (schemaVersion < 3) {
-      const m = migrateLlmProvidersToThreePinnedSources(
+      const m = migrateLlmProvidersToLeadingPinnedSources(
         newConfig.llmProviders,
         newConfig.activeLlmModelId,
       );
@@ -1409,10 +1376,6 @@ export function migrateConfig(config: AppConfig): AppConfig {
     migrated = true;
   }
 
-  if (ensurePinnedLocalManagedLlamaProvider(newConfig.llmProviders)) {
-    migrated = true;
-  }
-
   if (ensurePinnedOpenRouterProvider(newConfig.llmProviders)) {
     migrated = true;
   }
@@ -1425,17 +1388,13 @@ export function migrateConfig(config: AppConfig): AppConfig {
     migrated = true;
   }
 
-  const wantOrder = [
-    PINNED_LM_STUDIO_PROVIDER_ID,
-    PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
-    PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
-  ];
-  const hasAllPins = wantOrder.every((id) => newConfig.llmProviders.some((p) => p.id === id));
-  const firstThreeOrdered = wantOrder.every((id, i) => newConfig.llmProviders[i]?.id === id);
-  const needsThreeSourceReshape =
-    newConfig.llmProviders.length < 3 || !hasAllPins || !firstThreeOrdered;
-  if (needsThreeSourceReshape) {
-    const m = migrateLlmProvidersToThreePinnedSources(
+  if (renameLegacyUrlSourceName(newConfig.llmProviders)) {
+    migrated = true;
+  }
+
+  const wantOrder = [PINNED_LM_STUDIO_PROVIDER_ID, PINNED_LLAMA_SERVER_URL_PROVIDER_ID];
+  if (!wantOrder.every((id, i) => newConfig.llmProviders[i]?.id === id)) {
+    const m = migrateLlmProvidersToLeadingPinnedSources(
       newConfig.llmProviders,
       newConfig.activeLlmModelId,
     );

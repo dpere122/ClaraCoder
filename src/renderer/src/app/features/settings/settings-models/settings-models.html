@@ -20,6 +20,9 @@
 
             <div class='sources-list'>
               @for (provider of s.sourcesOrdered(); track s.trackProvider($index, provider)) {
+                @if ($index > 0 && $index === s.firstLocalSourceIndex()) {
+                  <hr class='sources-list__separator' />
+                }
                 <div
                   class='source-row-wrap'
                   data-tutorial-source-row='true'
@@ -52,7 +55,7 @@
                           ><span></span><span></span><span></span></span>
                         }
                       </div>
-                      <span class='source-row__kind'>{{ s.providerKindLabel(provider.provider) }}</span>
+                      <span class='source-row__kind'>{{ s.providerKindLabel(provider) }}</span>
                     </div>
                   </button>
                   @if (!s.isPinnedSource(provider.id)) {
@@ -60,7 +63,7 @@
                       type='button'
                       class='source-row__remove'
                       [disabled]='s.llmProviders().length <= 1'
-                      (click)='s.removeProvider(provider.id); $event.stopPropagation()'
+                      (click)='s.requestRemoveProvider(provider); $event.stopPropagation()'
                       title='Remove source'
                     >
                       <lucide-icon name='x' [size]='16' />

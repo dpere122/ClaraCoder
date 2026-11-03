@@ -5,7 +5,6 @@ import { NEVER, Subject } from 'rxjs';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   getDefaultContextCompression,
-  PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   SecretValue,
   type AppConfig,
   type ModelManagerFileEntry,
@@ -30,7 +29,7 @@ let SettingsThemesStore!: typeof SettingsThemesStoreType;
 let Settings!: typeof SettingsComponent;
 let SettingsStore!: typeof SettingsStoreType;
 
-const LOCAL_ID = PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID;
+const LOCAL_ID = 'local-source';
 const MODEL: ModelManagerFileEntry = {
   fileName: 'model.gguf', absolutePath: '/models/model.gguf', sizeBytes: 1024, modifiedMs: 0, source: 'custom',
 };

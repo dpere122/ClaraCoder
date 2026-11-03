@@ -4,8 +4,8 @@ export const PINNED_LM_STUDIO_PROVIDER_ID = 'lm-studio-default';
 /** Pinned “remote llama-server” row (URL + optional key; no managed Start). */
 export const PINNED_LLAMA_SERVER_URL_PROVIDER_ID = 'llama-server-url-default';
 
-/** Pinned managed ``llama-server`` on this machine (Start from chat sidebar). */
-export const PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID = 'llamacpp-local-default';
+/** Default name of the pinned URL row; Settings lets the user rename it. */
+export const DEFAULT_URL_SOURCE_NAME = 'Custom OpenAI Endpoint';
 
 /** Pinned OpenRouter row (chat completions + model catalog). */
 export const PINNED_OPENROUTER_PROVIDER_ID = 'openrouter-default';
@@ -24,10 +24,6 @@ export function isPinnedLlamaServerUrlProviderId(id: string): boolean {
   return id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID;
 }
 
-export function isPinnedLlamaCppLocalProviderId(id: string): boolean {
-  return id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID;
-}
-
 export function isPinnedOpenRouterProviderId(id: string): boolean {
   return id === PINNED_OPENROUTER_PROVIDER_ID;
 }
@@ -40,7 +36,6 @@ export function isPinnedLlmSourceId(id: string): boolean {
   return (
     isPinnedLmStudioProviderId(id) ||
     isPinnedLlamaServerUrlProviderId(id) ||
-    isPinnedLlamaCppLocalProviderId(id) ||
     isPinnedOpenRouterProviderId(id) ||
     isPinnedAnthropicProviderId(id)
   );

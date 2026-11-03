@@ -133,7 +133,18 @@
 
         <div class="home__col home__col--side">
           <section class="home__section" aria-labelledby="home-runtime">
-            <h2 class="home__heading" id="home-runtime">Runtime</h2>
+            <div class="home__heading-row">
+              <h2 class="home__heading" id="home-runtime">Runtime</h2>
+              <button
+                type="button"
+                class="home__heading-action"
+                title="Source settings"
+                aria-label="Open source settings"
+                (click)="openSources.emit()"
+              >
+                <lucide-icon name="settings" [size]="14" />
+              </button>
+            </div>
             <div class="home__runtime">
               <div class="home__runtime-source">
                 <span class="home__runtime-label">Source</span>

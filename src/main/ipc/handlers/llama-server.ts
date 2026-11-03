@@ -204,7 +204,7 @@ export function registerLlamaServerIpc(): void {
 
   ipcMain.handle('llamacpp-openai:list-models', async (event, payload: { baseUrl: string; apiKey: string }) => {
     try {
-      // Settings is its own window; Connect on Llama server (URL) lists models from there.
+      // Settings is its own window; Connect on the URL source lists models from there.
       assertTrustedAppRenderer(event);
     } catch {
       return { ok: false as const, error: 'Untrusted IPC sender' };

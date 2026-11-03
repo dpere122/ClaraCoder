@@ -2,7 +2,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { Subject } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AppConfig, LlamaServerStartResult } from '@shared/index';
+import { PINNED_LM_STUDIO_PROVIDER_ID, type AppConfig, type LlamaServerStartResult } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 import { ManagedLlamaControlsComponent } from './managed-llama-controls';
@@ -59,6 +59,22 @@ const button = (el: HTMLElement) => el.querySelector('.managed-llama-controls__b
 const alertText = (el: HTMLElement) => el.querySelector('[role="alert"]')?.textContent ?? null;
 
 beforeEach(() => TestBed.resetTestingModule());
+
+describe('the source menu', () => {
+  it('lists custom sources in their own section after the pinned rows', async () => {
+    const { fixture } = setup();
+    const pinned = { id: PINNED_LM_STUDIO_PROVIDER_ID, name: 'LM Studio', provider: 'lmstudio', baseUrl: '', apiKey: {}, models: [model('m3')] };
+    fixture.componentRef.setInput('appConfig', { ...CONFIG, llmProviders: [...CONFIG.llmProviders, pinned] });
+    await render(fixture);
+    const select = fixture.debugElement.query(By.directive(PillSelectComponent)).componentInstance as PillSelectComponent;
+    const options = select.options() as ReadonlyArray<{ id: string; group: string }>;
+    expect(options.map((o) => [o.id, o.group])).toEqual([
+      [PINNED_LM_STUDIO_PROVIDER_ID, ''],
+      ['a', 'Custom'],
+      ['b', 'Custom'],
+    ]);
+  });
+});
 
 describe('a start that fails', () => {
   it('says what the server said, and goes back to Start', async () => {

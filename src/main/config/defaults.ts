@@ -17,6 +17,7 @@ import {
   DEFAULT_CHAT_THINKING_DISPLAY,
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   DEFAULT_MANAGED_LLAMA_SOURCE_NAME,
+  DEFAULT_URL_SOURCE_NAME,
   DEFAULT_KOKORO_TTS_VOICE,
   DEFAULT_OPENAI_TTS_BASE_URL,
   DEFAULT_TTS_PROVIDER,
@@ -25,7 +26,6 @@ import {
   defaultMonacoWorkspaceEditorSettings,
   getDefaultContextCompression,
   inferContextWindowTokens,
-  PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   PINNED_LM_STUDIO_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
   PINNED_OPENROUTER_PROVIDER_ID,
@@ -70,23 +70,23 @@ export function createPinnedLmStudioProvider(): LlmProviderConfig {
   };
 }
 
-/** Pinned managed llama-server on this machine (stable id; never deleted in UI). */
-export function createPinnedLocalManagedLlamaProvider(): LlmProviderConfig {
+/** The managed llama-server source a new config starts with; an ordinary source the user can remove. */
+function createLocalManagedLlamaProvider(): LlmProviderConfig {
   const defaultLlamacppModel = process.env.LLAMACPP_MODEL || 'local-model';
   const chatRunCommand =
     process.env.LLAMACPP_CHAT_RUN_COMMAND ||
     DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND;
   const embeddingRunCommand = process.env.LLAMACPP_EMBEDDING_RUN_COMMAND || '';
   return {
-    id: PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
+    id: randomUUID(),
     name: DEFAULT_MANAGED_LLAMA_SOURCE_NAME,
     provider: 'llamacpp',
     baseUrl: process.env.LLAMACPP_BASE_URL || 'http://127.0.0.1:8080/v1',
     apiKey: SecretValue.of(process.env.LLAMACPP_API_KEY || ''),
     models: [
       {
-        id: 'default-llamacpp',
-        name: 'llama.cpp local',
+        id: randomUUID(),
+        name: 'Model 1',
         model: defaultLlamacppModel,
         contextWindowTokens: inferContextWindowTokens(defaultLlamacppModel, 'llamacpp'),
         reasoningEffort: '',
@@ -131,7 +131,7 @@ export function createPinnedLlamaServerUrlProvider(): LlmProviderConfig {
     process.env.LLAMA_SERVER_EMBEDDINGS_BASE_URL || 'http://127.0.0.1:8081/v1';
   return {
     id: PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
-    name: 'Llama server (URL)',
+    name: DEFAULT_URL_SOURCE_NAME,
     provider: 'llamacpp',
     baseUrl: chatBase,
     embeddingsBaseUrl: embeddingsBase,
@@ -205,9 +205,9 @@ export function getDefaultLlmProviders(): LlmProviderConfig[] {
   return [
     createPinnedLmStudioProvider(),
     createPinnedLlamaServerUrlProvider(),
-    createPinnedLocalManagedLlamaProvider(),
     createPinnedOpenRouterProvider(),
     createPinnedAnthropicProvider(),
+    createLocalManagedLlamaProvider(),
   ];
 }
 

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   LLM_REASONING_EFFORT_OPTIONS,
   LLM_THINKING_MODE_OPTIONS,
-  PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
   SecretValue,
   findManagedLocalLlamaLocation,
@@ -136,7 +135,7 @@ describe('findManagedLocalLlamaLocation', () => {
   it('returns the active managed local llamacpp source', () => {
     const cfg = {
       activeLlmModelId: 'local-1',
-      llmProviders: [llamacppProvider(PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID, 'local-1')],
+      llmProviders: [llamacppProvider('local-source', 'local-1')],
     } as unknown as AppConfig;
     expect(findManagedLocalLlamaLocation(cfg)?.model.id).toBe('local-1');
   });

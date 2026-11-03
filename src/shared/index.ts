@@ -373,14 +373,13 @@ export {
 } from './types/llm-presets';
 export { defaultLlmModelId, inferContextWindowTokens, isGemmaFamily, resolveContextWindowTokens } from './model-context';
 export {
-  PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   PINNED_LM_STUDIO_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
+  DEFAULT_URL_SOURCE_NAME,
   PINNED_OPENROUTER_PROVIDER_ID,
   PINNED_ANTHROPIC_PROVIDER_ID,
   OPENROUTER_DEFAULT_BASE_URL,
   isPinnedLmStudioProviderId,
-  isPinnedLlamaCppLocalProviderId,
   isPinnedLlamaServerUrlProviderId,
   isPinnedOpenRouterProviderId,
   isPinnedAnthropicProviderId,

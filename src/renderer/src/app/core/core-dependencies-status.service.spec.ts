@@ -1,6 +1,5 @@
 import { TestBed } from '@angular/core/testing';
 import {
-  PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   PINNED_OPENROUTER_PROVIDER_ID,
   defaultDependencyCatalog,
   type AppConfig,
@@ -66,7 +65,7 @@ describe('coreDependenciesNeeded', () => {
     return {
       activeLlmModelId,
       llmProviders: [
-        source(PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID, 'llamacpp', 'local-1'),
+        source('local-source', 'llamacpp', 'local-1'),
         source(PINNED_OPENROUTER_PROVIDER_ID, 'openrouter', 'remote-1'),
       ],
     } as unknown as AppConfig;

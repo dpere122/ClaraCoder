@@ -78,6 +78,21 @@ describe('MainPanelEmptyStateComponent', () => {
     expect(events).toEqual(['sources']);
   });
 
+  it('opens the Sources settings from the Runtime heading cog', () => {
+    const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
+    const events: string[] = [];
+    fixture.componentInstance.openSources.subscribe(() => events.push('sources'));
+    fixture.componentRef.setInput('hasWorkspace', false);
+    fixture.detectChanges();
+
+    const cog = (fixture.nativeElement as HTMLElement).querySelector(
+      '.home__heading-action',
+    ) as HTMLButtonElement | null;
+    expect(cog?.getAttribute('aria-label')).toBe('Open source settings');
+    cog?.click();
+    expect(events).toEqual(['sources']);
+  });
+
   it('renders recent workspaces with their path and emits openWorkspace on click', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
     const opened: string[] = [];

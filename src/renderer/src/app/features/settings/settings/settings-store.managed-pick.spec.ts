@@ -7,7 +7,6 @@ import {
   diffLlamaCommands,
   inferContextWindowTokens,
   parseManagedLlamaContextSize,
-  PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   type AppConfig,
   type CudaGpuDevice,
   type GgufProfile,
@@ -158,7 +157,7 @@ function setup(
   const store = TestBed.inject(SettingsStore);
   store.llmProviders.set([
     {
-      id: PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
+      id: 'local-source',
       name: 'Local Model',
       provider: 'llamacpp',
       baseUrl: 'http://127.0.0.1:8080/v1',

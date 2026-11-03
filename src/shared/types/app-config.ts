@@ -1,4 +1,5 @@
 import type { Workspace } from './workspace';
+import type { TutorialProgress } from './tutorial';
 import type { ScreenshotRetentionSettings } from '../screenshot-retention';
 import {
   QWEN_REASONING_EFFORT_VALUES,
@@ -1531,6 +1532,8 @@ export interface AppConfig {
    * Older files omit this field (treated as 0); see `migrateConfig` in load-save.
    */
   configSchemaVersion?: number;
+  /** Progress is main-process-owned; ordinary Settings saves cannot replace it. */
+  tutorial?: TutorialProgress;
   currentWorkspaceId: string | null;
   /**
    * When true, the welcome/home screen is shown on launch instead of restoring

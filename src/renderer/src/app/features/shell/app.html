@@ -1,15 +1,16 @@
 <div class='app-layout'>
-  <div class='app-top-bar' data-theme-group='shell.titlebar'>
+  <div class='app-top-bar' data-theme-group='shell.titlebar' data-tutorial='home-navigation'>
     @if (electron.isElectron) {
       <div class='window-chrome'>
         <h1 class='chrome-title' (dblclick)='onWindowToggleMaximize()'>
           <img class='chrome-title-icon' src='app-icon.png' alt='Clara Coder' />
         </h1>
-        <button type='button' class='chrome-menu-btn' (click)='onChromeFileMenu($event)'>File</button>
-        <button type='button' class='chrome-menu-btn' (click)='onChromeSettingsMenu($event)'>Settings</button>
+        <button type='button' class='chrome-menu-btn' data-tutorial='home-file-menu' (click)='onChromeFileMenu($event)'>File</button>
+        <button type='button' class='chrome-menu-btn' data-tutorial='home-settings-menu' (click)='onChromeSettingsMenu($event)'>Settings</button>
         <button
           type='button'
           class='chrome-menu-btn'
+          data-tutorial='home-dependencies-menu'
           [class.chrome-menu-btn--attention]='!!coreDependenciesAlert()'
           [attr.title]='coreDependenciesAlert() || null'
           (click)='onChromeDependencies()'

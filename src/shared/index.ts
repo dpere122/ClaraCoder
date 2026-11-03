@@ -3,6 +3,28 @@
  * No Node or Electron imports — safe to import from any compilation unit.
  */
 export type { Workspace, MenuFileCommand, MenuFileCommandAction } from './types/workspace';
+export type {
+  TutorialClaimResult,
+  TutorialCursor,
+  TutorialPhaseDefinition,
+  TutorialPhaseId,
+  TutorialPhaseResolution,
+  TutorialProgress,
+  TutorialSnapshot,
+  TutorialStepId,
+  TutorialTransition,
+  TutorialTransitionResult,
+  TutorialWindow,
+} from './types/tutorial';
+export {
+  TUTORIAL_PHASE_REGISTRY,
+  TUTORIAL_PROGRESS_SCHEMA_VERSION,
+  applyTutorialTransition,
+  createDefaultTutorialProgress,
+  isTutorialPhaseResolved,
+  isTutorialProgressSupported,
+  normalizeTutorialProgress,
+} from './types/tutorial';
 export {
   NO_WORKSPACE_SYSTEM_PROMPT_ID,
   isNoWorkspaceSystemPromptId,

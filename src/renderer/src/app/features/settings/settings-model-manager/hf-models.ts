@@ -7,18 +7,57 @@ export interface FeaturedHfModel {
   /** Short size / architecture note, e.g. ``35B MoE · 3B active``. */
   size: string;
   tag: 'General' | 'Coding' | 'Reasoning' | 'Small';
+  architecture: 'dense' | 'moe';
+  /** Approximate language-model parameter counts in billions, as reported by the model provider. */
+  totalParametersB: number;
+  /** Active parameters per token; for a dense model this is its reported total. */
+  activeParametersB: number;
 }
 
+/**
+ * Parameter counts refer to the base language model, not a GGUF's byte size.
+ * https://huggingface.co/Qwen/Qwen3.8-27B
+ * https://huggingface.co/Qwen/Qwen3.6-35B-A3B
+ * https://huggingface.co/Qwen/Qwen3.5-9B
+ * https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct
+ * https://huggingface.co/google/gemma-4-26B-A4B-it
+ * https://huggingface.co/openai/gpt-oss-20b
+ */
 export const FEATURED_HF_MODELS: readonly FeaturedHfModel[] = [
-  { id: 'unsloth/Qwen3.8-27B-GGUF', maker: 'Qwen', size: '27B dense', tag: 'General' },
-  { id: 'unsloth/Qwen3.6-35B-A3B-GGUF', maker: 'Qwen', size: '35B MoE · 3B active', tag: 'General' },
-  { id: 'unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF', maker: 'Qwen', size: '30B MoE · 3B active', tag: 'Coding' },
-  { id: 'unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF', maker: 'Mistral', size: '24B dense', tag: 'Coding' },
-  { id: 'ggml-org/gpt-oss-20b-GGUF', maker: 'OpenAI', size: '21B MoE · 3.6B active', tag: 'Reasoning' },
-  { id: 'unsloth/gemma-4-26B-A4B-it-GGUF', maker: 'Google', size: '26B MoE · 4B active', tag: 'General' },
-  { id: 'unsloth/gemma-4-12b-it-GGUF', maker: 'Google', size: '12B dense', tag: 'Small' },
-  { id: 'unsloth/Qwen3.5-9B-GGUF', maker: 'Qwen', size: '9B dense', tag: 'Small' },
+  { id: 'unsloth/Qwen3.8-27B-GGUF', maker: 'Qwen', size: '27B dense', tag: 'General', architecture: 'dense', totalParametersB: 27, activeParametersB: 27 },
+  { id: 'unsloth/Qwen3.6-35B-A3B-GGUF', maker: 'Qwen', size: '35B MoE · 3B active', tag: 'General', architecture: 'moe', totalParametersB: 35, activeParametersB: 3 },
+  { id: 'unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF', maker: 'Qwen', size: '30.5B MoE · 3.3B active', tag: 'Coding', architecture: 'moe', totalParametersB: 30.5, activeParametersB: 3.3 },
+  { id: 'unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF', maker: 'Mistral', size: '24B dense', tag: 'Coding', architecture: 'dense', totalParametersB: 24, activeParametersB: 24 },
+  { id: 'ggml-org/gpt-oss-20b-GGUF', maker: 'OpenAI', size: '21B MoE · 3.6B active', tag: 'Reasoning', architecture: 'moe', totalParametersB: 21, activeParametersB: 3.6 },
+  { id: 'unsloth/gemma-4-26B-A4B-it-GGUF', maker: 'Google', size: '25.2B MoE · 3.8B active', tag: 'General', architecture: 'moe', totalParametersB: 25.2, activeParametersB: 3.8 },
+  { id: 'unsloth/gemma-4-12b-it-GGUF', maker: 'Google', size: '12B dense', tag: 'Small', architecture: 'dense', totalParametersB: 11.95, activeParametersB: 11.95 },
+  { id: 'unsloth/Qwen3.5-9B-GGUF', maker: 'Qwen', size: '9B dense', tag: 'Small', architecture: 'dense', totalParametersB: 9, activeParametersB: 9 },
 ];
+
+/** Choose tutorial examples by total parameters, not the display note or MoE active count. */
+export function featuredModelExamples(models: readonly FeaturedHfModel[]): {
+  small: FeaturedHfModel | null;
+  largest: FeaturedHfModel | null;
+} {
+  let small: FeaturedHfModel | null = null;
+  let largest: FeaturedHfModel | null = null;
+  for (const model of models) {
+    if (
+      !Number.isFinite(model.totalParametersB) || model.totalParametersB <= 0 ||
+      !Number.isFinite(model.activeParametersB) || model.activeParametersB <= 0 ||
+      model.activeParametersB > model.totalParametersB
+    ) {
+      continue;
+    }
+    if (!largest || model.totalParametersB > largest.totalParametersB) {
+      largest = model;
+    }
+    if (model.tag === 'Small' && (!small || model.totalParametersB < small.totalParametersB)) {
+      small = model;
+    }
+  }
+  return { small, largest };
+}
 
 /** ``owner/name`` → ``{ provider: owner, name }`` with a trailing ``-GGUF`` dropped from the name. */
 export function splitHfRepoId(id: string): { provider: string; name: string } {

@@ -165,10 +165,12 @@
       }
 
       @if (featuredRows().length) {
-        <div class='mm-list__section'>Featured <span>{{ featuredRows().length }}</span></div>
-        @for (row of featuredRows(); track row.key) {
-          <ng-container *ngTemplateOutlet='rowTpl; context: { $implicit: row }' />
-        }
+        <div role='group' aria-label='Featured models' data-tutorial='featured-list'>
+          <div class='mm-list__section'>Featured <span>{{ featuredRows().length }}</span></div>
+          @for (row of featuredRows(); track row.key) {
+            <ng-container *ngTemplateOutlet='rowTpl; context: { $implicit: row }' />
+          }
+        </div>
       }
 
       @if (resultRows().length) {
@@ -212,7 +214,13 @@
       }
     </div>
 
-    <section class='mm-panel' aria-label='Model details'>
+    <section
+      class='mm-panel'
+      aria-label='Model details'
+      [attr.data-repo-id]='selectedRepoId()'
+      [attr.data-details-state]='selectedDetailsState()'
+      [attr.data-quantizations-state]='selectedQuantizationsState()'
+    >
       @if (selectedLocal(); as local) {
         <header class='mm-panel__head'>
           <ng-container *ngTemplateOutlet='avatarTpl; context: { $implicit: selectedDetails()?.provider ?? selectedDetails()?.uploader, fallback: local.provider || local.name }' />
@@ -256,7 +264,10 @@
           <ng-container *ngTemplateOutlet='avatarTpl; context: { $implicit: selectedDetails()?.provider ?? selectedDetails()?.uploader, fallback: selectedFeatured()?.maker || repo.provider }' />
           <div class='mm-panel__title'>
             <span class='mm-panel__eyebrow'>
-              {{ selectedDetails()?.provider?.fullname || selectedFeatured()?.maker || repo.provider }}
+              <span
+                [attr.data-tutorial]='selectedFeatured() && !selectedDetails()?.provider ? "featured-provider" : null'
+                [attr.data-state]='selectedFeatured() && !selectedDetails()?.provider ? (selectedDetailsState() === "ready" ? "unavailable" : selectedDetailsState()) : null'
+              >{{ selectedDetails()?.provider?.fullname || selectedFeatured()?.maker || repo.provider }}</span>
               @if (selectedFeatured(); as f) {
                 <span class='model-tile__badge'>Featured · {{ f.tag }}</span>
               }
@@ -265,18 +276,24 @@
               }
             </span>
             <h4>{{ repo.name }}</h4>
-            <code class='mm-panel__id'>{{ repo.id }}</code>
+            <code
+              class='mm-panel__id'
+              [attr.data-tutorial]='!selectedDetails()?.uploader ? "featured-uploader" : null'
+              [attr.data-state]='!selectedDetails()?.uploader ? (selectedDetailsState() === "ready" ? "unavailable" : selectedDetailsState()) : null'
+            >{{ repo.id }}</code>
           </div>
           <a class='action-button action-button--compact mm-panel__external' [href]='"https://huggingface.co/" + repo.id' target='_blank' rel='noopener noreferrer'>
             Hugging Face ↗
           </a>
         </header>
         <ng-container *ngTemplateOutlet='hubInfoTpl' />
-        <div class='mm-quants'>
+        <div class='mm-quants' data-tutorial='featured-quantizations' [attr.data-state]='selectedQuantizationsState()' [attr.aria-busy]='selectedQuantizationsState() === "loading"'>
           <div class='mm-quants__head'>
             <h6>Quantizations</h6>
-            @if (s.modelManagerHfFilesByRepo()[repo.id]; as files) {
-              <span class='hf-muted'>{{ files.length }} GGUF {{ files.length === 1 ? 'file' : 'files' }} · saved to the folder above</span>
+            @if (selectedQuantizationsState() === 'ready' || selectedQuantizationsState() === 'empty') {
+              @if (s.modelManagerHfFilesByRepo()[repo.id]; as files) {
+                <span class='hf-muted'>{{ files.length }} GGUF {{ files.length === 1 ? 'file' : 'files' }} · saved to the folder above</span>
+              }
             }
           </div>
           <div class='mm-quants__list'>
@@ -306,6 +323,10 @@
     class='mm-row'
     role='option'
     [attr.data-row-key]='row.key'
+    [attr.data-tutorial]='row.kind === "featured" && row.repoId === tutorialExamples().small?.id ? "featured-small" : row.kind === "featured" && row.repoId === tutorialExamples().largest?.id ? "featured-largest" : null'
+    [attr.data-total-parameters-b]='row.kind === "featured" ? row.featured.totalParametersB : null'
+    [attr.data-active-parameters-b]='row.kind === "featured" ? row.featured.activeParametersB : null'
+    [attr.data-architecture]='row.kind === "featured" ? row.featured.architecture : null'
     [class.is-selected]='row.key === selectedKey()'
     [attr.aria-selected]='row.key === selectedKey()'
     [attr.tabindex]='row.key === selectedKey() ? 0 : -1'
@@ -313,7 +334,7 @@
     (click)='select(row)'
   >
     <span class='mm-row__main'>
-      <span class='mm-row__name'>{{ row.name }}</span>
+      <span class='mm-row__name' [attr.data-tutorial]='row.kind === "featured" && row.repoId === tutorialExamples().small?.id && row.repoId === tutorialExamples().largest?.id ? "featured-largest" : null'>{{ row.name }}</span>
       <span class='mm-row__sub'>
         @switch (row.kind) {
           @case ('local') {
@@ -370,11 +391,11 @@
 
     <div class='mm-owners'>
       @if (d.provider; as p) {
-        <ng-container *ngTemplateOutlet='ownerTpl; context: { $implicit: p, role: "Provider" }' />
+        <ng-container *ngTemplateOutlet='ownerTpl; context: { $implicit: p, role: "Provider", tutorial: "featured-provider" }' />
       }
       @if (d.uploader; as u) {
         <ng-container
-          *ngTemplateOutlet='ownerTpl; context: { $implicit: u, role: d.provider ? "Uploader" : d.baseModels.length ? "Provider & uploader" : "Uploader" }'
+          *ngTemplateOutlet='ownerTpl; context: { $implicit: u, role: d.provider ? "Uploader" : d.baseModels.length ? "Provider & uploader" : "Uploader", tutorial: "featured-uploader" }'
         />
       }
     </div>
@@ -420,13 +441,13 @@
     }
   } @else if (selectedDetailsBusy()) {
     <div class='mm-list__note'><span class='model-card__mini-spinner' aria-hidden='true'></span> Loading details from Hugging Face…</div>
-  } @else if (selectedDetailsError(); as err) {
-    <p class='settings-copy model-card__versions-error'>{{ err }}</p>
+  } @else if (selectedDetailsState() === 'error') {
+    <p class='settings-copy model-card__versions-error'>{{ selectedDetailsError() || 'Could not load Hugging Face details.' }}</p>
   }
 </ng-template>
 
-<ng-template #ownerTpl let-owner let-role='role'>
-  <div class='mm-owner'>
+<ng-template #ownerTpl let-owner let-role='role' let-tutorial='tutorial'>
+  <div class='mm-owner' [attr.data-tutorial]='tutorial' data-state='ready'>
     <ng-container *ngTemplateOutlet='avatarTpl; context: { $implicit: owner, fallback: owner.name }' />
     <div class='mm-owner__body'>
       <span class='mm-owner__role'>{{ role }}</span>
@@ -459,11 +480,11 @@
       <span class='model-card__mini-spinner' aria-hidden='true'></span>
       <p class='settings-copy'>Loading quants…</p>
     </div>
-  } @else if (s.modelManagerHfFilesErrorByRepo()[repoId]) {
-    <p class='settings-copy model-card__versions-error'>{{ s.modelManagerHfFilesErrorByRepo()[repoId] }}</p>
-  } @else {
+  } @else if (selectedQuantizationsState() === 'error') {
+    <p class='settings-copy model-card__versions-error'>{{ s.modelManagerHfFilesErrorByRepo()[repoId] || 'Could not load GGUF quant files.' }}</p>
+  } @else if (s.modelManagerHfFilesByRepo()[repoId]; as files) {
     <div class='model-quant-list'>
-      @for (file of s.modelManagerHfFilesByRepo()[repoId]; track file.fileName) {
+      @for (file of files; track file.fileName) {
         <div
           class='model-quant-row'
           [class.model-quant-row--downloading]='s.isHfQuantDownloading(repoId, file)'
@@ -507,5 +528,7 @@
         <p class='settings-copy model-card__versions-empty'>No GGUF quant files found for this repo.</p>
       }
     </div>
+  } @else {
+    <p class='settings-copy'>Quant files have not been loaded.</p>
   }
 </ng-template>

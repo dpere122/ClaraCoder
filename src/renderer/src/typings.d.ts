@@ -1,4 +1,11 @@
 import type { ScreenshotAssetStatus, ScreenshotStorageStats } from '@shared/screenshot-retention';
+import type {
+  TutorialClaimResult,
+  TutorialSnapshot,
+  TutorialTransition,
+  TutorialTransitionResult,
+  TutorialWindow,
+} from '@shared/types/tutorial';
 
 import type {
   AcceptCommandPayload,
@@ -398,6 +405,11 @@ declare global {
     onModelManagerHfDownloadProgress?: (callback: (event: unknown, data: HfDownloadProgressEvent) => void) => void;
     loadConfig: () => Promise<AppConfig>;
     saveConfig: (config: AppConfig) => Promise<AppConfig>;
+    getTutorialSnapshot: () => Promise<TutorialSnapshot>;
+    transitionTutorial: (transition: TutorialTransition) => Promise<TutorialTransitionResult>;
+    claimTutorial: (window: TutorialWindow) => Promise<TutorialClaimResult>;
+    releaseTutorial: (requestedWindow?: TutorialWindow) => Promise<TutorialSnapshot>;
+    onTutorialUpdated: (callback: (snapshot: TutorialSnapshot) => void) => () => void;
     getScreenshotStorageStats: () => Promise<{ ok: true; stats: ScreenshotStorageStats } | { ok: false; error: string }>;
     runScreenshotCleanup: () => Promise<{ ok: true; stats: ScreenshotStorageStats } | { ok: false; error: string }>;
     clearScreenshots: () => Promise<{ ok: true; stats: ScreenshotStorageStats } | { ok: false; error: string }>;

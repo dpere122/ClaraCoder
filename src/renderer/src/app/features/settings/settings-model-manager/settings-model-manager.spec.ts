@@ -10,6 +10,7 @@ import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialo
 import { ThemedPromptDialogService } from '../../../shared/themed-prompt-dialog/themed-prompt-dialog.service';
 import { SettingsStore } from '../settings/settings-store';
 import { SettingsThemesStore } from '../settings-themes/settings-themes-store';
+import { FEATURED_HF_MODELS, featuredModelExamples, type FeaturedHfModel } from './hf-models';
 import { SettingsModelManager } from './settings-model-manager';
 
 const REPO = 'ggml-org/gpt-oss-20b-GGUF';
@@ -107,5 +108,89 @@ describe('the panel of a downloaded model', () => {
   it('offers a hub folder whatever its name says', async () => {
     const hub: ModelManagerFileEntry = { ...loose('/models/models--z-lab--Qwen3-4B-DFlash'), entryKind: 'hubRepo' };
     expect(await panelFor(hub)).toEqual({ usable: true, type: 'Hugging Face hub folder' });
+  });
+});
+
+describe('the featured catalog', () => {
+  it('records provider-reported total and active language-model parameters in billions', () => {
+    expect(Object.fromEntries(FEATURED_HF_MODELS.map((model) => [model.id, {
+      architecture: model.architecture,
+      total: model.totalParametersB,
+      active: model.activeParametersB,
+    }]))).toEqual({
+      'unsloth/Qwen3.8-27B-GGUF': { architecture: 'dense', total: 27, active: 27 },
+      'unsloth/Qwen3.6-35B-A3B-GGUF': { architecture: 'moe', total: 35, active: 3 },
+      'unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF': { architecture: 'moe', total: 30.5, active: 3.3 },
+      'unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF': { architecture: 'dense', total: 24, active: 24 },
+      'ggml-org/gpt-oss-20b-GGUF': { architecture: 'moe', total: 21, active: 3.6 },
+      'unsloth/gemma-4-26B-A4B-it-GGUF': { architecture: 'moe', total: 25.2, active: 3.8 },
+      'unsloth/gemma-4-12b-it-GGUF': { architecture: 'dense', total: 11.95, active: 11.95 },
+      'unsloth/Qwen3.5-9B-GGUF': { architecture: 'dense', total: 9, active: 9 },
+    });
+    expect(new Set(FEATURED_HF_MODELS.map((model) => model.id)).size).toBe(FEATURED_HF_MODELS.length);
+    for (const model of FEATURED_HF_MODELS) {
+      expect(Number.isFinite(model.totalParametersB)).toBe(true);
+      expect(model.activeParametersB).toBeGreaterThan(0);
+      expect(model.architecture === 'dense' ? model.activeParametersB === model.totalParametersB : model.activeParametersB < model.totalParametersB).toBe(true);
+    }
+  });
+
+  it('recomputes examples for catalog changes using total parameters, never display text or active MoE size', () => {
+    const example = (id: string, tag: FeaturedHfModel['tag'], total: number, active: number): FeaturedHfModel => ({
+      id, maker: 'Maker', size: 'This text is not a parameter count', tag,
+      architecture: total === active ? 'dense' : 'moe', totalParametersB: total, activeParametersB: active,
+    });
+    const small = example('org/small', 'Small', 4, 4);
+    const otherSmall = example('org/other-small', 'Small', 10, 10);
+    const dense = example('org/dense', 'Coding', 40, 40);
+    const largestMoe = example('org/largest-moe', 'General', 100, 2);
+    const badSize = example('org/bad-size', 'Small', Number.NaN, 1);
+    const badActive = example('org/bad-active', 'Small', 200, Number.NaN);
+    const impossibleActive = example('org/impossible-active', 'General', 300, 301);
+
+    expect(featuredModelExamples([dense, badSize, badActive, impossibleActive, otherSmall, largestMoe, small])).toEqual({ small, largest: largestMoe });
+    expect(featuredModelExamples([largestMoe, dense])).toEqual({ small: null, largest: largestMoe });
+    expect(featuredModelExamples([])).toEqual({ small: null, largest: null });
+  });
+});
+
+describe('featured tutorial targets', () => {
+  it('points to the smallest tagged model and the highest total parameter count in the visible list', async () => {
+    const { store, fixture } = setup();
+    const el = await render(fixture);
+    const examples = featuredModelExamples(FEATURED_HF_MODELS);
+    const small = el.querySelector<HTMLElement>('[data-tutorial="featured-small"]');
+    const largest = el.querySelector<HTMLElement>('[data-tutorial="featured-largest"]');
+    expect(small?.tagName).toBe('BUTTON');
+    expect(small?.getAttribute('data-row-key')).toBe(`hf:${examples.small?.id}`);
+    expect(largest?.getAttribute('data-row-key')).toBe(`hf:${examples.largest?.id}`);
+    expect(Number(largest?.getAttribute('data-total-parameters-b'))).toBe(
+      Math.max(...FEATURED_HF_MODELS.map((model) => model.totalParametersB)),
+    );
+    expect(store.modelManagerSelection()).toBeNull();
+
+    store.modelManagerHfQuery.set('gemma');
+    fixture.detectChanges();
+    const visible = FEATURED_HF_MODELS.filter((model) => model.id.toLowerCase().includes('gemma'));
+    const visibleExamples = featuredModelExamples(visible);
+    expect(el.querySelector('[data-tutorial="featured-small"]')?.getAttribute('data-row-key')).toBe(`hf:${visibleExamples.small?.id}`);
+    expect(el.querySelector('[data-tutorial="featured-largest"]')?.getAttribute('data-row-key')).toBe(`hf:${visibleExamples.largest?.id}`);
+    expect(store.modelManagerSelection()).toBeNull();
+    fixture.destroy();
+  });
+
+  it('only selects a visible Small preview on the preview event and never starts a download', () => {
+    const { store, fixture } = setup();
+    fixture.detectChanges();
+    const select = vi.spyOn(store, 'selectHfModel').mockImplementation((id) => store.modelManagerSelection.set({ kind: 'hf', id }));
+    const download = vi.spyOn(store, 'downloadHfQuant');
+    window.dispatchEvent(new CustomEvent('clara-tutorial-step', { detail: { phaseId: 'featured-models', stepId: 'featured-small' } }));
+    expect(select).not.toHaveBeenCalled();
+    window.dispatchEvent(new CustomEvent('clara-tutorial-step', { detail: { phaseId: 'featured-models', stepId: 'featured-preview' } }));
+    expect(select).toHaveBeenCalledExactlyOnceWith(featuredModelExamples(FEATURED_HF_MODELS).small?.id);
+    window.dispatchEvent(new CustomEvent('clara-tutorial-step', { detail: { phaseId: 'featured-models', stepId: 'featured-preview' } }));
+    expect(select).toHaveBeenCalledTimes(1);
+    expect(download).not.toHaveBeenCalled();
+    fixture.destroy();
   });
 });

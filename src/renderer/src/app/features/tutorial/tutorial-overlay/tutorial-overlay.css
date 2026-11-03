@@ -1,0 +1,202 @@
+:host {
+  display: contents;
+  pointer-events: none;
+}
+
+.tutorial-highlight {
+  position: fixed;
+  z-index: 10001;
+  box-sizing: border-box;
+  outline: 2px solid var(--t-primary);
+  outline-offset: 3px;
+  border-radius: 4px;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--t-primary) 16%, transparent);
+  pointer-events: none;
+}
+
+.tutorial-card {
+  position: fixed;
+  z-index: 10003;
+  box-sizing: border-box;
+  width: min(360px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--t-primary) 75%, var(--t-border));
+  border-radius: var(--chat-radius, 6px);
+  background: var(--t-bg-surface);
+  color: var(--t-fg);
+  box-shadow: 0 8px 30px rgb(0 0 0 / 0.4);
+  pointer-events: auto;
+}
+
+.tutorial-card--celebration {
+  background: radial-gradient(circle at 100% 0, color-mix(in srgb, var(--t-primary) 20%, transparent), transparent 55%), var(--t-bg-surface);
+}
+
+.tutorial-card--minimized {
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  padding: 0.4rem;
+}
+
+.tutorial-card__content[hidden] { display: none; }
+
+.tutorial-minimize {
+  float: right;
+  margin: 0 0 0.35rem 0.6rem;
+  padding: 0.15rem 0.1rem;
+  border: 0;
+  background: transparent;
+  color: var(--t-primary);
+  font: inherit;
+  font-size: 0.72rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.tutorial-card h2 {
+  margin: 0 0 0.45rem;
+  font-size: 1.05rem;
+  line-height: 1.25;
+}
+
+.tutorial-card p {
+  margin: 0 0 0.65rem;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.tutorial-card .tutorial-eyebrow {
+  color: var(--t-primary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tutorial-card .tutorial-status {
+  padding: 0.5rem 0.6rem;
+  border-left: 3px solid var(--t-primary);
+  background: color-mix(in srgb, var(--t-primary) 9%, var(--t-bg-surface));
+}
+
+.tutorial-card .tutorial-error {
+  margin: 0.6rem 0 0;
+  color: var(--t-log-level-error);
+}
+
+.tutorial-actions,
+.tutorial-secondary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.tutorial-secondary-actions {
+  margin-top: 0.5rem;
+}
+
+.tutorial-button,
+.tutorial-link {
+  font: inherit;
+  cursor: pointer;
+}
+
+.tutorial-button {
+  min-height: 2rem;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--t-border);
+  border-radius: 4px;
+  background: var(--t-bg);
+  color: var(--t-fg);
+  font-size: 0.8rem;
+}
+
+.tutorial-button--primary {
+  border-color: var(--t-primary);
+  background: color-mix(in srgb, var(--t-primary) 26%, var(--t-bg));
+  font-weight: 700;
+}
+
+.tutorial-link,
+.tutorial-wiki {
+  padding: 0.2rem 0;
+  border: 0;
+  background: transparent;
+  color: var(--t-primary);
+  font-size: 0.76rem;
+  text-decoration: underline;
+}
+
+.tutorial-llama {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.tutorial-llama__mark {
+  display: inline-block;
+  flex: 0 0 1.25rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  background-color: var(--t-primary);
+  -webkit-mask: var(--tutorial-llama-icon) center / contain no-repeat;
+  mask: var(--tutorial-llama-icon) center / contain no-repeat;
+}
+
+.tutorial-card > .tutorial-link {
+  margin-top: 0.5rem;
+}
+
+.tutorial-button:disabled,
+.tutorial-link:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.tutorial-button:focus-visible,
+.tutorial-link:focus-visible,
+.tutorial-wiki:focus-visible,
+.tutorial-card h2:focus {
+  outline: 2px solid var(--t-primary);
+  outline-offset: 2px;
+}
+
+.tutorial-announcement {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+@media (max-width: 480px) {
+  .tutorial-card { padding: 0.75rem; }
+}
+
+@media (max-height: 400px) {
+  /* Leave a usable area for the app and the compact mascot on short windows. */
+  .tutorial-card { max-height: min(calc(100vh - 24px), max(96px, calc(100vh - 104px))); }
+}
+
+@media (forced-colors: active) {
+  .tutorial-highlight { outline-color: Highlight; box-shadow: none; }
+  .tutorial-card { border-color: CanvasText; background: Canvas; color: CanvasText; }
+  .tutorial-button:focus-visible,
+  .tutorial-link:focus-visible,
+  .tutorial-wiki:focus-visible,
+  .tutorial-card h2:focus { outline-color: Highlight; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-card,
+  .tutorial-highlight {
+    animation: none;
+    transition: none;
+  }
+}

@@ -26,6 +26,14 @@
           <button
             type='button'
             class='tab-button'
+            [attr.data-tutorial]="tab.id === 'models' ? 'settings-sources-nav' : null"
+            [attr.data-tutorial-source-id]="tab.id === 'models' ? s.selectedProvider()?.id : null"
+            [attr.data-tutorial-source-state]="tab.id === 'models' ? s.tutorialSelectedSourceState() : null"
+            [attr.data-tutorial-source-kind]="tab.id !== 'models' ? null : !s.selectedProvider() ? 'none' : s.isManagedLlamacppSource(s.selectedProvider()!) ? 'managed-local' : 'other'"
+            [attr.data-tutorial-models-state]="tab.id === 'models' ? s.tutorialLocalModelsState() : null"
+            [attr.data-tutorial-model-selected]="tab.id === 'models' ? (s.tutorialLocalModelSelected() ? 'true' : 'false') : null"
+            [attr.data-tutorial-settings-dirty]="tab.id === 'models' ? (s.settingsDirty() ? 'true' : 'false') : null"
+            [attr.data-tutorial-settings-saving]="tab.id === 'models' ? (s.settingsSaving() ? 'true' : 'false') : null"
             [class.is-active]='s.selectedSettingsTab() === tab.id && s.subTabsFor(tab.id).length === 0'
             [class.is-section-active]='s.selectedSettingsTab() === tab.id && s.subTabsFor(tab.id).length > 0'
             (click)='s.selectTab(tab.id)'
@@ -125,7 +133,7 @@
   </section>
 
   <footer class='settings-footer'>
-    <p class='settings-footer__note'>
+    <p class='settings-footer__note' [attr.data-tutorial]="s.settingsDirty() ? null : 'settings-apply'">
       @if (s.settingsDirty()) {
         <span class='settings-footer__dot' aria-hidden='true'></span>Unsaved changes. Click Apply to save them and enable OK.
       } @else {
@@ -136,6 +144,7 @@
       <button
         type='button'
         class='action-button settings-footer-btn'
+        data-tutorial='settings-apply'
         [disabled]='s.settingsSaving()'
         [attr.aria-busy]="s.settingsSaveAction() === 'apply'"
         (click)='s.applySettings()'

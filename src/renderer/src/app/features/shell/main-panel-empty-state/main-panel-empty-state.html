@@ -11,23 +11,23 @@
 
       <div class="home__columns">
         <div class="home__col home__col--main">
-          <section class="home__section" aria-labelledby="home-start">
+          <section class="home__section" aria-labelledby="home-start" data-tutorial="home-start">
             <h2 class="home__heading" id="home-start">Start</h2>
             <ul class="home__list">
               <li>
-                <button type="button" class="home__action" (click)="addWorkspace.emit()">
+                <button type="button" class="home__action" data-tutorial="home-add-workspace" (click)="addWorkspace.emit()">
                   <lucide-icon name="folder-plus" [size]="15" />
                   <span>Add workspace…</span>
                 </button>
               </li>
               <li>
-                <button type="button" class="home__action" (click)="openSources.emit()">
+                <button type="button" class="home__action" data-tutorial="home-sources" (click)="openSources.emit()">
                   <lucide-icon name="server" [size]="15" />
                   <span>Sources</span>
                 </button>
               </li>
               <li>
-                <button type="button" class="home__action" (click)="openModelManager.emit()">
+                <button type="button" class="home__action" data-tutorial="home-model-manager" (click)="openModelManager.emit()">
                   <lucide-icon name="cpu" [size]="15" />
                   <span>Model Manager</span>
                 </button>
@@ -36,6 +36,7 @@
                 <button
                   type="button"
                   class="home__action"
+                  data-tutorial="home-dependencies"
                   [class.home__action--attention]="missingDependencies()"
                   [attr.title]="missingDependencies() || null"
                   (click)="openDependencies.emit()"

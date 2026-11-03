@@ -4,6 +4,14 @@
  */
 import { Injectable, NgZone } from '@angular/core';
 import type { ScreenshotAssetStatus, ScreenshotStorageStats } from '@shared/screenshot-retention';
+import {
+  createDefaultTutorialProgress,
+  type TutorialClaimResult,
+  type TutorialSnapshot,
+  type TutorialTransition,
+  type TutorialTransitionResult,
+  type TutorialWindow,
+} from '@shared/types/tutorial';
 import { Observable, Subject, BehaviorSubject } from 'rxjs';
 import { mergeStreamBatchQueue, type StreamBatchItem } from './stream-batch';
 import type {
@@ -1511,6 +1519,29 @@ export class ElectronService {
 
   saveConfig(config: AppConfig): Promise<AppConfig> {
     return this.api?.saveConfig(config) ?? Promise.resolve(structuredClone(config));
+  }
+
+  /** Tutorial events are separate from config-updated so they never replace dirty Settings drafts. */
+  getTutorialSnapshot(): Promise<TutorialSnapshot> {
+    return this.api?.getTutorialSnapshot?.() ?? Promise.resolve({
+      progress: createDefaultTutorialProgress(), ownerId: null, requestedWindow: null,
+    });
+  }
+
+  transitionTutorial(transition: TutorialTransition): Promise<TutorialTransitionResult> {
+    return this.api?.transitionTutorial?.(transition) ?? this.getTutorialSnapshot().then((snapshot) => ({ applied: false, snapshot }));
+  }
+
+  claimTutorial(window: TutorialWindow): Promise<TutorialClaimResult> {
+    return this.api?.claimTutorial?.(window) ?? this.getTutorialSnapshot().then((snapshot) => ({ acquired: false, snapshot }));
+  }
+
+  releaseTutorial(requestedWindow?: TutorialWindow): Promise<TutorialSnapshot> {
+    return this.api?.releaseTutorial?.(requestedWindow) ?? this.getTutorialSnapshot();
+  }
+
+  onTutorialUpdated(callback: (snapshot: TutorialSnapshot) => void): () => void {
+    return this.api?.onTutorialUpdated?.((snapshot) => this.zone.run(() => callback(snapshot))) ?? (() => {});
   }
 
   getScreenshotStorageStats(): Promise<{ ok: true; stats: ScreenshotStorageStats } | { ok: false; error: string }> {

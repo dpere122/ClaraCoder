@@ -248,6 +248,28 @@ describe('MainPanelEmptyStateComponent', () => {
     expect(events).toEqual(['add', 'sources', 'models', 'deps']);
   });
 
+  it('exposes unique, interactive Home tutorial targets without opening a workspace', () => {
+    const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
+    const events: string[] = [];
+    fixture.componentInstance.addWorkspace.subscribe(() => events.push('workspace'));
+    fixture.componentInstance.openSources.subscribe(() => events.push('sources'));
+    fixture.componentInstance.openModelManager.subscribe(() => events.push('models'));
+    fixture.componentInstance.openDependencies.subscribe(() => events.push('dependencies'));
+    fixture.componentRef.setInput('hasWorkspace', false);
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    for (const name of ['home-start', 'home-add-workspace', 'home-sources', 'home-model-manager', 'home-dependencies']) {
+      expect(host.querySelectorAll(`[data-tutorial="${name}"]`)).toHaveLength(1);
+    }
+    expect(events).toEqual([]);
+    (host.querySelector('[data-tutorial="home-sources"]') as HTMLButtonElement).click();
+    (host.querySelector('[data-tutorial="home-model-manager"]') as HTMLButtonElement).click();
+    (host.querySelector('[data-tutorial="home-dependencies"]') as HTMLButtonElement).click();
+    expect(events).toEqual(['sources', 'models', 'dependencies']);
+    expect(fixture.componentInstance.hasWorkspace()).toBe(false);
+  });
+
   it('flags the Dependencies action while core dependencies are missing', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
     fixture.componentRef.setInput('hasWorkspace', false);

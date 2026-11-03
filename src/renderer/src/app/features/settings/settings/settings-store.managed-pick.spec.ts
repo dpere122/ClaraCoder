@@ -16,6 +16,7 @@ import {
   type LlamaCppManaged,
   type LlmProviderConfig,
   type ModelManagerFileEntry,
+  type ModelManagerListModelsResult,
 } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { ThemeEngineService } from '../../../core/theme/theme-engine.service';
@@ -129,7 +130,7 @@ function setup(
     llamaServerGgufProfile: vi.fn(async ({ path }: { path: string }): Promise<GgufProfile | null> => profiles[path] ?? null),
     llamaServerVramUsage: vi.fn(async () => opts.usage ?? USAGE),
     llamaServerGgufSize: vi.fn(async (): Promise<number | null> => null),
-    modelManagerListCustomModels: vi.fn(async () => ({ ok: true, models: store.modelManagerCustomModels() })),
+    modelManagerListCustomModels: vi.fn(async (): Promise<ModelManagerListModelsResult> => ({ ok: true, models: store.modelManagerCustomModels() })),
     saveConfig: vi.fn(async (_config: AppConfig): Promise<unknown> => SAVED),
   };
   TestBed.configureTestingModule({
@@ -750,5 +751,61 @@ describe('choosing a card', () => {
     const { chatRunCommand } = store.selectedLlamaCppManaged();
     expect(flagValue(chatRunCommand, '-dev')).toBe('CUDA1');
     expect(chatRunCommand).not.toContain('--main-gpu');
+  });
+});
+
+describe('tutorial local inventory state', () => {
+  it('counts picker inventory rows, not companion files or the default HF example', async () => {
+    const { store, electron } = setup({ chatRunCommand: 'llama-server --port {{PORT}} -hf org/model:Q4_0' });
+    const before = structuredClone(store.llmProviders());
+    store.modelManagerCustomModels.set([loose(GEMMA_HEAD), loose('/models/mmproj-gemma.gguf')]);
+    expect(store.tutorialLocalModelsState()).toBe('unknown');
+    const scanning = store.refreshCustomModelCards();
+    expect(store.tutorialLocalModelsState()).toBe('loading');
+    await scanning;
+    expect(store.tutorialLocalModelsState()).toBe('empty');
+    expect(store.tutorialLocalModelSelected()).toBe(false);
+    expect(store.llmProviders()).toEqual(before);
+    expect(store.settingsDirty()).toBe(false);
+    expect(electron.saveConfig).not.toHaveBeenCalled();
+
+    store.modelManagerCustomModels.set([loose(MIMO)]);
+    await store.refreshCustomModelCards();
+    expect(store.tutorialLocalModelsState()).toBe('ready');
+    expect(store.tutorialLocalModelSelected()).toBe(false);
+    // A Hub folder is a picker option even when its contents don't resolve to a single GGUF.
+    store.modelManagerCustomModels.set([{ ...loose(SWIFT_HUB), entryKind: 'hubRepo' }]);
+    expect(store.tutorialLocalModelsState()).toBe('ready');
+  });
+
+  it('reports failed and missing-directory scans as errors, not empty inventories', async () => {
+    const { store, electron } = setup({ chatRunCommand: 'llama-server --port {{PORT}}' });
+    electron.modelManagerListCustomModels.mockResolvedValueOnce({ ok: false, error: 'permission denied' });
+    await store.refreshCustomModelCards();
+    expect(store.tutorialLocalModelsState()).toBe('error');
+    electron.modelManagerListCustomModels.mockResolvedValueOnce({ ok: true, models: [], directoryMissing: true });
+    await store.refreshCustomModelCards();
+    expect(store.tutorialLocalModelsState()).toBe('error');
+    expect(store.settingsDirty()).toBe(false);
+    expect(electron.saveConfig).not.toHaveBeenCalled();
+  });
+
+  it('does not let an older scan overwrite a newer directory and keeps loading while either is pending', async () => {
+    const { store, electron } = setup({ chatRunCommand: 'llama-server --port {{PORT}}' });
+    let finishOld!: (value: ModelManagerListModelsResult) => void;
+    const oldResult = new Promise<ModelManagerListModelsResult>((resolve) => { finishOld = resolve; });
+    electron.modelManagerListCustomModels.mockReturnValueOnce(oldResult);
+    const oldScan = store.refreshCustomModelCards();
+    store.modelManagerCustomDir.set('/new-models');
+    electron.modelManagerListCustomModels.mockResolvedValueOnce({ ok: true, models: [loose(MIMO)] });
+    const newScan = store.refreshCustomModelCards();
+    await newScan;
+    expect(store.tutorialLocalModelsState()).toBe('loading');
+    expect(store.modelManagerLocalLoading()).toBe(true);
+    finishOld({ ok: true, models: [loose(GEMMA)] });
+    await oldScan;
+    expect(store.modelManagerCustomModels().map((model) => model.absolutePath)).toEqual([MIMO]);
+    expect(store.tutorialLocalModelsState()).toBe('ready');
+    expect(store.modelManagerLocalLoading()).toBe(false);
   });
 });

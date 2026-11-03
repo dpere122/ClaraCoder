@@ -277,6 +277,10 @@ export class SettingsStore {
   readonly whisperModelDropdownSpinnerName = `settings-whisper-model-dropdown-${Math.random().toString(36).slice(2, 10)}`;
   readonly cacheDetectSpinnerType = CACHE_DETECT_SPINNER_TYPE;
   readonly modelManagerLocalLoading = signal(false);
+  /** Inventory state is kept separately from status text, which other Model Manager actions also use. */
+  private readonly localInventoryResult = signal<'unknown' | 'ok' | 'error'>('unknown');
+  private readonly localInventoryInflight = signal(0);
+  private localInventoryRequestGen = 0;
   readonly whisperModelsLoading = signal(false);
   private whisperRefreshInflight = 0;
   /**
@@ -316,6 +320,8 @@ export class SettingsStore {
   readonly currentWorkspace = signal<Workspace | null>(null);
   readonly themeId = signal(DEFAULT_THEME_ID);
   readonly llmProviders = signal<LlmProviderConfig[]>([]);
+  /** IDs in the latest authoritative config, not the editable Settings draft. */
+  private readonly persistedSourceIds = signal<ReadonlySet<string> | null>(null);
   readonly activeLlmModelId = signal('default-lmstudio');
   readonly selectedModelId = signal<string | null>(null);
   readonly audioProvider = signal<AudioTranscriptionProvider>('whisper');
@@ -471,6 +477,13 @@ export class SettingsStore {
   });
   readonly selectedProvider = computed(() => this.selectedLocation()?.provider ?? null);
   readonly selectedModel = computed(() => this.selectedLocation()?.model ?? null);
+  /** Source existence, not whether edits to an existing source have been applied; see settingsDirty. */
+  readonly tutorialSelectedSourceState = computed(() => {
+    const ids = this.persistedSourceIds();
+    if (!ids) return 'loading';
+    const provider = this.selectedProvider();
+    return provider ? (ids.has(provider.id) ? 'persisted' : 'draft') : 'none';
+  });
   readonly selectedResolved = computed(() => {
     const loc = this.selectedLocation();
     if (!loc) {
@@ -576,6 +589,17 @@ export class SettingsStore {
   /** Select value for the managed model picker (`gguf:…` / `hub:…` / `hf:…` / empty). */
   readonly managedPickerValue = computed(() =>
     managedPickerValueForCmd(this.selectedLlamaCppManaged().chatRunCommand, this.modelManagerCustomModels()),
+  );
+  /** Picker inventory availability; an error or unfinished scan is not an empty inventory. */
+  readonly tutorialLocalModelsState = computed(() => {
+    if (this.localInventoryInflight() > 0 || this.modelManagerLocalLoading()) return 'loading';
+    const result = this.localInventoryResult();
+    if (result === 'unknown' || result === 'error') return result;
+    // An HF command (including the new-source placeholder) is not a downloaded local model.
+    return this.managedInventoryModels().length > 0 ? 'ready' : 'empty';
+  });
+  readonly tutorialLocalModelSelected = computed(() =>
+    this.managedInventoryModels().some((model) => this.managedInventoryOptionValue(model) === this.managedPickerValue()),
   );
   /** NVIDIA cards in CUDA index order (empty until NVML inventory returns). */
   readonly cudaGpus = signal<CudaGpuDevice[]>([]);
@@ -1130,6 +1154,12 @@ export class SettingsStore {
 
   sourceIsSelected(provider: LlmProviderConfig): boolean {
     return this.selectedProvider()?.id === provider.id;
+  }
+
+  /** Whether this row exists on disk, independent of any unapplied field edits. */
+  sourcePersistenceState(provider: LlmProviderConfig): 'loading' | 'draft' | 'persisted' {
+    const ids = this.persistedSourceIds();
+    return !ids ? 'loading' : ids.has(provider.id) ? 'persisted' : 'draft';
   }
 
   async refreshLlamacppManagedModels(): Promise<void> {
@@ -1941,7 +1971,8 @@ export class SettingsStore {
   /** Quant files for a repo; cached per id, retried after an error. */
   private async loadHfFiles(id: string): Promise<void> {
     const cached = this.modelManagerHfFilesByRepo()[id];
-    if ((cached && !this.modelManagerHfFilesErrorByRepo()[id]) || this.modelManagerHfFilesBusyByRepo()[id]) {
+    const failed = Object.prototype.hasOwnProperty.call(this.modelManagerHfFilesErrorByRepo(), id);
+    if ((cached && !failed) || this.modelManagerHfFilesBusyByRepo()[id]) {
       return;
     }
     this.modelManagerHfFilesBusyByRepo.update((m) => ({ ...m, [id]: true }));
@@ -2444,17 +2475,23 @@ export class SettingsStore {
   }
 
   async refreshCustomModelCards(): Promise<void> {
+    const requestGen = ++this.localInventoryRequestGen;
     const dir = this.modelManagerCustomDir().trim();
     if (!dir) {
       this.modelManagerCustomModels.set([]);
+      this.localInventoryResult.set('ok');
       return;
     }
+    this.localInventoryInflight.update((n) => n + 1);
     this.modelManagerLocalLoading.set(true);
     const startedAt = Date.now();
     try {
       const res = await this.electron.modelManagerListCustomModels({ customDir: dir });
+      // An older scan must not overwrite a newer directory or its observed state.
+      if (requestGen !== this.localInventoryRequestGen) return;
       if (res.ok) {
         this.modelManagerCustomModels.set(res.models);
+        this.localInventoryResult.set(res.directoryMissing ? 'error' : 'ok');
         this.syncManagedMmprojFromInventory();
         if (res.directoryMissing) {
           this.modelManagerStatus.set(
@@ -2463,14 +2500,19 @@ export class SettingsStore {
         }
       } else {
         this.modelManagerCustomModels.set([]);
+        this.localInventoryResult.set('error');
         this.modelManagerStatus.set(res.error);
       }
+    } catch (error) {
+      if (requestGen === this.localInventoryRequestGen) this.localInventoryResult.set('error');
+      throw error;
     } finally {
       const elapsed = Date.now() - startedAt;
       if (elapsed < 350) {
         await new Promise<void>((resolve) => window.setTimeout(resolve, 350 - elapsed));
       }
-      this.modelManagerLocalLoading.set(false);
+      this.localInventoryInflight.update((n) => Math.max(0, n - 1));
+      this.modelManagerLocalLoading.set(this.localInventoryInflight() > 0);
     }
   }
 
@@ -3441,6 +3483,9 @@ export class SettingsStore {
       return;
     }
     this.configSnapshot = structuredClone(saved);
+    if (Array.isArray(saved.llmProviders)) {
+      this.persistedSourceIds.set(new Set(saved.llmProviders.map((provider) => provider.id)));
+    }
     // A change made during the save, such as a plan landing, isn't in what was saved.
     if (this.dirtyRevision === revision) {
       this.settingsDirty.set(false);
@@ -3575,6 +3620,8 @@ export class SettingsStore {
   }
 
   private syncFromConfig(config: AppConfig, forceFull: boolean): void {
+    // Track persisted identities even when editable hydration is blocked by an unsaved draft.
+    this.persistedSourceIds.set(new Set(config.llmProviders.map((provider) => provider.id)));
     const blockEditableHydration = !forceFull && this.settingsDirty();
     if (blockEditableHydration) {
       this.workspaces.set(config.workspaces);

@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { normalizeScreenshotRetention } from '../../shared/screenshot-retention';
 import { promises as fs } from 'fs';
 import path = require('path');
@@ -67,6 +67,13 @@ import {
   SecretValue,
   unwrapSecret,
 } from '../../shared/types/app-config';
+import {
+  applyTutorialTransition,
+  isTutorialProgressSupported,
+  normalizeTutorialProgress,
+  type TutorialProgress,
+  type TutorialTransition,
+} from '../../shared/types/tutorial';
 import { FIRST_THEME_ID } from '../constants';
 import { THEME_ID_PATTERN } from '../../shared/theme/theme-document';
 import { LEGACY_THEME_ID_MAP } from '../../shared/theme/builtin';
@@ -1223,6 +1230,16 @@ export function migrateConfig(config: AppConfig): AppConfig {
   let migrated = false;
   const newConfig: AppConfig = { ...config } as AppConfig;
 
+  // Do not normalize a schema introduced by a newer release: it may no longer use
+  // the v1 revision, phases or cursor shapes, and must survive ordinary config saves.
+  if (isTutorialProgressSupported(newConfig.tutorial)) {
+    const tutorial = normalizeTutorialProgress(newConfig.tutorial);
+    if (JSON.stringify(newConfig.tutorial) !== JSON.stringify(tutorial)) {
+      newConfig.tutorial = tutorial;
+      migrated = true;
+    }
+  }
+
   if (!Array.isArray(newConfig.workspaces)) {
     newConfig.workspaces = [];
     migrated = true;
@@ -1894,9 +1911,158 @@ const CONFIG_READ_RETRIES = 3;
 const CONFIG_READ_RETRY_MS = 25;
 
 let configMutationChain: Promise<unknown> = Promise.resolve();
+const CONFIG_LOCK_STALE_MS = 4_000;
+const CONFIG_LOCK_TIMEOUT_MS = 20_000;
+
+function configLockOwnerAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // Fail closed on permission/other errors; only ESRCH proves that the owner is gone.
+    return (err as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+}
+
+type ConfigLockOwner = { pid: number; token: string };
+
+async function readConfigLockOwner(lockPath: string): Promise<ConfigLockOwner | null> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(lockPath, 'utf-8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw err;
+  }
+  try {
+    const owner = asRecord(JSON.parse(raw));
+    if (owner && typeof owner['pid'] === 'number' && Number.isSafeInteger(owner['pid']) && owner['pid'] > 0 &&
+        typeof owner['token'] === 'string' && owner['token'].length > 0 && owner['token'].length <= 512) {
+      return { pid: owner['pid'], token: owner['token'] };
+    }
+  } catch { /* An incomplete lock is not safe to steal. */ }
+  return null;
+}
+
+/** Reclaim only a proven-dead owner, with one recovery guard per immutable owner token. */
+async function recoverAbandonedConfigLock(
+  lockPath: string,
+  publishLock: (destination: string) => Promise<void>,
+  depth = 0,
+): Promise<void> {
+  let stat: Awaited<ReturnType<typeof fs.stat>>;
+  try {
+    stat = await fs.stat(lockPath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw err;
+  }
+  if (Date.now() - stat.mtimeMs <= CONFIG_LOCK_STALE_MS) return;
+  const owner = await readConfigLockOwner(lockPath);
+  if (!owner || configLockOwnerAlive(owner.pid)) return;
+  const key = createHash('sha256').update(JSON.stringify([owner.pid, owner.token])).digest('hex').slice(0, 32);
+  const recoveryPath = `${lockPath}.recovery.${key}`;
+  try {
+    await publishLock(recoveryPath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    // A recovery process can itself crash. Recover its owned guard using the same
+    // protocol; bound nesting so a damaged filesystem cannot create unbounded paths.
+    if (depth < 3) await recoverAbandonedConfigLock(recoveryPath, publishLock, depth + 1);
+    return;
+  }
+  try {
+    const current = await readConfigLockOwner(lockPath);
+    // Another reclaimer may have removed the old lock and a live process may have
+    // installed a new one. Never unlink unless the exact dead owner is still present.
+    if (current?.pid === owner.pid && current.token === owner.token && !configLockOwnerAlive(owner.pid)) {
+      await fs.rm(lockPath, { force: true });
+    }
+  } finally {
+    await fs.rm(recoveryPath, { force: true });
+  }
+}
+
+/** Remove only our private staging files left by an interrupted writer, while holding the lock. */
+async function cleanupOrphanedConfigTemps(configPath: string): Promise<void> {
+  const directory = path.dirname(configPath);
+  const prefix = `${path.basename(configPath)}.`;
+  const stagingName = /^(?:bak\.)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/i;
+  try {
+    for (const name of await fs.readdir(directory)) {
+      if (name.startsWith(prefix) && stagingName.test(name.slice(prefix.length))) {
+        // unlink removes a symlink itself, never the file it points at.
+        await fs.unlink(path.join(directory, name)).catch(() => {});
+      }
+    }
+  } catch {
+    // Cleanup is best-effort; failure must not prevent loading the existing config.
+  }
+}
+
+/** Serialize config mutations across app processes as well as windows. */
+async function withConfigFileLock<T>(operation: () => Promise<T>): Promise<T> {
+  const lockPath = `${getConfigPath()}.lock`;
+  const configDir = path.dirname(lockPath);
+  await fs.mkdir(configDir, { recursive: true, mode: 0o700 });
+  try { await fs.chmod(configDir, 0o700); } catch { /* Best-effort on Windows. */ }
+  const token = `${process.pid}-${randomUUID()}`;
+  const payload = JSON.stringify({ pid: process.pid, token });
+  const candidate = `${lockPath}.${token}.candidate`;
+  // Publishing a complete file via a hard link eliminates the empty-lock crash window.
+  await fs.writeFile(candidate, payload, { encoding: 'utf-8', flag: 'wx', mode: 0o600 });
+  const deadline = Date.now() + CONFIG_LOCK_TIMEOUT_MS;
+  let hardLinksSupported = true;
+  const publishLock = async (destination: string): Promise<void> => {
+    if (hardLinksSupported) {
+      try {
+        await fs.link(candidate, destination);
+        return;
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV'].includes(code ?? '')) throw err;
+        hardLinksSupported = false;
+      }
+    }
+    // Filesystems without hard links fall back to exclusive create. An incomplete
+    // fallback lock is not reclaimed automatically, since its owner is unknowable.
+    const handle = await fs.open(destination, 'wx', 0o600);
+    try {
+      await handle.writeFile(payload, 'utf-8');
+    } catch (err) {
+      await handle.close().catch(() => {});
+      await fs.rm(destination, { force: true });
+      throw err;
+    }
+    await handle.close();
+  };
+  try {
+    while (true) {
+      try {
+        await publishLock(lockPath);
+        break;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+        await recoverAbandonedConfigLock(lockPath, publishLock);
+        if (Date.now() >= deadline) throw new Error('Timed out waiting for the configuration lock.');
+        await sleep(25);
+      }
+    }
+
+    try {
+      await cleanupOrphanedConfigTemps(getConfigPath());
+      return await operation();
+    } finally {
+      const current = await readConfigLockOwner(lockPath);
+      if (current?.pid === process.pid && current.token === token) await fs.rm(lockPath, { force: true });
+    }
+  } finally {
+    await fs.rm(candidate, { force: true });
+  }
+}
 
 function runSerializedConfigMutation<T>(operation: () => Promise<T>): Promise<T> {
-  const run = configMutationChain.then(operation, operation);
+  const run = configMutationChain.then(() => withConfigFileLock(operation), () => withConfigFileLock(operation));
   configMutationChain = run.then(
     () => undefined,
     () => undefined,
@@ -1939,35 +2105,42 @@ async function configFileExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw err;
   }
 }
 
 async function readConfigFromDiskForMutation(): Promise<AppConfig> {
   const configPath = getConfigPath();
   const backupPath = `${configPath}${CONFIG_BACKUP_SUFFIX}`;
+  let unreadable = false;
 
   for (const filePath of [configPath, backupPath]) {
+    let parsed: AppConfig;
+    let raw: string;
     try {
-      const raw = await readConfigRawFromPath(filePath);
+      raw = await readConfigRawFromPath(filePath);
       // Never log `raw` — may contain plaintext or encrypted secrets.
-      const parsed = migrateConfig(JSON.parse(raw) as AppConfig);
-      if (filePath === backupPath) {
-        console.warn('[config] restored config from backup file.');
-        await writeConfigToDiskUnsafe(parsed);
-      }
-      return parsed;
+      const document = asRecord(JSON.parse(raw));
+      if (!document) throw new Error('Invalid config document');
+      parsed = migrateConfig(document as unknown as AppConfig);
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        continue;
-      }
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') unreadable = true;
       // Do not log err stacks that might echo file snippets; keep message generic.
+      continue;
     }
+    if (filePath === backupPath) {
+      console.warn('[config] restored config from backup file.');
+      // Restore the raw backup, not migrated/decrypted data: the keychain may be
+      // temporarily unavailable, and the good backup must remain untouched as well.
+      await writeConfigDocumentToDiskUnsafe(JSON.parse(raw) as Record<string, unknown>, false);
+    }
+    return parsed;
   }
 
-  if (await configFileExists(configPath)) {
-    console.error('[config] config file exists but could not be parsed; refusing to reset.');
+  if (unreadable) {
+    console.error('[config] config or backup could not be read; refusing to reset.');
     throw new Error('Config file is corrupt and no valid backup is available.');
   }
 
@@ -1976,9 +2149,29 @@ async function readConfigFromDiskForMutation(): Promise<AppConfig> {
   return defaultConfig;
 }
 
-async function writeConfigToDiskUnsafe(config: AppConfig): Promise<void> {
+/** Write a private, uniquely named file in the destination directory and flush its contents. */
+async function writePrivateConfigTemp(destination: string, data: string | Buffer): Promise<string> {
+  const temporary = `${destination}.${randomUUID()}${CONFIG_TEMP_SUFFIX}`;
+  const handle = await fs.open(temporary, 'wx', 0o600);
+  try {
+    await handle.writeFile(data);
+    await handle.sync();
+    await handle.close();
+    return temporary;
+  } catch (err) {
+    await handle.close().catch(() => {});
+    await fs.rm(temporary, { force: true }).catch(() => {});
+    throw err;
+  }
+}
+
+/** Write an already-serialized document, retaining unknown fields and encrypted secrets verbatim. */
+async function writeConfigDocumentToDiskUnsafe(
+  diskSafe: Record<string, unknown>,
+  backupCurrent = true,
+  canCommit: () => boolean = () => true,
+): Promise<boolean> {
   const configPath = getConfigPath();
-  const tempPath = `${configPath}${CONFIG_TEMP_SUFFIX}`;
   const backupPath = `${configPath}${CONFIG_BACKUP_SUFFIX}`;
   const configDir = path.dirname(configPath);
   await fs.mkdir(configDir, { recursive: true, mode: 0o700 });
@@ -1988,25 +2181,66 @@ async function writeConfigToDiskUnsafe(config: AppConfig): Promise<void> {
   } catch {
     // Best-effort on platforms that ignore directory modes.
   }
-  // Encrypt secrets via keychain (or plaintext fallback) before stringify so the
-  // payload never relies on live SecretValue fields (toJSON would redact).
+
+  const temporary = await writePrivateConfigTemp(configPath, JSON.stringify(diskSafe, null, 2));
+  let backupTemporary: string | null = null;
+  try {
+    if (!canCommit()) return false;
+    if (backupCurrent && await configFileExists(configPath)) {
+      // A unique 0600 staging file and rename avoid following an existing backup symlink
+      // or leaving a partially overwritten backup if the process is interrupted.
+      backupTemporary = await writePrivateConfigTemp(backupPath, await fs.readFile(configPath));
+      await fs.rename(backupTemporary, backupPath);
+      backupTemporary = null;
+      await chmod600BestEffort(backupPath);
+    }
+    if (!canCommit()) return false;
+    await fs.rename(temporary, configPath);
+    await chmod600BestEffort(configPath);
+    return true;
+  } finally {
+    await fs.rm(temporary, { force: true });
+    if (backupTemporary) await fs.rm(backupTemporary, { force: true });
+  }
+}
+
+async function writeConfigToDiskUnsafe(config: AppConfig, backupCurrent = true): Promise<void> {
+  // Encrypt secrets before stringify; SecretValue.toJSON would otherwise redact them.
   const diskSafe = serializeConfigForDisk(config);
-  const payload = JSON.stringify(diskSafe, null, 2);
-  // Safety: if a SecretValue slipped through, toJSON redacts rather than leaking.
-  if (payload.includes('"apiKey": "[REDACTED]"') || payload.includes('"huggingFaceToken": "[REDACTED]"')) {
+  const payload = JSON.stringify(diskSafe);
+  if (payload.includes('"apiKey":"[REDACTED]"') || payload.includes('"huggingFaceToken":"[REDACTED]"')) {
     console.warn('[config] secret field redacted in disk payload; check serializeConfigForDisk.');
   }
-  await fs.writeFile(tempPath, payload, { encoding: 'utf-8', mode: 0o600 });
-  await chmod600BestEffort(tempPath);
-  if (await configFileExists(configPath)) {
-    await fs.copyFile(configPath, backupPath);
-    await chmod600BestEffort(backupPath);
+  await writeConfigDocumentToDiskUnsafe(diskSafe, backupCurrent);
+}
+
+/** Read raw data for a tutorial-only mutation: never decrypt/re-encrypt unrelated credentials. */
+async function readTutorialConfigDocument(): Promise<Record<string, unknown>> {
+  const configPath = getConfigPath();
+  const backupPath = `${configPath}${CONFIG_BACKUP_SUFFIX}`;
+  let unreadable = false;
+  for (const filePath of [configPath, backupPath]) {
+    let document: Record<string, unknown>;
+    try {
+      const parsed = asRecord(JSON.parse(await readConfigRawFromPath(filePath)));
+      if (!parsed) throw new Error('Invalid config document');
+      document = parsed;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') unreadable = true;
+      // Never log raw config or exception details, which may contain secrets.
+      continue;
+    }
+    if (filePath === backupPath) {
+      console.warn('[config] restored config from backup file.');
+      // Do not replace the good backup with the broken primary while recovering.
+      await writeConfigDocumentToDiskUnsafe(document, false);
+    }
+    return document;
   }
-  await fs.rename(tempPath, configPath);
-  await chmod600BestEffort(configPath);
-  if (await configFileExists(backupPath)) {
-    await chmod600BestEffort(backupPath);
-  }
+  if (unreadable) throw new Error('Config file is corrupt and no valid backup is available.');
+  const defaults = serializeConfigForDisk(createDefaultConfig());
+  await writeConfigDocumentToDiskUnsafe(defaults);
+  return defaults;
 }
 
 /**
@@ -2047,6 +2281,9 @@ export function mergeSettingsConfigSave(disk: AppConfig, client: AppConfig): App
     ...clientMigrated,
     llmProviders: keepDiskClaudeModel(disk.llmProviders, clientMigrated.llmProviders),
     workspaceTools: { ...clientMigrated.workspaceTools, screenshotRetention },
+    // Tutorial transitions have their own revision-checked IPC; a stale Settings draft
+    // must never resurrect dismissed phases or move the committed cursor backwards.
+    tutorial: isTutorialProgressSupported(disk.tutorial) ? normalizeTutorialProgress(disk.tutorial) : disk.tutorial,
     workspaces: disk.workspaces,
     currentWorkspaceId: disk.currentWorkspaceId,
     lastActiveConversationByWorkspaceId: disk.lastActiveConversationByWorkspaceId,
@@ -2073,6 +2310,31 @@ export async function updateConfig(
   });
 }
 
+/** Atomically compare and update just the tutorial cursor inside the config write queue. */
+export async function updateTutorialProgress(
+  request: TutorialTransition,
+  canApply: () => boolean = () => true,
+): Promise<{ applied: boolean; progress: TutorialProgress }> {
+  return runSerializedConfigMutation(async () => {
+    const document = await readTutorialConfigDocument();
+    const progress = normalizeTutorialProgress(document['tutorial']);
+    if (!canApply()) return { applied: false, progress };
+    const result = applyTutorialTransition(progress, request);
+    if (result.applied) {
+      document['tutorial'] = result.progress;
+      // A window may release/crash while the temporary file or backup is being written.
+      // Recheck its lease immediately before publishing the new primary document.
+      if (!await writeConfigDocumentToDiskUnsafe(document, true, canApply)) return { applied: false, progress };
+    }
+    return result;
+  });
+}
+
+/** Read only tutorial data without decrypting or migrating unrelated config fields. */
+export async function loadTutorialProgress(): Promise<TutorialProgress> {
+  return runSerializedConfigMutation(async () => normalizeTutorialProgress((await readTutorialConfigDocument())['tutorial']));
+}
+
 /** Async load; creates default file on first run. */
 export async function loadConfig(): Promise<AppConfig> {
   return runSerializedConfigMutation(async () => {
@@ -2088,7 +2350,8 @@ export async function loadConfig(): Promise<AppConfig> {
 
 export async function saveConfig(config: AppConfig): Promise<void> {
   await runSerializedConfigMutation(async () => {
-    await writeConfigToDiskUnsafe(migrateConfig(config));
+    const disk = await readConfigFromDiskForMutation();
+    await writeConfigToDiskUnsafe(migrateConfig({ ...config, tutorial: disk.tutorial }));
   });
 }
 
@@ -2096,30 +2359,25 @@ export async function saveConfig(config: AppConfig): Promise<void> {
 export function loadConfigSync(): AppConfig {
   const configPath = getConfigPath();
   const backupPath = `${configPath}${CONFIG_BACKUP_SUFFIX}`;
+  let unreadable = false;
 
   for (const filePath of [configPath, backupPath]) {
     try {
       const raw = readConfigRawFromPathSync(filePath);
       // Never log `raw` or throw it in error text — may contain secrets.
-      return exposeSecretsForConsumers(migrateConfig(JSON.parse(raw) as AppConfig));
+      const document = asRecord(JSON.parse(raw));
+      if (!document) throw new Error('Invalid config document');
+      return exposeSecretsForConsumers(migrateConfig(document as unknown as AppConfig));
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        continue;
-      }
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') unreadable = true;
       // Swallow parse errors without logging file contents or secret-bearing messages.
     }
   }
 
-  try {
-    syncFs.accessSync(configPath);
-    console.error('[config] config file exists but could not be parsed; refusing to reset.');
+  if (unreadable) {
+    console.error('[config] config or backup could not be read; refusing to reset.');
     throw new Error('Config file is corrupt and no valid backup is available.');
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw err;
-    }
   }
-
   return exposeSecretsForConsumers(createDefaultConfig());
 }
 

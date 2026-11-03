@@ -1913,6 +1913,8 @@ const CONFIG_READ_RETRY_MS = 25;
 let configMutationChain: Promise<unknown> = Promise.resolve();
 const CONFIG_LOCK_STALE_MS = 4_000;
 const CONFIG_LOCK_TIMEOUT_MS = 20_000;
+/** No config operation holds the lock this long, so a seemingly live owner is a recycled PID. */
+const CONFIG_LOCK_ABANDONED_MS = 120_000;
 
 function configLockOwnerAlive(pid: number): boolean {
   try {
@@ -1944,7 +1946,7 @@ async function readConfigLockOwner(lockPath: string): Promise<ConfigLockOwner | 
   return null;
 }
 
-/** Reclaim only a proven-dead owner, with one recovery guard per immutable owner token. */
+/** Reclaim only a dead or long-expired owner, with one recovery guard per immutable owner token. */
 async function recoverAbandonedConfigLock(
   lockPath: string,
   publishLock: (destination: string) => Promise<void>,
@@ -1957,9 +1959,11 @@ async function recoverAbandonedConfigLock(
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
     throw err;
   }
-  if (Date.now() - stat.mtimeMs <= CONFIG_LOCK_STALE_MS) return;
+  const age = Date.now() - stat.mtimeMs;
+  if (age <= CONFIG_LOCK_STALE_MS) return;
   const owner = await readConfigLockOwner(lockPath);
-  if (!owner || configLockOwnerAlive(owner.pid)) return;
+  const expired = age > CONFIG_LOCK_ABANDONED_MS;
+  if (!owner || (!expired && configLockOwnerAlive(owner.pid))) return;
   const key = createHash('sha256').update(JSON.stringify([owner.pid, owner.token])).digest('hex').slice(0, 32);
   const recoveryPath = `${lockPath}.recovery.${key}`;
   try {
@@ -1974,8 +1978,8 @@ async function recoverAbandonedConfigLock(
   try {
     const current = await readConfigLockOwner(lockPath);
     // Another reclaimer may have removed the old lock and a live process may have
-    // installed a new one. Never unlink unless the exact dead owner is still present.
-    if (current?.pid === owner.pid && current.token === owner.token && !configLockOwnerAlive(owner.pid)) {
+    // installed a new one. Never unlink unless the exact abandoned owner is still present.
+    if (current?.pid === owner.pid && current.token === owner.token && (expired || !configLockOwnerAlive(owner.pid))) {
       await fs.rm(lockPath, { force: true });
     }
   } finally {

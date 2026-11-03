@@ -29,6 +29,9 @@
   color: var(--t-fg);
   box-shadow: 0 8px 30px rgb(0 0 0 / 0.4);
   pointer-events: auto;
+  /* The card can sit over a frameless drag region, which would otherwise swallow its clicks. */
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .tutorial-card--celebration {
@@ -147,7 +150,7 @@
   mask: var(--tutorial-llama-icon) center / contain no-repeat;
 }
 
-.tutorial-card > .tutorial-link {
+.tutorial-card__content > .tutorial-link {
   margin-top: 0.5rem;
 }
 

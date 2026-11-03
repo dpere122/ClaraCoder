@@ -565,6 +565,11 @@ async function boot() {
       if (step === 'home-start') {
         await capture(homeWindow, 'home-fading-in', 200);
         await capture(homeWindow, 'home-settled', 1400);
+        // Clicks on a card over a titlebar drag region would otherwise never reach the renderer.
+        assert.equal(
+          await evaluate(homeWindow, () => getComputedStyle(document.querySelector('app-tutorial-overlay .tutorial-card')).getPropertyValue('-webkit-app-region')),
+          'no-drag',
+        );
       }
       if (step === 'home-workspace') {
         const departure = await waitFor('mascot fade-out finished', () => evaluate(homeWindow, () => {

@@ -265,15 +265,17 @@ export class TutorialOverlayComponent implements OnDestroy {
 
   protected installStatus(): string {
     const state = this.llamaState();
+    // Nothing else tells the user where the card went when this window stays open.
+    const staysOpen = 'Continuing moves the tour to the main window; this window stays open.';
     if (state === 'checking') return 'Checking llama-server status…';
-    if (state === 'installing') return 'An install or its cleanup is in progress. Continuing leaves Dependencies open.';
-    if (state === 'error') return 'The install could not be verified. Use Retry in Dependencies, or continue without installing.';
-    if (state === 'cancelled') return 'The install was cancelled. You can retry it or continue without installing.';
-    if (state === 'installed' && this.dependenciesBusy()) return 'llama-server is already installed, but other Dependencies work is still active. This window will stay open.';
+    if (state === 'installing') return `An install or its cleanup is in progress. ${staysOpen}`;
+    if (state === 'error') return `The install could not be verified. Use Retry in Dependencies, or continue without installing. ${staysOpen}`;
+    if (state === 'cancelled') return `The install was cancelled. You can retry it or continue without installing. ${staysOpen}`;
+    if (state === 'installed' && this.dependenciesBusy()) return `llama-server is already installed, but other Dependencies work is still active. ${staysOpen}`;
     if (state === 'installed') return 'llama-server is already installed. Continue to close Dependencies and return to the main window.';
-    if (state === 'success' && this.dependenciesBusy()) return 'The install was verified, but other Dependencies work is still active. This window will stay open.';
+    if (state === 'success' && this.dependenciesBusy()) return `The install was verified, but other Dependencies work is still active. ${staysOpen}`;
     if (state === 'success') return 'The install was verified. Continue to close Dependencies and return to the main window.';
-    if (state === 'missing') return 'llama-server is not installed. Download it if you want a local engine, or continue without it.';
+    if (state === 'missing') return `llama-server is not installed. Download it if you want a local engine, or continue without it. ${staysOpen}`;
     return '';
   }
 
@@ -389,7 +391,8 @@ export class TutorialOverlayComponent implements OnDestroy {
       this.highlightedTarget = highlightedTarget;
     }
     const box = found.box;
-    const detailState = found.target?.getAttribute('data-state');
+    // Only Model Manager's data-state describes metadata; a Dependencies row uses it for install state.
+    const detailState = step?.phaseId === 'featured-models' ? found.target?.getAttribute('data-state') : null;
     let detail = detailState === 'loading' || detailState === 'idle'
       ? 'Details are loading; you can retry or continue.'
       : detailState === 'error'
@@ -470,7 +473,8 @@ export class TutorialOverlayComponent implements OnDestroy {
 
   private findSourceRecovery(step: TutorialStepDescriptor | null): { state: SourceRecovery; target: HTMLElement | null } {
     const id = this.tour.snapshot()?.progress.sourceId;
-    if (!id || !step || step.phaseId !== 'local-source' || ['sources-navigation', 'sources-add'].includes(step.stepId)) {
+    // The final step has no target and needs no source, so it must not block finishing the tour.
+    if (!id || !step || step.phaseId !== 'local-source' || ['sources-navigation', 'sources-add', 'celebration'].includes(step.stepId)) {
       return { state: 'none', target: null };
     }
     const nav = document.querySelector<HTMLElement>('[data-tutorial="settings-sources-nav"]');

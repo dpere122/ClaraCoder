@@ -917,6 +917,33 @@ describe('durable tutorial progress', () => {
       rmSync(tempDir, { recursive: true, force: true });
     }
   });
+  it('waits for a recent live lock owner but reclaims one that has long expired', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'clara-tutorial-recycled-pid-'));
+    process.env.CLARA_TEST_CONFIG_DIR = tempDir;
+    try {
+      const lockPath = join(tempDir, 'config.json.lock');
+      writeFileSync(lockPath, JSON.stringify({ pid: process.pid, token: 'live-holder' }), 'utf8');
+      const recent = new Date(Date.now() - 10_000);
+      utimesSync(lockPath, recent, recent);
+      let settled = false;
+      const waiting = updateTutorialProgress({ action: 'start', expectedRevision: 0 }).finally(() => { settled = true; });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(settled).toBe(false);
+      expect(existsSync(lockPath)).toBe(true);
+      rmSync(lockPath);
+      expect((await waiting).applied).toBe(true);
+
+      // A crashed owner's PID can be reused by an unrelated process, which then looks alive forever.
+      writeFileSync(lockPath, JSON.stringify({ pid: process.pid, token: 'recycled-pid' }), 'utf8');
+      const expired = new Date(Date.now() - 10 * 60_000);
+      utimesSync(lockPath, expired, expired);
+      expect((await updateTutorialProgress({ action: 'dismiss-all', expectedRevision: 1 })).applied).toBe(true);
+      expect(existsSync(lockPath)).toBe(false);
+    } finally {
+      delete process.env.CLARA_TEST_CONFIG_DIR;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
   it('preserves opaque records on known phases and never schedules or clears their cursor', () => {
     const opaque = { status: 'future-resolution', details: ['retain'] };
     const progress = normalizeTutorialProgress({

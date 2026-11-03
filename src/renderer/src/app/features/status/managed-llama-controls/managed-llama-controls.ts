@@ -207,6 +207,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
             this.phase.set('downloading');
           } else if (ev.phase === 'running') {
             this.phase.set('running');
+            this.startError.set('');
           } else if (ev.phase === 'stopped') {
             this.phase.set('idle');
           }
@@ -227,6 +228,13 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
         return;
       }
       void this.probeStatus(cfg);
+    });
+
+    // A failure is about one model's last start: drop it when another source becomes active,
+    // including from outside this control (Settings), where nothing else would clear it.
+    effect(() => {
+      this.modelId();
+      untracked(() => this.startError.set(''));
     });
 
     // Keep the local model inventory in sync with the configured custom models dir
@@ -365,6 +373,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
       }
       if (res.ok && res.running) {
         this.phase.set('running');
+        this.startError.set('');
       } else if (res.ok && res.starting) {
         if (this.phase() !== 'downloading') {
           this.phase.set('starting');

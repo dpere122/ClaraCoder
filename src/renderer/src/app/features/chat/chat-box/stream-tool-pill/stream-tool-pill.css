@@ -58,21 +58,17 @@ app-stream-tool-pill .stream-tool-pill__spinner {
  */
 app-stream-tool-pill .stream-tool-pill__icons {
   flex-shrink: 0;
-  height: 1.2rem;
-  margin: -0.1rem 0;
-  overflow: hidden;
   display: flex;
-  flex-wrap: wrap;
   gap: 0.05rem;
 }
 
 app-stream-tool-pill .stream-tool-pill__icon {
-  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 1.2rem;
   height: 1.2rem;
+  margin: -0.1rem 0;
   opacity: 0.85;
 }
 
@@ -123,16 +119,16 @@ app-stream-tool-pill .stream-tool-pill--error .stream-tool-pill__meta {
 }
 
 /*
- * Too narrow for four glyphs, a few words and the run time: keep one glyph (the rest wrap out of
- * sight) so the row fits instead of pushing the run time out and scrolling the whole transcript.
+ * Too narrow for four glyphs, a few words and the run time: keep one glyph so the row fits
+ * instead of pushing the run time out and scrolling the whole transcript.
  */
 @container (max-width: 17rem) {
   app-stream-tool-pill .stream-tool-pill {
     gap: 0.3rem;
   }
 
-  app-stream-tool-pill .stream-tool-pill__icons {
-    flex-basis: 1.2rem;
+  app-stream-tool-pill .stream-tool-pill__icon:not(:first-child) {
+    display: none;
   }
 }
 

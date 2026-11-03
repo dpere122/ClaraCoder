@@ -416,7 +416,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
   },
   {
     id: "workspace.footer",
-    label: "Workspace footer",
+    label: "LLM source controls",
     category: "workspace",
     categoryLabel: "Workspace",
     description: "LLM source picker and managed llama-server controls in the status bar.",

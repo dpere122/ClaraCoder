@@ -707,6 +707,11 @@ describe('App', () => {
     expect(compiled.querySelector('.sidebar')).toBeTruthy();
     expect(compiled.querySelector('app-chat-conversation-hub')).toBeTruthy();
     expect(compiled.querySelector('.app-content--no-workspace')).toBeNull();
+    // The source picker sits at the start of the status bar, before the model indicator.
+    const statusStart = compiled.querySelector('.app-status-footer__start');
+    expect(statusStart?.firstElementChild?.querySelector('app-managed-llama-controls')).toBeTruthy();
+    expect(statusStart?.querySelector('app-llama-status-indicator')).toBeTruthy();
+    expect(compiled.querySelector('app-workspace app-managed-llama-controls')).toBeNull();
   });
 
   it('persists a delete-confirm for a non-active conversation so it re-surfaces on reopen', async () => {

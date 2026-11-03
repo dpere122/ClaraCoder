@@ -40,7 +40,7 @@
       "description": "Workspace explorer with folders, files, and workspace settings."
     },
     "workspace.footer": {
-      "label": "Workspace footer",
+      "label": "LLM source controls",
       "description": "LLM source picker and managed llama-server controls in the status bar.",
       "styleSources": ["features/status/managed-llama-controls"]
     }

@@ -102,20 +102,6 @@ app-workspace .workspace-env__bar:hover {
   background: var(--t-hover-bg);
 }
 
-app-workspace .workspace-env__chevron {
-  flex-shrink: 0;
-  width: 0;
-  height: 0;
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  border-left: 5px solid var(--t-secondary);
-  transition: transform 0.15s ease;
-}
-
-app-workspace .workspace-env__chevron--open {
-  transform: rotate(90deg);
-}
-
 app-workspace .workspace-env__label {
   flex-shrink: 0;
   text-transform: uppercase;

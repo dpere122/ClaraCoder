@@ -23,6 +23,7 @@
 
 /* Status bar: one compact row, and a start failure floats above the bar instead of growing it. */
 .managed-llama-controls--status-bar {
+  --status-bar-error-width: min(28rem, 80vw);
   position: relative;
   flex-wrap: nowrap;
   padding-top: 0;
@@ -54,10 +55,32 @@
   left: 0;
   bottom: calc(100% + 6px);
   z-index: 20;
-  width: min(28rem, 80vw);
-  padding: 0.35rem 0.5rem;
+  box-sizing: border-box;
+  width: var(--status-bar-error-width);
+  padding: 0.35rem 2rem 0.35rem 0.5rem;
   border: 1px solid var(--t-border, #444);
   background: var(--t-bg-surface, #22261f);
+}
+
+/* It covers whatever is above the bar, so it has to be closable; pinned to the box's bottom-right. */
+.managed-llama-controls__error-dismiss {
+  position: absolute;
+  left: calc(var(--status-bar-error-width) - 1.9rem);
+  bottom: calc(100% + 6px + 0.3rem);
+  z-index: 21;
+  width: 1.2rem;
+  height: 1.2rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--t-text-muted, #999);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.managed-llama-controls__error-dismiss:hover {
+  color: var(--t-fg, #ddd);
 }
 
 /* The reason is at the end of the server's last output; column-reverse keeps that end in view. */

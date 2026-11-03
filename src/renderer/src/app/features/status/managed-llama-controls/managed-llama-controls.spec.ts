@@ -85,9 +85,63 @@ describe('the layout', () => {
     await render(fixture);
     expect(el.querySelector('.managed-llama-controls--status-bar')).toBeTruthy();
   });
+
+  it('widens the source menu to its longest name only in the status bar', async () => {
+    const { fixture } = setup();
+    await render(fixture);
+    const select = fixture.debugElement.query(By.directive(PillSelectComponent)).componentInstance as PillSelectComponent;
+    expect(select.menuFitContent()).toBe(false);
+    fixture.componentRef.setInput('layout', 'status-bar');
+    await render(fixture);
+    expect(select.menuFitContent()).toBe(true);
+  });
 });
 
 describe('a start that fails', () => {
+  const failedStart = async (layout: 'default' | 'status-bar' = 'default') => {
+    const { fixture, electron } = setup();
+    fixture.componentRef.setInput('layout', layout);
+    const el = await render(fixture);
+    button(el).click();
+    await render(fixture);
+    expect(alertText(el)).toContain('failed to load model');
+    return { fixture, electron, el };
+  };
+
+  it('can be dismissed in the status bar, where it covers what is above the bar', async () => {
+    const { fixture, el } = await failedStart('status-bar');
+    (el.querySelector('.managed-llama-controls__error-dismiss') as HTMLButtonElement).click();
+    await render(fixture);
+    expect(alertText(el)).toBeNull();
+    expect(el.querySelector('.managed-llama-controls__error-dismiss')).toBeNull();
+  });
+
+  it('stays inline with no dismiss button outside the status bar', async () => {
+    const { el } = await failedStart();
+    expect(el.querySelector('.managed-llama-controls__error-dismiss')).toBeNull();
+  });
+
+  it('goes away when another source becomes active from outside this control', async () => {
+    const { fixture, el } = await failedStart();
+    fixture.componentRef.setInput('appConfig', { ...CONFIG, activeLlmModelId: 'm2' });
+    await render(fixture);
+    expect(alertText(el)).toBeNull();
+  });
+
+  it('stays when the config is re-sent for the same source', async () => {
+    const { fixture, el } = await failedStart();
+    fixture.componentRef.setInput('appConfig', { ...CONFIG });
+    await render(fixture);
+    expect(alertText(el)).toContain('failed to load model');
+  });
+
+  it('goes away when the server comes up some other way', async () => {
+    const { fixture, electron, el } = await failedStart();
+    electron.llamaServerLifecycle$.next({ modelId: 'm1', phase: 'running' });
+    await render(fixture);
+    expect(alertText(el)).toBeNull();
+  });
+
   it('says what the server said, and goes back to Start', async () => {
     const { fixture } = setup();
     const el = await render(fixture);

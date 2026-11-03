@@ -8,6 +8,13 @@
  * theme font when unset.
  */
 
+/* Curly quotes only, for UI fonts that draw them a full em wide (see `applyAppFontOverrides`). */
+@font-face {
+  font-family: 'Clara Narrow Quotes';
+  src: local('Segoe UI'), local('Helvetica Neue'), local('Arial'), local('DejaVu Sans');
+  unicode-range: U+2018-2019, U+201C-201D;
+}
+
 /* Lucide (lucide-angular): align with text and inherit theme color */
 lucide-icon {
   display: inline-flex;

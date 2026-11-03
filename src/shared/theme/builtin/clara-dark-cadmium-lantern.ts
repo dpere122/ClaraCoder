@@ -68,7 +68,7 @@ export const CLARA_DARK_CADMIUM_LANTERN_THEME: ClaraThemeDocument = {
     '--t-user-fg': '#fbf6dc',
     '--t-user-border': '#ffd23f66',
     '--t-assistant-bg': '#08130d',
-    '--t-assistant-fg': '#cdeedb',
+    '--t-assistant-fg': '#d8f5e3',
     '--t-assistant-border': '#2bff8840',
 
     // Code

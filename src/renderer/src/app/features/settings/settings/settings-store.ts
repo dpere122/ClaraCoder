@@ -161,6 +161,8 @@ import { customModelDeletePrompt, workspaceRemovePrompt } from '../../../shared/
 import { DEFAULT_THEME_ID, resolveLegacyThemeId } from '@shared/theme';
 import { applyAppFontOverrides } from '../../../core/theme/app-font-overrides';
 import { ThemeEngineService } from '../../../core/theme/theme-engine.service';
+import { isTutorialProgressSupported } from '@shared/types/tutorial';
+import { TutorialCoordinator } from '../../tutorial/tutorial-coordinator';
 import { SettingsThemesStore } from '../settings-themes/settings-themes-store';
 import { themesCategoryFromSubTabId } from './settings-tabs';
 import { VOICE_OPTIONS } from '../../speech/speech-module/speech-module';
@@ -292,6 +294,7 @@ export class SettingsStore {
   /** Kokoro voice ids for {@link AudioTranscriptionConfig.ttsVoice} (same list as chat TTS). */
   readonly ttsVoiceChoices = VOICE_OPTIONS;
   private readonly themeEngine = inject(ThemeEngineService);
+  private readonly tutorial = inject(TutorialCoordinator);
   /** Theme editing state (Settings → Themes); participates in Apply / OK through {@link attach}. */
   readonly themes$ = inject(SettingsThemesStore);
   /** Selectable themes (built-ins + user library) as `{ id, label }` rows for pickers. */
@@ -376,6 +379,14 @@ export class SettingsStore {
   readonly extraUserPath = signal('');
   readonly enableAgentFormatters = signal(false);
   readonly confirmMove = signal(true);
+  /** Null follows the saved tour, so finishing or dismissing it elsewhere also unticks the box. */
+  private readonly tutorialEnabledDraft = signal<boolean | null>(null);
+  readonly tutorialEnabled = computed(() => this.tutorialEnabledDraft() ?? this.tutorial.hasUnresolved());
+  /** Progress saved by a newer release stays read-only here. */
+  readonly tutorialToggleAvailable = computed(() => {
+    const snapshot = this.tutorial.snapshot();
+    return !!snapshot && isTutorialProgressSupported(snapshot.progress);
+  });
   readonly contextCompressionEnabled = signal(true);
   readonly contextCompressionTriggerRatio = signal(0.8);
   readonly contextCompressionTargetRatio = signal(0.5);
@@ -3149,6 +3160,11 @@ export class SettingsStore {
     this.markSettingsDirty();
   }
 
+  onTutorialEnabledChange(enabled: boolean): void {
+    this.tutorialEnabledDraft.set(!!enabled);
+    this.markSettingsDirty();
+  }
+
   updateContextCompression(changes: Partial<ContextCompressionConfig>): void {
     if (changes.enabled !== undefined) {
       this.contextCompressionEnabled.set(!!changes.enabled);
@@ -3478,9 +3494,17 @@ export class SettingsStore {
     await this.themes$.persistIfDirty();
     const revision = this.dirtyRevision;
     const next = this.buildConfigForPersist();
+    const tutorialEnabled = this.tutorialEnabledDraft();
     const saved = await this.electron.saveConfig(next);
     if (!saved) {
       return;
+    }
+    if (tutorialEnabled !== null) {
+      // Tour progress is deliberately not part of a config save; a failure here leaves the window dirty.
+      await this.electron.setTutorialEnabled(tutorialEnabled);
+      if (this.tutorialEnabledDraft() === tutorialEnabled) {
+        this.tutorialEnabledDraft.set(null);
+      }
     }
     this.configSnapshot = structuredClone(saved);
     if (Array.isArray(saved.llmProviders)) {
@@ -3676,6 +3700,7 @@ export class SettingsStore {
 
     this.configSnapshot = structuredClone(config);
     this.confirmMoveTouched = false;
+    this.tutorialEnabledDraft.set(null);
     this.workspaces.set(config.workspaces);
 
     const currentWorkspace = config.workspaces.find((workspace) => workspace.id === config.currentWorkspaceId) ?? null;

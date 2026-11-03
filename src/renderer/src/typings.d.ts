@@ -409,6 +409,7 @@ declare global {
     transitionTutorial: (transition: TutorialTransition) => Promise<TutorialTransitionResult>;
     claimTutorial: (window: TutorialWindow) => Promise<TutorialClaimResult>;
     releaseTutorial: (requestedWindow?: TutorialWindow) => Promise<TutorialSnapshot>;
+    setTutorialEnabled: (enabled: boolean) => Promise<TutorialTransitionResult>;
     onTutorialUpdated: (callback: (snapshot: TutorialSnapshot) => void) => () => void;
     getScreenshotStorageStats: () => Promise<{ ok: true; stats: ScreenshotStorageStats } | { ok: false; error: string }>;
     runScreenshotCleanup: () => Promise<{ ok: true; stats: ScreenshotStorageStats } | { ok: false; error: string }>;

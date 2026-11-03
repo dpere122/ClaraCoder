@@ -139,7 +139,7 @@ describe('TutorialOverlayComponent', () => {
     deps.setAttribute('data-tutorial-dependencies-busy', 'true');
     await Promise.resolve();
     await paint(h.fixture);
-    expect(h.host.textContent).toContain('This window will stay open');
+    expect(h.host.textContent).toContain('this window stays open');
     expect(h.tour.advance).not.toHaveBeenCalled();
   });
 
@@ -305,6 +305,33 @@ describe('TutorialOverlayComponent', () => {
     const mascotX = parseFloat(h.host.querySelector<HTMLElement>('.tutorial-mascot')!.style.getPropertyValue('--tutorial-mascot-x'));
     expect(panelLeft - mascotX).toBeGreaterThanOrEqual(130); // Room for the final burst beside the card.
     expect(button(h.host, 'Finish')).toBeTruthy();
+  });
+
+  it('lets the final step finish even when the recorded source is gone or unselected', async () => {
+    const h = setup(descriptor('celebration'));
+    h.tour.snapshot.set({ progress: { sourceId: 'lost-source' } });
+    target('settings-sources-nav', () => rectangle(0)).setAttribute('data-tutorial-source-id', 'another-source');
+    target('sources-add', () => rectangle(200));
+    await paint(h.fixture);
+    expect(h.host.textContent).not.toContain('Source draft unavailable');
+    expect(button(h.host, 'Finish')).toBeTruthy();
+    expect(h.host.querySelector('.tutorial-secondary-actions')).toBeNull();
+    expect(h.host.querySelector('.tutorial-highlight')).toBeNull();
+  });
+
+  it('does not report a Dependencies install state as a metadata failure', async () => {
+    const h = setup(descriptor('engine-intro'));
+    target('dependencies-llama', () => rectangle(0)).setAttribute('data-state', 'error');
+    await paint(h.fixture);
+    expect(h.host.textContent).not.toContain('Details could not be loaded');
+
+    const featured = descriptor('featured-small');
+    h.step.set(featured);
+    h.cursor.set({ phaseId: featured.phaseId, stepId: featured.stepId });
+    target('featured-small', () => rectangle(0)).setAttribute('data-state', 'error');
+    h.fixture.detectChanges();
+    await paint(h.fixture);
+    expect(h.host.textContent).toContain('Details could not be loaded');
   });
 
   it('clips the highlight to nested scrollports, including borders and scrollbars', async () => {

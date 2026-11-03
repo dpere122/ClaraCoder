@@ -30,6 +30,8 @@ export const createAppServicesApi = (ipcRenderer: PreloadIpc) => ({
     ipcRenderer.invoke('tutorial:claim', window),
   releaseTutorial: (requestedWindow?: TutorialWindow): Promise<TutorialSnapshot> =>
     ipcRenderer.invoke('tutorial:release', requestedWindow),
+  setTutorialEnabled: (enabled: boolean): Promise<TutorialTransitionResult> =>
+    ipcRenderer.invoke('tutorial:set-enabled', enabled),
   onTutorialUpdated: (callback: (snapshot: TutorialSnapshot) => void): (() => void) => {
     const listener = (_event: unknown, snapshot: TutorialSnapshot) => callback(snapshot);
     ipcRenderer.on('tutorial:updated', listener);

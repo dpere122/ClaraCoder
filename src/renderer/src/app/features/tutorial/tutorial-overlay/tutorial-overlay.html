@@ -107,10 +107,12 @@
                   <button type='button' class='tutorial-button' (click)='retryTarget()'>Retry target</button>
                 }
               </div>
-              <div class='tutorial-secondary-actions'>
-                <button type='button' class='tutorial-link' [disabled]='tour.busy()' (click)='performAction("skipPhase")'>Skip this phase</button>
-                <button type='button' class='tutorial-link' [disabled]='tour.busy()' (click)='performAction("dismissAll")'>Dismiss remaining tour</button>
-              </div>
+              @if (!step.celebration) {
+                <div class='tutorial-secondary-actions'>
+                  <button type='button' class='tutorial-link' [disabled]='tour.busy()' (click)='performAction("skipPhase")'>Skip this phase</button>
+                  <button type='button' class='tutorial-link' [disabled]='tour.busy()' (click)='performAction("dismissAll")'>Dismiss remaining tour</button>
+                </div>
+              }
             }
           }
         }

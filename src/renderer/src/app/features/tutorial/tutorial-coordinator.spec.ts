@@ -468,6 +468,25 @@ describe('TutorialCoordinator', () => {
     expect(backend.progress.phases['intro']).toEqual({ futureResolution: 'paused' });
   });
 
+  it('offers a snoozed tour again after Settings restarts it, but not on a mere broadcast', async () => {
+    const backend = new TutorialBackend();
+    const home = renderer(backend, 'home', 1);
+    await flush();
+    expect(home.coordinator.view()).toBe('invitation');
+    await home.coordinator.later();
+    await flush();
+    expect(home.coordinator.view()).toBe('hidden');
+
+    backend.broadcast();
+    await flush();
+    expect(home.coordinator.view()).toBe('hidden');
+
+    backend.progress = { ...backend.progress, revision: backend.progress.revision + 1 };
+    backend.broadcast();
+    await flush();
+    expect(home.coordinator.view()).toBe('invitation');
+  });
+
   it('keeps unknown future cursors intact instead of silently skipping them', async () => {
     const backend = new TutorialBackend();
     setCursor(backend, 'future-phase', 'future-step');

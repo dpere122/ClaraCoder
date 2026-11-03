@@ -565,6 +565,11 @@ async function boot() {
       if (step === 'home-start') {
         await capture(homeWindow, 'home-fading-in', 200);
         await capture(homeWindow, 'home-settled', 1400);
+        // Clicks on a card over a titlebar drag region would otherwise never reach the renderer.
+        assert.equal(
+          await evaluate(homeWindow, () => getComputedStyle(document.querySelector('app-tutorial-overlay .tutorial-card')).getPropertyValue('-webkit-app-region')),
+          'no-drag',
+        );
       }
       if (step === 'home-workspace') {
         const departure = await waitFor('mascot fade-out finished', () => evaluate(homeWindow, () => {
@@ -822,6 +827,43 @@ async function boot() {
     settingsWindow.destroy();
     console.log('[tutorial-smoke] PASS user-initiated Apply and saved-source recovery');
 
+    // The General checkbox: off ends a tour in progress, on brings the invitation back.
+    await evaluate(homeWindow, () => { window.electronAPI.openSettingsWindow('general'); });
+    settingsWindow = await waitWindow('settings');
+    await waitFor('Behavior section', () => evaluate(settingsWindow, () => {
+      const section = [...document.querySelectorAll('button.tab-button--nav-sub')].find((item) => item.textContent.includes('Behavior'));
+      section?.click();
+      return !!section;
+    }));
+    const toggleTour = async (from) => {
+      await waitFor(`tour checkbox ${from}`, () => evaluate(settingsWindow, (checked) => {
+        const box = [...document.querySelectorAll('label.toggle-row')]
+          .find((label) => label.textContent.includes('Show the guided tour'))?.querySelector('input');
+        if (!box || box.disabled || box.checked !== checked) return false;
+        box.click();
+        return true;
+      }, from));
+      await clickTarget(settingsWindow, 'button[data-tutorial="settings-apply"]');
+    };
+    allowSettingsSave = true;
+    await toggleTour(true);
+    const toggledOff = await waitFor('tour dismissed from Settings', async () => {
+      const current = await snapshot(homeWindow);
+      return current.progress.active === null && current.ownerId === null &&
+        ['intro', 'local-engine', 'featured-models', 'local-source'].every((id) => current.progress.phases[id]) ? current : null;
+    });
+    assert.equal(toggledOff.progress.sourceId, undefined);
+    await waitFor('Home card gone', async () => (await card(homeWindow)) === null);
+    await capture(settingsWindow, 'general-tour-toggle', 300);
+    await toggleTour(false);
+    await waitFor('Home invitation after restart', async () => (await card(homeWindow))?.primary === 'Start tour');
+    allowSettingsSave = false;
+    const restarted = await snapshot(homeWindow);
+    assert.deepEqual(restarted.progress.phases, {});
+    assert.deepEqual(JSON.parse(fs.readFileSync(configFile, 'utf8')).tutorial, restarted.progress);
+    settingsWindow.destroy();
+    console.log('[tutorial-smoke] PASS General checkbox ends and restarts the tour');
+
     // Exercise an active cursor surviving a renderer reload after the full tour. This
     // fixture setup happens only in the private temp config, never in the user's data.
     rewriteProgress({ revision: completed.progress.revision + 1, phases: {}, active: { phaseId: 'intro', stepId: 'home-start' } });
@@ -928,7 +970,7 @@ async function boot() {
       }
     }
     console.log(`[tutorial-smoke] Safety: blocked dangerous IPC=${attempts.unsafeIpc.length}, unrequested Settings saves=${attempts.settingsSaves.length}, approved Settings saves=${approvedSettingsSaves}, synthetic installs=${fakeLlamaInstalls}, subprocesses=${attempts.subprocesses.length}, network attempts=${attempts.network.length}, external opens=${attempts.external.length}`);
-    if (!code) console.log('[tutorial-smoke] TUTORIAL_SMOKE_OK (no real downloads; one synthetic install and one explicit Apply in isolated settings)');
+    if (!code) console.log('[tutorial-smoke] TUTORIAL_SMOKE_OK (no real downloads; one synthetic install and only explicit Applies in isolated settings)');
     else console.error('[tutorial-smoke] TUTORIAL_SMOKE_FAILED; later checks may not have run');
     app.exit(code);
   }

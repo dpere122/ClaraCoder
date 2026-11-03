@@ -19,6 +19,7 @@ import {
   type ModelManagerListModelsResult,
 } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
+import { TutorialCoordinator } from '../../tutorial/tutorial-coordinator';
 import { ThemeEngineService } from '../../../core/theme/theme-engine.service';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { ThemedPromptDialogService } from '../../../shared/themed-prompt-dialog/themed-prompt-dialog.service';
@@ -132,6 +133,7 @@ function setup(
     llamaServerGgufSize: vi.fn(async (): Promise<number | null> => null),
     modelManagerListCustomModels: vi.fn(async (): Promise<ModelManagerListModelsResult> => ({ ok: true, models: store.modelManagerCustomModels() })),
     saveConfig: vi.fn(async (_config: AppConfig): Promise<unknown> => SAVED),
+    setTutorialEnabled: vi.fn(async (_enabled: boolean): Promise<unknown> => ({ applied: true })),
   };
   TestBed.configureTestingModule({
     providers: [
@@ -751,6 +753,64 @@ describe('choosing a card', () => {
     const { chatRunCommand } = store.selectedLlamaCppManaged();
     expect(flagValue(chatRunCommand, '-dev')).toBe('CUDA1');
     expect(chatRunCommand).not.toContain('--main-gpu');
+  });
+});
+
+describe('the guided tour checkbox', () => {
+  function ready(phases: Record<string, unknown>, schemaVersion?: number) {
+    const { store, electron } = setup({ chatRunCommand: 'llama-server --port {{PORT}} -hf org/model:Q4_0' });
+    (store as unknown as { configSnapshot: unknown }).configSnapshot = {};
+    const tour = TestBed.inject(TutorialCoordinator);
+    tour.snapshot.set({ progress: { revision: 1, phases, active: null, schemaVersion }, ownerId: null, requestedWindow: null });
+    return { store, electron, tour };
+  }
+  const ALL_DONE = { intro: 'completed', 'local-engine': 'completed', 'featured-models': 'dismissed', 'local-source': 'skipped' };
+
+  it('reflects the saved tour, including one dismissed from another window', () => {
+    const { store, tour } = ready({});
+    expect(store.tutorialEnabled()).toBe(true);
+    tour.snapshot.set({ progress: { revision: 2, phases: ALL_DONE, active: null }, ownerId: null, requestedWindow: null });
+    expect(store.tutorialEnabled()).toBe(false);
+    expect(store.settingsDirty()).toBe(false);
+  });
+
+  it('is a draft until Apply, which saves the config first and then changes the tour', async () => {
+    const { store, electron } = ready(ALL_DONE);
+    store.onTutorialEnabledChange(true);
+    expect(store.tutorialEnabled()).toBe(true);
+    expect(store.settingsDirty()).toBe(true);
+    expect(electron.setTutorialEnabled).not.toHaveBeenCalled();
+
+    await store.applySettings();
+    expect(electron.setTutorialEnabled).toHaveBeenCalledExactlyOnceWith(true);
+    expect(electron.saveConfig.mock.invocationCallOrder[0]!).toBeLessThan(electron.setTutorialEnabled.mock.invocationCallOrder[0]!);
+    expect(store.settingsDirty()).toBe(false);
+  });
+
+  it('does not touch the tour when Apply saves something else', async () => {
+    const { store, electron } = ready({});
+    store.onConfirmMoveChange(false);
+    await store.applySettings();
+    expect(electron.saveConfig).toHaveBeenCalledTimes(1);
+    expect(electron.setTutorialEnabled).not.toHaveBeenCalled();
+  });
+
+  it('stays dirty with the choice kept when the tour could not be changed', async () => {
+    const { store, electron } = ready({});
+    electron.setTutorialEnabled.mockRejectedValueOnce(new Error('locked'));
+    store.onTutorialEnabledChange(false);
+    await expect(store.applySettings()).rejects.toThrow('locked');
+    expect(store.settingsDirty()).toBe(true);
+    expect(store.tutorialEnabled()).toBe(false);
+  });
+
+  it('is unavailable until progress loads, and for progress from a newer release', () => {
+    const { store, tour } = ready({}, 99);
+    expect(store.tutorialToggleAvailable()).toBe(false);
+    tour.snapshot.set(null);
+    expect(store.tutorialToggleAvailable()).toBe(false);
+    tour.snapshot.set({ progress: { revision: 1, phases: {}, active: null }, ownerId: null, requestedWindow: null });
+    expect(store.tutorialToggleAvailable()).toBe(true);
   });
 });
 

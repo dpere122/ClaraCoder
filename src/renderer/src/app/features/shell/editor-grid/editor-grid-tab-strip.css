@@ -20,6 +20,22 @@
   box-shadow: inset 0 -1px 0 var(--t-border-subtle, #333);
 }
 
+/* Tabs and their scroll overlay: gives up width to the actions, then the tabs scroll. */
+.chat-area__tab-strip-scroller {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Right end of the strip, for controls the slot's editor hands up (markdown Edit | Preview). */
+.chat-area__tab-strip-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 0 0.5rem;
+}
+
 .chat-area__tab-strip-tabs {
   display: flex;
   flex-direction: row;

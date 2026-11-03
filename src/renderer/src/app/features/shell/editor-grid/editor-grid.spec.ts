@@ -1,4 +1,4 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, type TemplateRef, viewChild } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { lucideAppProviders } from '../../../lucide-setup';
@@ -25,9 +25,12 @@ import { singleSlotLayout, type EditorGridLayout } from './editor-grid-layout';
         <div class="body" [attr.data-test-slot]="slot.id">{{ slot.id }}</div>
       </ng-template>
     </app-editor-grid>
+    <ng-template #testActions><button type="button" class="test-action">Action</button></ng-template>
   `,
 })
 class HostComponent {
+  readonly grid = viewChild.required(EditorGridComponent);
+  readonly testActions = viewChild.required<TemplateRef<unknown>>('testActions');
   readonly layout = signal<EditorGridLayout>(singleSlotLayout());
   readonly focusedSlotId = signal<string | null>(null);
   readonly changes: EditorGridLayout[] = [];
@@ -46,6 +49,31 @@ type GridInternals = {
   onDragDropped(ev: { source: { slotId: string; tabId: string }; overContainer: boolean }): void;
   dragPreview(): unknown;
 };
+
+describe('EditorGridComponent tab strip actions', () => {
+  it('pins a slot body\'s actions after its tab list, and clears them on null', () => {
+    TestBed.configureTestingModule({ imports: [HostComponent], providers: [...lucideAppProviders] });
+    const fixture = TestBed.createComponent(HostComponent);
+    const host = fixture.componentInstance;
+    const layout = singleSlotLayout([workspaceChatFileTab('a.md')]);
+    const slotId = layout.columns[0]!.slots[0]!.id;
+    host.layout.set(layout);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('.chat-area__tab-strip-actions')).toBeNull();
+
+    host.grid().setSlotTabActions(slotId, host.testActions());
+    fixture.detectChanges();
+    const action = root.querySelector('.chat-area__tab-strip-actions .test-action');
+    expect(action).toBeTruthy();
+    expect(root.querySelector('[role="tablist"] .test-action')).toBeNull();
+    expect(root.querySelector('.chat-area__tab-strip-scroller')?.nextElementSibling?.contains(action!)).toBe(true);
+
+    host.grid().setSlotTabActions(slotId, null);
+    fixture.detectChanges();
+    expect(root.querySelector('.chat-area__tab-strip-actions')).toBeNull();
+  });
+});
 
 describe('EditorGridComponent drag/drop', () => {
   const a = workspaceChatFileTab('a.ts');

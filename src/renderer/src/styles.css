@@ -269,9 +269,9 @@ app-pill-select .pill-select__option,
   border-radius: var(--chat-radius-sm) !important;
 }
 
-/* Floating markdown Edit | Preview pill over the Monaco editor. */
-app-workspace-monaco .workspace-monaco-md-toggle,
-app-workspace-monaco .workspace-monaco-md-toggle__btn {
+/* Markdown Edit | Preview pill on the editor tab strip. */
+.workspace-monaco-md-toggle,
+.workspace-monaco-md-toggle__btn {
   border-radius: 999px !important;
 }
 

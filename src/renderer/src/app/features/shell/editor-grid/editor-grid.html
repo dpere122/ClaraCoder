@@ -16,6 +16,7 @@
             [focused]='isFocused(slot)'
             [unsavedKeys]='unsavedKeys()'
             [detachedKeys]='detachedKeys()'
+            [actions]='slotTabActions().get(slot.id) ?? null'
             (tabSelect)='onTabSelect(slot.id, $event)'
             (tabClose)='onTabClose(slot.id, $event)'
             (tabContextMenu)='onTabContextMenu(slot.id, $event)'

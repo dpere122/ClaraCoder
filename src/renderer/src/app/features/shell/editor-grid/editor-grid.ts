@@ -100,6 +100,8 @@ export class EditorGridComponent {
   readonly fileDrop = output<EditorGridFileDrop>();
 
   protected readonly slotBody = contentChild.required<TemplateRef<EditorGridSlotContext>>('slotBody');
+  /** Tab strip controls handed up by each slot's body, by slot id. */
+  protected readonly slotTabActions = signal<ReadonlyMap<string, TemplateRef<unknown>>>(new Map());
 
   /** CDK tab drag in progress. */
   private readonly tabDragging = signal(false);
@@ -147,6 +149,22 @@ export class EditorGridComponent {
 
   protected slotContext(slot: EditorGridSlot): EditorGridSlotContext {
     return { $implicit: slot, focused: this.focusedSlotId() === slot.id };
+  }
+
+  /** Shows {@param actions} at the right end of the slot's tab strip, or clears them when null. */
+  setSlotTabActions(slotId: string, actions: TemplateRef<unknown> | null): void {
+    this.slotTabActions.update((current) => {
+      if ((current.get(slotId) ?? null) === actions) {
+        return current;
+      }
+      const next = new Map(current);
+      if (actions) {
+        next.set(slotId, actions);
+      } else {
+        next.delete(slotId);
+      }
+      return next;
+    });
   }
 
   protected isFocused(slot: EditorGridSlot): boolean {

@@ -14,7 +14,7 @@ function setup() {
     screenshotRetention: signal({ ...DEFAULT_SCREENSHOT_RETENTION }),
     markSettingsDirty: vi.fn(),
     onScreenshotRetentionChange: vi.fn(),
-    activeSubTabId: () => 'editTools',
+    activeSubTabId: () => 'webTools',
     editToolsMode: () => 'standard',
     enableAgentFormatters: () => false,
     allowStagingOverlayCommands: () => false,

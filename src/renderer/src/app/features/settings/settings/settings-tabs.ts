@@ -113,6 +113,12 @@ export const SETTINGS_SUB_TAB_CATALOG: Partial<Record<SettingsTab, SettingsSubTa
       description:
         'Default encoding and newline style when the model omits them on read, search, and edit tools.',
     },
+    {
+      id: 'webTools',
+      label: 'Web tools',
+      description:
+        'Screenshot retention: automatic cleanup, downsampling, and storage limits for webpage screenshots.',
+    },
   ],
   monaco: [
     {

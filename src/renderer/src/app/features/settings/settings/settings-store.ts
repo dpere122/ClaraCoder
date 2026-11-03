@@ -871,6 +871,9 @@ export class SettingsStore {
         if (id === 'encoding') {
           return this.defaultWorkspaceEncoding();
         }
+        if (id === 'webTools') {
+          return `${this.screenshotRetention().retentionDays}d`;
+        }
         break;
       case 'monaco':
         return this.monacoSubTabSummary(id);

@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from 'fs';
+import { mkdtempSync, promises as fs, readdirSync, rmSync, readFileSync, writeFileSync, existsSync, utimesSync } from 'fs';
+import { spawn } from 'child_process';
+import { createHash } from 'crypto';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import type { AppConfig, ContextCompressionConfig, LlamaCppManaged, McpServerConfig } from '../../shared';
@@ -17,7 +19,8 @@ vi.mock('../paths', () => ({
   getConfigPath: () => join(process.env.CLARA_TEST_CONFIG_DIR ?? '', 'config.json'),
 }));
 
-import { loadConfig, mergeSettingsConfigSave, migrateConfig, updateConfig } from './load-save';
+import { loadConfig, loadConfigSync, loadTutorialProgress, mergeSettingsConfigSave, migrateConfig, saveConfig, updateConfig, updateTutorialProgress } from './load-save';
+import { applyTutorialTransition, isTutorialPhaseResolved, normalizeTutorialProgress, TUTORIAL_PHASE_REGISTRY } from '../../shared/types/tutorial';
 
 function sampleConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   const base = createDefaultConfig();
@@ -370,21 +373,21 @@ describe('migrateConfig monaco hover delay', () => {
   it('bumps the previous 300ms default so hover is less eager', () => {
     const cfg = sampleConfig();
     cfg.monacoWorkspaceEditor = {
-      ...cfg.monacoWorkspaceEditor,
+      ...cfg.monacoWorkspaceEditor!,
       hoverDelay: 300,
     };
     const migrated = migrateConfig(cfg);
-    expect(migrated.monacoWorkspaceEditor.hoverDelay).toBe(500);
+    expect(migrated.monacoWorkspaceEditor?.hoverDelay).toBe(500);
   });
 
   it('keeps a custom hover delay', () => {
     const cfg = sampleConfig();
     cfg.monacoWorkspaceEditor = {
-      ...cfg.monacoWorkspaceEditor,
+      ...cfg.monacoWorkspaceEditor!,
       hoverDelay: 800,
     };
     const migrated = migrateConfig(cfg);
-    expect(migrated.monacoWorkspaceEditor.hoverDelay).toBe(800);
+    expect(migrated.monacoWorkspaceEditor?.hoverDelay).toBe(800);
   });
 });
 
@@ -393,11 +396,11 @@ describe('migrateConfig monaco top padding', () => {
     const cfg = sampleConfig();
     cfg.configSchemaVersion = 6;
     cfg.monacoWorkspaceEditor = {
-      ...cfg.monacoWorkspaceEditor,
+      ...cfg.monacoWorkspaceEditor!,
       paddingTop: 0,
     };
     const migrated = migrateConfig(cfg);
-    expect(migrated.monacoWorkspaceEditor.paddingTop).toBe(20);
+    expect(migrated.monacoWorkspaceEditor?.paddingTop).toBe(20);
     expect(migrated.configSchemaVersion).toBe(APP_CONFIG_SCHEMA_VERSION);
   });
 
@@ -405,21 +408,21 @@ describe('migrateConfig monaco top padding', () => {
     const cfg = sampleConfig();
     cfg.configSchemaVersion = 6;
     cfg.monacoWorkspaceEditor = {
-      ...cfg.monacoWorkspaceEditor,
+      ...cfg.monacoWorkspaceEditor!,
       paddingTop: 8,
     };
     const migrated = migrateConfig(cfg);
-    expect(migrated.monacoWorkspaceEditor.paddingTop).toBe(8);
+    expect(migrated.monacoWorkspaceEditor?.paddingTop).toBe(8);
   });
 
   it('keeps 0px when the user chose it after the migration ran', () => {
     const cfg = sampleConfig();
     cfg.monacoWorkspaceEditor = {
-      ...cfg.monacoWorkspaceEditor,
+      ...cfg.monacoWorkspaceEditor!,
       paddingTop: 0,
     };
     const migrated = migrateConfig(cfg);
-    expect(migrated.monacoWorkspaceEditor.paddingTop).toBe(0);
+    expect(migrated.monacoWorkspaceEditor?.paddingTop).toBe(0);
   });
 });
 
@@ -707,5 +710,363 @@ describe('migrateConfig Claude pin', () => {
     expect(row.contextWindowTokens).toBe(1_000_000);
     // Fields Settings owns still come from the client.
     expect(row.reasoningEffort).toBe('high');
+  });
+});
+
+describe('durable tutorial progress', () => {
+  it('migrates an older config without changing its workspace or unrelated settings', () => {
+    const raw = sampleConfig({ themeId: 'clara-light', chatFontSizeRem: 1.25 });
+    delete raw.tutorial;
+    const migrated = migrateConfig(raw);
+    expect(migrated.tutorial).toEqual({ revision: 0, phases: {}, active: null });
+    expect(migrated.workspaces).toEqual(raw.workspaces);
+    expect(migrated.currentWorkspaceId).toBe('ws-a');
+    expect(migrated.themeId).toBe('clara-light');
+    expect(migrated.chatFontSizeRem).toBe(1.25);
+    expect(createDefaultConfig().tutorial).not.toBe(createDefaultConfig().tutorial);
+  });
+
+  it('retains future phase records, extension fields, and an unknown future cursor', () => {
+    const raw = sampleConfig();
+    raw.tutorial = {
+      revision: 6,
+      phases: { future: { status: 'new-format', note: 'keep' } } as never,
+      active: { phaseId: 'future', stepId: 'next-version-step' },
+      extra: { data: 7 },
+    } as never;
+    const progress = migrateConfig(raw).tutorial!;
+    expect(progress.phases.future).toEqual({ status: 'new-format', note: 'keep' });
+    expect((progress as unknown as { extra: unknown }).extra).toEqual({ data: 7 });
+    const result = applyTutorialTransition(progress, { action: 'advance', expectedRevision: 6 });
+    expect(result.applied).toBe(false);
+    expect(result.progress.active).toEqual({ phaseId: 'future', stepId: 'next-version-step' });
+  });
+
+  it('does not discard an unknown step added to a known phase by a newer version', () => {
+    const progress = {
+      revision: 4,
+      phases: {},
+      active: { phaseId: 'intro', stepId: 'future-intro-step' },
+    };
+    const result = applyTutorialTransition(progress, { action: 'dismiss-all', expectedRevision: 4 });
+    expect(result.progress.active).toEqual(progress.active);
+    expect(result.progress.phases['intro']).toBeUndefined();
+    expect(result.progress.phases['local-engine']).toBe('dismissed');
+  });
+
+  it('records only a source ID and permits a revision-checked, explicit recovery', () => {
+    const current = {
+      revision: 3,
+      phases: { intro: 'completed', 'local-engine': 'skipped', 'featured-models': 'completed' },
+      active: { phaseId: 'local-source', stepId: 'sources-add' },
+    } as const;
+    const next = applyTutorialTransition(current, { action: 'advance', expectedRevision: 3, sourceId: 'draft-123' });
+    expect(next.progress.active?.stepId).toBe('sources-model');
+    expect(next.progress.sourceId).toBe('draft-123');
+    const stale = applyTutorialTransition(next.progress, { action: 'recover-source', expectedRevision: 3 });
+    expect(stale.applied).toBe(false);
+    const recovered = applyTutorialTransition(next.progress, { action: 'recover-source', expectedRevision: 4 });
+    expect(recovered.progress.active?.stepId).toBe('sources-add');
+    expect(recovered.progress.sourceId).toBeUndefined();
+    expect(recovered.progress.revision).toBe(5);
+  });
+
+  it('preserves ciphertext and every unrelated raw field across tutorial steps', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'clara-tutorial-secrets-'));
+    process.env.CLARA_TEST_CONFIG_DIR = tempDir;
+    try {
+      const disk = JSON.parse(JSON.stringify(sampleConfig())) as Record<string, any>;
+      disk.llmProviders[0].apiKey = 'clara-secret:v1:dW5kZWNyeXB0YWJsZQ==';
+      disk.audioTranscription.apiKey = 'clara-secret:v1:YXVkaW8=';
+      disk.modelManager.huggingFaceToken = 'clara-secret:v1:aGY=';
+      disk.futureField = { arbitrary: ['retain', 42] };
+      const configPath = join(tempDir, 'config.json');
+      writeFileSync(configPath, JSON.stringify(disk), 'utf-8');
+      expect((await loadTutorialProgress()).revision).toBe(0);
+      await updateTutorialProgress({ action: 'start', expectedRevision: 0 });
+      await updateTutorialProgress({ action: 'advance', expectedRevision: 1 });
+      const stored = JSON.parse(readFileSync(configPath, 'utf-8')) as Record<string, any>;
+      const backup = JSON.parse(readFileSync(`${configPath}.bak`, 'utf-8')) as Record<string, any>;
+      for (const document of [stored, backup]) {
+        expect(document.llmProviders[0].apiKey).toBe(disk.llmProviders[0].apiKey);
+        expect(document.audioTranscription.apiKey).toBe(disk.audioTranscription.apiKey);
+        expect(document.modelManager.huggingFaceToken).toBe(disk.modelManager.huggingFaceToken);
+        expect(document.futureField).toEqual(disk.futureField);
+      }
+      expect(stored.tutorial.active.stepId).toBe('home-start');
+    } finally {
+      delete process.env.CLARA_TEST_CONFIG_DIR;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('offers a newly registered phase after dismissing the shipped phases', () => {
+    const dismissed = applyTutorialTransition(createDefaultConfig().tutorial!, { action: 'dismiss-all', expectedRevision: 0 });
+    expect(dismissed.applied).toBe(true);
+    const futureRegistry = [...TUTORIAL_PHASE_REGISTRY, { id: 'future-phase', steps: ['future-welcome'] }];
+    const resumed = applyTutorialTransition(dismissed.progress, { action: 'start', expectedRevision: 1 }, futureRegistry);
+    expect(resumed.progress.active).toEqual({ phaseId: 'future-phase', stepId: 'future-welcome' });
+    expect(resumed.progress.phases.intro).toBe('dismissed');
+  });
+
+  it('persists the active step while preserving it across stale Settings and generic saves', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'clara-tutorial-config-'));
+    process.env.CLARA_TEST_CONFIG_DIR = tempDir;
+    try {
+      const stale = await loadConfig();
+      expect((await updateTutorialProgress({ action: 'start', expectedRevision: 0 })).applied).toBe(true);
+      expect((await updateTutorialProgress({ action: 'advance', expectedRevision: 1 })).applied).toBe(true);
+      stale.chatFontSizeRem = 1.37;
+      const merged = await updateConfig((disk) => mergeSettingsConfigSave(disk, stale));
+      expect(merged.chatFontSizeRem).toBe(1.37);
+      expect(merged.tutorial?.active).toEqual({ phaseId: 'intro', stepId: 'home-start' });
+      await saveConfig(stale);
+      const reloaded = await loadConfig();
+      expect(reloaded.tutorial?.revision).toBe(2);
+      expect(reloaded.tutorial?.active).toEqual({ phaseId: 'intro', stepId: 'home-start' });
+      expect(JSON.parse(readFileSync(join(tempDir, 'config.json'), 'utf-8')).tutorial).toEqual(reloaded.tutorial);
+    } finally {
+      delete process.env.CLARA_TEST_CONFIG_DIR;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('serializes dismissal against stale starts and concurrent Settings saves', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'clara-tutorial-race-'));
+    process.env.CLARA_TEST_CONFIG_DIR = tempDir;
+    try {
+      const stale = await loadConfig();
+      stale.chatFontSizeRem = 1.42;
+      const [dismiss, resurrect] = await Promise.all([
+        updateTutorialProgress({ action: 'dismiss-all', expectedRevision: 0 }),
+        updateTutorialProgress({ action: 'start', expectedRevision: 0 }),
+        updateConfig((disk) => mergeSettingsConfigSave(disk, stale)),
+      ]);
+      expect(dismiss.applied).toBe(true);
+      expect(resurrect.applied).toBe(false);
+      const final = await loadConfig();
+      expect(final.chatFontSizeRem).toBe(1.42);
+      expect(final.tutorial?.active).toBeNull();
+      expect(final.tutorial?.revision).toBe(1);
+      for (const phase of TUTORIAL_PHASE_REGISTRY) expect(final.tutorial?.phases[phase.id]).toBe('dismissed');
+    } finally {
+      delete process.env.CLARA_TEST_CONFIG_DIR;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('serializes competing revisions across separate app processes', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'clara-tutorial-multiprocess-'));
+    process.env.CLARA_TEST_CONFIG_DIR = tempDir;
+    try {
+      writeFileSync(join(tempDir, 'config.json'), JSON.stringify(sampleConfig()), 'utf8');
+      const script = `
+        const paths = require('./src/main/paths.ts');
+        paths.getConfigPath = () => require('path').join(process.env.CLARA_TEST_CONFIG_DIR, 'config.json');
+        const { updateTutorialProgress } = require('./src/main/config/load-save.ts');
+        updateTutorialProgress({ action: process.argv[1], expectedRevision: 0 })
+          .then((result) => console.log(JSON.stringify(result)))
+          .catch((error) => { console.error(error); process.exitCode = 1; });
+      `;
+      const launch = (action: string): Promise<{ applied: boolean }> => new Promise((resolve, reject) => {
+        const child = spawn(process.execPath, ['-r', 'ts-node/register/transpile-only', '-e', script, action], {
+          cwd: process.cwd(), env: { ...process.env, CLARA_TEST_CONFIG_DIR: tempDir },
+        });
+        let stdout = '';
+        let stderr = '';
+        child.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
+        child.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+        child.on('error', reject);
+        child.on('exit', (code) => {
+          if (code !== 0) return reject(new Error(`child exited ${code}: ${stderr}`));
+          try { resolve(JSON.parse(stdout) as { applied: boolean }); } catch (error) { reject(error); }
+        });
+      });
+      const lockPath = join(tempDir, 'config.json.lock');
+      const deadOwner = { pid: 2147483647, token: 'old-process' };
+      writeFileSync(lockPath, JSON.stringify(deadOwner), 'utf8');
+      const key = createHash('sha256').update(JSON.stringify([deadOwner.pid, deadOwner.token])).digest('hex').slice(0, 32);
+      const abandonedRecovery = `${lockPath}.recovery.${key}`;
+      writeFileSync(abandonedRecovery, JSON.stringify({ pid: 2147483646, token: 'dead-reclaimer' }), 'utf8');
+      const old = new Date(Date.now() - 10_000);
+      utimesSync(lockPath, old, old);
+      utimesSync(abandonedRecovery, old, old);
+      const results = await Promise.all([
+        launch('start'), launch('dismiss-all'), launch('start'), launch('dismiss-all'), launch('start'), launch('dismiss-all'),
+      ]);
+      expect(results.filter((result) => result.applied)).toHaveLength(1);
+      expect(JSON.parse(readFileSync(join(tempDir, 'config.json'), 'utf8')).tutorial.revision).toBe(1);
+    } finally {
+      delete process.env.CLARA_TEST_CONFIG_DIR;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  it('recovers an abandoned config lock without losing progress', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'clara-tutorial-stale-lock-'));
+    process.env.CLARA_TEST_CONFIG_DIR = tempDir;
+    try {
+      const lockPath = join(tempDir, 'config.json.lock');
+      writeFileSync(lockPath, JSON.stringify({ pid: 2147483647, token: 'abandoned' }), 'utf8');
+      const old = new Date(Date.now() - 10_000);
+      utimesSync(lockPath, old, old);
+      expect((await updateTutorialProgress({ action: 'start', expectedRevision: 0 })).applied).toBe(true);
+      expect(existsSync(lockPath)).toBe(false);
+    } finally {
+      delete process.env.CLARA_TEST_CONFIG_DIR;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+  it('preserves opaque records on known phases and never schedules or clears their cursor', () => {
+    const opaque = { status: 'future-resolution', details: ['retain'] };
+    const progress = normalizeTutorialProgress({
+      revision: 2, phases: { intro: opaque }, active: { phaseId: 'intro', stepId: 'welcome' },
+    });
+    expect(isTutorialPhaseResolved(opaque)).toBe(true);
+    expect(isTutorialPhaseResolved(undefined)).toBe(false);
+    expect(applyTutorialTransition(progress, { action: 'advance', expectedRevision: 2 }).applied).toBe(false);
+    const dismissed = applyTutorialTransition(progress, { action: 'dismiss-all', expectedRevision: 2 });
+    expect(dismissed.progress.phases.intro).toEqual(opaque);
+    expect(dismissed.progress.active).toEqual(progress.active);
+    expect(dismissed.progress.phases['local-engine']).toBe('dismissed');
+    const futureCursor = { phaseId: 'intro', stepId: 'a-future-step' };
+    expect(normalizeTutorialProgress({ revision: 3, phases: { intro: 'completed' }, active: futureCursor }).active)
+      .toEqual(futureCursor);
+  });
+
+  it('advances and skips by stable registry IDs, then offers a newly added phase', () => {
+    const registry = [{ id: 'first', steps: ['a', 'b'] }, { id: 'second', steps: ['c'] }];
+    let progress = createDefaultConfig().tutorial!;
+    for (const action of ['start', 'advance', 'advance', 'skip-phase'] as const) {
+      const result = applyTutorialTransition(progress, { action, expectedRevision: progress.revision }, registry);
+      expect(result.applied).toBe(true);
+      progress = result.progress;
+    }
+    expect(progress.active).toBeNull();
+    expect(progress.phases).toEqual({ first: 'completed', second: 'skipped' });
+    const extended = [...registry, { id: 'later', steps: ['welcome-later'] }];
+    expect(applyTutorialTransition(progress, { action: 'start', expectedRevision: 4 }, extended).progress.active)
+      .toEqual({ phaseId: 'later', stepId: 'welcome-later' });
+  });
+
+  it('retains cursor extensions within a phase and clears the draft ID when entering a later phase', () => {
+    const progress = {
+      revision: 5,
+      phases: {},
+      active: { phaseId: 'local-source', stepId: 'sources-model', extension: { keep: true } },
+      sourceId: 'draft-1',
+    };
+    const next = applyTutorialTransition(progress, { action: 'advance', expectedRevision: 5 });
+    expect(next.progress.active).toEqual({ phaseId: 'local-source', stepId: 'sources-defaults', extension: { keep: true } });
+    const registry = [{ id: 'local-source', steps: ['celebration'] }, { id: 'future', steps: ['start'] }];
+    const finished = applyTutorialTransition({ ...progress, active: { phaseId: 'local-source', stepId: 'celebration' } },
+      { action: 'advance', expectedRevision: 5 }, registry);
+    expect(finished.progress.active?.phaseId).toBe('future');
+    expect(finished.progress.sourceId).toBeUndefined();
+  });
+
+  it('preserves an unknown tutorial schema through transitions and ordinary saves', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'clara-tutorial-future-schema-'));
+    process.env.CLARA_TEST_CONFIG_DIR = tempDir;
+    try {
+      const future = { schemaVersion: 2, revision: 'future-revision', phases: ['new-layout'], active: { next: 7 }, extra: true };
+      const disk = sampleConfig();
+      disk.tutorial = future as never;
+      writeFileSync(join(tempDir, 'config.json'), JSON.stringify(disk), 'utf8');
+      const stale = await loadConfig();
+      expect(stale.tutorial).toEqual(future);
+      expect((await updateTutorialProgress({ action: 'dismiss-all', expectedRevision: 0 })).applied).toBe(false);
+      await updateConfig((cfg) => { cfg.chatFontSizeRem = 1.3; });
+      await saveConfig(stale);
+      expect(JSON.parse(readFileSync(join(tempDir, 'config.json'), 'utf8')).tutorial).toEqual(future);
+    } finally {
+      delete process.env.CLARA_TEST_CONFIG_DIR;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves the valid backup on both tutorial and ordinary recovery', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'clara-tutorial-backup-'));
+    process.env.CLARA_TEST_CONFIG_DIR = tempDir;
+    try {
+      const configPath = join(tempDir, 'config.json');
+      const saved = JSON.parse(JSON.stringify(sampleConfig()));
+      saved.llmProviders[0].apiKey = 'clara-secret:v1:dW5kZWNyeXB0YWJsZQ==';
+      const valid = JSON.stringify(saved);
+      writeFileSync(configPath, '{broken', 'utf8');
+      writeFileSync(`${configPath}.bak`, valid, 'utf8');
+      expect((await loadTutorialProgress()).revision).toBe(0);
+      expect(readFileSync(`${configPath}.bak`, 'utf8')).toBe(valid);
+      writeFileSync(configPath, '[]', 'utf8');
+      expect((await loadConfig()).workspaces[0]?.id).toBe('ws-a');
+      expect(readFileSync(`${configPath}.bak`, 'utf8')).toBe(valid);
+      expect(JSON.parse(readFileSync(configPath, 'utf8')).llmProviders[0].apiKey).toBe(saved.llmProviders[0].apiKey);
+    } finally {
+      delete process.env.CLARA_TEST_CONFIG_DIR;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('never creates defaults over an unreadable backup when the primary is missing', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'clara-tutorial-bad-backup-'));
+    process.env.CLARA_TEST_CONFIG_DIR = tempDir;
+    try {
+      const configPath = join(tempDir, 'config.json');
+      writeFileSync(`${configPath}.bak`, '{broken', 'utf8');
+      await expect(loadTutorialProgress()).rejects.toThrow('corrupt');
+      await expect(loadConfig()).rejects.toThrow('corrupt');
+      expect(() => loadConfigSync()).toThrow('corrupt');
+      expect(existsSync(configPath)).toBe(false);
+      expect(readFileSync(`${configPath}.bak`, 'utf8')).toBe('{broken');
+    } finally {
+      delete process.env.CLARA_TEST_CONFIG_DIR;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('uses private unique staging files, preserves the old primary on failure, and cleans up', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'clara-tutorial-atomic-'));
+    process.env.CLARA_TEST_CONFIG_DIR = tempDir;
+    const configPath = join(tempDir, 'config.json');
+    try {
+      await loadTutorialProgress();
+      const original = readFileSync(configPath, 'utf8');
+      writeFileSync(`${configPath}.tmp`, 'do not overwrite', 'utf8');
+      const orphan = `${configPath}.11111111-1111-4111-8111-111111111111.tmp`;
+      writeFileSync(orphan, 'interrupted private staging data', 'utf8');
+      const rename = fs.rename.bind(fs);
+      const spy = vi.spyOn(fs, 'rename').mockImplementation(async (from, to) => {
+        if (String(to) === configPath) throw new Error('injected rename failure');
+        return rename(from, to);
+      });
+      try {
+        await expect(updateTutorialProgress({ action: 'start', expectedRevision: 0 })).rejects.toThrow('injected rename failure');
+      } finally {
+        spy.mockRestore();
+      }
+      expect(readFileSync(configPath, 'utf8')).toBe(original);
+      expect(readFileSync(`${configPath}.bak`, 'utf8')).toBe(original);
+      expect(readFileSync(`${configPath}.tmp`, 'utf8')).toBe('do not overwrite');
+      expect(existsSync(orphan)).toBe(false);
+      expect(readdirSync(tempDir).filter((name) => name.endsWith('.tmp'))).toEqual(['config.json.tmp']);
+      expect((await updateTutorialProgress({ action: 'start', expectedRevision: 0 })).applied).toBe(true);
+    } finally {
+      delete process.env.CLARA_TEST_CONFIG_DIR;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+  it('falls back to exclusive lock creation when hard links are unsupported', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'clara-tutorial-no-hardlinks-'));
+    process.env.CLARA_TEST_CONFIG_DIR = tempDir;
+    const link = vi.spyOn(fs, 'link').mockRejectedValue(Object.assign(new Error('unsupported'), { code: 'EPERM' }));
+    try {
+      expect((await updateTutorialProgress({ action: 'start', expectedRevision: 0 })).applied).toBe(true);
+      expect((await loadTutorialProgress()).active?.stepId).toBe('welcome');
+      expect(existsSync(join(tempDir, 'config.json.lock'))).toBe(false);
+    } finally {
+      link.mockRestore();
+      delete process.env.CLARA_TEST_CONFIG_DIR;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });

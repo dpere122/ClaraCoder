@@ -12,16 +12,23 @@ import { provideRouter, withHashLocation } from '@angular/router';
 import { builtInThemeForMode } from '@shared/theme';
 import { applyBuiltInThemeSync, browserModeStorage, readCachedThemeMode } from './app/core/theme/theme-dom';
 
+// A hash-only navigation resolves against <base>. In packaged file:// windows, the
+// directory base would drop index.html from the address, making a renderer reload fail.
+// A filename base keeps relative assets in the same directory and preserves the entry file.
+if (window.location.protocol === 'file:' && /\/index\.html$/i.test(window.location.pathname)) {
+  document.querySelector('base')?.setAttribute('href', './index.html');
+}
+
 // Paint a built-in theme before Angular boots so the first frame is never unstyled. The mode
 // is the one painted last session, so light-theme users do not get a dark flash; the
 // ThemeEngineService takes over (persisted selection, library, live preview) once running.
 applyBuiltInThemeSync(document, builtInThemeForMode(readCachedThemeMode(browserModeStorage())).id);
 
 const routes = [
-  { path: '', component: App },
-  { path: 'settings', component: Settings },
+  { path: '', component: App, data: { tutorialWindow: 'home' } },
+  { path: 'settings', component: Settings, data: { tutorialWindow: 'settings' } },
   { path: 'health', component: HealthMonitor },
-  { path: 'dependencies', component: Dependencies },
+  { path: 'dependencies', component: Dependencies, data: { tutorialWindow: 'dependencies' } },
   { path: 'updater', component: Updater },
 ];
 

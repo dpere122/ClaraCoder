@@ -1,4 +1,4 @@
-import { Component, DestroyRef, ViewEncapsulation, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, HostListener, ViewEncapsulation, computed, inject, signal } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
@@ -13,6 +13,7 @@ import { SettingsStore } from '../settings/settings-store';
 import {
   FEATURED_HF_MODELS,
   type FeaturedHfModel,
+  featuredModelExamples,
   formatHfContext,
   formatHfCount,
   formatHfDate,
@@ -47,6 +48,7 @@ export class SettingsModelManager {
   protected readonly formatContext = formatHfContext;
 
   private searchTimer: ReturnType<typeof setTimeout> | null = null;
+  private hasIntentionalSelection = this.s.modelManagerSelection() !== null;
 
   constructor() {
     inject(DestroyRef).onDestroy(() => this.clearSearchTimer());
@@ -100,6 +102,9 @@ export class SettingsModelManager {
       return { kind: 'featured', key: `hf:${featured.id}`, provider, name, repoId: featured.id, featured };
     }).filter((row) => this.matches(row.provider, row.name, row.featured.maker));
   });
+
+  /** Recompute examples from the visible catalog, so filtering or catalog edits cannot point at a hidden row. */
+  protected readonly tutorialExamples = computed(() => featuredModelExamples(this.featuredRows().map((row) => row.featured)));
 
   protected readonly resultRows = computed<ResultRow[]>(() =>
     this.s.modelManagerHfResults().map((item): ResultRow => {
@@ -158,7 +163,53 @@ export class SettingsModelManager {
     return !!id && !!this.s.modelManagerHfDetailsBusyById()[id];
   });
 
+  /** Observable states for tutorial targets; a failed request is not a ready or empty response. */
+  protected readonly selectedDetailsState = computed(() => {
+    const id = this.selectedRepoId();
+    if (!id) {
+      return 'unavailable';
+    }
+    if (this.selectedDetailsBusy()) {
+      return 'loading';
+    }
+    const result = this.s.modelManagerHfDetailsById()[id];
+    return !result ? 'idle' : result.ok ? 'ready' : 'error';
+  });
+
+  protected readonly selectedQuantizationsState = computed(() => {
+    const id = this.selectedRepoId();
+    if (!id || this.s.modelManagerSelection()?.kind !== 'hf') {
+      return 'unavailable';
+    }
+    if (this.s.modelManagerHfFilesBusyByRepo()[id]) {
+      return 'loading';
+    }
+    if (Object.prototype.hasOwnProperty.call(this.s.modelManagerHfFilesErrorByRepo(), id)) {
+      return 'error';
+    }
+    const files = this.s.modelManagerHfFilesByRepo()[id];
+    return !files ? 'idle' : files.length ? 'ready' : 'empty';
+  });
+
+  /** The preview is opt-in to this exact tutorial step and never starts a model download. */
+  @HostListener('window:clara-tutorial-step', ['$event'])
+  protected onTutorialStep(event: Event): void {
+    const detail = (event as CustomEvent<{ phaseId?: string; stepId?: string }>).detail;
+    if (
+      detail?.phaseId !== 'featured-models' || detail.stepId !== 'featured-preview' ||
+      this.hasIntentionalSelection || this.s.modelManagerSelection()
+    ) {
+      return;
+    }
+    const small = this.tutorialExamples().small;
+    if (small) {
+      // This fetches only the repo's metadata and file listing; Download remains a user action.
+      this.s.selectHfModel(small.id);
+    }
+  }
+
   protected select(row: ModelRow): void {
+    this.hasIntentionalSelection = true;
     if (row.kind === 'local') {
       this.s.selectLocalModel(row.model, row.repoId);
     } else {

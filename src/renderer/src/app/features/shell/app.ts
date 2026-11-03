@@ -127,6 +127,7 @@ import {
 import { EditorLspStatusComponent } from './editor-lsp-status/editor-lsp-status';
 import { LlamaStatusIndicator } from '../status/llama-status-indicator/llama-status-indicator';
 import { MainPanelEmptyStateComponent } from './main-panel-empty-state/main-panel-empty-state';
+import { TutorialCoordinator } from '../tutorial/tutorial-coordinator';
 import { WorkspaceComponent } from '../workspace/workspace/workspace';
 import {
   WorkspaceMonacoComponent,
@@ -255,6 +256,7 @@ export class App implements OnInit, OnDestroy {
   private readonly monacoStore = inject(WorkspaceMonacoModelStore);
   private readonly ngxSpinner = inject(NgxSpinnerService);
   private readonly inj = inject(Injector);
+  private readonly tutorial = inject(TutorialCoordinator);
   private shellDestroyed = false;
   protected readonly newConvExpandedSpinnerName = 'new-conv-expanded';
   protected readonly conversationSession = inject(ConversationSessionService);
@@ -1012,11 +1014,13 @@ export class App implements OnInit, OnDestroy {
     this.syncSidebarWidthFromEffectivePercent();
     window.addEventListener('resize', this.boundOnWindowResize);
 
-    // Load conversations for current workspace
+    // The invitation must not race an async workspace/conversation restore.
     await this.loadConversationsForWorkspace();
+    if (!this.shellDestroyed) this.tutorial.markHomeRestored();
   }
 
   ngOnDestroy(): void {
+    this.tutorial.markHomeUnrestored();
     this.shellDestroyed = true;
     this.clearChromeRecentCloseTimer();
     this.stopLmStudioContextPoll();
@@ -2412,11 +2416,13 @@ export class App implements OnInit, OnDestroy {
 
   protected onChromeMenuSettingsTab(tab: SettingsTab): void {
     this.closeChromeMenu();
+    if (tab === 'modelManager' && this.tutorial.handleHomeNavigation('modelManager')) return;
     this.electron.openSettingsWindow(tab);
   }
 
   protected onChromeDependencies(): void {
     this.closeChromeMenu();
+    if (this.tutorial.handleHomeNavigation('dependencies')) return;
     this.electron.openDependenciesWindow();
   }
 

@@ -1,6 +1,13 @@
 import type { PreloadIpc } from '../preload-ipc';
 import type { ScreenshotAssetStatus, ScreenshotStorageStats } from '../../shared/screenshot-retention';
 import type {
+  TutorialClaimResult,
+  TutorialSnapshot,
+  TutorialTransition,
+  TutorialTransitionResult,
+  TutorialWindow,
+} from '../../shared/types/tutorial';
+import type {
   AppConfig,
   HealthMonitorConfig,
   MenuFileCommand,
@@ -16,6 +23,18 @@ export const createAppServicesApi = (ipcRenderer: PreloadIpc) => ({
   setAlwaysOnTop: (pinned: boolean) => ipcRenderer.invoke('set-always-on-top', pinned),
   loadConfig: () => ipcRenderer.invoke('load-config'),
   saveConfig: (config: unknown) => ipcRenderer.invoke('save-config', config),
+  getTutorialSnapshot: (): Promise<TutorialSnapshot> => ipcRenderer.invoke('tutorial:get-snapshot'),
+  transitionTutorial: (transition: TutorialTransition): Promise<TutorialTransitionResult> =>
+    ipcRenderer.invoke('tutorial:transition', transition),
+  claimTutorial: (window: TutorialWindow): Promise<TutorialClaimResult> =>
+    ipcRenderer.invoke('tutorial:claim', window),
+  releaseTutorial: (requestedWindow?: TutorialWindow): Promise<TutorialSnapshot> =>
+    ipcRenderer.invoke('tutorial:release', requestedWindow),
+  onTutorialUpdated: (callback: (snapshot: TutorialSnapshot) => void): (() => void) => {
+    const listener = (_event: unknown, snapshot: TutorialSnapshot) => callback(snapshot);
+    ipcRenderer.on('tutorial:updated', listener);
+    return () => { ipcRenderer.removeListener('tutorial:updated', listener); };
+  },
   getScreenshotStorageStats: (): Promise<ScreenshotStorageResult> => ipcRenderer.invoke('screenshot-storage-stats'),
   runScreenshotCleanup: (): Promise<ScreenshotStorageResult> => ipcRenderer.invoke('screenshot-cleanup'),
   clearScreenshots: (): Promise<ScreenshotStorageResult> => ipcRenderer.invoke('screenshot-clear'),

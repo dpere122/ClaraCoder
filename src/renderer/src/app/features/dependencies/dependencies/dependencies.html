@@ -1,4 +1,10 @@
-<div class='deps-shell' data-theme-group='dependencies.window'>
+<div
+  class='deps-shell'
+  data-theme-group='dependencies.window'
+  [attr.data-tutorial-llama-state]='tutorialLlamaState()'
+  [attr.data-tutorial-llama-busy]="tutorialLlamaBusy() ? 'true' : 'false'"
+  [attr.data-tutorial-dependencies-busy]="tutorialDependenciesBusy() ? 'true' : 'false'"
+>
   <header class='deps-header'>
     <div class='deps-header__titles'>
       <h2>Dependencies</h2>
@@ -30,20 +36,38 @@
     <!-- Focused install view: just this dependency + a live terminal log -->
     <section class='deps-focused' [attr.aria-label]="(isFailed() ? 'Install failed: ' : 'Installing ') + dep.label">
       @if (isFailed()) {
-        <div class='deps-failed' role='alert'>
+        <div
+          class='deps-failed'
+          role='alert'
+          [attr.data-tutorial]="isLlamaServer(dep) ? 'dependencies-llama-progress' : null"
+        >
           <div class='deps-failed__copy'>
             <strong>{{ dep.label }} didn't install</strong>
             <span>The log below shows what happened.</span>
           </div>
           <button type='button' class='deps-btn' (click)='backToList()'>Back to list</button>
           @if (!downloadComingSoon(dep)) {
-            <button type='button' class='deps-btn deps-btn--primary' [disabled]='isBusy(dep.id)' (click)='retry(dep)'>
-              Retry
+            <button
+              type='button'
+              class='deps-btn deps-btn--primary'
+              [attr.data-tutorial]="isLlamaServer(dep) && retryIsDownload(dep) ? 'dependencies-llama-install' : null"
+              [disabled]='isBusy(dep.id)'
+              (click)='retry(dep)'
+            >
+              {{ retryIsDownload(dep) ? 'Retry' : 'Retry reinstall' }}
             </button>
           }
         </div>
       }
-      <article class='deps-row' [attr.data-state]='displayState(dep)'>
+      <article
+        class='deps-row'
+        [attr.data-state]='displayState(dep)'
+        [attr.data-tutorial]="isLlamaServer(dep) ? 'dependencies-llama' : null"
+        [attr.data-tutorial-llama-state]='isLlamaServer(dep) ? tutorialLlamaState() : null'
+        [attr.data-tutorial-llama-busy]="isLlamaServer(dep) ? (tutorialLlamaBusy() ? 'true' : 'false') : null"
+        [attr.data-tutorial-dependencies-busy]="isLlamaServer(dep) ? (tutorialDependenciesBusy() ? 'true' : 'false') : null"
+        [attr.data-tutorial-llama-visible]="isLlamaServer(dep) ? 'true' : null"
+      >
         <div class='deps-row__main'>
           <div class='deps-row__head'>
             <h3>{{ dep.label }}</h3>
@@ -72,9 +96,16 @@
           @if (isFailed() && dep.error) {
             <p class='deps-error'>{{ dep.error }}</p>
           }
+          @if (isFailed() && rowMessage(dep.id)?.tone === 'error' && rowMessage(dep.id)?.text !== dep.error) {
+            <p class='deps-error'>{{ rowMessage(dep.id)?.text }}</p>
+          }
           @if (!isFailed()) {
             @let pv = progressViewFor(dep.id);
-            <div class='deps-progress' aria-live='polite'>
+            <div
+              class='deps-progress'
+              aria-live='polite'
+              [attr.data-tutorial]="isLlamaServer(dep) ? 'dependencies-llama-progress' : null"
+            >
               <div class='deps-progress__head'>
                 @if (isCancelling(dep.id)) {
                   <span class='deps-progress__phase'>Cancelling: removing partial files…</span>
@@ -152,11 +183,23 @@
               }
             </h4>
             @for (dep of group.deps; track dep.id) {
-              <article class='deps-row' [attr.data-state]='displayState(dep)'>
+              <article
+                class='deps-row'
+                [attr.data-state]='displayState(dep)'
+                [attr.data-tutorial]="isLlamaServer(dep) ? 'dependencies-llama' : null"
+                [attr.data-tutorial-llama-state]='isLlamaServer(dep) ? tutorialLlamaState() : null'
+                [attr.data-tutorial-llama-busy]="isLlamaServer(dep) ? (tutorialLlamaBusy() ? 'true' : 'false') : null"
+                [attr.data-tutorial-dependencies-busy]="isLlamaServer(dep) ? (tutorialDependenciesBusy() ? 'true' : 'false') : null"
+                [attr.data-tutorial-llama-visible]="isLlamaServer(dep) ? 'true' : null"
+              >
                 <div class='deps-row__main'>
                   <div class='deps-row__head'>
                     <h3>{{ dep.label }}</h3>
-                    <span class='deps-state' [attr.data-state]='displayState(dep)'>
+                    <span
+                      class='deps-state'
+                      [attr.data-state]='displayState(dep)'
+                      [attr.data-tutorial]="isLlamaServer(dep) ? 'dependencies-llama-progress' : null"
+                    >
                       <span class='deps-state__dot' aria-hidden='true'></span>{{ stateLabel(displayState(dep)) }}
                     </span>
                     <span class='deps-meta'>
@@ -281,6 +324,7 @@
                       <button
                         type='button'
                         class='deps-btn deps-btn--primary'
+                        [attr.data-tutorial]="isLlamaServer(dep) ? 'dependencies-llama-install' : null"
                         [disabled]='isBusy(dep.id)'
                         (click)='download(dep)'
                       >
@@ -318,6 +362,22 @@
         }
       </section>
     }
+  }
+
+  @if (tutorialLlamaFallback()) {
+    <!-- The card is absent during loading or another dependency's focused install. -->
+    <article
+      hidden
+      aria-hidden='true'
+      style='display: none'
+      data-tutorial='dependencies-llama'
+      data-tutorial-llama-visible='false'
+      [attr.data-tutorial-llama-state]='tutorialLlamaState()'
+      [attr.data-tutorial-llama-busy]="tutorialLlamaBusy() ? 'true' : 'false'"
+      [attr.data-tutorial-dependencies-busy]="tutorialDependenciesBusy() ? 'true' : 'false'"
+    >
+      <span data-tutorial='dependencies-llama-progress'></span>
+    </article>
   }
 
   <app-themed-confirm-dialog />

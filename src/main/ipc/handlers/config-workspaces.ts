@@ -1,4 +1,4 @@
-import { ipcMain, type BrowserWindow } from 'electron';
+import { app, ipcMain, type BrowserWindow, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import path = require('path');
 import { randomUUID } from 'crypto';
 import type {
@@ -16,9 +16,15 @@ import {
   reorderFavoriteWorkspaces,
   setWorkspaceFavorite,
 } from '../../../shared';
+import {
+  type TutorialProgress,
+  type TutorialSnapshot,
+  type TutorialTransition,
+  type TutorialWindow,
+} from '../../../shared/types/tutorial';
 import { FIRST_THEME_ID } from '../../constants';
 import { mainState } from '../../state';
-import { loadConfig, mergeSettingsConfigSave, updateConfig } from '../../config/load-save';
+import { loadConfig, loadTutorialProgress, mergeSettingsConfigSave, updateConfig, updateTutorialProgress } from '../../config/load-save';
 import { getLlamaManagedRuntimeOverrides } from '../../llama-server-manager';
 import {
   syncRuntimeConfigToPython,
@@ -95,6 +101,95 @@ function broadcastConfig(config: AppConfig): void {
   sendToWindowIfAlive(mainState.dependenciesWindow, 'config-updated', config);
 }
 
+// The lease is deliberately transient: closing a window frees it, but never dismisses progress.
+let tutorialOwner: WebContents | null = null;
+let tutorialLeaseGeneration = 0;
+let tutorialRequestedWindow: TutorialWindow | null = null;
+let tutorialHandoffTarget: WebContents | null = null;
+let tutorialHandoffTimer: ReturnType<typeof setTimeout> | null = null;
+const watchedTutorialContents = new WeakSet<WebContents>();
+const TUTORIAL_HANDOFF_TIMEOUT_MS = 15_000;
+
+function clearTutorialHandoff(): void {
+  tutorialRequestedWindow = null;
+  tutorialHandoffTarget = null;
+  if (tutorialHandoffTimer) clearTimeout(tutorialHandoffTimer);
+  tutorialHandoffTimer = null;
+}
+
+function setTutorialHandoff(role: TutorialWindow | null): void {
+  clearTutorialHandoff();
+  if (!role) return;
+  tutorialRequestedWindow = role;
+  const target = role === 'home' ? mainState.mainWindow : role === 'settings' ? mainState.settingsWindow : mainState.dependenciesWindow;
+  if (target && !target.isDestroyed()) {
+    tutorialHandoffTarget = target.webContents;
+    watchTutorialOwner(target.webContents);
+  }
+  // A failed window open must not strand the tour forever. Home can then offer recovery.
+  tutorialHandoffTimer = setTimeout(() => {
+    if (!tutorialOwner && tutorialRequestedWindow === role) {
+      clearTutorialHandoff();
+      void readTutorialSnapshot().then(broadcastTutorial).catch((err) => {
+        console.error('Failed to publish tutorial handoff timeout:', err);
+      });
+    }
+  }, TUTORIAL_HANDOFF_TIMEOUT_MS);
+  tutorialHandoffTimer.unref();
+}
+
+function tutorialWindowForSender(sender: WebContents): TutorialWindow | null {
+  if (mainState.mainWindow && !mainState.mainWindow.isDestroyed() && mainState.mainWindow.webContents === sender) return 'home';
+  if (mainState.dependenciesWindow && !mainState.dependenciesWindow.isDestroyed() && mainState.dependenciesWindow.webContents === sender) return 'dependencies';
+  if (mainState.settingsWindow && !mainState.settingsWindow.isDestroyed() && mainState.settingsWindow.webContents === sender) return 'settings';
+  return null;
+}
+
+function assertTutorialSender(event: IpcMainInvokeEvent): TutorialWindow {
+  assertTrustedAppRenderer(event);
+  if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame) throw new Error('Untrusted tutorial frame');
+  const role = tutorialWindowForSender(event.sender);
+  if (!role) throw new Error('Tutorial is unavailable in this window');
+  return role;
+}
+
+function tutorialSnapshot(progress: TutorialProgress): TutorialSnapshot {
+  if (tutorialOwner?.isDestroyed()) {
+    tutorialOwner = null;
+    tutorialLeaseGeneration++;
+    clearTutorialHandoff();
+  }
+  return { progress, ownerId: tutorialOwner?.id ?? null, requestedWindow: tutorialRequestedWindow };
+}
+
+async function readTutorialSnapshot(): Promise<TutorialSnapshot> {
+  return tutorialSnapshot(await loadTutorialProgress());
+}
+
+function broadcastTutorial(snapshot: TutorialSnapshot): void {
+  // Never send config-updated here: Settings may contain an unsaved, dirty source draft.
+  sendToWindowIfAlive(mainState.mainWindow, 'tutorial:updated', snapshot);
+  sendToWindowIfAlive(mainState.settingsWindow, 'tutorial:updated', snapshot);
+  sendToWindowIfAlive(mainState.dependenciesWindow, 'tutorial:updated', snapshot);
+}
+
+function watchTutorialOwner(sender: WebContents): void {
+  if (watchedTutorialContents.has(sender)) return;
+  watchedTutorialContents.add(sender);
+  const releaseLostWindow = (): void => {
+    if (tutorialOwner !== sender && (tutorialOwner || tutorialHandoffTarget !== sender)) return;
+    tutorialOwner = null;
+    tutorialLeaseGeneration++;
+    clearTutorialHandoff();
+    void readTutorialSnapshot().then(broadcastTutorial).catch((err) => {
+      console.error('Failed to publish tutorial window closure:', err);
+    });
+  };
+  sender.once('destroyed', releaseLostWindow);
+  // WebContents can survive a renderer crash and later be reloaded.
+  sender.on('render-process-gone', releaseLostWindow);
+}
+
 async function publishLostWorkspaceReconcile(result: ReconcileLostWorkspacesResult): Promise<void> {
   if (result.removedIds.length === 0 && !result.currentWorkspaceChanged) {
     return;
@@ -134,6 +229,84 @@ export async function reconcileLostWorkspacesOnStartup(): Promise<AppConfig> {
  * Config persistence, workspace CRUD, always-on-top, menu refresh, and workspace context push to Python.
  */
 export function registerConfigWorkspacesIpc(): void {
+  app.on('browser-window-created', (_event, win) => {
+    // mainState is assigned just after BrowserWindow's constructor returns.
+    setImmediate(() => {
+      if (!tutorialOwner && tutorialRequestedWindow && !win.isDestroyed() &&
+          tutorialWindowForSender(win.webContents) === tutorialRequestedWindow) {
+        tutorialHandoffTarget = win.webContents;
+        watchTutorialOwner(win.webContents);
+      }
+    });
+  });
+
+  ipcMain.handle('tutorial:get-snapshot', async (event) => {
+    const role = assertTutorialSender(event);
+    if (!tutorialOwner && tutorialRequestedWindow === role) {
+      tutorialHandoffTarget = event.sender;
+      watchTutorialOwner(event.sender);
+    }
+    return readTutorialSnapshot();
+  });
+
+  ipcMain.handle('tutorial:claim', async (event, requested: TutorialWindow) => {
+    const role = assertTutorialSender(event);
+    if (requested !== role) throw new Error('Tutorial window role does not match the sender');
+    // Claim before awaiting disk I/O: concurrent windows cannot both take the lease.
+    let claimedHere = false;
+    if (!tutorialOwner && (!tutorialRequestedWindow || tutorialRequestedWindow === role)) {
+      tutorialOwner = event.sender;
+      tutorialLeaseGeneration++;
+      claimedHere = true;
+      clearTutorialHandoff();
+      watchTutorialOwner(event.sender);
+    }
+    const claimGeneration = tutorialLeaseGeneration;
+    try {
+      const snapshot = await readTutorialSnapshot();
+      const acquired = tutorialOwner === event.sender && tutorialLeaseGeneration === claimGeneration && !event.sender.isDestroyed();
+      if (acquired) broadcastTutorial(snapshot);
+      return { acquired, snapshot };
+    } catch (err) {
+      // An unreadable config must not leave a ghost owner blocking every other window.
+      if (claimedHere && tutorialOwner === event.sender && tutorialLeaseGeneration === claimGeneration) {
+        tutorialOwner = null;
+        tutorialLeaseGeneration++;
+        clearTutorialHandoff();
+      }
+      throw err;
+    }
+  });
+
+  ipcMain.handle('tutorial:release', async (event, requested?: TutorialWindow) => {
+    assertTutorialSender(event);
+    if (requested !== undefined && requested !== 'home' && requested !== 'settings' && requested !== 'dependencies') {
+      throw new Error('Invalid tutorial handoff target');
+    }
+    const changed = tutorialOwner === event.sender;
+    if (changed) {
+      tutorialOwner = null;
+      tutorialLeaseGeneration++;
+      setTutorialHandoff(requested ?? null);
+    }
+    const snapshot = await readTutorialSnapshot();
+    if (changed) broadcastTutorial(snapshot);
+    return snapshot;
+  });
+
+  ipcMain.handle('tutorial:transition', async (event, transition: TutorialTransition) => {
+    assertTutorialSender(event);
+    const admitted = tutorialOwner === event.sender && !event.sender.isDestroyed();
+    const leaseGeneration = tutorialLeaseGeneration;
+    const result = await updateTutorialProgress(
+      transition,
+      () => admitted && tutorialOwner === event.sender && tutorialLeaseGeneration === leaseGeneration && !event.sender.isDestroyed(),
+    );
+    const snapshot = tutorialSnapshot(result.progress);
+    if (result.applied) broadcastTutorial(snapshot);
+    return { applied: result.applied, snapshot };
+  });
+
   ipcMain.on('workspace-monaco-unsaved-paths', (event, paths: unknown) => {
     if (!mainState.mainWindow || event.sender !== mainState.mainWindow.webContents) {
       return;

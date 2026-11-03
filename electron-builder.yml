@@ -26,6 +26,11 @@ files:
 npmRebuild: false
 
 extraResources:
+  # License and third-party attribution; scripts/verify-packed-runtime.mjs asserts both entries.
+  - from: LICENSE
+    to: LICENSE
+  - from: NOTICE
+    to: NOTICE
   - from: python
     to: python
     filter:

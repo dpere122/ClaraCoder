@@ -63,6 +63,10 @@ Edits are written to disk as they happen. Each turn ends with a change list show
 
 The **Health** window reports runtime status (Python sidecar, LSP, llama-server, speech) alongside live GPU, CPU, memory, network and disk usage. Optional components (llama-server, the Java language server, Whisper speech-to-text and Kokoro TTS) are installed on demand from the **Dependencies** window.
 
+### Guided tour
+
+On first launch, an optional tour introduces workspaces, model sources and local model setup. Progress is saved as you go and resumes on the next launch. You can skip a phase, choose **Later**, or dismiss the current tour; newly added phases can still be offered in a future release. The tour never installs an engine, downloads a model, or applies Settings for you. Previewing a featured model may retrieve metadata from Hugging Face.
+
 ### Theming
 
 <img src="docs/media/clips/theme-proposal.gif" alt="Asking Clara for a synthwave theme and previewing it live" width="100%">

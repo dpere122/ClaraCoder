@@ -9,6 +9,7 @@
               <button
                 type='button'
                 class='models-sources__add'
+                data-tutorial='sources-add'
                 (click)='s.addProvider()'
                 title='Add source'
                 aria-label='Add source'
@@ -21,6 +22,11 @@
               @for (provider of s.sourcesOrdered(); track s.trackProvider($index, provider)) {
                 <div
                   class='source-row-wrap'
+                  data-tutorial-source-row='true'
+                  [attr.data-tutorial-source-id]='provider.id'
+                  [attr.data-tutorial-source-state]='s.sourcePersistenceState(provider)'
+                  [attr.data-tutorial-source-selected]="s.sourceIsSelected(provider) ? 'true' : 'false'"
+                  [attr.data-tutorial-source-kind]="s.isManagedLlamacppSource(provider) ? 'managed-local' : 'other'"
                   [class.is-selected]='s.sourceIsSelected(provider)'
                   [class.is-activated]='s.sourceIsActive(provider)'
                 >
@@ -284,10 +290,14 @@
                     <h5>Model</h5>
                   </div>
 
-                  @if (s.managedInventoryModels().length === 0 && !s.managedPickerValue()) {
+                  @if (s.tutorialLocalModelsState() === 'empty' || s.tutorialLocalModelsState() === 'error') {
                     <div class='empty-state empty-state--compact model-run-hero__empty'>
-                      <p>No local models. Add a GGUF in Model Manager.</p>
-                      <button type='button' class='action-button action-button--primary' (click)='s.openModelManagerTab()'>
+                      @if (s.tutorialLocalModelsState() === 'error') {
+                        <p>Local models could not be checked. Open Model Manager to review the folder or retry.</p>
+                      } @else {
+                        <p>No downloaded local models are listed. Add a GGUF in Model Manager.</p>
+                      }
+                      <button type='button' class='action-button action-button--primary' data-tutorial='sources-model-manager' (click)='s.openModelManagerTab()'>
                         Open Model Manager
                       </button>
                     </div>
@@ -303,7 +313,12 @@
                         (ngModelChange)='s.updateSelectedProvider({ customName: $event })'
                       />
                     </label>
-                    <label class='field field--full'>
+                    <label
+                      class='field field--full'
+                      data-tutorial='sources-local-model'
+                      [attr.data-tutorial-models-state]='s.tutorialLocalModelsState()'
+                      [attr.data-tutorial-model-selected]="s.tutorialLocalModelSelected() ? 'true' : 'false'"
+                    >
                       <span class='local-model-label'>
                         Local model
                         <span
@@ -809,7 +824,7 @@
               @if (connection.provider !== 'openrouter' && connection.provider !== 'anthropic') {
               <hr class='settings-divider' />
 
-              <div class='form-section ready-defaults'>
+              <div class='form-section ready-defaults' [attr.data-tutorial]="connection.provider === 'llamacpp' && !s.isUrlOnlyLlamacpp() ? 'sources-defaults' : null">
                 <div class='form-section__header'>
                   <h5>Ready defaults</h5>
                   <p class='settings-copy'>{{ s.readyDefaultsSummary() }}</p>
@@ -867,7 +882,7 @@
               <hr class='settings-divider' />
 
               <details class='advanced-tuning'>
-                <summary>Advanced</summary>
+                <summary [attr.data-tutorial]="connection.provider === 'llamacpp' && !s.isUrlOnlyLlamacpp() ? 'sources-advanced' : null">Advanced</summary>
                 <div class='form-section'>
                 @if (connection.provider === 'llamacpp' && !s.isUrlOnlyLlamacpp()) {
                   <div class='form-grid' style='margin-bottom: 1rem'>

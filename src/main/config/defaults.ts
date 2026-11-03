@@ -34,6 +34,7 @@ import {
   TTS_SPEECH_SPEED_DEFAULT,
 } from '../../shared';
 import { SecretValue } from '../../shared/types/app-config';
+import { createDefaultTutorialProgress } from '../../shared/types/tutorial';
 import { FIRST_THEME_ID } from '../constants';
 
 /** Bump when persisted `config.json` needs a one-time migration step (see `migrateConfig`). */
@@ -278,6 +279,7 @@ export function createDefaultConfig(): AppConfig {
   const llmProviders = getDefaultLlmProviders();
   return {
     configSchemaVersion: APP_CONFIG_SCHEMA_VERSION,
+    tutorial: createDefaultTutorialProgress(),
     currentWorkspaceId: null,
     defaultHomePageOnStart: false,
     lastActiveConversationByWorkspaceId: {},

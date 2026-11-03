@@ -8,21 +8,32 @@ import {
   CTV_FLAG_NAMES,
   CTX_FLAG_NAMES,
   detectShellQuotingPlatform,
+  DRAFT_MODEL_FLAG_NAMES,
   FA_FLAG_NAMES,
   findLlamaFlag,
   hasLlamaFlag,
   HF_FLAG_NAMES,
   lastLlamaFlag,
+  llamaCommandUsesDraftMtp,
   MODEL_FLAG_NAMES,
   NGL_FLAG_NAMES,
   readLlamaFlagValue,
   setLlamaBooleanFlag,
+  SPEC_TYPE_FLAG_NAMES,
   spliceOutLlamaSpans,
   upsertLlamaFlag,
   type ShellQuotingPlatform,
 } from './llama-command-tokens';
+import {
+  ggufProfileAllowsQuantizedCache,
+  PLAN_MIN_CTX,
+  planManagedLlamaTuning,
+  type CudaGpuDevice,
+  type GgufProfile,
+  type GpuVramCardUsage,
+} from './managed-llama-gpu-split';
 import { inferContextWindowTokens } from './model-context';
-import type { LlmOptimizationPreset, LlmProviderConfig } from './types/app-config';
+import type { LlamaCppManaged, LlmOptimizationPreset, LlmProviderConfig } from './types/app-config';
 import { GEMMA_PRESET_DEFAULTS, QWEN_PRESET_DEFAULTS } from './types/llm-presets';
 import type { ModelManagerFileEntry } from './types/model-manager';
 import { isPinnedLlamaServerUrlProviderId } from './llm-provider-ids';
@@ -78,6 +89,25 @@ export function isMmprojGgufFileName(fileNameOrPath: string): boolean {
   return /mmproj/i.test(fileNameFromPath(fileNameOrPath));
 }
 
+/**
+ * True for a separate MTP head GGUF (``mtp-gemma-4-12B-it-Q4_0.gguf``), which can't load as a main
+ * model. Only a prefix counts: a name like ``Swift-Dynamic-MTP-Q6.gguf`` is a main model with the head
+ * inside it.
+ */
+export function isMtpCompanionGgufFileName(fileNameOrPath: string): boolean {
+  return /^mtp-/i.test(fileNameFromPath(fileNameOrPath));
+}
+
+/**
+ * True for a draft head GGUF (``eagle3-gpt-oss-20b-Q8_0.gguf``, ``laguna-s-2.1-DFlash-BF16.gguf``), which
+ * can't chat as a main model. The kind counts anywhere in the name, but only as a whole word.
+ */
+export function isDraftSidecarGgufFileName(fileNameOrPath: string): boolean {
+  return /(?:^|[-_.])(?:eagle3|dflash|dspark)(?:[-_.]|$)/i.test(
+    fileNameFromPath(fileNameOrPath).replace(/\.(gguf|ggml)$/i, ''),
+  );
+}
+
 function mmprojQualityRank(fileName: string): number {
   const n = fileName.toLowerCase();
   if (/(?:^|[^a-z0-9])f32(?:[^a-z0-9]|$)/.test(n)) {
@@ -113,31 +143,41 @@ export function pickPreferredMmprojPath(paths: readonly string[]): string | null
 export function classifyHubSnapshotGgufPaths(paths: readonly string[]): {
   languagePaths: string[];
   mmprojPath: string | null;
+  mtpPath: string | null;
 } {
   const languagePaths: string[] = [];
   const mmprojPaths: string[] = [];
+  const mtpPaths: string[] = [];
   for (const p of paths) {
     if (isMmprojGgufFileName(p)) {
       mmprojPaths.push(p);
-    } else {
+    } else if (isMtpCompanionGgufFileName(p)) {
+      mtpPaths.push(p);
+    } else if (!isDraftSidecarGgufFileName(p)) {
       languagePaths.push(p);
     }
   }
-  return { languagePaths, mmprojPath: pickPreferredMmprojPath(mmprojPaths) };
+  return {
+    languagePaths,
+    mmprojPath: pickPreferredMmprojPath(mmprojPaths),
+    mtpPath: pickPreferredMmprojPath(mtpPaths),
+  };
 }
 
 /**
  * Paths Settings can pin on a hub inventory row: ``-m`` when there is exactly one
- * language GGUF, plus a detected projector even when several language quants exist.
+ * language GGUF, plus a detected projector or MTP head even when several language quants exist.
  */
 export function hubSnapshotManagedPaths(paths: readonly string[]): {
   ggufAbsolutePath?: string;
   mmprojAbsolutePath?: string;
+  mtpAbsolutePath?: string;
 } {
-  const { languagePaths, mmprojPath } = classifyHubSnapshotGgufPaths(paths);
+  const { languagePaths, mmprojPath, mtpPath } = classifyHubSnapshotGgufPaths(paths);
   return {
     ...(languagePaths.length === 1 ? { ggufAbsolutePath: languagePaths[0] } : {}),
     ...(mmprojPath ? { mmprojAbsolutePath: mmprojPath } : {}),
+    ...(mtpPath ? { mtpAbsolutePath: mtpPath } : {}),
   };
 }
 
@@ -183,9 +223,43 @@ export function resolveMmprojPathForManagedGguf(
   return resolveSiblingMmprojFromInventory(path, inventory);
 }
 
-/** Strip ``.gguf`` / ``.ggml`` and common quant / mmproj tokens for name matching. */
+/**
+ * Look up an MTP head file for a language GGUF used with ``-m``: the one its hub folder pins, or a
+ * ``mtp-*`` file beside it with the same model stem (any quant of a model can use the head).
+ */
+export function resolveMtpPathForManagedGguf(
+  ggufAbsolutePath: string,
+  inventory: readonly ModelManagerFileEntry[],
+): string | null {
+  const needle = normalizeComparablePath(ggufAbsolutePath);
+  if (!needle) {
+    return null;
+  }
+  const dir = parentDirFromPath(ggufAbsolutePath);
+  const stem = languageGgufStem(ggufAbsolutePath);
+  const siblings: string[] = [];
+  for (const m of inventory) {
+    if (m.entryKind === 'hubRepo') {
+      const pinned = (m.mtpAbsolutePath || '').trim();
+      const hub = normalizeComparablePath(m.absolutePath);
+      if (pinned && hub && needle.startsWith(`${hub}/`)) {
+        return pinned;
+      }
+    } else if (
+      isMtpCompanionGgufFileName(m.fileName || m.absolutePath) &&
+      parentDirFromPath(m.absolutePath) === dir &&
+      languageGgufStem(m.absolutePath) === stem
+    ) {
+      siblings.push(m.absolutePath);
+    }
+  }
+  return pickPreferredMmprojPath(siblings);
+}
+
+/** Strip ``.gguf`` / ``.ggml`` and common quant / mmproj / MTP head tokens for name matching. */
 export function languageGgufStem(fileNameOrPath: string): string {
   let s = fileNameFromPath(fileNameOrPath).replace(/\.(gguf|ggml)$/i, '');
+  s = s.replace(/^mtp-/i, '');
   s = s.replace(/[-_.]?mmproj/gi, '');
   s = s.replace(
     /(?:[-_.](?:UD|imatrix))*(?:[-_.](?:Q[0-9]+(?:_[K0-9]+(?:_[A-Z]+)?)?|IQ[0-9]+\w*|F16|F32|BF16|FP16|FP32))+$/i,
@@ -225,9 +299,10 @@ export function resolveSiblingMmprojFromInventory(
     if (parentDirFromPath(m.absolutePath) !== dir) {
       continue;
     }
-    if (isMmprojGgufFileName(m.fileName || m.absolutePath)) {
+    const name = m.fileName || m.absolutePath;
+    if (isMmprojGgufFileName(name)) {
       mmprojInDir.push(m.absolutePath);
-    } else {
+    } else if (!isMtpCompanionGgufFileName(name) && !isDraftSidecarGgufFileName(name)) {
       languageInDir.push(m.absolutePath);
     }
   }
@@ -414,9 +489,10 @@ export function parseCustomManagedContextTokens(raw: string | number): number | 
 }
 
 /**
- * Build a managed chat ``llama-server`` command with ``{{PORT}}``, ``--jinja``,
- * ``-np 1``, ``--no-webui``, ``--cache-ram 0``, model load, and ``-c``.
- * ``contextWindowTokens`` of ``0`` emits ``-c 0`` (model-native context).
+ * Build a managed chat ``llama-server`` command with ``{{PORT}}``, ``--jinja``, model load, and ``-c``.
+ * ``contextWindowTokens`` of ``0`` leaves ``-c`` out (model-native context): ``-c 0`` would also stop
+ * ``--fit`` shrinking it to the card. The server defaults are added at start, so a re-pick can't
+ * overwrite the user's own ``-np`` or ``--cache-ram``.
  */
 export function buildManagedLlamaChatCommand(
   source: ManagedLlamaModelSource,
@@ -445,7 +521,10 @@ export function buildManagedLlamaChatCommand(
     }
     argv.push('-hf', hf);
   }
-  argv.push('-c', String(ctx), '--metrics', '-np', '1', '--no-webui', '--cache-ram', '0');
+  if (ctx > 0) {
+    argv.push('-c', String(ctx));
+  }
+  argv.push('--metrics');
   return argvToShellCommandLine(argv, platform);
 }
 
@@ -623,6 +702,7 @@ const CACHE_RAM_FLAG_NAMES = ['-cram', '--cache-ram'];
 const REASONING_FORMAT_FLAG_NAMES = ['--reasoning-format'];
 const BATCH_FLAG_NAMES = ['-b', '--batch-size'];
 const UBATCH_FLAG_NAMES = ['-ub', '--ubatch-size'];
+const MTP_DRAFT_N_MAX_FLAG_NAMES = ['--spec-draft-n-max'];
 
 function isFlashAttnMode(raw: string): raw is ManagedLlamaFlashAttn {
   return (MANAGED_LLAMA_FLASH_ATTN_MODES as readonly string[]).includes(raw);
@@ -837,15 +917,8 @@ export function ensureManagedLlamaGemmaReasoningFormat(cmd: string): string {
 }
 
 /**
- * Ensure managed chat commands always carry ``--no-webui``, ``-np 1`` and
- * ``--cache-ram 0`` when those flags are missing. Does not overwrite an existing
- * ``-np`` / ``--parallel`` or ``--cache-ram`` / ``-cram`` value.
- *
- * ``--cache-ram 0`` disables llama-server's host-RAM prompt cache (default 8 GiB).
- * With one slot, every prompt-prefix change (Clara's system prompt embeds the live
- * workspace tree) copies the slot's KV / recurrent state into that cache, so RAM
- * climbs by GBs over a long agent session at large context and looks like a leak.
- * The slot itself still reuses the common prefix between turns without it.
+ * Ensure managed chat commands always carry ``--no-webui`` and ``-np 1`` when those
+ * flags are missing. Does not overwrite an existing ``-np`` / ``--parallel`` value.
  */
 export function ensureManagedLlamaDefaultServerFlags(cmd: string): string {
   const trimmed = (cmd || '').trim();
@@ -859,8 +932,171 @@ export function ensureManagedLlamaDefaultServerFlags(cmd: string): string {
   if (!managedLlamaCommandHasParallel(out)) {
     out = `${out} -np 1`;
   }
-  if (!managedLlamaCommandHasCacheRam(out)) {
-    out = `${out} --cache-ram 0`;
+  return out;
+}
+
+const SMALL_MACHINE_RAM_BYTES = 24 * 1024 * 1024 * 1024;
+const SMALL_MACHINE_CACHE_RAM_MB = 2048;
+
+/**
+ * Keep llama-server's host-RAM prompt cache (default 8 GiB) from taking most of a small machine, when
+ * the command doesn't size it. Entries measured 1.3 to 5.7 GiB on a 65K context, so the default stays
+ * right on bigger machines.
+ */
+export function limitManagedLlamaCacheRam(cmd: string, totalRamBytes: number): string {
+  const trimmed = (cmd || '').trim();
+  if (!trimmed || totalRamBytes >= SMALL_MACHINE_RAM_BYTES || managedLlamaCommandHasCacheRam(trimmed)) {
+    return cmd;
+  }
+  return `${trimmed} --cache-ram ${SMALL_MACHINE_CACHE_RAM_MB}`;
+}
+
+const FIT_CTX_FLAG_NAMES = ['-fitc', '--fit-ctx'];
+
+/**
+ * With no ``-c``, ``--fit`` shrinks a model that doesn't fit down to 4096, below Clara's own prompt. Hold it
+ * at the plan's floor so it spills layers instead. Any ``-c`` already stops the shrink, and this flag after
+ * ``-c 0`` would turn it back on.
+ */
+export function ensureManagedLlamaFitContextFloor(cmd: string): string {
+  const trimmed = (cmd || '').trim();
+  if (!trimmed || hasLlamaFlag(trimmed, CTX_FLAG_NAMES) || hasLlamaFlag(trimmed, FIT_CTX_FLAG_NAMES)) {
+    return cmd;
+  }
+  return `${trimmed} --fit-ctx ${PLAN_MIN_CTX}`;
+}
+
+/** Drafted tokens per step that Clara writes with an MTP head; measured on Gemma 12B. */
+const MTP_DRAFT_N_MAX = 4;
+
+/** The head ``--spec-type draft-mtp`` can run on: inside the model file, or a separate one. */
+export interface ManagedMtpHead {
+  companionPath: string | null;
+}
+
+/**
+ * Which MTP head a model can use, if any. A companion file has to hold head layers and read the width
+ * this model puts out; a width mismatch aborts the server when decoding starts.
+ */
+export function managedMtpHead(
+  profile: GgufProfile,
+  companionPath: string | null,
+  companion: GgufProfile | null,
+): ManagedMtpHead | null {
+  if (profile.nextnLayers > 0) {
+    return { companionPath: null };
+  }
+  return companionPath && companion && companion.nextnLayers > 0 && companion.embeddingOut === profile.embeddingOut
+    ? { companionPath }
+    : null;
+}
+
+/**
+ * Turn on MTP speculative decoding, the one place these flags are written. ``--spec-draft-device`` stays
+ * out: the head follows ``--device``. Keeps other ``--spec-type`` entries and the user's ``--spec-draft-n-max``.
+ */
+export function syncMtpDraftInManagedChatCommand(
+  cmd: string,
+  head: ManagedMtpHead,
+  platform: ShellQuotingPlatform = detectShellQuotingPlatform(),
+): string {
+  const others = findLlamaFlag(cmd, SPEC_TYPE_FLAG_NAMES)
+    .flatMap((occ) => (occ.value ?? '').split(','))
+    .filter((type) => type && type !== 'none' && type !== 'draft-mtp');
+  let out = upsertLlamaFlag(cmd, SPEC_TYPE_FLAG_NAMES, '--spec-type', [...others, 'draft-mtp'].join(','), platform);
+  out = upsertLlamaFlag(out, DRAFT_MODEL_FLAG_NAMES, '--spec-draft-model', null, platform);
+  if (head.companionPath) {
+    out = upsertLlamaFlag(out, DRAFT_MODEL_FLAG_NAMES, '--spec-draft-model', head.companionPath, platform);
+  }
+  return hasLlamaFlag(out, MTP_DRAFT_N_MAX_FLAG_NAMES)
+    ? out
+    : upsertLlamaFlag(out, MTP_DRAFT_N_MAX_FLAG_NAMES, '--spec-draft-n-max', String(MTP_DRAFT_N_MAX), platform);
+}
+
+/** What {@link tunePickedManagedChatCommand} works from, once the GGUF headers have been read. */
+export interface PickedManagedModelFacts {
+  /** The command the pick built. */
+  command: string;
+  /** The command before the pick. */
+  previous: string;
+  autoTuned: LlamaCppManaged['autoTuned'];
+  profile: GgufProfile;
+  companionPath: string | null;
+  companion: GgufProfile | null;
+  /** File size of the command's ``--mmproj``, when read. */
+  projectorBytes?: number | null;
+  gpus: readonly CudaGpuDevice[];
+  usage: readonly GpuVramCardUsage[];
+}
+
+/**
+ * The part of a pick that needs the GGUF header. MTP decoding comes back when the user had it on and
+ * the new model has a head. ``-c`` follows the plan only when absent, ``0`` or the app's own last choice,
+ * so a hand-written one is never touched; the same goes for ``-ctk`` / ``-ctv``. With no plan, what an
+ * earlier plan wrote comes out, because ``--fit`` can only shrink a context when no ``-c`` is set.
+ */
+export function tunePickedManagedChatCommand(
+  facts: PickedManagedModelFacts,
+  platform: ShellQuotingPlatform = detectShellQuotingPlatform(),
+): { command: string; autoTuned: LlamaCppManaged['autoTuned'] } {
+  const { profile, companion, gpus, usage, autoTuned } = facts;
+  const head = managedMtpHead(profile, facts.companionPath, companion);
+  let command = facts.command;
+  if (head && llamaCommandUsesDraftMtp(facts.previous) && !llamaCommandUsesDraftMtp(command)) {
+    command = syncMtpDraftInManagedChatCommand(command, head, platform);
+  }
+  const ctx = parseManagedLlamaContextSize(command);
+  const ctk = readLlamaFlagValue(command, CTK_FLAG_NAMES);
+  const ctv = readLlamaFlagValue(command, CTV_FLAG_NAMES);
+  const handWrittenCtk = ctk !== null && ctk !== autoTuned?.ctk;
+  const handWrittenCtv = ctv !== null && ctv !== autoTuned?.ctv;
+  let open = command;
+  if (!handWrittenCtk) {
+    open = upsertLlamaFlag(open, CTK_FLAG_NAMES, '-ctk', null, platform);
+  }
+  if (!handWrittenCtv) {
+    open = upsertLlamaFlag(open, CTV_FLAG_NAMES, '-ctv', null, platform);
+  }
+  if ((ctx !== null && ctx !== 0 && ctx !== autoTuned?.c) || !gpus.length) {
+    // No plan runs here, and the last model's q8 makes the server exit on a model that can't load it.
+    return ggufProfileAllowsQuantizedCache(profile)
+      ? { command, autoTuned }
+      : { command: open, autoTuned: autoTuned && { ...autoTuned, ctk: '', ctv: '' } };
+  }
+  const plan = planManagedLlamaTuning(profile, gpus, usage, open, companion?.tensorBytes, facts.projectorBytes ?? 0);
+  if (!plan) {
+    return {
+      command: ctx === autoTuned?.c ? upsertLlamaFlag(open, CTX_FLAG_NAMES, '-c', null, platform) : open,
+      autoTuned: undefined,
+    };
+  }
+  let tuned = upsertLlamaFlag(command, CTX_FLAG_NAMES, '-c', String(plan.c), platform);
+  tuned = upsertLlamaFlag(tuned, CTK_FLAG_NAMES, '-ctk', plan.ctk, platform);
+  tuned = upsertLlamaFlag(tuned, CTV_FLAG_NAMES, '-ctv', plan.ctv, platform);
+  return {
+    command: tuned,
+    autoTuned: { c: plan.c, ctk: handWrittenCtk ? '' : plan.ctk, ctv: handWrittenCtv ? '' : plan.ctv },
+  };
+}
+
+/**
+ * The command without what an earlier plan wrote, for a model no plan can be made for: the same as a
+ * plan that doesn't fit. Flags the user wrote stay.
+ */
+export function withoutAutoTunedFlags(
+  command: string,
+  autoTuned: LlamaCppManaged['autoTuned'],
+  platform: ShellQuotingPlatform = detectShellQuotingPlatform(),
+): string {
+  let out = command;
+  if (parseManagedLlamaContextSize(out) === autoTuned?.c) {
+    out = upsertLlamaFlag(out, CTX_FLAG_NAMES, '-c', null, platform);
+  }
+  if (readLlamaFlagValue(out, CTK_FLAG_NAMES) === autoTuned?.ctk) {
+    out = upsertLlamaFlag(out, CTK_FLAG_NAMES, '-ctk', null, platform);
+  }
+  if (readLlamaFlagValue(out, CTV_FLAG_NAMES) === autoTuned?.ctv) {
+    out = upsertLlamaFlag(out, CTV_FLAG_NAMES, '-ctv', null, platform);
   }
   return out;
 }

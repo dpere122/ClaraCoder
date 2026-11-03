@@ -169,6 +169,12 @@ describe('toolPillLabel', () => {
     ).toBe('Wait · npm test · running');
   });
 
+  it('context compaction: live verb while it runs, the token change when done', () => {
+    expect(pill(status('compact_context', '', { toolChainState: 'running' }), true)).toBe('Compacting context');
+    expect(pill(status('compact_context', '42.1K → 18.3K tokens'))).toBe('Compacted context · 42.1K → 18.3K tokens');
+    expect(pill(status('compact_context', ''))).toBe('Compacted context');
+  });
+
   it('unknown tools get a humanized name and an excerpt', () => {
     expect(pill(status('mcp__abc__get_addon_status', 'Error checking addon status: Could not connect.'))).toBe(
       'Get addon status · Error checking addon status: Could not connect.',
@@ -276,6 +282,12 @@ describe('activityHeadline', () => {
     const out = activityHeadline([read('a.py'), list, search('q'), edit('a.py'), lsp]);
     expect(out.text).toBe('Read a.py, searched for "q", edited a.py, +2 more');
     expect(out.clauses).toEqual(['read a.py', 'listed src', 'searched for "q"', 'edited a.py', 'checked diagnostics']);
+  });
+
+  it('context compaction reads as one clause in the order it happened', () => {
+    const compact = label('compact_context', '42.1K → 18.3K tokens');
+    expect(headline(compact)).toBe('Compacted context');
+    expect(headline(read('a.py'), compact, edit('a.py'), compact)).toBe('Read a.py, compacted context, edited a.py');
   });
 
   it('shortens long commands and is empty with no calls', () => {

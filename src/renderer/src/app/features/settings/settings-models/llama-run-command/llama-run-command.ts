@@ -9,16 +9,19 @@ import {
   diffLlamaCommands,
   estimateManagedLlamaVram,
   HF_FLAG_NAMES,
+  llamaCommandUsesDraftMtp,
   MANAGED_LLAMA_CACHE_TYPES,
   MANAGED_LLAMA_FLASH_ATTN_MODES,
   type ManagedGpuOffloadMode,
   MODEL_FLAG_NAMES,
   normalizeLlamaCommandInput,
   overcommittedCards,
+  parseManagedLlamaGpuOffload,
   preferredLlamaFlagName,
   removeLlamaEntry,
   setLlamaEntryValue,
   shortCudaGpuName,
+  syncMtpDraftInManagedChatCommand,
   syncTensorSplitSliderInManagedChatCommand,
   tensorSplitSliderForCommand,
   type CudaGpuDevice,
@@ -27,6 +30,7 @@ import {
   type LlamaFlagCatalog,
   type LlamaFlagSpec,
   type LlamaFlagStatus,
+  type ManagedMtpHead,
 } from '@shared/index';
 import { LucideAngularModule } from 'lucide-angular';
 import { ElectronService } from '../../../../core/electron.service';
@@ -34,6 +38,14 @@ import { PillSelectComponent } from '../../../../shared/pill-select/pill-select'
 import { SettingsStore } from '../../settings/settings-store';
 
 type RunCommandView = 'flags' | 'raw';
+
+interface GpuPlacement {
+  id: string;
+  mode: ManagedGpuOffloadMode;
+  /** The card for a one-card placement. */
+  gpu?: CudaGpuDevice;
+  label: string;
+}
 
 const STATUS_LABELS: Readonly<Record<LlamaFlagStatus, string>> = {
   used: 'Used',
@@ -105,6 +117,8 @@ export class LlamaRunCommandComponent {
   });
   /** The command the running server was spawned with. */
   private readonly launchedCommand = signal<string | null>(null);
+  /** This machine's RAM: a small one gets a prompt cache limit at start. */
+  private readonly totalRamBytes = signal<number | null>(null);
 
   protected readonly command = computed(() => this.s.selectedLlamaCppManaged().chatRunCommand);
 
@@ -130,9 +144,8 @@ export class LlamaRunCommandComponent {
     if (connection.repeatPenalty != null) {
       overrides.push({ names: ['--repeat-penalty'], label: 'Repeat' });
     }
-    if (connection.maxOutputTokens > 0) {
-      overrides.push({ names: ['--predict', '--n-predict', '-n'], label: 'Max output' });
-    }
+    // Max output 0 too: local agent steps then send the default per-step limit.
+    overrides.push({ names: ['--predict', '--n-predict', '-n'], label: 'Max output' });
     return overrides;
   });
 
@@ -142,6 +155,8 @@ export class LlamaRunCommandComponent {
       requestOverrides: this.requestOverrides(),
       optimizationPreset: this.s.selectedResolved()?.optimizationPreset,
       platform: this.platform,
+      profile: this.s.managedGgufProfile(),
+      totalRamBytes: this.totalRamBytes(),
     }),
   );
 
@@ -170,18 +185,30 @@ export class LlamaRunCommandComponent {
     return COMMON_FLAGS.filter((flag) => !used.has(flag.name) && !flag.aliases.some((alias) => used.has(alias)));
   });
 
-  protected readonly gpuPlacements: readonly { mode: ManagedGpuOffloadMode; label: string }[] = [
-    { mode: 'single', label: 'Fastest card' },
-    { mode: 'split', label: 'Split by VRAM' },
-    { mode: 'auto', label: 'All GPUs' },
-  ];
+  protected readonly gpuPlacements = computed((): GpuPlacement[] => [
+    ...this.s.cudaGpus().map((gpu): GpuPlacement => ({
+      id: `single:${gpu.cudaIndex}`,
+      mode: 'single',
+      gpu,
+      label: this.gpuName(gpu),
+    })),
+    { id: 'split', mode: 'split', label: 'Split by VRAM' },
+    { id: 'auto', mode: 'auto', label: 'All GPUs' },
+  ]);
 
   /** Shown while Split by VRAM is active across two cards. */
   protected readonly tensorSplit = computed(() => tensorSplitSliderForCommand(this.command(), this.s.cudaGpus()));
 
   /** What this command would put on each card, for the settings as edited. */
   protected readonly vramEstimate = computed(() =>
-    estimateManagedLlamaVram(this.command(), this.s.cudaGpus(), this.s.managedGgufSizeBytes(), this.s.managedVramUsage()),
+    estimateManagedLlamaVram(
+      this.command(),
+      this.s.cudaGpus(),
+      this.s.managedGgufSizeBytes(),
+      this.s.managedVramUsage(),
+      this.s.managedGgufProfile(),
+      this.s.managedDraftModelBytes(),
+    ),
   );
   /** The worst card, so a tight one never hides one that is over. */
   protected readonly vramProblem = computed(() => {
@@ -190,6 +217,20 @@ export class LlamaRunCommandComponent {
   });
   /** Cards past their physical memory right now, whatever the settings say. */
   protected readonly vramOvercommitted = computed(() => overcommittedCards(this.s.cudaGpus(), this.s.managedVramUsage()));
+
+  /**
+   * An MTP head this command could use. It's only offered: nothing turns it on by itself. Not across
+   * cards, where the speed-up hasn't been measured.
+   */
+  protected readonly mtpOffer = computed((): ManagedMtpHead | null => {
+    const head = this.s.managedMtpHead();
+    const command = this.command();
+    if (!head || llamaCommandUsesDraftMtp(command)) {
+      return null;
+    }
+    const { mode } = parseManagedLlamaGpuOffload(command);
+    return mode === 'split' || (mode === 'auto' && this.s.cudaGpus().length > 1) ? null : head;
+  });
 
   protected readonly flagQuery = signal('');
   /** A chosen flag waiting for its value. */
@@ -214,6 +255,7 @@ export class LlamaRunCommandComponent {
 
   constructor() {
     void this.loadCatalog();
+    void this.electron.llamaServerTotalRam().then((bytes) => this.totalRamBytes.set(bytes));
     effect(() => {
       const id = this.s.selectedModel()?.id;
       void this.refreshLaunched(id);
@@ -221,6 +263,11 @@ export class LlamaRunCommandComponent {
     effect(() => {
       void this.refreshGgufSize(this.s.managedGgufPath());
     });
+    for (const path of [this.s.managedGgufPath, this.s.managedMtpCompanionPath, this.s.managedDraftModelPath]) {
+      effect(() => {
+        void this.s.loadManagedGgufProfile(path());
+      });
+    }
     void this.refreshVramUsage();
     this.electron.llamaServerLifecycle$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
       void this.loadCatalog();
@@ -359,19 +406,39 @@ export class LlamaRunCommandComponent {
     }
   }
 
-  protected isRecommendedPlacement(mode: ManagedGpuOffloadMode): boolean {
-    return this.s.managedGpuAdvice()?.mode === mode;
+  protected choosePlacement(placement: GpuPlacement): void {
+    this.s.onManagedGpuOffloadChange(placement.mode, placement.gpu?.cudaIndex);
   }
 
-  protected placementDetail(mode: ManagedGpuOffloadMode): string {
-    if (mode === 'single') {
-      const advice = this.s.managedGpuAdvice();
-      return advice ? `CUDA${advice.primaryCudaIndex} · ${this.s.managedPrimaryGpuLabel()}` : '';
+  protected isActivePlacement(placement: GpuPlacement): boolean {
+    const { mode, cudaIndexes } = parseManagedLlamaGpuOffload(this.command());
+    return mode === placement.mode && (mode !== 'single' || cudaIndexes[0] === placement.gpu?.cudaIndex);
+  }
+
+  protected isRecommendedPlacement(placement: GpuPlacement): boolean {
+    const advice = this.s.managedGpuAdvice();
+    return (
+      advice?.mode === placement.mode && (placement.mode !== 'single' || advice.primaryCudaIndex === placement.gpu?.cudaIndex)
+    );
+  }
+
+  protected placementDetail(placement: GpuPlacement): string {
+    if (placement.gpu) {
+      return `CUDA${placement.gpu.cudaIndex} · ${this.s.cudaGpuLabel(placement.gpu)}`;
     }
-    if (mode === 'split') {
+    if (placement.mode === 'split') {
       return this.s.managedGpuSplitRatioLabel();
     }
     return 'llama.cpp default. Can overflow into RAM on mixed cards.';
+  }
+
+  protected mtpOfferText(head: ManagedMtpHead): string {
+    const where = head.companionPath ? `beside it (${head.companionPath.split(/[/\\]/).pop()})` : 'inside it';
+    return `This model has an MTP head ${where}. Speculative decoding can speed up generation for a little more VRAM.`;
+  }
+
+  protected addMtpFlags(head: ManagedMtpHead): void {
+    this.save(syncMtpDraftInManagedChatCommand(this.command(), head, this.platform));
   }
 
   protected entryTitle(entry: LlamaCommandEntry): string {

@@ -9,8 +9,8 @@ not OpenAI ``reasoning_effort`` tiers. Recommended ``temperature`` / ``top_p`` /
 the connection when the template is selected; inference uses those connection fields directly.
 Gemma does not add extra system-prompt notes.
 
-``max_output_tokens`` on the connection sets API ``max_tokens`` when positive. ``0`` omits
-``max_tokens`` (no Clara-side cap; the server context window still limits prompt plus completion).
+``max_output_tokens`` on the connection sets API ``max_tokens`` when positive. ``0`` means no limit on
+the model client; local servers still get the 24576 per-step default from ``bounded_step_settings``.
 Optional env ``CLARA_QWEN_DEFAULT_MAX_OUTPUT_TOKENS`` / ``CLARA_GEMMA_DEFAULT_MAX_OUTPUT_TOKENS``
 only apply when explicitly set. Global env ``CLARA_CHAT_MAX_OUTPUT_TOKENS`` still wins for all models
 when set and positive.

@@ -39,7 +39,7 @@
           (keydown)="onComposerKeydown($event)"
           (input)="onTextareaInput()"
           [disabled]="contextBlocked()"
-          [placeholder]="contextBlocked() ? 'Context full — start a new conversation to continue' : ''"
+          [placeholder]="contextBlocked() ? 'Context full: turn on context compaction in Settings or start a new conversation' : ''"
         ></textarea>
       } @else {
         <input
@@ -50,7 +50,7 @@
           (ngModelChange)="composerDraft.set($event)"
           (keydown)="onSingleLineKeydown($event)"
           [disabled]="contextBlocked()"
-          [placeholder]="contextBlocked() ? 'Context full — start a new conversation to continue' : ''"
+          [placeholder]="contextBlocked() ? 'Context full: turn on context compaction in Settings or start a new conversation' : ''"
         />
       }
     </div>

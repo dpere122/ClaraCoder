@@ -203,6 +203,22 @@ def get_session(session_id: str) -> SessionState:
     return sess
 
 
+def drop_frozen_prompt_tree(session: SessionState) -> None:
+    """The next render freezes the tree again. ``reset_for_new_thread`` would drop packs a kept thread still holds."""
+    session.prompt_tree = ''
+    session.prompt_tree_changes = []
+    session.prompt_tree_changes_reported = 0
+
+
+def reset_for_new_thread(session: SessionState) -> None:
+    """The turn starts a thread with no checkpoint: the model has seen no tree or context pack in it.
+
+    The one rule for every way a thread goes away (``/clear``, ``/load``, a failed turn, a new plan thread).
+    """
+    drop_frozen_prompt_tree(session)
+    session.activated_context_packs.clear()
+
+
 def agent_formatters_enabled() -> bool:
     """True when Settings → Tools allows Black/Prettier in the agent flow (auto + format tools)."""
     return bool(getattr(runtime_config.tools, 'enable_agent_formatters', False))

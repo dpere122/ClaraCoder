@@ -29,6 +29,8 @@ def test_gemma_native_middleware_promotes_tool_call(_active: MagicMock) -> None:
     assert promoted.tool_calls
     assert promoted.tool_calls[0]['name'] == 'get_current_temperature'
     assert promoted.tool_calls[0]['args'] == {'location': 'London'}
+    # Set through ``model_copy``, which does not validate: without the key ``ToolNode`` raises.
+    assert promoted.tool_calls[0]['type'] == 'tool_call'
 
 
 @patch(_ACTIVE, return_value=True)
@@ -101,7 +103,7 @@ def test_gemma_native_middleware_remaps_api_path_aliases(_active: MagicMock) -> 
         content='',
         tool_calls=[
             {
-                'name': 'stage_create_file',
+                'name': 'write_workspace_file',
                 'id': 'api-1',
                 'args': {'file_path': 'hello.py', 'content': 'print(1)\n'},
             }
@@ -110,7 +112,7 @@ def test_gemma_native_middleware_remaps_api_path_aliases(_active: MagicMock) -> 
     result = asyncio.run(middleware.aafter_model({'messages': [msg]}, MagicMock()))
     assert result is not None
     args = result['messages'][0].tool_calls[0]['args']
-    assert args == {'relative_path': 'hello.py', 'new_content': 'print(1)\n'}
+    assert args == {'relative_path': 'hello.py', 'content': 'print(1)\n'}
 
 
 def test_gemma_native_middleware_ignores_existing_api_tool_calls() -> None:

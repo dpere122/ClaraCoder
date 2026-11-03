@@ -14,6 +14,8 @@ _guard_logger = logging.getLogger("clara.tools")
 
 # Fragments (no trailing period): ``describe()`` adds sentence punctuation, so compose freely.
 ENCODING_NEWLINE = "`encoding` empty → Settings default; `newline` lf|crlf|preserve (match existing)"
+#: How an edit that wrote nothing answers; it is no progress, whatever tool it came from.
+NO_CHANGE_PREFIX = 'No change:'
 ONE_BASED = "lines are 1-based inclusive after `\\n` normalization"
 GUTTER = "gutter `n │ text` (U+2502); use `include_line_numbers=false` for raw lines/snippet matches"
 RELATIVE_PATH = "workspace-relative POSIX path"

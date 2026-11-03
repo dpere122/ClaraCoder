@@ -1,4 +1,5 @@
 import { ipcMain } from 'electron';
+import { totalmem } from 'node:os';
 import * as path from 'node:path';
 import type { AppConfig } from '../../../shared';
 import { findLlmModelLocation } from '../../../shared';
@@ -13,6 +14,7 @@ import {
 } from '../../llama-server-manager';
 import { getCachedChatTemplateReasoning, getCachedLlamaServerNctx } from '../../chat-template-reasoning-cache';
 import { getLlamaServerFlagCatalog } from '../../llama-server-flag-catalog';
+import { readGgufProfile } from '../../utils/gguf-profile';
 import { ggufBytesOnDisk } from '../../utils/gguf-size';
 import { sampleGpuVramUsage } from '../../utils/gpu-vram-usage';
 import { loadConfig } from '../../config/load-save';
@@ -139,6 +141,28 @@ export function registerLlamaServerIpc(): void {
     } catch {
       return null;
     }
+  });
+
+  ipcMain.handle('llama-server:gguf-profile', async (event, payload: { path?: unknown }) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return null;
+    }
+    const file = typeof payload?.path === 'string' ? payload.path : '';
+    if (!path.isAbsolute(file) || !/\.gguf$/i.test(file)) {
+      return null;
+    }
+    return readGgufProfile(file);
+  });
+
+  ipcMain.handle('llama-server:total-ram', (event) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return null;
+    }
+    return totalmem();
   });
 
   ipcMain.handle('llama-server:launched-command', async (event, payload: { modelId?: string }) => {

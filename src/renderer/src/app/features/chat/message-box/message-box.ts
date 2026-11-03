@@ -136,7 +136,7 @@ export class MessageBox {
   /** Tooltip for the Send button when it is disabled. */
   protected readonly sendTitle = computed(() => {
     if (this.contextBlocked()) {
-      return 'Context full — start a new conversation to continue';
+      return 'Context full: turn on context compaction in Settings or start a new conversation';
     }
     if (!this.activeConnection()) {
       return 'No LLM source selected';

@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import type { AppConfig, McpServerConfig } from '../../shared';
-import { createEmptyMcpServer, unwrapSecret } from '../../shared';
+import type { AppConfig, ContextCompressionConfig, LlamaCppManaged, McpServerConfig } from '../../shared';
+import { createEmptyMcpServer, getDefaultContextCompression, unwrapSecret } from '../../shared';
 import {
   PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
@@ -458,6 +458,115 @@ describe('migrateConfig parallel tool calls', () => {
     first!.parallelToolCalls = false;
     const migrated = migrateConfig(cfg);
     expect(migrated.llmProviders[0]?.models[0]?.parallelToolCalls).toBe(false);
+  });
+});
+
+describe('migrateConfig context compaction', () => {
+  const oldDefaults = (): ContextCompressionConfig => ({ enabled: false, triggerRatio: 0.7, targetRatio: 0.55 });
+
+  function atSchema8(contextCompression: ContextCompressionConfig): AppConfig {
+    return sampleConfig({ configSchemaVersion: 8, contextCompression });
+  }
+
+  it('turns a schema 8 config on', () => {
+    const migrated = migrateConfig(atSchema8(oldDefaults()));
+    expect(migrated.contextCompression.enabled).toBe(true);
+    expect(migrated.configSchemaVersion).toBe(APP_CONFIG_SCHEMA_VERSION);
+  });
+
+  it('keeps off at schema 9', () => {
+    const contextCompression = { enabled: false, triggerRatio: 0.8, targetRatio: 0.5 };
+    const migrated = migrateConfig(sampleConfig({ configSchemaVersion: 9, contextCompression }));
+    expect(migrated.contextCompression.enabled).toBe(false);
+  });
+
+  it('moves the old default ratios', () => {
+    expect(migrateConfig(atSchema8(oldDefaults())).contextCompression).toEqual(getDefaultContextCompression());
+    const withOldSettings = { ...oldDefaults(), protectTailMessages: 24, recentToolBodyMaxChars: 2000, oldToolBodyMaxChars: 400, systemReserveRatio: 0.25 };
+    expect(migrateConfig(atSchema8(withOldSettings)).contextCompression).toEqual(getDefaultContextCompression());
+  });
+
+  it('keeps custom ratios', () => {
+    const migrated = migrateConfig(atSchema8({ enabled: false, triggerRatio: 0.85, targetRatio: 0.6 }));
+    expect(migrated.contextCompression).toEqual({ enabled: true, triggerRatio: 0.85, targetRatio: 0.6 });
+  });
+
+  it('fills in a missing object', () => {
+    const cfg = atSchema8(oldDefaults());
+    delete (cfg as Partial<AppConfig>).contextCompression;
+    expect(migrateConfig(cfg).contextCompression).toEqual(getDefaultContextCompression());
+    const empty = sampleConfig({ contextCompression: {} as ContextCompressionConfig });
+    expect(migrateConfig(empty).contextCompression).toEqual(getDefaultContextCompression());
+  });
+
+  it('runs once: choices made after the first migration survive the next', () => {
+    const first = migrateConfig(atSchema8(oldDefaults()));
+    first.contextCompression = oldDefaults();
+    expect(migrateConfig(first).contextCompression).toEqual(oldDefaults());
+  });
+
+  it('keeps a 0.1 gap under the trigger, rounded', () => {
+    const contextCompression = { enabled: true, triggerRatio: 0.55, targetRatio: 0.55 };
+    const migrated = migrateConfig(sampleConfig({ contextCompression }));
+    expect(migrated.contextCompression.targetRatio).toBe(0.45);
+    const atGap = { enabled: true, triggerRatio: 0.8, targetRatio: 0.7 };
+    expect(migrateConfig(sampleConfig({ contextCompression: atGap })).contextCompression.targetRatio).toBe(0.7);
+  });
+});
+
+describe('migrateConfig managed --cache-ram 0', () => {
+  const tuned = { c: 65536, ctk: 'q8_0', ctv: 'q8_0' };
+
+  function managedAfterMigration(chatRunCommand: string, configSchemaVersion = 8): LlamaCppManaged {
+    const cfg = sampleConfig({ configSchemaVersion });
+    const local = cfg.llmProviders.find((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID)!;
+    local.models[0]!.llamaCppManaged = { chatRunCommand, embeddingRunCommand: 'embed --cache-ram 0', autoTuned: tuned };
+    const migrated = migrateConfig(cfg);
+    return migrated.llmProviders.find((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID)!.models[0]!.llamaCppManaged!;
+  }
+
+  it('drops the flag the builder wrote and nothing else', () => {
+    const managed = managedAfterMigration(
+      'llama-server --port {{PORT}} -m /a.gguf -c 0 --metrics -np 1 --no-webui --cache-ram 0',
+    );
+    expect(managed.chatRunCommand).toBe('llama-server --port {{PORT}} -m /a.gguf -c 0 --metrics -np 1 --no-webui');
+    expect(managed.embeddingRunCommand).toBe('embed --cache-ram 0');
+    expect(managed.autoTuned).toEqual(tuned);
+  });
+
+  it('keeps flags added after it', () => {
+    expect(
+      managedAfterMigration('llama-server -np 1 --no-webui --cache-ram 0 --reasoning-format none').chatRunCommand,
+    ).toBe('llama-server -np 1 --no-webui --reasoning-format none');
+  });
+
+  it.each([
+    'llama-server -np 1 --no-webui --cache-ram -1',
+    'llama-server -np 1 --no-webui --cache-ram 8192',
+    'llama-server -np 1 --no-webui -cram 0',
+    'llama-server --no-webui -np 1 --cache-ram 0',
+    'llama-server --cache-ram 0 -np 1 --no-webui',
+  ])('leaves %s untouched', (command) => {
+    expect(managedAfterMigration(command).chatRunCommand).toBe(command);
+  });
+
+  it('runs once: the same flags added at schema 9 stay', () => {
+    const command = 'llama-server -np 1 --no-webui --cache-ram 0';
+    expect(managedAfterMigration(command, 9).chatRunCommand).toBe(command);
+  });
+
+  it('leaves the user preset byte for byte, with no plan on file', () => {
+    const preset =
+      'llama-server --host 127.0.0.1 --port {{PORT}} --jinja -m /m/swift.gguf -c 128000 -np 1 --cache-ram -1 -fa on ' +
+      '-ctk q8_0 -ctv q8_0 --metrics --no-webui --spec-draft-n-max 4 --spec-type draft-mtp -dev CUDA0,CUDA1 ' +
+      '--tensor-split 27,21 --main-gpu 0 -ngl auto --no-mmproj --load-mode auto';
+    const cfg = sampleConfig({ configSchemaVersion: 8 });
+    const local = cfg.llmProviders.find((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID)!;
+    local.models[0]!.llamaCppManaged = { chatRunCommand: preset, embeddingRunCommand: '' };
+    const managed = migrateConfig(cfg).llmProviders.find((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID)!.models[0]!
+      .llamaCppManaged!;
+    expect(managed.chatRunCommand).toBe(preset);
+    expect(managed.autoTuned).toBeUndefined();
   });
 });
 

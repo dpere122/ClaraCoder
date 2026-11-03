@@ -28,7 +28,7 @@ import {
   normalizeContextPath,
   shouldIgnoreWorkspaceEntry,
 } from './ignore-rules';
-import type { WorkspaceWatcherState } from './watcher-state';
+import { batchedChangeKind, type WorkspaceWatcherState } from './watcher-state';
 import type { WorkspaceChangeKind, WorkspaceContextSyncExtras } from '../../shared';
 
 export type { WorkspaceWatcherState };
@@ -251,7 +251,7 @@ function formatWatchedPath(source: WatchSource, relativePath: string): string {
 }
 
 /** Whether a path belongs in the LLM workspace context tree (not the sidebar file tree). */
-function shouldIncludeWorkspacePathInContextSync(
+export function shouldIncludeWorkspacePathInContextSync(
   workspacePath: string,
   relativePath: string,
   ignoreRules: string[],
@@ -264,7 +264,6 @@ function shouldIncludeWorkspacePathInContextSync(
 
   const pathSegments = normalizedRelativePath.split('/').filter(Boolean);
   const entryName = pathSegments[pathSegments.length - 1] ?? '';
-  const firstSegment = pathSegments[0] ?? entryName;
 
   // Secrets denylist: deny even when exposeAll is on.
   if (isAlwaysIgnoredWorkspaceEntry(entryName, normalizedRelativePath)) {
@@ -275,21 +274,18 @@ function shouldIncludeWorkspacePathInContextSync(
     return true;
   }
 
-  if (WORKSPACE_CONTEXT_IGNORED_NAMES.has(firstSegment) || WORKSPACE_CONTEXT_IGNORED_NAMES.has(entryName)) {
-    return false;
-  }
-
-  if (WORKSPACE_CONTEXT_IGNORED_SUFFIXES.some((suffix) => entryName.endsWith(suffix))) {
-    return false;
-  }
-
+  // Every level, as the tree builder prunes a folder and never lists what is under it.
   const normalizedWorkspacePath = normalizeContextPath(workspacePath);
-  const rootRelativePath = path.relative(
-    normalizedWorkspacePath,
-    path.join(normalizedWorkspacePath, normalizedRelativePath),
-  );
-
-  return !shouldIgnoreWorkspaceEntry(entryName, rootRelativePath, ignoreRules, exposeAllWorkspaceFiles);
+  return pathSegments.every((name, index) => {
+    if (WORKSPACE_CONTEXT_IGNORED_NAMES.has(name) || WORKSPACE_CONTEXT_IGNORED_SUFFIXES.some((s) => name.endsWith(s))) {
+      return false;
+    }
+    const rootRelativePath = path.relative(
+      normalizedWorkspacePath,
+      path.join(normalizedWorkspacePath, ...pathSegments.slice(0, index + 1)),
+    );
+    return !shouldIgnoreWorkspaceEntry(name, rootRelativePath, ignoreRules, exposeAllWorkspaceFiles);
+  });
 }
 
 function filterChangePayloadForContextSync(
@@ -334,7 +330,8 @@ function createDirectoryWatcher(
         return;
       }
       const changeKind = resolveWatchChangeKind(eventType, rootPath, relativePath);
-      aw.pendingChanges.set(formatWatchedPath(source, relativePath), changeKind);
+      const watchedPath = formatWatchedPath(source, relativePath);
+      aw.pendingChanges.set(watchedPath, batchedChangeKind(aw.pendingChanges.get(watchedPath), changeKind));
       queueWorkspaceWatcherSync(aw);
     },
   );

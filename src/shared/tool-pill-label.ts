@@ -77,6 +77,7 @@ const TOOL_SPECS: Readonly<Record<string, ToolSpec>> = {
   mark_build_plan_steps_complete: { verb: 'Plan progress', category: 'other' },
   java_bootstrap_project: { verb: 'Bootstrap Java', category: 'other' },
   activate_context: { verb: 'Load context', category: 'other' },
+  compact_context: { verb: 'Compacted context', category: 'other' },
   spawn_subagent: { verb: 'Sub-agent', category: 'other' },
   wait_for_subagents: { verb: 'Waiting for sub-agents', category: 'other' },
   stop_subagent: { verb: 'Stop sub-agent', category: 'other' },
@@ -347,9 +348,19 @@ function delegatedLaneDetail(part: StreamPart, live: boolean): string {
 /** Pill verb for a `run_command` call (or its output lane) while the command is still running. */
 const RUNNING_COMMAND_VERB = 'Running';
 
-/** Live verb for a running call: `run_command` reads `Running · npm test`; other tools keep theirs. */
+/**
+ * Live verb for a running call: `run_command` reads `Running · npm test`, `compact_context` reads
+ * `Compacting context`; other tools keep theirs.
+ */
 function liveRunningVerb(name: string, verb: string): string {
-  return name === 'run_command' ? RUNNING_COMMAND_VERB : verb;
+  switch (name) {
+    case 'run_command':
+      return RUNNING_COMMAND_VERB;
+    case 'compact_context':
+      return 'Compacting context';
+    default:
+      return verb;
+  }
 }
 
 /**
@@ -599,6 +610,8 @@ function headlineAction(label: ToolPillLabel): HeadlineAction {
       return fixed('read-plan', 'read the plan', 5);
     case 'Waiting for sub-agents':
       return fixed('subagent-wait', 'waited for sub-agents', 3);
+    case 'Compacted context':
+      return fixed('compact', 'compacted context', 3);
     case 'Outline':
       return { key: 'outline', verb: 'outlined', noun: ['file', 'files'], rank: 6 };
     case 'Diagnostics':

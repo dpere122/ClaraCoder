@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
-from langchain_core.messages import AIMessage, AIMessageChunk
+import json
+from typing import Any
 
-import clara_coder_backend.llm.langchain_compat  # noqa: F401 — installs patches on import
+import httpx
+import pytest
+from langchain_core.messages import AIMessage, AIMessageChunk
+from langchain_openai import ChatOpenAI
+
+from clara_coder_backend.llm.langchain_compat import output_was_truncated  # also installs patches on import
 from langchain_openai.chat_models import base as lc_openai_base
 
 
@@ -109,3 +115,59 @@ def test_non_streaming_reasoning_details_round_trip() -> None:
 def test_assistant_dict_without_reasoning_details_is_unchanged() -> None:
     out = lc_openai_base._convert_message_to_dict(AIMessage(content='hi'))
     assert 'reasoning_details' not in out
+
+
+def _stream_chunk(**fields: Any) -> dict[str, Any]:
+    return {'id': 'c', 'object': 'chat.completion.chunk', 'created': 1, 'model': 'm', **fields}
+
+
+@pytest.mark.asyncio(loop_scope='function')
+async def test_timings_reach_the_message_once_from_the_usage_chunk() -> None:
+    usage_chunk_timings = {'prompt_ms': 12.5, 'predicted_n': 5, 'predicted_per_second': 71.3}
+    events = [
+        # Timings on a chunk with choices as well: keeping both makes ``merge_dicts`` raise and fails the call.
+        _stream_chunk(
+            choices=[{'index': 0, 'delta': {'role': 'assistant', 'content': 'hi'}, 'finish_reason': 'stop'}],
+            timings={'prompt_ms': 1.5, 'predicted_n': 1, 'predicted_per_second': 2.5},
+        ),
+        _stream_chunk(
+            choices=[],
+            usage={'prompt_tokens': 10, 'completion_tokens': 1, 'total_tokens': 11},
+            timings=usage_chunk_timings,
+        ),
+    ]
+    body = ''.join(f'data: {json.dumps(event)}\n\n' for event in events) + 'data: [DONE]\n\n'
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={'content-type': 'text/event-stream'}, content=body)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        llm = ChatOpenAI(
+            model='m',
+            base_url='http://mock.invalid/v1',
+            api_key='dummy',
+            streaming=True,
+            stream_usage=True,
+            max_retries=0,
+            http_async_client=client,
+        )
+        message = await llm.ainvoke('hello')
+
+    assert message.content == 'hi'
+    assert message.response_metadata['timings'] == usage_chunk_timings
+    assert message.response_metadata['finish_reason'] == 'stop'
+
+
+@pytest.mark.parametrize(
+    ('metadata', 'truncated'),
+    [
+        ({'finish_reason': 'length'}, True),
+        ({'stop_reason': 'max_tokens'}, True),
+        ({'finish_reason': 'stop'}, False),
+        ({'finish_reason': 'tool_calls'}, False),
+        ({'stop_reason': 'end_turn'}, False),
+        ({}, False),
+    ],
+)
+def test_output_was_truncated(metadata: dict[str, str], truncated: bool) -> None:
+    assert output_was_truncated(AIMessage(content='partial', response_metadata=metadata)) is truncated

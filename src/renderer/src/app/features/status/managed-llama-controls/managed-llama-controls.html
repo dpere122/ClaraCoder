@@ -41,5 +41,8 @@
       </button>
       }
     </div>
+    @if (startError()) {
+      <div class="managed-llama-controls__error" role="alert"><span>{{ startError() }}</span></div>
+    }
   </div>
 }

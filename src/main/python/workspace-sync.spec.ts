@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import type { LlmConnectionConfig } from '../../shared';
-import { embeddingsConfiguredForWire, embeddingsEnabledForWire, ensureOpenAiV1Base } from './workspace-sync';
+import {
+  chatTemplateReasoningWire,
+  embeddingsConfiguredForWire,
+  embeddingsEnabledForWire,
+  ensureOpenAiV1Base,
+} from './workspace-sync';
 
 function llamacppConn(overrides: Partial<LlmConnectionConfig> = {}): LlmConnectionConfig {
   return {
@@ -27,6 +32,19 @@ describe('ensureOpenAiV1Base', () => {
     expect(ensureOpenAiV1Base('http://127.0.0.1:1234')).toBe('http://127.0.0.1:1234/v1');
     expect(ensureOpenAiV1Base('http://127.0.0.1:1234/v1/')).toBe('http://127.0.0.1:1234/v1');
     expect(ensureOpenAiV1Base('')).toBe('');
+  });
+});
+
+describe('chatTemplateReasoningWire', () => {
+  const caps = { enableThinking: true, reasoningEffortValues: null };
+
+  it('passes the server vision capability through', () => {
+    expect(chatTemplateReasoningWire({ ...caps, vision: false })).toEqual({ ...caps, vision: false });
+    expect(chatTemplateReasoningWire({ ...caps, vision: true })).toEqual({ ...caps, vision: true });
+  });
+
+  it('leaves vision out when the server did not report it', () => {
+    expect(chatTemplateReasoningWire(caps)).not.toHaveProperty('vision');
   });
 });
 

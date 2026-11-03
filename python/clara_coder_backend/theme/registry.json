@@ -3370,6 +3370,7 @@
         "managed-llama-controls__spinner-host",
         "is-active",
         "managed-llama-controls__btn-label",
+        "managed-llama-controls__error",
         "llama-status-rows",
         "llama-status-rows__row",
         "llama-status__dot",
@@ -3832,6 +3833,7 @@
         "managed-llama-controls__btn--loading",
         "managed-llama-controls__spinner-host",
         "managed-llama-controls__btn-label",
+        "managed-llama-controls__error",
         "llama-status-rows",
         "llama-status-rows__row",
         "llama-status__dot",
@@ -3859,8 +3861,7 @@
         "chat-area__tab-strip-overlay-thumb",
         "pill-select",
         "is-open",
-        "is-up",
-        "is-disabled"
+        "is-up"
       ]
     },
     {
@@ -4148,6 +4149,7 @@
         "managed-llama-controls__spinner-host",
         "is-active",
         "managed-llama-controls__btn-label",
+        "managed-llama-controls__error",
         "pill-select",
         "is-open",
         "is-up",
@@ -4265,6 +4267,7 @@
         "managed-llama-controls__btn--loading",
         "managed-llama-controls__spinner-host",
         "managed-llama-controls__btn-label",
+        "managed-llama-controls__error",
         "editor-outline",
         "editor-outline__toolbar",
         "editor-outline__toolbar-btn",
@@ -4368,6 +4371,7 @@
         "managed-llama-controls__btn--loading",
         "managed-llama-controls__spinner-host",
         "managed-llama-controls__btn-label",
+        "managed-llama-controls__error",
         "editor-outline",
         "editor-outline__toolbar",
         "editor-outline__toolbar-btn",

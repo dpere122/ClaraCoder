@@ -20,6 +20,7 @@ import type {
   LlamaServerStartResult,
   LlamaServerStatusResult,
   EmbeddingsStatusResult,
+  GgufProfile,
   GpuVramCardUsage,
   LlamaFlagCatalog,
   LlamacppManagedListModelsResult,
@@ -439,6 +440,8 @@ declare global {
     llamaServerFlagCatalog: () => Promise<{ ok: true; catalog: LlamaFlagCatalog } | { ok: false; error: string }>;
     llamaServerVramUsage: () => Promise<GpuVramCardUsage[]>;
     llamaServerGgufSize: (payload: { path: string }) => Promise<number | null>;
+    llamaServerGgufProfile: (payload: { path: string }) => Promise<GgufProfile | null>;
+    llamaServerTotalRam: () => Promise<number | null>;
     llamaServerLaunchedCommand: (payload: {
       modelId: string;
     }) => Promise<{ ok: true; command: string | null } | { ok: false; error: string }>;

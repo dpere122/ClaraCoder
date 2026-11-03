@@ -722,6 +722,14 @@ def emit_planner_progress_from_md(session: SessionState, *, phase: str = 'execut
         pass
 
 
+def _plan_has_pending_steps(session: SessionState, record: BuildPlanRecord) -> bool:
+    try:
+        steps = parse_action_steps(read_build_plan_md(session.workspace_path, record))
+    except OSError:
+        return False
+    return any(not step.get('complete') for step in steps)
+
+
 def _plan_discovery_outer_graph_builder(
     llm: Any,
     session: SessionState,
@@ -752,6 +760,8 @@ def _plan_execute_outer_graph_builder(
         extra_middleware=extra_middleware,
         tools_provider=plan_execute_tools_and_map,
         allow_subagents=True,
+        # Its prompt inlines the plan and the findings; `read_build_plan` brings back what a pin leaves out.
+        compaction_pin_ratio=0.1,
     )
 
 
@@ -1546,7 +1556,9 @@ async def stream_plan_execute_langgraph(
         )
         return
 
-    complete_build_plan(session, record.id)
+    # A text-only reply ends the executor too. An unchecked step keeps the plan active, a forgotten mark as well.
+    if not _plan_has_pending_steps(session, record):
+        complete_build_plan(session, record.id)
     final_text = exec_result.strip() or 'Plan completed.'
     outcome.mark_completed(final_text=final_text)
     yield sse_line(

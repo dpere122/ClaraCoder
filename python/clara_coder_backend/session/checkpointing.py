@@ -90,8 +90,8 @@ async def init_graph_checkpointing() -> None:
 async def compact_checkpoint_db() -> None:
     """Drop every thread's older checkpoints, then VACUUM when that freed a large share of the file.
 
-    Run once at startup, in the background: older checkpoints are never read (turns, compaction
-    and interrupted-call repairs read the latest), and the file grew without bound before pruning
+    Run once at startup, in the background: older checkpoints are never read (turns and
+    interrupted-call repairs read the latest), and the file grew without bound before pruning
     existed. A turn's own latest checkpoint always survives. The VACUUM holds the connection while
     it runs.
     """
@@ -175,7 +175,9 @@ def reset_graph_checkpointing_for_tests() -> None:
 
 
 # Legacy thread kind ``moe`` (old outer graph id) is still cleared alongside ``single``.
-OUTER_AGENT_THREAD_KINDS: tuple[str, ...] = ('single', 'moe', 'plan', 'plan_exec')
+OUTER_AGENT_THREAD_KINDS: tuple[str, ...] = ('single', 'moe', 'plan')
+# Plan phases run on threads of their own under the checkpoint key ``{session_id}:{kind}``, so the id repeats the kind.
+PLAN_PHASE_THREAD_KINDS: tuple[str, ...] = ('plan_exec', 'plan_discover', 'plan_discover_followup')
 
 
 def history_fingerprint(history: list[dict[str, Any]]) -> tuple[int, str]:
@@ -199,21 +201,19 @@ async def settle_outer_thread(
     *,
     apply_mode: bool,
     history: list[dict[str, Any]],
-    freed_tokens: int = 0,
 ) -> None:
     """A turn on this ``single`` thread finished and its history row is committed.
 
     Records what the thread covers (for ``/load``), drops its older checkpoints, and deletes the
     other Editor mode's thread: it no longer has this turn, so its next turn rebuilds from history.
-    The record also keeps the context meter's reading: the last model call's prompt tokens, less
-    what post-turn compaction freed (``freed_tokens``), as the renderer computes it.
+    The record also keeps the context meter's reading: the last model call's prompt tokens.
     """
     if _checkpointer is None or _conn is None:
         return
     tid = outer_agent_thread_id(session_id, 'single', apply_mode=apply_mode)
     user_turns, digest = history_fingerprint(history)
     input_tokens = await _last_prompt_tokens(tid)
-    context_tokens = max(1, input_tokens - max(0, freed_tokens)) if input_tokens > 0 else None
+    context_tokens = input_tokens if input_tokens > 0 else None
     await _conn.execute(
         f'INSERT OR REPLACE INTO {SYNC_TABLE} (thread_id, user_turns, last_user_digest, context_tokens)'
         ' VALUES (?, ?, ?, ?)',
@@ -308,7 +308,8 @@ async def delete_outer_threads_for_session(
     matches this history is kept, so the next turn continues from its checkpoint. Returns its
     recorded context tokens (0 when unknown) when one was kept, else None.
 
-    When ``thread_kind`` is None, clears every known outer graph kind (see ``OUTER_AGENT_THREAD_KINDS``).
+    When ``thread_kind`` is None, clears every known outer graph kind (see ``OUTER_AGENT_THREAD_KINDS``)
+    and the plan phases' threads (see ``PLAN_PHASE_THREAD_KINDS``).
     Deletes current thread-id shapes (apply × orchestration) and legacy ids without ``:orch*``.
     """
     if _checkpointer is None:
@@ -324,6 +325,10 @@ async def delete_outer_threads_for_session(
                     kept = context
                     continue
             await delete_outer_thread(session_id, kind, apply_mode=apply_mode)
+    if not thread_kind:
+        for kind in PLAN_PHASE_THREAD_KINDS:
+            for apply_mode in (True, False):
+                await delete_outer_thread(f'{session_id}:{kind}', kind, apply_mode=apply_mode)
     return kept
 
 

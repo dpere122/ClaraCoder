@@ -187,6 +187,28 @@ describe('MessageBox', () => {
     expect(send.disabled).toBe(false);
   });
 
+  it('says how to get out of a full context on Send and in both composer fields', async () => {
+    const fixture = TestBed.createComponent(MessageBox);
+    fixture.componentRef.setInput('appConfig', openaiConfig());
+    fixture.componentRef.setInput('contextBlocked', true);
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const hint = 'Context full: turn on context compaction in Settings or start a new conversation';
+    const send = root.querySelector('.btn-send') as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    expect(send.title).toBe(hint);
+    expect((root.querySelector('input.form-control') as HTMLInputElement).placeholder).toBe(hint);
+
+    fixture.componentInstance.composerDraft.set('two\nlines');
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    expect((root.querySelector('textarea.form-control') as HTMLTextAreaElement).placeholder).toBe(hint);
+  });
+
   it('shows the live tok/s while loading and the last saved turn dimmed afterwards', async () => {
     sessionMessages.set([
       { role: 'assistant', text: 'Hi', generation: { outputTokens: 341, generationMs: 2657 } },

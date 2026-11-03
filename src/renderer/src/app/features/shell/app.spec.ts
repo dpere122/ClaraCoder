@@ -2,9 +2,10 @@ import { importProvidersFrom } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { NgxSpinnerModule } from 'ngx-spinner';
-import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
+import { afterAll, beforeAll, describe, it, expect, beforeEach, vi, type Mock, type MockInstance } from 'vitest';
 import { lucideAppProviders } from '../../lucide-setup';
 import { App } from './app';
+import { WorkspaceMonacoComponent } from '../workspace/workspace-monaco/workspace-monaco';
 import { WorkspaceMonacoModelStore } from '../workspace/workspace-monaco/workspace-monaco-model-store';
 import {
   CONTEXT_CHAT_BLOCKED_PERCENT,
@@ -13,11 +14,15 @@ import {
 
 type DeleteConfirmHandler = (event: unknown, conversationId: string, payload: unknown) => void;
 
+const COMPACTION_OFF = { contextCompression: { enabled: false, triggerRatio: 0.8, targetRatio: 0.5 } };
+
 interface StubConversationFixture {
   id: string;
   title?: string;
   workspaceId?: string | null;
   messages?: Array<Record<string, unknown>>;
+  /** Set by `load-conversation` when Python kept the conversation's checkpoint. */
+  contextTokens?: number;
 }
 
 interface StubRefs {
@@ -25,6 +30,10 @@ interface StubRefs {
   deleteConfirmHandler: DeleteConfirmHandler | null;
   /** Captured `onMessageTokenUsage` callback so tests can simulate backend token_usage events. */
   tokenUsageHandler: ((_event: unknown, conversationId: string, usage: unknown) => void) | null;
+  /** Captured `onMessageContextCompressed` callback so tests can simulate a compaction. */
+  contextCompressedHandler: ((_event: unknown, conversationId: string, payload: unknown) => void) | null;
+  /** Captured `onMessageStatus` callback so tests can simulate backend status rows. */
+  statusHandler: ((_event: unknown, conversationId: string, status: unknown) => void) | null;
   /** Captured `onConfigUpdated` callback so tests can simulate a main-process broadcast. */
   configUpdatedHandler: ((event: unknown, config: unknown) => void) | null;
   saveConversation: Mock;
@@ -43,6 +52,8 @@ function stubElectronApi(
   const refs: StubRefs = {
     deleteConfirmHandler: null,
     tokenUsageHandler: null,
+    contextCompressedHandler: null,
+    statusHandler: null,
     configUpdatedHandler: null,
     saveConversation: vi.fn(async () => noop()),
     saveConfig: vi.fn(async (c: unknown) => c),
@@ -106,10 +117,6 @@ function stubElectronApi(
       enabled: true,
       triggerRatio: 0.7,
       targetRatio: 0.55,
-      protectTailMessages: 24,
-      recentToolBodyMaxChars: 2000,
-      oldToolBodyMaxChars: 400,
-      systemReserveRatio: 0.25,
     },
     healthMonitor: {
       logLevel: 'info',
@@ -139,6 +146,7 @@ function stubElectronApi(
         ...conversationMetas[index],
         messages: fixture.messages ?? [],
         themeId: 'clara-dark',
+        ...(fixture.contextTokens ? { contextTokens: fixture.contextTokens } : {}),
       },
     ]),
   );
@@ -158,8 +166,12 @@ function stubElectronApi(
     onMessageTokenUsage: (cb: (_event: unknown, conversationId: string, usage: unknown) => void) => {
       refs.tokenUsageHandler = cb;
     },
-    onMessageContextCompressed: noop,
-    onMessageStatus: noop,
+    onMessageContextCompressed: (cb: (_event: unknown, conversationId: string, payload: unknown) => void) => {
+      refs.contextCompressedHandler = cb;
+    },
+    onMessageStatus: (cb: (_event: unknown, conversationId: string, status: unknown) => void) => {
+      refs.statusHandler = cb;
+    },
     onConfigUpdated: (cb: (event: unknown, config: unknown) => void) => {
       refs.configUpdatedHandler = cb;
     },
@@ -250,6 +262,18 @@ function stubElectronApi(
 
 describe('App', () => {
   let refs: StubRefs;
+  let monacoLoad: MockInstance;
+
+  // Monaco loads slower than these tests run, and workers stay up across spec files (`isolate: false`). Its import
+  // would still be going when the worker closes, which vitest reports as an unhandled error that fails the run.
+  beforeAll(() => {
+    const prototype = WorkspaceMonacoComponent.prototype as unknown as { bootstrapEditor(): Promise<void> };
+    monacoLoad = vi.spyOn(prototype, 'bootstrapEditor').mockResolvedValue();
+  });
+
+  afterAll(() => {
+    monacoLoad.mockRestore();
+  });
 
   beforeEach(async () => {
     refs = stubElectronApi();
@@ -708,7 +732,7 @@ describe('App', () => {
     expect(savedConv.messages.some((m) => m.role === 'delete_confirm')).toBe(true);
   });
 
-  it('does not reset the context meter when a lower token_usage arrives (e.g. llama.cpp checkpoint restore)', async () => {
+  it('takes every token_usage as the new reading, lower ones included', async () => {
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
     expect(refs.tokenUsageHandler).toBeTruthy();
@@ -725,37 +749,209 @@ describe('App', () => {
     expect(app.contextCapacity().usedTokens).toBe(100_000);
     expect(app.contextCapacity().measuredFromApi).toBe(true);
 
-    // A later, lower measurement (server silently truncated context via a checkpoint restore)
-    // must NOT lower the meter — only an explicit contextCompressed event may do that.
+    // A later, lower measurement (a compaction ran before that call) lowers the meter.
     refs.tokenUsageHandler!({}, convId, { inputTokens: 20_000 });
     await fixture.whenStable();
-    expect(app.contextCapacity().usedTokens).toBe(100_000);
+    expect(app.contextCapacity().usedTokens).toBe(20_000);
 
-    // A higher measurement still raises the meter (monotonic increase).
+    // A higher measurement raises it.
     refs.tokenUsageHandler!({}, convId, { inputTokens: 120_000 });
+    await fixture.whenStable();
+    expect(app.contextCapacity().usedTokens).toBe(120_000);
+
+    // No prompt count is no reading.
+    refs.tokenUsageHandler!({}, convId, { inputTokens: 0 });
     await fixture.whenStable();
     expect(app.contextCapacity().usedTokens).toBe(120_000);
   });
 
-  it('does not lock the composer when switching away and back to a chat with leftover context', async () => {
-    const fatToolBody = 'x'.repeat(500_000);
+  it('takes tokensAfter of a compaction as the new reading, with or without an earlier one', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    expect(refs.contextCompressedHandler).toBeTruthy();
+
+    const app = fixture.componentInstance as unknown as {
+      contextCapacity: () => { usedTokens: number; measuredFromApi: boolean };
+      activeConversationId: () => string | null;
+    };
+    const convId = app.activeConversationId() ?? 'test-conv';
+    expect(app.contextCapacity().measuredFromApi).toBe(false);
+
+    // A provider that reports no usage has no earlier reading.
+    refs.contextCompressedHandler!({}, convId, { tokensBefore: 90_000, tokensAfter: 30_000 });
+    await fixture.whenStable();
+    expect(app.contextCapacity().usedTokens).toBe(30_000);
+    expect(app.contextCapacity().measuredFromApi).toBe(true);
+
+    // Absolute, not a delta: the last reading (100K) is not what the estimate started from (90K).
+    refs.tokenUsageHandler!({}, convId, { inputTokens: 100_000 });
+    refs.contextCompressedHandler!({}, convId, { tokensBefore: 90_000, tokensAfter: 40_000 });
+    await fixture.whenStable();
+    expect(app.contextCapacity().usedTokens).toBe(40_000);
+
+    // No estimate is no reading.
+    refs.contextCompressedHandler!({}, convId, { tokensBefore: 40_000, tokensAfter: 0 });
+    await fixture.whenStable();
+    expect(app.contextCapacity().usedTokens).toBe(40_000);
+  });
+
+  it('with compaction off, a measured reading at the limit locks the composer until it is turned on', async () => {
+    refs = stubElectronApi(undefined, COMPACTION_OFF);
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+
+    const app = fixture.componentInstance as unknown as {
+      contextCapacity: () => { usedPercentage: number };
+      contextChatBlocked: () => boolean;
+      activeConversationId: () => string | null;
+    };
+    const convId = app.activeConversationId() ?? 'test-conv';
+    expect(app.contextChatBlocked()).toBe(false);
+
+    refs.tokenUsageHandler!({}, convId, { inputTokens: 120_000 });
+    await fixture.whenStable();
+    expect(app.contextCapacity().usedPercentage).toBeLessThan(CONTEXT_CHAT_BLOCKED_PERCENT);
+    expect(app.contextChatBlocked()).toBe(false);
+
+    refs.tokenUsageHandler!({}, convId, { inputTokens: 125_000 });
+    await fixture.whenStable();
+    expect(app.contextCapacity().usedPercentage).toBeGreaterThanOrEqual(CONTEXT_CHAT_BLOCKED_PERCENT);
+    expect(app.contextChatBlocked()).toBe(true);
+
+    refs.configUpdatedHandler!({}, {
+      ...refs.loadedConfig,
+      contextCompression: { enabled: true, triggerRatio: 0.8, targetRatio: 0.5 },
+    });
+    await fixture.whenStable();
+    expect(app.contextChatBlocked()).toBe(false);
+  });
+
+  it('with compaction on, no reading locks the composer', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+
+    const app = fixture.componentInstance as unknown as {
+      contextCapacity: () => { usedPercentage: number; measuredFromApi: boolean };
+      contextChatBlocked: () => boolean;
+      activeConversationId: () => string | null;
+    };
+    refs.tokenUsageHandler!({}, app.activeConversationId() ?? 'test-conv', { inputTokens: 128_000 });
+    await fixture.whenStable();
+    expect(app.contextCapacity().measuredFromApi).toBe(true);
+    expect(app.contextCapacity().usedPercentage).toBe(100);
+    expect(app.contextChatBlocked()).toBe(false);
+  });
+
+  it('seeds the meter from the kept checkpoint on reopen, unless this window has a reading', async () => {
+    refs = stubElectronApi([
+      { id: 'conv-kept', title: 'Kept', contextTokens: 42_000 },
+      { id: 'conv-other', title: 'Other' },
+    ]);
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+
+    const app = fixture.componentInstance as unknown as {
+      contextCapacity: () => { usedTokens: number; measuredFromApi: boolean };
+      activeConversationId: () => string | null;
+      onSelectConversation: (id: string) => Promise<void>;
+    };
+    expect(app.activeConversationId()).toBe('conv-kept');
+    expect(app.contextCapacity().usedTokens).toBe(42_000);
+    expect(app.contextCapacity().measuredFromApi).toBe(true);
+
+    refs.tokenUsageHandler!({}, 'conv-kept', { inputTokens: 50_000 });
+    await app.onSelectConversation('conv-other');
+    expect(app.contextCapacity().measuredFromApi).toBe(false);
+    await app.onSelectConversation('conv-kept');
+    await fixture.whenStable();
+    expect(app.contextCapacity().usedTokens).toBe(50_000);
+  });
+
+  it('drops the reading of a failed turn, whose thread is gone, and unlocks the composer', async () => {
+    refs = stubElectronApi(undefined, COMPACTION_OFF);
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    expect(refs.statusHandler).toBeTruthy();
+
+    const app = fixture.componentInstance as unknown as {
+      contextCapacity: () => { measuredFromApi: boolean };
+      contextChatBlocked: () => boolean;
+      activeConversationId: () => string | null;
+    };
+    const convId = app.activeConversationId() ?? 'test-conv';
+    const row = { id: 'agent-graph', label: 'Agent', detail: '' };
+    refs.tokenUsageHandler!({}, convId, { inputTokens: 125_000 });
+    await fixture.whenStable();
+    expect(app.contextChatBlocked()).toBe(true);
+
+    // A failed tool call and a finished run keep the thread, so the reading still holds.
+    refs.statusHandler!({}, convId, { ...row, id: 'call-1', label: 'read_workspace_file', state: 'error', source: 'tool' });
+    refs.statusHandler!({}, convId, { ...row, state: 'complete', source: 'agent' });
+    await fixture.whenStable();
+    expect(app.contextCapacity().measuredFromApi).toBe(true);
+    expect(app.contextChatBlocked()).toBe(true);
+
+    refs.statusHandler!({}, convId, { ...row, id: 'agent-graph-error', state: 'error', source: 'agent' });
+    await fixture.whenStable();
+    expect(app.contextCapacity().measuredFromApi).toBe(false);
+    expect(app.contextChatBlocked()).toBe(false);
+  });
+
+  it('drops the reading after a restore, which deleted the threads', async () => {
     refs = stubElectronApi([
       {
-        id: 'conv-fat',
-        title: 'Fat',
+        id: 'conv-a',
+        title: 'A',
         messages: [
-          {
-            role: 'chain',
-            label: 'read',
-            text: fatToolBody,
-            state: 'complete',
-            source: 'tool',
-            statusId: 'read-1',
-          },
+          { role: 'user', id: 'u1', text: 'first' },
+          { role: 'assistant', text: 'reply' },
         ],
       },
-      { id: 'conv-other', title: 'Other', messages: [] },
     ]);
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+
+    const app = fixture.componentInstance as unknown as {
+      contextCapacity: () => { measuredFromApi: boolean };
+      onRestoreConversation: (target: { userMessageId?: string; userMessageIndex: number }) => Promise<void>;
+      themedConfirm: { open: (opts: unknown) => Promise<string> };
+      electron: { restoreConversationTimeline: (request: unknown) => Promise<unknown> };
+    };
+    app.themedConfirm.open = vi.fn(async () => 'confirm');
+    const restore = vi.fn(async () => ({ ok: true, messages: [] }));
+    app.electron.restoreConversationTimeline = restore;
+
+    refs.tokenUsageHandler!({}, 'conv-a', { inputTokens: 64_000 });
+    await fixture.whenStable();
+    expect(app.contextCapacity().measuredFromApi).toBe(true);
+
+    await app.onRestoreConversation({ userMessageId: 'u1', userMessageIndex: 0 });
+    expect(restore).toHaveBeenCalledTimes(1);
+    expect(app.contextCapacity().measuredFromApi).toBe(false);
+  });
+
+  it('with compaction off, does not lock the composer on the transcript heuristic or across chat switches', async () => {
+    const fatToolBody = 'x'.repeat(500_000);
+    refs = stubElectronApi(
+      [
+        {
+          id: 'conv-fat',
+          title: 'Fat',
+          messages: [
+            {
+              role: 'chain',
+              label: 'read',
+              text: fatToolBody,
+              state: 'complete',
+              source: 'tool',
+              statusId: 'read-1',
+            },
+          ],
+        },
+        { id: 'conv-other', title: 'Other', messages: [] },
+      ],
+      COMPACTION_OFF,
+    );
 
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
@@ -788,6 +984,9 @@ describe('App', () => {
       workspaceContextText: '',
     });
     expect((heuristicTokens / 128_000) * 100).toBeGreaterThanOrEqual(CONTEXT_CHAT_BLOCKED_PERCENT);
+    expect(app.contextCapacity().measuredFromApi).toBe(false);
+    expect(app.contextCapacity().usedPercentage).toBeGreaterThanOrEqual(CONTEXT_CHAT_BLOCKED_PERCENT);
+    expect(app.contextChatBlocked()).toBe(false);
 
     refs.tokenUsageHandler!({}, 'conv-fat', { inputTokens: 64_000 });
     await fixture.whenStable();

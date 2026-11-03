@@ -966,6 +966,89 @@ def test_stream_plan_execute_asks_open_questions_then_rewrites(
 @patch('clara_coder_backend.plan.plan_execute.await_diff_review_note')
 @patch('clara_coder_backend.plan.plan_execute.await_question_answers')
 @pytest.mark.asyncio(loop_scope='function')
+async def test_clear_removes_every_thread_a_plan_turn_opens(
+    mock_question_pause: AsyncMock,
+    mock_pause: AsyncMock,
+    mock_planner: AsyncMock,
+    mock_exec: AsyncMock,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The phases key their threads ``{session}:{kind}``, so the ids repeat the kind and ``/clear`` missed them."""
+    monkeypatch.setenv('CLARA_CHECKPOINT_DB', str(tmp_path / 'plan-threads.sqlite'))
+    from langchain.agents import create_agent
+    from langchain_core.language_models.fake_chat_models import FakeListChatModel
+    from langchain_core.messages import HumanMessage
+
+    from clara_coder_backend.routes.session import clear_session
+    from clara_coder_backend.session.checkpointing import (
+        get_graph_checkpointer,
+        init_graph_checkpointing,
+        outer_agent_thread_id,
+        shutdown_graph_checkpointing,
+    )
+    from clara_coder_backend.session.schemas import ClearRequest
+
+    plans = [_sample_plan_with_open_questions_md(), _sample_rewritten_plan_md()]
+
+    async def _fake_planner_md(*_args: Any, **kwargs: Any):
+        kwargs['md_out'].clear()
+        kwargs['md_out'].append(plans.pop(0))
+        yield 'data: {"type":"build_plan_chunk"}\n\n'
+
+    mock_planner.side_effect = _fake_planner_md
+
+    thread_ids: list[str] = []
+
+    async def _fake_exec(_session: Any, apply_mode: bool, _prompt: str, **kwargs: Any):
+        cfg = kwargs['cfg']
+        thread_ids.append(
+            outer_agent_thread_id(cfg.checkpoint_session_key or cfg.session_id, cfg.thread_kind, apply_mode=apply_mode)
+        )
+        kwargs['outcome'].mark_completed(final_text='Discovery confirmed src/app.ts handler.')
+        yield 'data: {"type":"chunk"}\n\n'
+
+    mock_exec.side_effect = _fake_exec
+    mock_question_pause.return_value = [
+        {'question_id': 'q-1', 'option_id': 'q-1-opt-1', 'other_text': None},
+    ]
+    mock_pause.return_value = None
+
+    sid = 'sess-plan-threads'
+    outcome = LangGraphWorkerOutcome()
+    await _collect_lines(
+        stream_plan_execute_langgraph(
+            SessionState(workspace_path=str(tmp_path)), 'Build feature', True, session_id=sid, outcome=outcome
+        )
+    )
+    assert outcome.state == AgentLoopOutcome.COMPLETED
+    assert sorted(thread_ids) == [
+        f'{sid}:plan_discover:plan_discover:read',
+        f'{sid}:plan_discover_followup:plan_discover_followup:read',
+        f'{sid}:plan_exec:plan_exec:apply',
+    ]
+
+    await init_graph_checkpointing()
+    try:
+        saver = get_graph_checkpointer()
+        agent = create_agent(FakeListChatModel(responses=['ok']), [], name='t', checkpointer=saver)
+        configs = [{'configurable': {'thread_id': tid}} for tid in thread_ids]
+        for config in configs:
+            await agent.ainvoke({'messages': [HumanMessage('hello')]}, config)
+            assert await saver.aget_tuple(config) is not None
+
+        await clear_session(ClearRequest(session_id=sid))
+
+        assert [await saver.aget_tuple(config) for config in configs] == [None] * len(configs)
+    finally:
+        await shutdown_graph_checkpointing()
+
+
+@patch('clara_coder_backend.plan.plan_execute._stream_langgraph_tool_agent')
+@patch('clara_coder_backend.plan.plan_execute._stream_planner_md')
+@patch('clara_coder_backend.plan.plan_execute.await_diff_review_note')
+@patch('clara_coder_backend.plan.plan_execute.await_question_answers')
+@pytest.mark.asyncio(loop_scope='function')
 async def test_stream_plan_execute_question_cancel_aborts(
     mock_question_pause: AsyncMock,
     mock_pause: AsyncMock,

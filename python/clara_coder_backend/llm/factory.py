@@ -38,10 +38,12 @@ from clara_coder_backend.config import (
 from clara_coder_backend.logging.llm_interaction_logging import log_llm_connection_settings
 from clara_coder_backend.llm.http_transport import acquire_llm_http_clients
 from clara_coder_backend.runtime.http_url_normalize import normalize_openai_api_base
+from clara_coder_backend.llm.gemma_output import GEMMA_CHANNEL_LOOP_STOP
 from clara_coder_backend.llm.model_tuning import (
     connection_exposes_reasoning_effort,
     connection_user_sampling_kwargs_for_llm,
     gemma_enable_thinking_for_llm,
+    gemma_optimize_profile_active,
     gemma_sampling_kwargs_for_llm,
     llm_optional_kwargs,
 )
@@ -248,6 +250,9 @@ def build_llm(*, disable_thinking: bool = False) -> BaseChatModel:
         ctk.update(ctk_updates)
         base_eb['chat_template_kwargs'] = ctk
         kwargs['extra_body'] = base_eb
+
+    if connection.provider in ('llamacpp', 'lmstudio') and gemma_optimize_profile_active(connection):
+        kwargs['stop'] = [GEMMA_CHANNEL_LOOP_STOP]
 
     if connection.provider == 'openrouter':
         effort = kwargs.pop('reasoning_effort', None)

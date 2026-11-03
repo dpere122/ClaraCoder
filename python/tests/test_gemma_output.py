@@ -1,6 +1,10 @@
 """Tests for Gemma 4 ``<|channel>`` output parsing and native tool-call extraction."""
 
+import pytest
+
 from clara_coder_backend.llm.gemma_output import (
+    GEMMA_CHANNEL_LOOP_STOP,
+    gemma_reply_is_empty,
     GemmaStreamSplitter,
     extract_gemma_native_tool_calls,
     normalize_gemma_tool_args,
@@ -377,16 +381,15 @@ def test_extract_gemma_native_allows_whitespace_after_open_tag() -> None:
     assert got[0]['args'] == {'relative_path': 'a.py'}
 
 
-def test_extract_gemma_native_remaps_path_and_content_aliases() -> None:
+def test_extract_gemma_native_remaps_path_alias_for_write() -> None:
     raw = (
-        '<|tool_call>call:stage_create_file{content:<|"|>print(1)<|"|>,'
+        '<|tool_call>call:write_workspace_file{content:<|"|>print(1)<|"|>,'
         'file_path:<|"|>hello.py<|"|>}<tool_call|>'
     )
     got = extract_gemma_native_tool_calls(raw)
     assert len(got) == 1
-    assert got[0]['args'] == {'relative_path': 'hello.py', 'new_content': 'print(1)'}
-    assert 'path' not in got[0]['args']
-    assert 'content' not in got[0]['args']
+    assert got[0]['args'] == {'relative_path': 'hello.py', 'content': 'print(1)'}
+    assert 'file_path' not in got[0]['args']
 
 
 def test_extract_gemma_native_newline_fields_without_comma() -> None:
@@ -406,8 +409,30 @@ def test_extract_gemma_native_json_quoted_path() -> None:
 
 def test_normalize_gemma_tool_args_prefers_relative_path() -> None:
     assert normalize_gemma_tool_args(
-        {'relative_path': 'keep.py', 'path': 'ignore.py', 'content': 'x'}
-    ) == {'relative_path': 'keep.py', 'new_content': 'x'}
+        {'relative_path': 'keep.py', 'path': 'ignore.py', 'content': 'x'},
+        'write_workspace_file',
+    ) == {'relative_path': 'keep.py', 'content': 'x'}
+
+
+def test_normalize_gemma_tool_args_matches_each_edit_tools_real_signature() -> None:
+    """A body name the tool does not declare fails validation, so a Gemma write could never land."""
+    from clara_coder_backend.tools.edit import replace_workspace_lines, write_workspace_file
+
+    for tool, sent, wanted in (
+        (write_workspace_file, 'new_content', 'content'),
+        (write_workspace_file, 'content', 'content'),
+        (replace_workspace_lines, 'content', 'new_content'),
+        (replace_workspace_lines, 'new_content', 'new_content'),
+    ):
+        got = normalize_gemma_tool_args({'path': 'a.py', sent: 'x'}, tool.name)
+        assert got == {'relative_path': 'a.py', wanted: 'x'}
+        assert wanted in tool.args
+
+
+def test_normalize_gemma_tool_args_keeps_other_tools_arguments() -> None:
+    assert normalize_gemma_tool_args({'content': 'q'}, 'search_workspace') == {'content': 'q'}
+    mcp_args = {'path': 'a.py', 'content': 'x'}
+    assert normalize_gemma_tool_args(mcp_args, 'mcp__files__write') == mcp_args
 
 
 def test_text_uses_pseudo_tool_markup_detects_gemma_native() -> None:
@@ -538,3 +563,90 @@ def test_peek_partial_native_tool_call_file_path_alias() -> None:
     got = peek_partial_native_tool_call(interior)
     assert got is not None
     assert got['args'] == {'relative_path': 'hello.py'}
+
+
+def test_gemma_reply_is_empty_sees_only_channels_as_nothing() -> None:
+    assert gemma_reply_is_empty('')
+    assert gemma_reply_is_empty('<|channel>thought\n')
+    assert gemma_reply_is_empty('<|channel>thought\n<channel|>')
+    assert gemma_reply_is_empty('<|channel>thought\nsome reasoning')
+    assert not gemma_reply_is_empty('<|channel>thought\n<channel|>an answer')
+    assert not gemma_reply_is_empty('an answer<|channel>thought\n')
+    assert not gemma_reply_is_empty('<|channel>thought\n<channel|><|tool_call>call:a{}<tool_call|>')
+    assert not gemma_reply_is_empty('', '<|tool_call>call:a{}<tool_call|>')
+    assert gemma_reply_is_empty('', 'only a thought')
+
+
+_EMPTY_THOUGHT = '<|channel>thought\n<channel|>'
+_READ_CALL = '<|tool_call>call:read_workspace_file{path:<|"|>a.py<|"|>}<tool_call|>'
+
+
+def test_native_tool_call_is_typed_for_the_tool_node() -> None:
+    """The middleware stores calls with ``model_copy``, which adds nothing, and ``ToolNode`` raises without the key."""
+    assert extract_gemma_native_tool_calls(_READ_CALL)[0]['type'] == 'tool_call'
+
+
+@pytest.mark.parametrize(
+    'reply',
+    [
+        # The usual shape of a reply with a close right before an open.
+        pytest.param(f'<|channel>thought\nA plan.<channel|>{_EMPTY_THOUGHT}{_READ_CALL}', id='thought-then-call'),
+        # After a tool result the prompt opened the thought, so the reply closes it and opens another at once.
+        pytest.param(f'<channel|>{_EMPTY_THOUGHT}{_READ_CALL}', id='after-a-tool-result'),
+        pytest.param(f'{_EMPTY_THOUGHT * 3}an answer', id='the-longest-run-in-the-logs'),
+        pytest.param(f'{_EMPTY_THOUGHT * 7}an answer', id='the-longest-run-let-through'),
+        # Gemma editing this very code.
+        pytest.param(
+            '<|tool_call>call:write_workspace_file{relative_path:<|"|>a.py<|"|>,'
+            'content:<|"|>STOP = \'<channel|><|channel>\'<|"|>}<tool_call|>',
+            id='in-tool-arguments',
+        ),
+    ],
+)
+def test_channel_loop_stop_leaves_normal_replies_whole(reply: str) -> None:
+    assert GEMMA_CHANNEL_LOOP_STOP not in reply
+
+
+@pytest.mark.parametrize(
+    'before',
+    [
+        pytest.param('', id='from-the-start'),
+        pytest.param('<channel|>', id='after-a-tool-result'),
+        pytest.param('<|channel>thought\nA thought.<channel|>', id='after-a-thought'),
+    ],
+)
+def test_channel_loop_stop_cuts_the_real_loop_down_to_an_empty_reply(before: str) -> None:
+    """The server keeps what precedes the first match; the redraw then takes that for an empty reply."""
+    loop = before + _EMPTY_THOUGHT * 5569
+    assert loop.find(GEMMA_CHANNEL_LOOP_STOP) == len(before)
+    assert gemma_reply_is_empty(before)
+
+
+def test_json_quoted_strings_keep_their_escapes() -> None:
+    """A server without the Gemma grammar sends these; decoded by hand, ``\\n`` was written as the letter n."""
+    raw = (
+        '<|tool_call>call:write_workspace_file'
+        '{relative_path:"x.py",content:"def f():\\n    return \\"a\\"\\t\\u0041\\n"}<tool_call|>'
+    )
+    [call] = extract_gemma_native_tool_calls(raw)
+    assert call['args']['content'] == 'def f():\n    return "a"\tA\n'
+
+
+def test_a_json_string_with_a_bad_escape_is_not_a_call() -> None:
+    assert extract_gemma_native_tool_calls('<|tool_call>call:f{a:"bad \\q escape"}<tool_call|>') == []
+
+
+@pytest.mark.parametrize(
+    ('tool', 'wrong', 'right'),
+    [
+        ('replace_workspace_snippet', 'new_content', 'new_snippet'),
+        ('replace_workspace_snippet', 'content', 'new_snippet'),
+        ('replace_workspace_lines', 'new_snippet', 'new_content'),
+        ('write_workspace_file', 'new_snippet', 'content'),
+    ],
+)
+def test_a_body_under_another_edit_tools_name_lands_on_this_ones(tool: str, wrong: str, right: str) -> None:
+    assert normalize_gemma_tool_args({'relative_path': 'a.txt', wrong: 'body'}, tool) == {
+        'relative_path': 'a.txt',
+        right: 'body',
+    }

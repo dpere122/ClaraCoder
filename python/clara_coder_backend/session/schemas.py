@@ -290,6 +290,8 @@ class ChatTemplateReasoningCapsRequest(BaseModel):
     reasoningEffortValues: list[str] | None = None
     # Claude only: the Models API says the model accepts ``thinking: {type: "adaptive"}``.
     adaptiveThinking: bool = False
+    # llama-server only: ``modalities.vision`` from ``GET /props``; None when the server does not say.
+    vision: bool | None = None
 
 
 class RuntimeConnectionRequest(BaseModel):
@@ -553,15 +555,11 @@ class RuntimeToolsRequest(BaseModel):
 
 
 class RuntimeContextCompressionRequest(BaseModel):
-    """LangGraph checkpoint compaction settings from Settings → Tools."""
+    """Context compaction settings from Settings → Tools."""
 
-    enabled: bool = False
-    triggerRatio: float = Field(default=0.70, ge=0.5, le=0.95)
-    targetRatio: float = Field(default=0.55, ge=0.4, le=0.90)
-    protectTailMessages: int = Field(default=24, ge=8, le=100)
-    recentToolBodyMaxChars: int = Field(default=2000, ge=200, le=20_000)
-    oldToolBodyMaxChars: int = Field(default=400, ge=100, le=10_000)
-    systemReserveRatio: float = Field(default=0.25, ge=0.1, le=0.5)
+    enabled: bool = True
+    triggerRatio: float = Field(default=0.8, ge=0.5, le=0.95)
+    targetRatio: float = Field(default=0.5, ge=0.4, le=0.90)
 
     @field_validator('enabled', mode='before')
     @classmethod

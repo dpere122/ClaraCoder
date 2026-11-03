@@ -37,6 +37,7 @@ def _chat_template_reasoning_dict(
             list(caps.reasoningEffortValues) if caps.reasoningEffortValues is not None else None
         ),
         'adaptiveThinking': bool(caps.adaptiveThinking),
+        'vision': caps.vision,
     }
 
 
@@ -192,10 +193,6 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             enabled=bool(cc_req.enabled),
             trigger_ratio=float(cc_req.triggerRatio),
             target_ratio=float(cc_req.targetRatio),
-            protect_tail_messages=int(cc_req.protectTailMessages),
-            recent_tool_body_max_chars=int(cc_req.recentToolBodyMaxChars),
-            old_tool_body_max_chars=int(cc_req.oldToolBodyMaxChars),
-            system_reserve_ratio=float(cc_req.systemReserveRatio),
         )
     else:
         context_compression_cfg = prev_cc

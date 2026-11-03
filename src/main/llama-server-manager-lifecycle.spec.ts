@@ -9,16 +9,22 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '../shared';
 
-const { spawnMock, spawnSyncMock, sendMock } = vi.hoisted(() => ({
+const { spawnMock, spawnSyncMock, sendMock, totalmemMock } = vi.hoisted(() => ({
   spawnMock: vi.fn(),
   spawnSyncMock: vi.fn(() => ({ status: 0 })),
   sendMock: vi.fn(),
+  totalmemMock: vi.fn(() => 64 * 1024 * 1024 * 1024),
 }));
 
 vi.mock('child_process', () => ({
   spawn: spawnMock,
   spawnSync: spawnSyncMock,
 }));
+
+vi.mock('os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('os')>();
+  return { ...actual, default: { ...actual, totalmem: totalmemMock }, totalmem: totalmemMock };
+});
 
 vi.mock('./python/workspace-sync', () => ({ syncRuntimeConfigToPython: vi.fn(async () => undefined) }));
 
@@ -445,7 +451,7 @@ describe('managed llama-server lifecycle', () => {
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
-  it('injects --no-webui, -np 1 and --cache-ram 0 when the saved command omits them', async () => {
+  it('injects --no-webui and -np 1 when the saved command omits them, and no --cache-ram', async () => {
     const cfg = makeConfig();
     const startP = startManagedLlamaServers('m1', cfg);
     await vi.waitFor(() => expect(spawnMock).toHaveBeenCalled());
@@ -454,11 +460,176 @@ describe('managed llama-server lifecycle', () => {
     const npAt = args.indexOf('-np');
     expect(npAt).toBeGreaterThanOrEqual(0);
     expect(args[npAt + 1]).toBe('1');
-    const cramAt = args.indexOf('--cache-ram');
-    expect(cramAt).toBeGreaterThanOrEqual(0);
-    expect(args[cramAt + 1]).toBe('0');
+    expect(args).not.toContain('--cache-ram');
     await stopManagedLlamaServers('m1');
     await startP;
+  });
+
+  it('holds --fit at the context floor when the saved command sets no -c', async () => {
+    const startP = startManagedLlamaServers('m1', makeConfig());
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalled());
+    const args = spawnMock.mock.calls[0]?.[1] as string[];
+    expect(args[args.indexOf('--fit-ctx') + 1]).toBe('16384');
+    await stopManagedLlamaServers('m1');
+    await startP;
+  });
+
+  it('leaves the floor out when the saved command sets a -c', async () => {
+    const cfg = makeConfig();
+    const managed = cfg.llmProviders[0].models[0].llamaCppManaged!;
+    managed.chatRunCommand = `${managed.chatRunCommand} -c 128000`;
+    const startP = startManagedLlamaServers('m1', cfg);
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalled());
+    const args = spawnMock.mock.calls[0]?.[1] as string[];
+    expect(args).not.toContain('--fit-ctx');
+    expect(args[args.indexOf('-c') + 1]).toBe('128000');
+    await stopManagedLlamaServers('m1');
+    await startP;
+  });
+
+  describe('on a machine with little RAM', () => {
+    beforeEach(() => {
+      totalmemMock.mockReturnValue(16 * 1024 * 1024 * 1024);
+    });
+
+    afterEach(() => {
+      totalmemMock.mockReturnValue(64 * 1024 * 1024 * 1024);
+    });
+
+    it('limits the prompt cache', async () => {
+      const startP = startManagedLlamaServers('m1', makeConfig());
+      await vi.waitFor(() => expect(spawnMock).toHaveBeenCalled());
+      const args = spawnMock.mock.calls[0]?.[1] as string[];
+      expect(args[args.indexOf('--cache-ram') + 1]).toBe('2048');
+      await stopManagedLlamaServers('m1');
+      await startP;
+    });
+
+    it('leaves a --cache-ram the command sets alone', async () => {
+      const cfg = makeConfig();
+      const managed = cfg.llmProviders[0].models[0].llamaCppManaged!;
+      managed.chatRunCommand = `${managed.chatRunCommand} --cache-ram -1`;
+      const startP = startManagedLlamaServers('m1', cfg);
+      await vi.waitFor(() => expect(spawnMock).toHaveBeenCalled());
+      const args = spawnMock.mock.calls[0]?.[1] as string[];
+      expect(args.filter((arg) => arg === '--cache-ram')).toHaveLength(1);
+      expect(args[args.indexOf('--cache-ram') + 1]).toBe('-1');
+      await stopManagedLlamaServers('m1');
+      await startP;
+    });
+  });
+
+  it('puts the end of the log in the error when the embedding server exits during start', async () => {
+    // Chat answers; embedding, the second process, never does.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        if (procs.length > 1) {
+          throw new Error('not listening');
+        }
+        return { ok: true };
+      }),
+    );
+    const startP = startManagedLlamaServers('m1', makeConfig({ embed: true }));
+    await vi.waitFor(() => expect(procs).toHaveLength(2));
+    const embed = procs[1] as FakeProc;
+    embed.stderr.emit('data', Buffer.from(`${'early line\n'.repeat(300)}srv load_model: failed to load model\n`));
+    embed.exitCode = 1;
+    embed.emit('exit', 1, null);
+    const result = await startP;
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain('process ended (exit 1)');
+      expect(result.error).toContain('failed to load model');
+      expect(result.error.length).toBeLessThan(2000);
+    }
+  });
+
+  it('puts the end of the log in the error when the chat server exits during start', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('not listening');
+      }),
+    );
+    const cfg = makeConfig();
+    const startP = startManagedLlamaServers('m1', cfg);
+    await vi.waitFor(() => expect(procs).toHaveLength(1));
+    const chat = procs[0] as FakeProc;
+    chat.stderr.emit('data', Buffer.from(`${'early line\n'.repeat(300)}K cache type q8_0 does not divide n_embd_head_k\n`));
+    chat.exitCode = 1;
+    chat.emit('exit', 1, null);
+    const result = await startP;
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain('process ended (exit 1)');
+      expect(result.error).toContain('does not divide n_embd_head_k');
+      expect(result.error.length).toBeLessThan(2000);
+    }
+    expect(isManagedLlamaRunningForActivePreset(cfg)).toBe(false);
+    const messages = vi.mocked(ingestElectronLog).mock.calls.map((c) => String(c[2]));
+    expect(messages.some((m) => /stopped managed llama-server/.test(m))).toBe(true);
+    const stopped = sendMock.mock.calls.filter(
+      (c) => c[0] === 'llama-server-lifecycle' && (c[1] as { phase?: string })?.phase === 'stopped',
+    );
+    expect(stopped).toHaveLength(1);
+  });
+
+  it('gives the download hint when the chat server exits during start', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('not listening');
+      }),
+    );
+    const startP = startManagedLlamaServers('m1', makeConfig());
+    await vi.waitFor(() => expect(procs).toHaveLength(1));
+    const chat = procs[0] as FakeProc;
+    chat.stderr.emit('data', Buffer.from('common_download_file_single: HEAD failed, status: 404\n'));
+    chat.exitCode = 1;
+    chat.emit('exit', 1, null);
+    const result = await startP;
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain('returned 404. Verify the model id');
+    }
+  });
+
+  describe('the last output of a server', () => {
+    const lastOutput = () =>
+      vi.mocked(ingestElectronLog).mock.calls.map((c) => String(c[2])).filter((m) => /last output/.test(m));
+
+    beforeEach(async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: true })),
+      );
+      await startManagedLlamaServers('m1', makeConfig());
+      vi.mocked(ingestElectronLog).mockClear();
+    });
+
+    it('is logged once the streams close when the server crashes', () => {
+      const chat = procs[0] as FakeProc;
+      chat.stderr.emit('data', Buffer.from('GGML_ASSERT(n_embd) failed\n'));
+      chat.exitCode = 134;
+      chat.emit('exit', 134, null);
+      expect(lastOutput()).toEqual([]);
+      chat.stderr.emit('data', Buffer.from('fatal error\n'));
+      chat.emit('close', 134, null);
+      expect(lastOutput()).toHaveLength(1);
+      expect(lastOutput()[0]).toContain('GGML_ASSERT(n_embd) failed');
+      expect(lastOutput()[0]).toContain('fatal error');
+    });
+
+    it('is left out when the server is stopped', async () => {
+      const chat = procs[0] as FakeProc;
+      chat.stderr.emit('data', Buffer.from('slot 0 is busy processing\n'));
+      await stopManagedLlamaServers('m1');
+      chat.exitCode = 1;
+      chat.emit('exit', 1, null);
+      chat.emit('close', 1, null);
+      expect(lastOutput()).toEqual([]);
+    });
   });
 
   it('injects --reasoning-format none for the gemma preset so thought streams in content', async () => {

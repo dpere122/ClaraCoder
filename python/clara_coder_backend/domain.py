@@ -23,6 +23,14 @@ class SessionWorkspaceState:
     workspace_id: str = ''
     # Tree snapshot string pushed from the renderer (for system prompt workspace hint).
     workspace_context: str = ''
+    # Normalized tree frozen for the system prompt of the current thread; empty until first needed.
+    prompt_tree: str = ''
+    # The thread that tree froze for: the tree and what was told about it belong to that thread's history.
+    prompt_tree_thread: str = ''
+    # Created, deleted or renamed paths since ``prompt_tree`` froze, as ``(kind, relative path)``.
+    prompt_tree_changes: list[tuple[str, str]] = field(default_factory=list)
+    # How many of ``prompt_tree_changes`` the model has already been told about.
+    prompt_tree_changes_reported: int = 0
     # Optional per-workspace system prompt text (Electron app-data managed copy).
     workspace_system_prompt: str = ''
     # Batched file watcher paths for incremental semantic index updates ``(path, kind)``.
@@ -135,6 +143,8 @@ class SessionStreamState:
     worker_apply_mode: bool = False
     # Set when the client requests an abort; the streaming generator checks this to bail out early.
     abort_event: asyncio.Event = field(default_factory=asyncio.Event)
+    #: While a compaction notes call runs. It streams with no graph events, so the stall watchdog must not count it.
+    compaction_notes_call_open: bool = False
     # Outer ``/chat/stream`` allocates this queue so subprocess tools (pytest, smoke, overlay, …) can emit ``tool_exec_*`` SSE.
     planning_nested_events_q: asyncio.Queue | None = None
     # Event loop that owns ``planning_nested_events_q``; worker threads (write jobs) post via ``call_soon_threadsafe``.
@@ -197,6 +207,8 @@ class SessionAgentState:
     subagent_live_turns: int = 0
     #: Stop requested before or while this sub-agent's turn starts (its composer clears ``abort_event``).
     subagent_cancel_requested: bool = False
+    #: The turn's final answer when the harness ended it itself instead of the model.
+    harness_final_text: str = ''
 
 
 def _nest_prop(nest: str, attr: str):
@@ -272,7 +284,8 @@ class RuntimeConnection:
     parallel_tool_calls: bool = True
     #: ``generic`` | ``qwen`` | ``gemma`` — from Settings optimization template.
     optimization_preset: str = 'generic'
-    #: Chat max_tokens when > 0; 0 omits the cap (server context still limits).
+    #: Chat max_tokens when > 0; 0 means no limit on the model client (local servers get the 24576
+    #: per-step default from ``bounded_step_settings``).
     max_output_tokens: int = 0
     #: Gemma / LM Studio thinking: ``default`` | ``on`` | ``off`` (not OpenAI ``reasoning_effort`` tiers).
     thinking_mode: str = 'default'
@@ -298,7 +311,7 @@ class RuntimeConnection:
     presence_penalty: float | None = None
     #: Optional llama.cpp ``repeat_penalty`` in ``extra_body`` when set (not ``repetition_penalty`` on the wire).
     repeat_penalty: float | None = None
-    #: Main context window for this connection (from Settings); used for checkpoint compaction budgets.
+    #: Main context window for this connection (from Settings); used for context compaction budgets.
     context_window_tokens: int = 0
     #: Live llama-server Jinja scan: ``{enableThinking, reasoningEffortValues}`` or None when unknown.
     chat_template_reasoning: dict[str, Any] | None = None
@@ -320,18 +333,11 @@ class RuntimeConnection:
 
 @dataclass
 class RuntimeContextCompressionConfig:
-    """LangGraph checkpoint compaction settings (Settings → Tools).
+    """Context compaction settings (Settings → Tools)."""
 
-    Applies mid-turn (before each model call) and post-turn when enabled.
-    """
-
-    enabled: bool = False
-    trigger_ratio: float = 0.70
-    target_ratio: float = 0.55
-    protect_tail_messages: int = 24
-    recent_tool_body_max_chars: int = 2000
-    old_tool_body_max_chars: int = 400
-    system_reserve_ratio: float = 0.25
+    enabled: bool = True
+    trigger_ratio: float = 0.8
+    target_ratio: float = 0.5
 
 
 @dataclass

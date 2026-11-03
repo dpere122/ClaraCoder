@@ -43,6 +43,7 @@ import {
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   uniqueManagedLlamaSourceName,
   getDefaultContextCompression,
+  maxContextCompressionTarget,
   DEFAULT_KOKORO_TTS_VOICE,
   DEFAULT_OPENAI_TRANSCRIBE_MODEL,
   DEFAULT_OPENAI_TTS_BASE_URL,
@@ -75,12 +76,17 @@ import {
   inferContextWindowTokens,
   inferModelFamilyFromHint,
   inferOptimizationPresetFromModelHint,
+  isDraftSidecarGgufFileName,
+  isMmprojGgufFileName,
+  isMtpCompanionGgufFileName,
+  LOCAL_DRAFT_MODEL_FLAG_NAMES,
   managedLlamaKvCacheWeight,
   managedLlamaCommandHasNoHost,
   managedLlamaCommandHasNoMmproj,
   managedLlamaModelLabel,
   managedLlamaSourceDisplayName,
   managedLlamaSourceHint,
+  managedMtpHead,
   managedPickerValueForCmd,
   mergeLlmProviderModel,
   normalizeChatContainerSize,
@@ -102,8 +108,10 @@ import {
   parseManagedLlamaChatTemplateFile,
   parseManagedLlamaUbatchSize,
   mmprojNameMatchesLanguage,
+  readLlamaFlagValue,
   resolveMmprojPathForManagedSelection,
   resolveMmprojPathForManagedSource,
+  resolveMtpPathForManagedGguf,
   promoteManagedSentinelNglToAuto,
   recommendGpuOffload,
   formatGpuVramGb,
@@ -119,6 +127,8 @@ import {
   syncGpuOffloadInManagedChatCommand,
   syncGpuOffloadFromParsed,
   syncUbatchSizeInManagedChatCommand,
+  tunePickedManagedChatCommand,
+  withoutAutoTunedFlags,
   isPinnedLlmSourceId,
   isPinnedLmStudioProviderId,
   isPinnedLlamaCppLocalProviderId,
@@ -126,6 +136,7 @@ import {
   isPinnedOpenRouterProviderId,
   isPinnedAnthropicProviderId,
   OPENROUTER_DEFAULT_BASE_URL,
+  type GgufProfile,
   type GpuVramCardUsage,
   type ManagedLlamaModelSource,
   setWorkspaceFavorite,
@@ -359,13 +370,9 @@ export class SettingsStore {
   readonly extraUserPath = signal('');
   readonly enableAgentFormatters = signal(false);
   readonly confirmMove = signal(true);
-  readonly contextCompressionEnabled = signal(false);
-  readonly contextCompressionTriggerRatio = signal(0.7);
-  readonly contextCompressionTargetRatio = signal(0.55);
-  readonly contextCompressionProtectTail = signal(24);
-  readonly contextCompressionRecentToolChars = signal(2000);
-  readonly contextCompressionOldToolChars = signal(400);
-  readonly contextCompressionSystemReserve = signal(0.25);
+  readonly contextCompressionEnabled = signal(true);
+  readonly contextCompressionTriggerRatio = signal(0.8);
+  readonly contextCompressionTargetRatio = signal(0.5);
   readonly modelManagerCustomDir = signal('');
   readonly modelManagerHfToken = signal('');
   /** How config secrets (the HF token) land on disk; null until main reports it. */
@@ -553,7 +560,19 @@ export class SettingsStore {
   readonly llamacppModelsListInFlight = signal(false);
   /** Optional Hugging Face id (`org/repo` or `org/repo:quant`) for managed local without a local GGUF. */
   readonly managedHfIdDraft = signal('');
-  readonly managedInventoryModels = computed(() => this.modelManagerCustomModels());
+  /**
+   * What the Local model picker offers: a separate head or a vision projector can't load as a main model. A hub row's file name
+   * is its folder, which says nothing about that.
+   */
+  readonly managedInventoryModels = computed(() =>
+    this.modelManagerCustomModels().filter((m) => {
+      const name = m.fileName || m.absolutePath;
+      return (
+        m.entryKind === 'hubRepo' ||
+        !(isMtpCompanionGgufFileName(name) || isDraftSidecarGgufFileName(name) || isMmprojGgufFileName(name))
+      );
+    }),
+  );
   /** Select value for the managed model picker (`gguf:…` / `hub:…` / `hf:…` / empty). */
   readonly managedPickerValue = computed(() =>
     managedPickerValueForCmd(this.selectedLlamaCppManaged().chatRunCommand, this.modelManagerCustomModels()),
@@ -584,14 +603,39 @@ export class SettingsStore {
     const hit = this.modelManagerCustomModels().find((m) => m.absolutePath === path);
     return hit && Number.isFinite(hit.sizeBytes) ? hit.sizeBytes : null;
   });
+  /** GGUF headers read from main, by path. */
+  readonly managedGgufProfiles = signal<Readonly<Record<string, GgufProfile>>>({});
+  readonly managedGgufProfile = computed((): GgufProfile | null =>
+    this.managedGgufProfileAt(this.managedGgufPath()),
+  );
+  /** A separate MTP head that goes with the GGUF the chat command loads. */
+  readonly managedMtpCompanionPath = computed((): string | null => {
+    const path = this.managedGgufPath();
+    return path ? resolveMtpPathForManagedGguf(path, this.modelManagerCustomModels()) : null;
+  });
+  /** The MTP head the selected model can run on, once the headers have been read. */
+  readonly managedMtpHead = computed(() => {
+    const profile = this.managedGgufProfile();
+    const companionPath = this.managedMtpCompanionPath();
+    return profile ? managedMtpHead(profile, companionPath, this.managedGgufProfileAt(companionPath)) : null;
+  });
+  /** The local draft model the chat command names. */
+  readonly managedDraftModelPath = computed((): string | null =>
+    readLlamaFlagValue(this.selectedLlamaCppManaged().chatRunCommand, LOCAL_DRAFT_MODEL_FLAG_NAMES),
+  );
+  readonly managedDraftModelBytes = computed(
+    (): number | undefined => this.managedGgufProfileAt(this.managedDraftModelPath())?.tensorBytes,
+  );
   readonly managedGpuAdvice = computed(() => {
     const cmd = this.selectedLlamaCppManaged().chatRunCommand;
+    const profile = this.managedGgufProfile();
     return recommendGpuOffload(
       this.cudaGpus(),
       this.managedGgufSizeBytes(),
       parseManagedLlamaContextSize(cmd) ?? 0,
       this.managedVramUsage(),
       managedLlamaKvCacheWeight(cmd),
+      profile ? { profile, command: cmd, companionHeadBytes: this.managedDraftModelBytes() } : null,
     );
   });
   readonly managedGpuSplitRatioLabel = computed(() => {
@@ -600,13 +644,6 @@ export class SettingsStore {
       return '';
     }
     return gpus.map((g) => formatGpuVramGb(g.memoryTotalMb)).join(' : ');
-  });
-  readonly managedPrimaryGpuLabel = computed(() => {
-    const gpus = this.cudaGpus();
-    const advice = this.managedGpuAdvice();
-    const gpu =
-      (advice ? gpus.find((g) => g.cudaIndex === advice.primaryCudaIndex) : null) ?? gpus[0] ?? null;
-    return gpu ? this.cudaGpuLabel(gpu) : '';
   });
 
   readonly managedSelectedFamilyLabel = computed(() => {
@@ -653,6 +690,8 @@ export class SettingsStore {
   private settingsSelectTabSubscription: Subscription | null = null;
   private hfDownloadSubscription: Subscription | null = null;
   private configSnapshot: AppConfig | null = null;
+  /** Moves with every change, so a save can tell whether anything changed while it ran. */
+  private dirtyRevision = 0;
   /**
    * True once the user toggled "Confirm before moving files and folders" in this window. While
    * false, a `config-updated` broadcast (e.g. the dialog's "Don't ask again") wins, so a later
@@ -1731,7 +1770,7 @@ export class SettingsStore {
     }
   }
 
-  onManagedGpuOffloadChange(mode: ManagedGpuOffloadMode | string): void {
+  onManagedGpuOffloadChange(mode: ManagedGpuOffloadMode | string, cudaIndex?: number): void {
     if (mode !== 'auto' && mode !== 'single' && mode !== 'split') {
       return;
     }
@@ -1746,6 +1785,7 @@ export class SettingsStore {
           mode,
           this.cudaGpus(),
           detectShellQuotingPlatform(),
+          cudaIndex,
         ),
         detectShellQuotingPlatform(),
       ),
@@ -1825,24 +1865,33 @@ export class SettingsStore {
     }
     const localGguf = (model.ggufAbsolutePath || '').trim();
     if (localGguf) {
-      this.applyManagedModelSource({
-        kind: 'gguf',
-        absolutePath: localGguf,
-        displayName: model.fileName,
-      });
+      this.applyManagedModelSource(
+        {
+          kind: 'gguf',
+          absolutePath: localGguf,
+          displayName: model.fileName,
+        },
+        { keepCustomFlags: true },
+      );
     } else if (model.entryKind === 'hubRepo') {
-      this.applyManagedModelSource({
-        kind: 'hubRepo',
-        absolutePath: model.absolutePath,
-        folderName: model.fileName,
-        displayName: model.fileName,
-      });
+      this.applyManagedModelSource(
+        {
+          kind: 'hubRepo',
+          absolutePath: model.absolutePath,
+          folderName: model.fileName,
+          displayName: model.fileName,
+        },
+        { keepCustomFlags: true },
+      );
     } else {
-      this.applyManagedModelSource({
-        kind: 'gguf',
-        absolutePath: model.absolutePath,
-        displayName: model.fileName,
-      });
+      this.applyManagedModelSource(
+        {
+          kind: 'gguf',
+          absolutePath: model.absolutePath,
+          displayName: model.fileName,
+        },
+        { keepCustomFlags: true },
+      );
     }
     void this.refreshCustomModelCards();
   }
@@ -1859,7 +1908,7 @@ export class SettingsStore {
       this.activateSource(local.id);
     }
     this.managedHfIdDraft.set(id);
-    this.applyManagedModelSource({ kind: 'hf', hfId: id });
+    this.applyManagedModelSource({ kind: 'hf', hfId: id }, { keepCustomFlags: true });
   }
 
   /** Show a Hub repo in the detail panel; loads its quant files and details on first pick. */
@@ -1962,11 +2011,14 @@ export class SettingsStore {
         this.selectedModelId.set(local.models[0].id);
         this.activateSource(local.id);
       }
-      this.applyManagedModelSource({
-        kind: 'gguf',
-        absolutePath: localPath,
-        displayName: file.quant || file.fileName,
-      });
+      this.applyManagedModelSource(
+        {
+          kind: 'gguf',
+          absolutePath: localPath,
+          displayName: file.fileName,
+        },
+        { keepCustomFlags: true },
+      );
       return;
     }
     const quant = (file.quant || '').trim();
@@ -2095,7 +2147,20 @@ export class SettingsStore {
     }
     const hint = managedLlamaSourceHint(source);
     const preset = inferOptimizationPresetFromModelHint(hint);
-    const base = model.llamaCppManaged ?? defaultLlamaCppManaged();
+    const stored = model.llamaCppManaged ?? defaultLlamaCppManaged();
+    // What the last model's plan wrote doesn't come along: a tune may never land (OK during its read), and -hf gets none.
+    const storedSelection = parseManagedLlamaModelSelection(stored.chatRunCommand);
+    const sameModel =
+      source.kind === 'gguf' &&
+      storedSelection?.kind === 'gguf' &&
+      storedSelection.absolutePath === source.absolutePath.trim();
+    const base: typeof stored =
+      sameModel
+        ? stored
+        : {
+            chatRunCommand: withoutAutoTunedFlags(stored.chatRunCommand, stored.autoTuned),
+            embeddingRunCommand: stored.embeddingRunCommand,
+          };
     const existingCtx = parseManagedLlamaContextSize(base.chatRunCommand);
     const ctxForCmd = existingCtx === null || existingCtx === 0 ? 0 : existingCtx;
     const ctxForProfile =
@@ -2173,6 +2238,88 @@ export class SettingsStore {
       this.managedHfIdDraft.set(source.hfId);
     }
     this.markSettingsDirty();
+    const modelChanged =
+      JSON.stringify(parseManagedLlamaModelSelection(prevCmd)) !==
+      JSON.stringify(parseManagedLlamaModelSelection(chatRunCommand));
+    void this.tuneManagedCommandAfterPick(model.id, chatRunCommand, opts.keepCustomFlags ? prevCmd : '', modelChanged);
+  }
+
+  private managedGgufProfileAt(path: string | null): GgufProfile | null {
+    return path ? (this.managedGgufProfiles()[path] ?? null) : null;
+  }
+
+  /** Read a GGUF header for the estimates and checks. A failed read leaves an earlier one in place. */
+  async loadManagedGgufProfile(path: string | null): Promise<GgufProfile | null> {
+    if (!path) {
+      return null;
+    }
+    const profile = await this.electron.llamaServerGgufProfile({ path });
+    if (profile) {
+      this.managedGgufProfiles.update((profiles) => ({ ...profiles, [path]: profile }));
+    }
+    return profile;
+  }
+
+  /**
+   * The part of a pick that needs the GGUF header, which arrives after the pick is saved. A ``-hf`` model
+   * may not be on disk yet, so it gets none of this. ``previous`` is the command whose custom flags the
+   * pick carried over; empty when it dropped them. When the header can't be read, the last model's plan
+   * still comes out, and a plan for this same model stays.
+   */
+  private async tuneManagedCommandAfterPick(
+    modelId: string,
+    picked: string,
+    previous: string,
+    modelChanged: boolean,
+  ): Promise<void> {
+    const sel = parseManagedLlamaModelSelection(picked);
+    if (sel?.kind !== 'gguf') {
+      return;
+    }
+    const companionPath = resolveMtpPathForManagedGguf(sel.absolutePath, this.modelManagerCustomModels());
+    const projectorPath = parseManagedLlamaMmproj(picked);
+    const [profile, companion, usage, projectorBytes] = await Promise.all([
+      this.loadManagedGgufProfile(sel.absolutePath),
+      this.loadManagedGgufProfile(companionPath),
+      this.electron.llamaServerVramUsage(),
+      projectorPath ? this.electron.llamaServerGgufSize({ path: projectorPath }) : null,
+    ]);
+    this.managedVramUsage.set(usage);
+    const model = this.selectedModel();
+    const managed = model?.llamaCppManaged;
+    // The user may have picked or edited something else during the read.
+    if (model?.id !== modelId || managed?.chatRunCommand !== picked || (!profile && !modelChanged)) {
+      return;
+    }
+    const { command, autoTuned } = profile
+      ? tunePickedManagedChatCommand(
+          {
+            command: picked,
+            previous,
+            autoTuned: managed.autoTuned,
+            profile,
+            companionPath,
+            companion,
+            projectorBytes,
+            gpus: this.cudaGpus(),
+            usage,
+          },
+          detectShellQuotingPlatform(),
+        )
+      : { command: withoutAutoTunedFlags(picked, managed.autoTuned), autoTuned: undefined };
+    if (command === picked && JSON.stringify(autoTuned) === JSON.stringify(managed.autoTuned)) {
+      return;
+    }
+    this.updateSelectedModel({
+      contextWindowTokens:
+        parseCustomManagedContextTokens(parseManagedLlamaContextSize(command) ?? '') ??
+        inferContextWindowTokens(model.name, 'llamacpp'),
+      llamaCppManaged: {
+        chatRunCommand: command,
+        embeddingRunCommand: managed.embeddingRunCommand,
+        ...(autoTuned ? { autoTuned } : {}),
+      },
+    });
   }
 
   managedInventoryOptionValue(model: ModelManagerFileEntry): string {
@@ -2967,18 +3114,6 @@ export class SettingsStore {
     if (changes.targetRatio !== undefined) {
       this.contextCompressionTargetRatio.set(changes.targetRatio);
     }
-    if (changes.protectTailMessages !== undefined) {
-      this.contextCompressionProtectTail.set(changes.protectTailMessages);
-    }
-    if (changes.recentToolBodyMaxChars !== undefined) {
-      this.contextCompressionRecentToolChars.set(changes.recentToolBodyMaxChars);
-    }
-    if (changes.oldToolBodyMaxChars !== undefined) {
-      this.contextCompressionOldToolChars.set(changes.oldToolBodyMaxChars);
-    }
-    if (changes.systemReserveRatio !== undefined) {
-      this.contextCompressionSystemReserve.set(changes.systemReserveRatio);
-    }
     this.markSettingsDirty();
   }
 
@@ -2991,8 +3126,9 @@ export class SettingsStore {
     if (Number.isNaN(n)) return;
     const clamped = Math.min(0.95, Math.max(0.5, n));
     this.contextCompressionTriggerRatio.set(clamped);
-    if (this.contextCompressionTargetRatio() > clamped) {
-      this.contextCompressionTargetRatio.set(Math.min(clamped, 0.55));
+    const maxTarget = maxContextCompressionTarget(clamped);
+    if (this.contextCompressionTargetRatio() > maxTarget) {
+      this.contextCompressionTargetRatio.set(Math.min(maxTarget, 0.5));
     }
     this.markSettingsDirty();
   }
@@ -3000,37 +3136,9 @@ export class SettingsStore {
   onContextCompressionTargetRatioChange(raw: string | number): void {
     const n = typeof raw === 'number' ? raw : Number.parseFloat(String(raw));
     if (Number.isNaN(n)) return;
-    const maxTarget = this.contextCompressionTriggerRatio();
+    const maxTarget = maxContextCompressionTarget(this.contextCompressionTriggerRatio());
     const clamped = Math.min(maxTarget, Math.max(0.4, Math.min(0.9, n)));
     this.contextCompressionTargetRatio.set(clamped);
-    this.markSettingsDirty();
-  }
-
-  onContextCompressionProtectTailChange(raw: string | number): void {
-    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
-    if (Number.isNaN(n)) return;
-    this.contextCompressionProtectTail.set(Math.min(100, Math.max(8, n)));
-    this.markSettingsDirty();
-  }
-
-  onContextCompressionRecentToolCharsChange(raw: string | number): void {
-    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
-    if (Number.isNaN(n)) return;
-    this.contextCompressionRecentToolChars.set(Math.min(20_000, Math.max(200, n)));
-    this.markSettingsDirty();
-  }
-
-  onContextCompressionOldToolCharsChange(raw: string | number): void {
-    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
-    if (Number.isNaN(n)) return;
-    this.contextCompressionOldToolChars.set(Math.min(10_000, Math.max(100, n)));
-    this.markSettingsDirty();
-  }
-
-  onContextCompressionSystemReserveChange(raw: string | number): void {
-    const n = typeof raw === 'number' ? raw : Number.parseFloat(String(raw));
-    if (Number.isNaN(n)) return;
-    this.contextCompressionSystemReserve.set(Math.min(0.5, Math.max(0.1, n)));
     this.markSettingsDirty();
   }
 
@@ -3316,19 +3424,24 @@ export class SettingsStore {
   }
 
   private markSettingsDirty(): void {
+    this.dirtyRevision += 1;
     this.settingsDirty.set(true);
   }
 
   private async enqueuePersist(): Promise<void> {
     // Theme file first so the saved `themeId` always points at an on-disk document.
     await this.themes$.persistIfDirty();
+    const revision = this.dirtyRevision;
     const next = this.buildConfigForPersist();
     const saved = await this.electron.saveConfig(next);
     if (!saved) {
       return;
     }
     this.configSnapshot = structuredClone(saved);
-    this.settingsDirty.set(false);
+    // A change made during the save, such as a plan landing, isn't in what was saved.
+    if (this.dirtyRevision === revision) {
+      this.settingsDirty.set(false);
+    }
     this.confirmMoveTouched = false;
     this.themes$.afterPersist();
     // Disk-owned workspace registry may differ from the client payload; skip
@@ -3399,10 +3512,6 @@ export class SettingsStore {
         enabled: this.contextCompressionEnabled(),
         triggerRatio: this.contextCompressionTriggerRatio(),
         targetRatio: this.contextCompressionTargetRatio(),
-        protectTailMessages: this.contextCompressionProtectTail(),
-        recentToolBodyMaxChars: this.contextCompressionRecentToolChars(),
-        oldToolBodyMaxChars: this.contextCompressionOldToolChars(),
-        systemReserveRatio: this.contextCompressionSystemReserve(),
       },
       modelManager: {
         customModelsDir: this.modelManagerCustomDir(),
@@ -3596,10 +3705,6 @@ export class SettingsStore {
     this.contextCompressionEnabled.set(!!cc.enabled);
     this.contextCompressionTriggerRatio.set(cc.triggerRatio);
     this.contextCompressionTargetRatio.set(cc.targetRatio);
-    this.contextCompressionProtectTail.set(cc.protectTailMessages);
-    this.contextCompressionRecentToolChars.set(cc.recentToolBodyMaxChars);
-    this.contextCompressionOldToolChars.set(cc.oldToolBodyMaxChars);
-    this.contextCompressionSystemReserve.set(cc.systemReserveRatio);
 
     this.modelManagerCustomDir.set(config.modelManager.customModelsDir);
     this.modelManagerHfToken.set(unwrapSecret(config.modelManager.huggingFaceToken));

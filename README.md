@@ -267,7 +267,7 @@ Force a specific build with `CLARA_LLAMA_SERVER_CUDA`:
 
 Pin a different llama.cpp release with `CLARA_LLAMA_SERVER_VERSION` (e.g. `b10867`).
 
-Managed chat servers are started with `--cache-ram 0` unless the run command already sets `--cache-ram`. llama-server's default is an 8 GiB host-RAM prompt cache that fills up whenever the prompt prefix changes (for example when the workspace tree in the system prompt changes mid-session), which looks like a steady RAM leak at large contexts. Add `--cache-ram <MiB>` to the run command to opt back in.
+Managed chat servers keep llama-server's default 8 GiB host-RAM prompt cache, which restores a conversation quickly after its prompt changes. On a machine with under 24 GiB of RAM they start with `--cache-ram 2048` instead. A `--cache-ram <MiB>` in the run command always wins (`0` turns the cache off).
 
 </details>
 

@@ -15,11 +15,11 @@ import { lucideAppProviders } from '../../lucide-setup';
 import { ThemedConfirmDialogService } from '../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { ThemedPromptDialogService } from '../../shared/themed-prompt-dialog/themed-prompt-dialog.service';
 import { SettingsStore, type ModelManagerSelection } from '../settings/settings/settings-store';
-import { FEATURED_HF_MODELS, smallestLowModel } from '../settings/settings-model-manager/hf-models';
+import { FEATURED_HF_MODELS, smallestSmallModel } from '../settings/settings-model-manager/hf-models';
 import { SettingsModelManager } from '../settings/settings-model-manager/settings-model-manager';
 import { SettingsThemesStore } from '../settings/settings-themes/settings-themes-store';
 
-const SMALL = smallestLowModel(FEATURED_HF_MODELS)!;
+const SMALL = smallestSmallModel(FEATURED_HF_MODELS)!;
 const LARGEST = FEATURED_HF_MODELS.reduce((a, b) => (b.totalParametersB > a.totalParametersB ? b : a));
 
 function deferred<T>() {
@@ -105,7 +105,7 @@ beforeEach(() => TestBed.resetTestingModule());
 afterEach(() => TestBed.resetTestingModule());
 
 describe('featured-model tutorial preparation', () => {
-  it('only previews a visible Low model on the exact step, without downloading', () => {
+  it('only previews a visible Small model on the exact step, without downloading', () => {
     const { store, fixture, el, electron } = setup();
     const download = vi.spyOn(store, 'downloadHfQuant');
     const list = target(el, 'featured-list');
@@ -209,7 +209,7 @@ describe('featured-model tutorial preparation', () => {
     store.modelManagerHfQuery.set('gemma');
     fixture.detectChanges();
     const visible = FEATURED_HF_MODELS.filter((model) => model.id.toLowerCase().includes('gemma'));
-    const lightest = smallestLowModel(visible);
+    const lightest = smallestSmallModel(visible);
     expect(target(el, 'featured-low').contains(row(el, lightest!.id))).toBe(true);
     tutorialStep();
     expect(store.modelManagerSelection()).toEqual({ kind: 'hf', id: lightest?.id });
@@ -220,7 +220,7 @@ describe('featured-model tutorial preparation', () => {
     expect(el.querySelector('[data-tutorial="featured-moe"]')).toBeNull();
   });
 
-  it('does not disturb a search with no visible Low model or existing Hub results', () => {
+  it('does not disturb a search with no visible Small model or existing Hub results', () => {
     const { store, fixture, el, electron } = setup();
     store.modelManagerHfQuery.set('mistral');
     fixture.detectChanges();

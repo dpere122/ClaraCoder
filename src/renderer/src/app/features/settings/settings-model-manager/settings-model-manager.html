@@ -185,7 +185,7 @@
             <span class='mm-accordion__count'>{{ featuredRows().length }}</span>
           </summary>
           @for (group of featuredGroups(); track group.id) {
-            <div role='group' [attr.aria-label]='group.label + " models"' [attr.data-tutorial]='"featured-" + group.id'>
+            <div role='group' [attr.aria-label]='group.label + " models"' [attr.data-tutorial]='group.stepId'>
               <div class='mm-list__group'>{{ group.label }} <span>{{ group.hint }}</span></div>
               @for (row of group.rows; track row.key) {
                 <ng-container *ngTemplateOutlet='rowTpl; context: { $implicit: row }' />

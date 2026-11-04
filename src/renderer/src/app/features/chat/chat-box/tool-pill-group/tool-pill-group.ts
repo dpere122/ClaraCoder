@@ -1,11 +1,12 @@
 import { Component, ViewEncapsulation, computed, inject, input, signal, type OnInit } from '@angular/core';
 import {
   formatToolDuration,
+  isDeclinedToolCall,
   isStoppedToolCall,
   TOOL_PILL_SLOW_MS,
   toolOutcomeNotes,
   toolPillGroupLabel,
-  toolPillSlowestMs,
+  toolCallsRunMs,
   toolPillLabel,
   toolPillMeta,
   type StreamPart,
@@ -52,20 +53,23 @@ export class ToolPillGroupComponent implements OnInit {
    */
   readonly stopped = computed(() => this.parts().filter(isStoppedToolCall).length);
 
+  /** Calls whose approval card was declined: they never ran. */
+  readonly declined = computed(() => this.parts().filter(isDeclinedToolCall).length);
+
   readonly failed = computed(() => this.states().filter((s) => s === 'error').length);
 
   readonly meta = computed(() =>
-    [this.group().meta, ...toolOutcomeNotes(this.failed(), this.stopped())].join(' · '),
+    [this.group().meta, ...toolOutcomeNotes(this.failed(), this.stopped(), this.declined())].join(' · '),
   );
 
-  /** Slowest call's run time: parallel calls overlap, so a sum would overstate the wait. */
-  private readonly slowestMs = computed(() => toolPillSlowestMs(this.parts()));
+  /** The same time the activity pill counts for these calls (see {@link toolCallsRunMs}). */
+  private readonly runMs = computed(() => toolCallsRunMs(this.parts()));
   readonly duration = computed(() => {
-    const ms = this.slowestMs();
+    const ms = this.runMs();
     return ms === undefined ? '' : formatToolDuration(ms);
   });
-  readonly durationTitle = computed(() => `Slowest of ${this.parts().length} calls`);
-  readonly durationSlow = computed(() => (this.slowestMs() ?? 0) >= TOOL_PILL_SLOW_MS);
+  readonly durationTitle = computed(() => `Run time of ${this.parts().length} calls`);
+  readonly durationSlow = computed(() => (this.runMs() ?? 0) >= TOOL_PILL_SLOW_MS);
 
   /** Every call on hover: `Read src/a.ts · 12 lines`. */
   readonly title = computed(() =>

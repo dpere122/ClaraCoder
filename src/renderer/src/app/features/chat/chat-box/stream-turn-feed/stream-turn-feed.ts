@@ -38,6 +38,7 @@ import {
   previewQueueToolGlyph,
   previewQueueToolSpinnerKind,
   previewQueueMeta,
+  previewRunsCommand,
   previewShowsBody as previewItemShowsBody,
   previewSpinnerHost,
   pressureInbound,
@@ -138,9 +139,9 @@ export class StreamTurnFeedComponent {
     const layout = toolChipLayout(items, (index) => roles[index] ?? 'hidden', this.live());
     const groupParts = new Map<number, StreamPart[]>();
     for (const [lead, members] of layout.groups) {
-      groupParts.set(lead, toolChipGroupParts(items, members));
+      groupParts.set(lead, toolChipGroupParts(items, members, layout.timedLanes));
     }
-    return { hidden: layout.hidden, groupParts, groups: layout.groups, merged: layout.merged };
+    return { hidden: layout.hidden, groupParts, groups: layout.groups, merged: layout.merged, timedLanes: layout.timedLanes };
   });
 
   /** Each stretch of work (no prose between them) wrapped in one activity block from its first row. */
@@ -247,7 +248,8 @@ export class StreamTurnFeedComponent {
    */
   readonly spinnerHost = computed(() => {
     const split = this.split();
-    return previewSpinnerHost(this.live(), this.spinnerActive(), split.current, this.thinkingDisplay());
+    const active = this.spinnerActive() || previewRunsCommand(split.current, split.inbound);
+    return previewSpinnerHost(this.live(), active, split.current, this.thinkingDisplay());
   });
 
   /** Which spinner the preview hosts (`null` = none; the parent's processing row shows it). */
@@ -324,7 +326,7 @@ export class StreamTurnFeedComponent {
 
   /**
    * Whether an activity block shows its timeline. Blocks start closed, working or not; the
-   * closed pill names the live step instead (see {@link activityMeta}), and a streaming
+   * closed pill names the live step instead (see {@link activityLiveStep}), and a streaming
    * reasoning box shows under it. Unless the user toggled it, a block opens only when it holds
    * a tool pill the user had open.
    */
@@ -355,28 +357,33 @@ export class StreamTurnFeedComponent {
     return preview >= 0 && members.includes(preview);
   }
 
-  /** Activity pill name: `Working` while its stretch runs, then what it did (`Read 3 files, edited a.py`). */
-  activityName(working: boolean, summary: ActivitySummary | undefined): string {
-    return working ? 'Working' : summary?.headline || 'Worked';
-  }
-
-  /** Activity pill meta before the live step: failures, plus what has landed so far while working. */
-  activityBaseMeta(working: boolean, summary: ActivitySummary | undefined): string {
-    if (!summary) {
-      return '';
-    }
-    const soFar = working && summary.headline !== 'Thought' ? summary.headline : '';
-    return [soFar, summary.outcomes].filter(Boolean).join(' · ');
+  /**
+   * The live step a closed block folds into its pill (`Read`, `Running`, `Thinking`), or ''. An open
+   * block shows the step in its own row, and a reasoning box names it in its header.
+   */
+  activityLiveStep(open: boolean, members: readonly number[]): string {
+    return !open && !this.previewShowsBody() && this.activityHostsPreview(members) ? this.previewHeader() : '';
   }
 
   /**
-   * Activity pill meta: what landed and any failures, plus the live step (`Read — Thinking`, and
-   * the compact thinking counter) while a closed block folds in a pill preview. A reasoning box
-   * names its own step in its header.
+   * Activity pill name: the live step, else what the stretch did (`Read 3 files, edited a.py`).
+   * Empty hides the pill: a closed block whose first thought is still streaming has nothing to
+   * name that its reasoning box does not.
    */
-  activityMeta(meta: string, open: boolean, members: readonly number[]): string {
-    const hosts = !open && !this.previewShowsBody() && this.activityHostsPreview(members);
-    return [meta, hosts ? this.previewHeader() : '', hosts ? this.previewDuration() : ''].filter(Boolean).join(' · ');
+  activityName(step: string, working: boolean, open: boolean, summary: ActivitySummary | undefined): string {
+    if (step || summary?.headline) {
+      return step || summary!.headline;
+    }
+    if (!working) {
+      return 'Worked';
+    }
+    return open ? this.previewHeader() : '';
+  }
+
+  /** Activity pill meta: what landed beside a live step, any failures, and the compact thinking counter. */
+  activityMeta(step: string, summary: ActivitySummary | undefined): string {
+    const soFar = step && summary?.headline !== 'Thought' ? summary?.headline : '';
+    return [soFar, summary?.outcomes, step ? this.previewDuration() : ''].filter(Boolean).join(' · ');
   }
 
   /** True for the last markdown block with text (an emptied trailing continuation renders nothing). */

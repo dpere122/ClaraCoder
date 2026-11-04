@@ -50,17 +50,28 @@ describe('ToolPillGroupComponent', () => {
 });
 
 describe('ToolPillGroupComponent duration', () => {
-  it('shows the slowest call and lists each call time on hover', () => {
+  it('adds up calls from separate steps, like the activity pill', () => {
     const el = render(
       [
-        { ...read('a', 'a.py', 'complete'), toolDurationMs: 40 },
-        { ...read('b', 'b.py', 'complete'), toolDurationMs: 2300 },
+        { ...read('a', 'a.py', 'complete'), toolDurationMs: 20_000, toolBatch: 's1' },
+        { ...read('b', 'b.py', 'complete'), toolDurationMs: 12_000, toolBatch: 's2' },
+      ],
+      false,
+    );
+    expect(el.querySelector('.stream-tool-pill__duration')?.textContent?.trim()).toBe('32s');
+  });
+
+  it('counts the slowest call of a step and lists each call time on hover', () => {
+    const el = render(
+      [
+        { ...read('a', 'a.py', 'complete'), toolDurationMs: 40, toolBatch: 's1' },
+        { ...read('b', 'b.py', 'complete'), toolDurationMs: 2300, toolBatch: 's1' },
       ],
       false,
     );
     const duration = el.querySelector('.stream-tool-pill__duration');
     expect(duration?.textContent?.trim()).toBe('2.3s');
-    expect(duration?.getAttribute('title')).toBe('Slowest of 2 calls');
+    expect(duration?.getAttribute('title')).toBe('Run time of 2 calls');
     expect(duration?.classList.contains('stream-tool-pill__duration--slow')).toBe(true);
     const title = el.querySelector('.stream-tool-pill__name')?.getAttribute('title') ?? '';
     expect(title).toContain('a.py');

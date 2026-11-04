@@ -5,6 +5,7 @@ import {
   mergeHitlTrailIntoAuxiliaryTimeline,
   isClaraOuterBriefStreamTag,
   isReasoningAuxiliaryStreamTag,
+  isRunCommandStreamTag,
   isShellStyleToolStreamTag,
   isToolLikeStreamTag,
   isWorkspaceReadToolLabel,
@@ -53,9 +54,33 @@ function appendStreamPartWithTag(
     next[next.length - 1] = { ...last, label: last.label || resolvedLabel, text: last.text + delta };
     return next;
   }
+  // A lane opened before its first output takes that output in place, whatever arrived since.
+  const opened = delta && isRunCommandStreamTag(t) ? next.findIndex((p) => p.streamTag === t && !p.text) : -1;
+  if (opened >= 0) {
+    next[opened] = { ...next[opened]!, label: next[opened]!.label || resolvedLabel, text: delta };
+    return next;
+  }
   const closed = closeOpenThought(next, now);
   const base = isToolLikeStreamTag(t) ? clearPrimaryStreamParts(closed) : closed;
   return [...base, { streamTag: t, label: resolvedLabel, text: delta, ...(reasoning ? { thoughtStartedAt: now } : {}) }];
+}
+
+/**
+ * Open a command's output lane when the command starts, not at its first output, so a quiet
+ * command still shows as running. {@link markToolExecStreamComplete} drops the lane if the
+ * command ends without printing anything.
+ */
+export function openRunCommandLane(
+  parts: StreamPart[],
+  streamTag: string,
+  label: string,
+  now = Date.now(),
+): StreamPart[] {
+  const t = streamTag.trim();
+  if (!isRunCommandStreamTag(t) || parts.some((p) => p.streamTag === t)) {
+    return parts;
+  }
+  return appendStreamPartWithTag(parts, t, '', label, now);
 }
 
 /**
@@ -237,6 +262,11 @@ export function markToolExecStreamComplete(
     } else if (!text.includes(head)) {
       text = `${text.endsWith('\n') ? text : `${text}\n`}\n${ex}`;
     }
+  }
+  // Nothing printed: the lane only stood in while the command ran, and its status row has the result.
+  if (!text.trim() && isRunCommandStreamTag(next[targetIdx].streamTag)) {
+    next.splice(targetIdx, 1);
+    return next;
   }
   next[targetIdx] = {
     ...next[targetIdx],

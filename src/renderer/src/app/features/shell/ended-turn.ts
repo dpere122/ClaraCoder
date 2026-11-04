@@ -4,7 +4,7 @@
  * is still running or still waiting for an answer.
  */
 import type { ConversationMessage, StreamPart, TurnEditedFile } from '@shared/index';
-import { isInFlightToolPart } from '@shared/index';
+import { isInFlightToolPart, isRunCommandStreamTag } from '@shared/index';
 import { isHitlArtifactMessage } from './abandon-stale-hitl';
 
 /** Card summary for an approval the agent stopped waiting for because its turn ended. */
@@ -14,20 +14,21 @@ export const ENDED_TURN_HITL_SUMMARY = 'Cancelled — the turn ended before an a
 export const SUBAGENT_ENDED_HITL_SUMMARY = 'Cancelled — the sub-agent is no longer waiting';
 
 /**
- * Running tool rows become stopped (they have no result) and open command lanes close.
+ * Running tool rows become stopped (they have no result) and open command lanes close; a lane
+ * that never printed anything goes, so the command's status row shows instead.
  * Returns the same array when nothing was in flight.
  */
 export function settleInFlightStreamParts(parts: readonly StreamPart[]): StreamPart[] {
   let changed = false;
-  const next = parts.map((part) => {
+  const next = parts.flatMap((part): StreamPart[] => {
     if (!isInFlightToolPart(part)) {
-      return part;
+      return [part];
     }
     changed = true;
     if (part.toolChainState === 'running') {
-      return { ...part, toolChainState: 'error' as const, toolStopped: true as const };
+      return [{ ...part, toolChainState: 'error', toolStopped: true }];
     }
-    return { ...part, runComplete: true };
+    return isRunCommandStreamTag(part.streamTag) && !part.text.trim() ? [] : [{ ...part, runComplete: true }];
   });
   return changed ? next : (parts as StreamPart[]);
 }

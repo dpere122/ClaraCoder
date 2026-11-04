@@ -2,8 +2,10 @@ import {
   activityHeadline,
   formatThoughtDuration,
   isHitlTrailStreamTag,
+  isDeclinedToolCall,
   isStoppedToolCall,
   plural,
+  toolCallsRunMs,
   toolOutcomeNotes,
   toolPillLabel,
   type StreamPart,
@@ -28,7 +30,7 @@ export interface ActivityLayout {
 export interface ActivitySummary {
   /** What the stretch did, in order (`Read 3 files, edited a.py`); `Thought` for thinking alone; '' when nothing landed. */
   headline: string;
-  /** `1 failed · 1 stopped`, or ''. */
+  /** `1 failed · 1 stopped · 1 declined`, or ''. */
   outcomes: string;
   /** Hover text: every action (the headline may drop some), then the tally. */
   title: string;
@@ -109,7 +111,8 @@ export function activityLayout(
  * Activity pill text. The headline names what the model did between prose, from its tool calls
  * in order. Time is thinking plus tool run time; parallel calls from one LLM step overlap, so
  * each step counts its slowest call. `merged` rows (run_command status rows whose output lane is
- * also in the feed) are duplicates and are not counted.
+ * also in the feed) are duplicates and are not counted as calls, but only they hold the command's
+ * run time, so their time is.
  */
 export function activitySummary(
   items: readonly TurnFeedItem[],
@@ -122,10 +125,10 @@ export function activitySummary(
   let failed = 0;
   let stopped = 0;
   let thinkingMs = 0;
-  const unbatchedMs: number[] = [];
-  const slowestByBatch = new Map<string, number>();
+  const calls: StreamPart[] = [];
   const labels: ToolPillLabel[] = [];
   const unsettled: boolean[] = [];
+  const declined: boolean[] = [];
 
   for (const index of members) {
     const item = items[index];
@@ -141,12 +144,14 @@ export function activitySummary(
       nudges += 1;
       continue;
     }
+    const part: StreamPart = item.part;
+    calls.push(part);
     if (merged.has(index)) {
       continue;
     }
     tools += 1;
-    const part: StreamPart = item.part;
     labels.push(toolPillLabel(part));
+    declined.push(isDeclinedToolCall(part));
     const isFailed = auxStreamToolPartPillState(part, false) === 'error';
     const isStopped = isStoppedToolCall(part);
     unsettled.push(isFailed || isStopped);
@@ -156,15 +161,6 @@ export function activitySummary(
     if (isStopped) {
       stopped += 1;
     }
-    const ms = part.toolDurationMs;
-    if (ms === undefined) {
-      continue;
-    }
-    if (part.toolBatch) {
-      slowestByBatch.set(part.toolBatch, Math.max(slowestByBatch.get(part.toolBatch) ?? 0, ms));
-    } else {
-      unbatchedMs.push(ms);
-    }
   }
 
   const counts = [
@@ -172,12 +168,13 @@ export function activitySummary(
     nudges > 0 ? plural(nudges, 'nudge') : '',
     tools > 0 ? plural(tools, 'tool') : '',
   ].filter(Boolean);
-  const toolMs = [...slowestByBatch.values(), ...unbatchedMs].reduce((sum, ms) => sum + ms, 0);
-  const totalMs = thinkingMs + toolMs;
-  const actions = activityHeadline(labels, unsettled);
+  const totalMs = thinkingMs + (toolCallsRunMs(calls) ?? 0);
+  const actions = activityHeadline(labels, unsettled, declined);
+  const declinedCount = declined.filter(Boolean).length;
   return {
     headline: actions.text || (thoughts + nudges > 0 ? 'Thought' : ''),
-    outcomes: toolOutcomeNotes(failed, stopped).join(' · '),
+    // When nothing ran the headline already says it was declined.
+    outcomes: toolOutcomeNotes(failed, stopped, declinedCount < tools ? declinedCount : 0).join(' · '),
     title: [...actions.clauses.map((c) => c.charAt(0).toUpperCase() + c.slice(1)), counts.join(', ')]
       .filter(Boolean)
       .join('\n'),

@@ -18,9 +18,11 @@ export interface ToolChipLayout {
   hidden: ReadonlySet<number>;
   /** `run_command` status rows duplicated by their output lane (see {@link mergedRunCommandStatusIndices}). */
   merged: ReadonlySet<number>;
+  /** Finished output lanes (by index) with the run time and step of the status row they stand in for. */
+  timedLanes: ReadonlyMap<number, StreamPart>;
 }
 
-const EMPTY_LAYOUT: ToolChipLayout = { groups: new Map(), hidden: new Set(), merged: new Set() };
+const EMPTY_LAYOUT: ToolChipLayout = { groups: new Map(), hidden: new Set(), merged: new Set(), timedLanes: new Map() };
 
 /**
  * `run_command` status rows whose `run-command:<id>` output lane is also in the feed. The lane
@@ -28,7 +30,12 @@ const EMPTY_LAYOUT: ToolChipLayout = { groups: new Map(), hidden: new Set(), mer
  * whose text still holds the approval prompt (no command id yet) pairs with the next lane.
  */
 export function mergedRunCommandStatusIndices(items: readonly TurnFeedItem[]): Set<number> {
-  const merged = new Set<number>();
+  return new Set(runCommandLanesByStatusIndex(items).keys());
+}
+
+/** Each `run_command` status row duplicated by an output lane → that lane's index. */
+function runCommandLanesByStatusIndex(items: readonly TurnFeedItem[]): Map<number, number> {
+  const merged = new Map<number, number>();
   const open: { index: number; id: string | null }[] = [];
   items.forEach((item, index) => {
     if (item.kind !== 'tool') {
@@ -64,7 +71,7 @@ export function mergedRunCommandStatusIndices(items: readonly TurnFeedItem[]): S
       }
     }
     if (match >= 0) {
-      merged.add(open[match]!.index);
+      merged.set(open[match]!.index, index);
       open.splice(match, 1);
     }
   });
@@ -85,7 +92,8 @@ export function toolChipLayout(
   if (!items.some((item) => item.kind === 'tool')) {
     return EMPTY_LAYOUT;
   }
-  const merged = mergedRunCommandStatusIndices(items);
+  const lanes = runCommandLanesByStatusIndex(items);
+  const merged = new Set(lanes.keys());
   const hidden = new Set<number>();
   const groups = new Map<number, number[]>();
   for (const index of merged) {
@@ -123,7 +131,27 @@ export function toolChipLayout(
     runLabel ??= label;
   });
   flush();
-  return { groups, hidden, merged };
+  return { groups, hidden, merged, timedLanes: timedRunCommandLanes(items, lanes) };
+}
+
+/**
+ * Only the status row knows how long a command ran, and it is the row that stays hidden. A lane
+ * still running has no time yet: its status row may only have waited for the first output.
+ */
+function timedRunCommandLanes(items: readonly TurnFeedItem[], lanes: ReadonlyMap<number, number>): Map<number, StreamPart> {
+  const timed = new Map<number, StreamPart>();
+  for (const [statusIndex, laneIndex] of lanes) {
+    const status = items[statusIndex];
+    const lane = items[laneIndex];
+    if (status?.kind === 'tool' && lane?.kind === 'tool' && lane.part.runComplete && status.part.toolDurationMs !== undefined) {
+      timed.set(laneIndex, {
+        ...lane.part,
+        toolDurationMs: status.part.toolDurationMs,
+        ...(status.part.toolBatch ? { toolBatch: status.part.toolBatch } : {}),
+      });
+    }
+  }
+  return timed;
 }
 
 /**
@@ -146,13 +174,17 @@ export function settlingChipIndices(
   return out;
 }
 
-/** Parts for a group's member indices. */
-export function toolChipGroupParts(items: readonly TurnFeedItem[], indices: readonly number[]): StreamPart[] {
+/** Parts for a group's member indices, with any lane's run time from `timedLanes`. */
+export function toolChipGroupParts(
+  items: readonly TurnFeedItem[],
+  indices: readonly number[],
+  timedLanes: ReadonlyMap<number, StreamPart> = EMPTY_LAYOUT.timedLanes,
+): StreamPart[] {
   const parts: StreamPart[] = [];
   for (const index of indices) {
     const item = items[index];
     if (item?.kind === 'tool') {
-      parts.push(item.part);
+      parts.push(timedLanes.get(index) ?? item.part);
     }
   }
   return parts;

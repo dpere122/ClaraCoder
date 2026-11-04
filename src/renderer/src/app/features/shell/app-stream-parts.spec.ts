@@ -9,6 +9,8 @@ import {
   upsertClaraOuterBriefStreamPart,
   upsertToolTrailStatusStreamPart,
   appendStreamPart,
+  markToolExecStreamComplete,
+  openRunCommandLane,
 } from './app-stream-parts';
 
 describe('mergeToolTrailStatusText', () => {
@@ -249,5 +251,47 @@ describe('appendStreamPart', () => {
     const out = appendStreamPart(parts, 'tool-pytest', 'output', 'T');
     expect(out.map((p) => p.streamTag)).toEqual(['tool-trail:a', 'clara', 'tool-pytest']);
     expect(out[1]?.text).toBe('I should list files');
+  });
+});
+
+describe('openRunCommandLane', () => {
+  const lane = 'run-command:c1';
+  const status = { streamTag: toolTrailStatusStreamTag('call-1'), label: 'run_command', text: 'Pending user confirmation' };
+
+  it('opens an empty lane once, and ignores anything that is not a command lane', () => {
+    const opened = openRunCommandLane([status], lane, 'npm test');
+    expect(opened[1]).toEqual({ streamTag: lane, label: 'npm test', text: '' });
+    expect(openRunCommandLane(opened, lane, 'npm test')).toBe(opened);
+    expect(openRunCommandLane([status], '', 'npm test')).toEqual([status]);
+    expect(openRunCommandLane([status], 'agent', 'npm test')).toEqual([status]);
+  });
+
+  it('takes the first output in place, even after another row arrived', () => {
+    const opened = [...openRunCommandLane([status], lane, 'npm test'), { streamTag: 'run-command:c2', label: 'ls', text: 'a' }];
+    const out = appendStreamPart(opened, lane, 'done', 'npm test');
+    expect(out.map((p) => p.streamTag)).toEqual([status.streamTag, lane, 'run-command:c2']);
+    expect(out[1]!.text).toBe('done');
+  });
+
+  it('drops a lane that ends without printing, so the status row shows the result', () => {
+    const opened = openRunCommandLane([status], lane, 'mkdir out');
+    expect(markToolExecStreamComplete(opened, lane, 0)).toEqual([status]);
+  });
+
+  it('keeps a quiet lane whose completion carries an output excerpt', () => {
+    const opened = openRunCommandLane([status], lane, 'npm test');
+    expect(markToolExecStreamComplete(opened, lane, 1, 'boom')[1]).toMatchObject({ text: 'boom', runComplete: true, exitCode: 1 });
+  });
+});
+
+describe('approval cards in the timeline', () => {
+  it('adds no trail row for a tool approval card, but keeps one for the Admin grant', () => {
+    const card = (kind: string): HitlTrailArtifact => ({
+      role: 'accept_command',
+      reviewStatus: 'complete',
+      payload: { version: 1, requestId: kind, kind, title: 'T', message: '', confirmLabel: 'Run', cancelLabel: 'Cancel', commandText: '', details: [] },
+    });
+    expect(mergeHitlTrailIntoLiveStreamParts([], [card('deferred_tool'), card('mcp_tool'), card('admin_elevation_tool')])).toEqual([]);
+    expect(mergeHitlTrailIntoLiveStreamParts([], [card('admin_elevation')])).toHaveLength(1);
   });
 });

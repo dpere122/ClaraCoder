@@ -7,7 +7,7 @@ import {
   formatToolDuration,
   humanizeToolName,
   runCommandIdFromReport,
-  toolPillSlowestMs,
+  toolCallsRunMs,
   toolPillGroupLabel,
   toolPillLabel,
   toolPillMeta,
@@ -24,6 +24,24 @@ function pill(part: StreamPart, live = false): string {
   const label = toolPillLabel(part, live);
   return [label.verb, toolPillMeta(label)].filter(Boolean).join(' · ');
 }
+
+describe('toolCallsRunMs', () => {
+  it('counts the slowest call of each step, and adds up the steps and unbatched calls', () => {
+    expect(
+      toolCallsRunMs([
+        { toolBatch: 's1', toolDurationMs: 3_000 },
+        { toolBatch: 's1', toolDurationMs: 5_000 },
+        { toolBatch: 's2', toolDurationMs: 1_000 },
+        { toolDurationMs: 2_000 },
+      ]),
+    ).toBe(8_000);
+  });
+
+  it('is undefined when no call has a time', () => {
+    expect(toolCallsRunMs([{}, {}])).toBeUndefined();
+    expect(toolCallsRunMs([{ toolDurationMs: 0 }])).toBe(0);
+  });
+});
 
 describe('toolPillLabel', () => {
   it('sub-agents: names the sub-agent, not its task', () => {
@@ -102,11 +120,11 @@ describe('toolPillLabel', () => {
     );
   });
 
-  it('answered approval cards: cancelled and denied calls say so', () => {
+  it('answered approval cards: declined and denied calls say so, approved ones add nothing', () => {
     expect(pill(status('fetch_url', 'User cancelled the pending command: Fetch URL.', { toolTarget: 'https://example.com' }))).toBe(
-      'Fetch · https://example.com · cancelled',
+      'Fetch · https://example.com · declined',
     );
-    expect(pill(status('run_command', 'User declined administrator access for this agent.'))).toBe('Run · cancelled');
+    expect(pill(status('run_command', 'User declined administrator access for this agent.'))).toBe('Run · declined');
     expect(pill(status('mcp__s__lookup', 'Tool `lookup` on MCP server `docs` is denied.'))).toBe('Lookup · denied');
   });
 
@@ -270,6 +288,20 @@ describe('activityHeadline', () => {
     expect(headline(failedRun, failedRun)).toBe('Ran 2 commands');
   });
 
+  it('counts every command, even ones whose cut-off labels look alike', () => {
+    expect(headline(run('node -e "setTimeout(()=>con…'), run('node -e "setTimeout(()=>con…'))).toBe('Ran 2 commands');
+    expect(headline(run('npm test'))).toBe('Ran npm test');
+    expect(headline(read('a.py'), read('a.py'))).toBe('Read a.py');
+  });
+
+  it('leaves declined calls out of the headline unless nothing else ran', () => {
+    const declined = (...flags: boolean[]) => (labels: ToolPillLabel[]) => activityHeadline(labels, [], flags).text;
+    expect(declined(false, true, false)([run('a'), run('b'), run('c')])).toBe('Ran 2 commands');
+    expect(declined(false, true)([run('a'), run('b')])).toBe('Ran a');
+    expect(declined(true)([run('npm test')])).toBe('Declined npm test');
+    expect(declined(true, true)([run('a'), run('b')])).toBe('Declined 2 commands');
+  });
+
   it('a failed or stopped change reads as tried and does not fold a later read', () => {
     const out = activityHeadline([edit('a.py'), read('a.py')], [true, false]);
     expect(out.text).toBe('Tried to edit a.py, read a.py');
@@ -321,8 +353,4 @@ describe('tool call durations', () => {
     expect(formatThoughtDuration(64_000)).toBe('1m 04s');
   });
 
-  it('picks the slowest timed call of a group', () => {
-    expect(toolPillSlowestMs([{ toolDurationMs: 40 }, {}, { toolDurationMs: 1200 }])).toBe(1200);
-    expect(toolPillSlowestMs([{}, {}])).toBeUndefined();
-  });
 });

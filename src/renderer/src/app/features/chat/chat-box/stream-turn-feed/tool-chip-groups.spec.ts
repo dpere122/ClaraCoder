@@ -93,6 +93,37 @@ describe('mergedRunCommandStatusIndices', () => {
   });
 });
 
+describe('timedLanes', () => {
+  const call = (id: string, ms: number, extra: object = {}): TurnFeedItem => ({
+    kind: 'tool',
+    part: { streamTag: toolTrailStatusStreamTag(`call-${id}`), label: 'run_command', text: `Command id: \`${id}\``, toolChainState: 'complete', toolDurationMs: ms, toolBatch: id, ...extra },
+  });
+  const finishedLane = (id: string, runComplete = true): TurnFeedItem => ({
+    kind: 'tool',
+    part: { streamTag: `run-command:${id}`, label: 'npm test', text: 'ok', runComplete },
+  });
+  const layoutOf = (items: TurnFeedItem[]) => toolChipLayout(items, () => 'chip', false);
+
+  it('gives a finished lane its status row time and step, without touching the feed item', () => {
+    const items = [call('a', 20_000), finishedLane('a')];
+    const layout = layoutOf(items);
+    expect(layout.timedLanes.get(1)).toMatchObject({ toolDurationMs: 20_000, toolBatch: 'a', text: 'ok' });
+    expect(items[1]!.kind === 'tool' && items[1]!.part.toolDurationMs).toBeUndefined();
+  });
+
+  it('feeds lane times to a group', () => {
+    const items = [call('a', 20_000), finishedLane('a'), call('b', 12_000), finishedLane('b')];
+    const layout = layoutOf(items);
+    const parts = toolChipGroupParts(items, [1, 3], layout.timedLanes);
+    expect(parts.map((part) => part.toolDurationMs)).toEqual([20_000, 12_000]);
+  });
+
+  it('leaves out a lane still running, and a call with no time', () => {
+    expect(layoutOf([call('a', 45_000), finishedLane('a', false)]).timedLanes.size).toBe(0);
+    expect(layoutOf([call('a', 0, { toolDurationMs: undefined }), finishedLane('a')]).timedLanes.size).toBe(0);
+  });
+});
+
 describe('settlingChipIndices', () => {
   it('is empty when nothing just committed', () => {
     expect(settlingChipIndices(new Set(), new Map()).size).toBe(0);

@@ -41,6 +41,12 @@ describe('settleInFlightStreamParts', () => {
     expect(settled[3]).toMatchObject({ runComplete: true });
   });
 
+  it('drops a command lane that never printed anything', () => {
+    const status: StreamPart = { streamTag: 'tool-trail:a', label: 'run_command', text: 'x', toolChainState: 'complete' };
+    const parts: StreamPart[] = [status, { streamTag: 'run-command:c1', label: 'npm test', text: '' }];
+    expect(settleInFlightStreamParts(parts)).toEqual([status]);
+  });
+
   it('returns the same array when nothing is in flight', () => {
     const parts: StreamPart[] = [{ streamTag: 'agent', label: '', text: 'hi' }];
     expect(settleInFlightStreamParts(parts)).toBe(parts);

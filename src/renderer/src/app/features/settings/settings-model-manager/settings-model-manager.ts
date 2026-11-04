@@ -22,7 +22,7 @@ import {
   formatHfParams,
   hubFolderRepoId,
   maskHfToken,
-  smallestLowModel,
+  smallestSmallModel,
   splitHfRepoId,
 } from './hf-models';
 
@@ -265,7 +265,7 @@ export class SettingsModelManager {
     ) {
       return;
     }
-    const lightest = smallestLowModel(this.featuredRows().map((row) => row.featured));
+    const lightest = smallestSmallModel(this.featuredRows().map((row) => row.featured));
     if (lightest) {
       // This fetches only the repo's metadata and file listing; Download remains a user action.
       this.s.selectHfModel(lightest.id);

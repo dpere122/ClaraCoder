@@ -624,7 +624,7 @@ async function boot() {
     assert.equal(await evaluate(settingsWindow, () => document.querySelector('[data-tutorial="downloaded-list"]')?.open), true);
     assert.equal((await snapshot(homeWindow)).ownerId, settingsWindow.webContents.id);
     await waitFor('home overlay hidden during settings ownership', async () => (await card(homeWindow)) === null);
-    for (const [step, title] of [['featured-intro', 'Featured models'], ['featured-low', 'Low models'], ['featured-medium', 'Medium models'], ['featured-big', 'Big models'], ['featured-moe', 'MoE models'], ['featured-preview', 'Who made this model']]) {
+    for (const [step, title] of [['featured-intro', 'Featured models'], ['featured-low', 'Small models'], ['featured-medium', 'Medium models'], ['featured-big', 'Large models'], ['featured-moe', 'MoE models'], ['featured-preview', 'Who made this model']]) {
       await clickPrimary(settingsWindow, /^(next|continue anyway)$/i);
       await expectStep(settingsWindow, 'featured-models', step, title);
     }
@@ -637,7 +637,7 @@ async function boot() {
       if (panel?.getAttribute('data-details-state') !== 'loading' || quants?.getAttribute('data-state') !== 'loading') return null;
       return { repo: panel.getAttribute('data-repo-id'), small: small?.getAttribute('data-row-key') };
     }));
-    assert.equal(`hf:${loading.repo}`, loading.small, 'Preview should select the lightest featured Low model');
+    assert.equal(`hf:${loading.repo}`, loading.small, 'Preview should select the lightest featured Small model');
     detailsGate.resolve();
     await waitFor('model details ready while quantizations remain pending', () => evaluate(settingsWindow, () =>
       document.querySelector('.mm-panel')?.getAttribute('data-details-state') === 'ready' &&

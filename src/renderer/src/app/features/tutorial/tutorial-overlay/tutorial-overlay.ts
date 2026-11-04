@@ -363,14 +363,14 @@ export class TutorialOverlayComponent implements OnDestroy {
     }
     const step = view === 'step' ? this.tour.descriptor() : null;
     this.openStepDetails(step);
-    // If Model Manager mounted or its filtered Low group appeared after the first event, notify it
+    // If Model Manager mounted or its filtered Small group appeared after the first event, notify it
     // once more. The component itself preserves intentional selections and never downloads.
     if (step?.stepId === 'featured-preview' && step.phaseId === 'featured-models') {
-      const low = document.querySelector('[data-tutorial="featured-low"]');
-      if (low && low !== this.previewTarget) {
-        this.previewTarget = low;
+      const small = document.querySelector('[data-tutorial="featured-low"]');
+      if (small && small !== this.previewTarget) {
+        this.previewTarget = small;
         this.emitStep(step);
-      } else if (!low) {
+      } else if (!small) {
         this.previewTarget = null;
       }
     }

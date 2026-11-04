@@ -10,7 +10,7 @@ import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialo
 import { ThemedPromptDialogService } from '../../../shared/themed-prompt-dialog/themed-prompt-dialog.service';
 import { SettingsStore } from '../settings/settings-store';
 import { SettingsThemesStore } from '../settings-themes/settings-themes-store';
-import { FEATURED_HF_MODELS, FEATURED_MODEL_GROUPS, featuredModelGroup, smallestLowModel, type FeaturedHfModel } from './hf-models';
+import { FEATURED_HF_MODELS, FEATURED_MODEL_GROUPS, featuredModelGroup, smallestSmallModel, type FeaturedHfModel } from './hf-models';
 import { SettingsModelManager } from './settings-model-manager';
 
 const REPO = 'ggml-org/gpt-oss-20b-GGUF';
@@ -140,16 +140,16 @@ describe('the featured catalog', () => {
       id, maker: 'Maker', size: 'This text is not a parameter count', tag: 'General',
       architecture: total === active ? 'dense' : 'moe', totalParametersB: total, activeParametersB: active,
     });
-    expect(featuredModelGroup(model('org/a', 14.9))).toBe('low');
+    expect(featuredModelGroup(model('org/a', 14.9))).toBe('small');
     expect(featuredModelGroup(model('org/b', 15))).toBe('medium');
     expect(featuredModelGroup(model('org/c', 25))).toBe('medium');
-    expect(featuredModelGroup(model('org/d', 25.1))).toBe('big');
+    expect(featuredModelGroup(model('org/d', 25.1))).toBe('large');
     expect(featuredModelGroup(model('org/e', 4, 2))).toBe('moe');
     expect(featuredModelGroup(model('org/f', 100, 2))).toBe('moe');
     const lightest = model('org/lightest', 4);
-    expect(smallestLowModel([model('org/big', 40), model('org/other', 10), lightest, model('org/moe', 2, 1)])).toBe(lightest);
-    expect(smallestLowModel([model('org/big', 40), model('org/moe', 2, 1)])).toBeNull();
-    expect(smallestLowModel([])).toBeNull();
+    expect(smallestSmallModel([model('org/big', 40), model('org/other', 10), lightest, model('org/moe', 2, 1)])).toBe(lightest);
+    expect(smallestSmallModel([model('org/big', 40), model('org/moe', 2, 1)])).toBeNull();
+    expect(smallestSmallModel([])).toBeNull();
   });
 
   it('puts every current model in the agreed group', () => {
@@ -157,7 +157,7 @@ describe('the featured catalog', () => {
       group.id,
       FEATURED_HF_MODELS.filter((model) => featuredModelGroup(model) === group.id).map((model) => model.totalParametersB).sort((a, b) => a - b),
     ]));
-    expect(groups).toEqual({ low: [9, 11.95], medium: [24], big: [27], moe: [21, 25.2, 30.5, 35] });
+    expect(groups).toEqual({ small: [9, 11.95], medium: [24], large: [27], moe: [21, 25.2, 30.5, 35] });
   });
 });
 
@@ -281,7 +281,7 @@ describe('featured tutorial targets', () => {
       'hf:ggml-org/gpt-oss-20b-GGUF', 'hf:unsloth/gemma-4-26B-A4B-it-GGUF',
       'hf:unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF', 'hf:unsloth/Qwen3.6-35B-A3B-GGUF',
     ]);
-    expect([...el.querySelectorAll('.mm-list__group')].map((heading) => heading.textContent?.trim().split(' ')[0])).toEqual(['Low', 'Medium', 'Big', 'MoE']);
+    expect([...el.querySelectorAll('.mm-list__group')].map((heading) => heading.textContent?.trim().split(' ')[0])).toEqual(['Small', 'Medium', 'Large', 'MoE']);
     expect(el.querySelector('[data-tutorial="featured-moe"]')?.textContent).not.toContain('whole model still has to fit');
     expect(store.modelManagerSelection()).toBeNull();
 
@@ -303,7 +303,7 @@ describe('featured tutorial targets', () => {
     window.dispatchEvent(new CustomEvent('clara-tutorial-step', { detail: { phaseId: 'featured-models', stepId: 'featured-low' } }));
     expect(select).not.toHaveBeenCalled();
     window.dispatchEvent(new CustomEvent('clara-tutorial-step', { detail: { phaseId: 'featured-models', stepId: 'featured-preview' } }));
-    expect(select).toHaveBeenCalledExactlyOnceWith(smallestLowModel(FEATURED_HF_MODELS)?.id);
+    expect(select).toHaveBeenCalledExactlyOnceWith(smallestSmallModel(FEATURED_HF_MODELS)?.id);
     window.dispatchEvent(new CustomEvent('clara-tutorial-step', { detail: { phaseId: 'featured-models', stepId: 'featured-preview' } }));
     expect(select).toHaveBeenCalledTimes(1);
     expect(download).not.toHaveBeenCalled();

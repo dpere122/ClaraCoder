@@ -15,13 +15,12 @@ import { lucideAppProviders } from '../../lucide-setup';
 import { ThemedConfirmDialogService } from '../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { ThemedPromptDialogService } from '../../shared/themed-prompt-dialog/themed-prompt-dialog.service';
 import { SettingsStore, type ModelManagerSelection } from '../settings/settings/settings-store';
-import { FEATURED_HF_MODELS, featuredModelExamples } from '../settings/settings-model-manager/hf-models';
+import { FEATURED_HF_MODELS, smallestLowModel } from '../settings/settings-model-manager/hf-models';
 import { SettingsModelManager } from '../settings/settings-model-manager/settings-model-manager';
 import { SettingsThemesStore } from '../settings/settings-themes/settings-themes-store';
 
-const examples = featuredModelExamples(FEATURED_HF_MODELS);
-const SMALL = examples.small!;
-const LARGEST = examples.largest!;
+const SMALL = smallestLowModel(FEATURED_HF_MODELS)!;
+const LARGEST = FEATURED_HF_MODELS.reduce((a, b) => (b.totalParametersB > a.totalParametersB ? b : a));
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -70,6 +69,12 @@ function tutorialStep(phaseId = 'featured-models', stepId = 'featured-preview'):
   window.dispatchEvent(new CustomEvent('clara-tutorial-step', { detail: { phaseId, stepId } }));
 }
 
+function row(el: HTMLElement, id: string): HTMLElement {
+  const element = el.querySelector<HTMLElement>(`[data-row-key="hf:${id}"]`);
+  expect(element, `missing row ${id}`).not.toBeNull();
+  return element!;
+}
+
 function target(el: HTMLElement, name: string): HTMLElement {
   const element = el.querySelector<HTMLElement>(`[data-tutorial="${name}"]`);
   expect(element, `missing tutorial target ${name}`).not.toBeNull();
@@ -100,22 +105,21 @@ beforeEach(() => TestBed.resetTestingModule());
 afterEach(() => TestBed.resetTestingModule());
 
 describe('featured-model tutorial preparation', () => {
-  it('only previews a visible Small model on the exact step, without downloading', () => {
+  it('only previews a visible Low model on the exact step, without downloading', () => {
     const { store, fixture, el, electron } = setup();
     const download = vi.spyOn(store, 'downloadHfQuant');
     const list = target(el, 'featured-list');
-    const small = target(el, 'featured-small');
-    const largest = target(el, 'featured-largest');
-    expect(list.contains(small)).toBe(true);
-    expect(list.contains(largest)).toBe(true);
-    expect(small.getAttribute('data-row-key')).toBe(`hf:${SMALL.id}`);
-    expect(largest.getAttribute('data-row-key')).toBe(`hf:${LARGEST.id}`);
+    const small = row(el, SMALL.id);
+    const largest = row(el, LARGEST.id);
+    expect(list.contains(target(el, 'featured-low'))).toBe(true);
+    expect(target(el, 'featured-low').contains(small)).toBe(true);
+    expect(target(el, 'featured-moe').contains(largest)).toBe(true);
     expect(largest.getAttribute('data-total-parameters-b')).toBe(String(LARGEST.totalParametersB));
     expect(largest.getAttribute('data-active-parameters-b')).toBe(String(LARGEST.activeParametersB));
     expect(largest.getAttribute('data-architecture')).toBe(LARGEST.architecture);
 
     tutorialStep('local-engine', 'featured-preview');
-    tutorialStep('featured-models', 'featured-small');
+    tutorialStep('featured-models', 'featured-low');
     tutorialStep('featured-models', 'featured-quantizations');
     window.dispatchEvent(new Event('clara-tutorial-step'));
     expect(store.modelManagerSelection()).toBeNull();
@@ -154,7 +158,7 @@ describe('featured-model tutorial preparation', () => {
 
   it('does not undo an intentional selection, even if it was subsequently cleared', () => {
     const { store, fixture, el, electron } = setup();
-    (target(el, 'featured-largest') as HTMLButtonElement).click();
+    row(el, LARGEST.id).click();
     tutorialStep();
     fixture.detectChanges();
     expect(store.modelManagerSelection()).toEqual({ kind: 'hf', id: LARGEST.id });
@@ -176,7 +180,7 @@ describe('featured-model tutorial preparation', () => {
 
     tutorialStep();
     fixture.detectChanges();
-    (target(el, 'featured-largest') as HTMLButtonElement).click();
+    row(el, LARGEST.id).click();
     fixture.detectChanges();
     expect(store.modelManagerSelection()).toEqual({ kind: 'hf', id: LARGEST.id });
 
@@ -200,30 +204,27 @@ describe('featured-model tutorial preparation', () => {
     expect(electron.modelManagerListHfFiles).toHaveBeenCalledTimes(2);
     expect(electron.modelManagerDownloadHfFile).not.toHaveBeenCalled();
   });
-  it('updates examples when filtering changes the visible catalog, including a single-row catalog', () => {
+  it('updates the preview when filtering changes the visible catalog, including a single-row catalog', () => {
     const { store, fixture, el } = setup();
     store.modelManagerHfQuery.set('gemma');
     fixture.detectChanges();
     const visible = FEATURED_HF_MODELS.filter((model) => model.id.toLowerCase().includes('gemma'));
-    const filtered = featuredModelExamples(visible);
-    expect(target(el, 'featured-small').getAttribute('data-row-key')).toBe(`hf:${filtered.small?.id}`);
-    expect(target(el, 'featured-largest').getAttribute('data-row-key')).toBe(`hf:${filtered.largest?.id}`);
+    const lightest = smallestLowModel(visible);
+    expect(target(el, 'featured-low').contains(row(el, lightest!.id))).toBe(true);
     tutorialStep();
-    expect(store.modelManagerSelection()).toEqual({ kind: 'hf', id: filtered.small?.id });
+    expect(store.modelManagerSelection()).toEqual({ kind: 'hf', id: lightest?.id });
 
     store.modelManagerHfQuery.set(SMALL.id.split('/')[1]!.replace(/-GGUF$/i, ''));
     fixture.detectChanges();
-    const onlySmall = target(el, 'featured-small');
-    const onlyLargest = target(el, 'featured-largest');
-    expect(onlySmall.contains(onlyLargest)).toBe(true);
-    expect(onlySmall.getAttribute('data-row-key')).toBe(`hf:${SMALL.id}`);
+    expect(target(el, 'featured-low').contains(row(el, SMALL.id))).toBe(true);
+    expect(el.querySelector('[data-tutorial="featured-moe"]')).toBeNull();
   });
 
-  it('does not disturb a search with no visible Small example or existing Hub results', () => {
+  it('does not disturb a search with no visible Low model or existing Hub results', () => {
     const { store, fixture, el, electron } = setup();
     store.modelManagerHfQuery.set('mistral');
     fixture.detectChanges();
-    expect(el.querySelector('[data-tutorial="featured-small"]')).toBeNull();
+    expect(el.querySelector('[data-tutorial="featured-low"]')).toBeNull();
     tutorialStep();
     expect(store.modelManagerSelection()).toBeNull();
 
@@ -307,7 +308,7 @@ describe('featured-model tutorial preparation', () => {
 
     const retry = deferred<ModelManagerHfFilesResult>();
     electron.modelManagerListHfFiles.mockReturnValueOnce(retry.promise);
-    (target(el, 'featured-small') as HTMLButtonElement).click();
+    row(el, SMALL.id).click();
     fixture.detectChanges();
     expect(electron.modelManagerListHfFiles).toHaveBeenCalledTimes(2);
     expect(target(el, 'featured-quantizations').getAttribute('data-state')).toBe('loading');
@@ -329,7 +330,7 @@ describe('featured-model tutorial preparation', () => {
     const retryDetails = deferred<ModelManagerHfDetailsResult>();
     electron.modelManagerListHfFiles.mockReturnValueOnce(retryFiles.promise);
     electron.modelManagerHfModelDetails.mockReturnValueOnce(retryDetails.promise);
-    (target(el, 'featured-small') as HTMLButtonElement).click();
+    row(el, SMALL.id).click();
     fixture.detectChanges();
     expect(target(el, 'featured-quantizations').getAttribute('data-state')).toBe('loading');
     expect(target(el, 'featured-provider').getAttribute('data-state')).toBe('loading');

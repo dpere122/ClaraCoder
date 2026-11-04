@@ -313,6 +313,12 @@ class RuntimeConnection:
     repeat_penalty: float | None = None
     #: Main context window for this connection (from Settings); used for context compaction budgets.
     context_window_tokens: int = 0
+    #: LM Studio idle unload in seconds, sent on requests so a model it auto-loads gets it; 0 omits it.
+    idle_ttl_seconds: int = 0
+    #: ``openai-compatible`` only: what the server accepts (``OpenAiCompatRequest`` as a dict).
+    open_ai_compat: dict[str, Any] | None = None
+    #: ``openai-compatible`` only: sent on every request. May hold credentials, so never logged.
+    custom_headers: dict[str, str] = field(default_factory=dict)
     #: Live llama-server Jinja scan: ``{enableThinking, reasoningEffortValues}`` or None when unknown.
     chat_template_reasoning: dict[str, Any] | None = None
 

@@ -1,7 +1,8 @@
 import { Component, effect, ElementRef, inject, NgZone, OnDestroy, signal, untracked } from '@angular/core';
+import { LucideAngularModule } from 'lucide-angular';
 import { TUTORIAL_PHASE_REGISTRY } from '@shared/index';
 import { TutorialCoordinator } from '../tutorial-coordinator';
-import { TutorialMascotComponent, type TutorialMascotDestination } from '../tutorial-mascot/tutorial-mascot';
+import { TutorialMascotComponent } from '../tutorial-mascot/tutorial-mascot';
 import type { TutorialStepDescriptor } from '../tutorial-steps';
 
 type TargetState = 'none' | 'available' | 'offscreen' | 'missing';
@@ -25,11 +26,11 @@ function overlapArea(a: Box, b: Box): number {
     Math.max(0, Math.min(a.top + a.height, b.top + b.height) - Math.max(a.top, b.top));
 }
 
-/** A non-modal guide: only the card receives pointer events, never the highlight or mascot. */
+/** A non-modal guide: only the card receives pointer events, never the highlight. */
 @Component({
   selector: 'app-tutorial-overlay',
   standalone: true,
-  imports: [TutorialMascotComponent],
+  imports: [LucideAngularModule, TutorialMascotComponent],
   templateUrl: './tutorial-overlay.html',
   styleUrl: './tutorial-overlay.css',
 })
@@ -41,24 +42,25 @@ export class TutorialOverlayComponent implements OnDestroy {
   protected readonly targetDetail = signal('');
   protected readonly highlight = signal<Box | null>(null);
   protected readonly panelPosition = signal<Point>({ x: 16, y: 16 });
-  protected readonly minimized = signal(false);
-  protected readonly mascotPosition = signal<TutorialMascotDestination | null>(null);
-  protected readonly mascotKey = signal('');
-  protected readonly mascotScale = signal(1);
+  protected readonly minimized = this.tour.minimized;
+  /** Flipped per step to replay the card's fade; recreating the card would lose its focus. */
+  protected readonly cardFadeFlip = signal(false);
   protected readonly llamaState = signal('');
   protected readonly dependenciesBusy = signal(false);
   protected readonly sourceRecovery = signal<SourceRecovery>('none');
   protected readonly settingsDirty = signal(false);
+  protected readonly skippingStep = signal(false);
 
   private target: HTMLElement | null = null;
-  private highlightedTarget: HTMLElement | null = null;
   private readonly observedElements = new Set<Element>();
   private readonly activeTransitions = new Map<Element, Set<string>>();
   private transitionDeadline = 0;
   private previewTarget: Element | null = null;
   private renderedKey = '';
+  private skipAttemptRevision: number | null = null;
   private presentationKey = '';
-  private mascotSerial = 0;
+  private openedDetailsKey = '';
+  private scrolledKey = '';
   private resetPanelScroll = false;
   private frame: number | null = null;
   private mutationObserver: MutationObserver | null = null;
@@ -122,19 +124,19 @@ export class TutorialOverlayComponent implements OnDestroy {
       const step = view === 'step' ? this.tour.descriptor() : null;
       const key = step ? `${step.phaseId}:${step.stepId}` : '';
       const presentationKey = step ? `step:${key}` : view;
+      // A skip waits out an action still in flight, so measure again once it settles.
+      if (step?.skipWhenAbsent) this.tour.busy();
       untracked(() => {
         this.observeDocument(view !== 'hidden');
         if (presentationKey !== this.presentationKey) {
           // A cross-window update can replace the card without a click in this renderer.
           if (this.presentationKey && !this.pendingFocus) this.captureCardFocus(true);
           this.presentationKey = presentationKey;
-          this.highlightedTarget = null;
           this.target = null;
           this.activeTransitions.clear();
           this.setTarget('none', null, '');
           this.sourceRecovery.set('none');
-          this.mascotPosition.set(null);
-          this.mascotKey.set(`${presentationKey}:${++this.mascotSerial}`);
+          this.cardFadeFlip.update((flip) => !flip);
           this.resetPanelScroll = true;
         }
         if (key !== this.renderedKey) {
@@ -152,7 +154,6 @@ export class TutorialOverlayComponent implements OnDestroy {
           this.frame = null;
           this.target = null;
           this.setTarget('none', null, '');
-          this.mascotPosition.set(null);
           this.minimized.set(false);
           this.restoreFocusOnClose();
         } else {
@@ -174,6 +175,8 @@ export class TutorialOverlayComponent implements OnDestroy {
   protected toggleMinimized(): void {
     this.captureCardFocus(true);
     this.minimized.update((value) => !value);
+    // Coming back can swap the example page and the real editor, each with its section closed.
+    this.openedDetailsKey = '';
     this.resetPanelScroll = true;
     this.scheduleMeasure();
   }
@@ -188,6 +191,8 @@ export class TutorialOverlayComponent implements OnDestroy {
   }
 
   protected retryTarget(): void {
+    // Retrying is a request to see the target, so it may reopen a section the user closed.
+    this.openedDetailsKey = '';
     const step = this.tour.descriptor();
     if (step && this.tour.view() === 'step') this.emitStep(step);
     this.scheduleMeasure();
@@ -267,15 +272,15 @@ export class TutorialOverlayComponent implements OnDestroy {
     const state = this.llamaState();
     // Nothing else tells the user where the card went when this window stays open.
     const staysOpen = 'Continuing moves the tour to the main window; this window stays open.';
-    if (state === 'checking') return 'Checking llama-server status…';
+    if (state === 'checking') return 'Checking the local engine…';
     if (state === 'installing') return `An install or its cleanup is in progress. ${staysOpen}`;
     if (state === 'error') return `The install could not be verified. Use Retry in Dependencies, or continue without installing. ${staysOpen}`;
     if (state === 'cancelled') return `The install was cancelled. You can retry it or continue without installing. ${staysOpen}`;
-    if (state === 'installed' && this.dependenciesBusy()) return `llama-server is already installed, but other Dependencies work is still active. ${staysOpen}`;
-    if (state === 'installed') return 'llama-server is already installed. Continue to close Dependencies and return to the main window.';
+    if (state === 'installed' && this.dependenciesBusy()) return `The local engine is already installed, but other Dependencies work is still active. ${staysOpen}`;
+    if (state === 'installed') return 'The local engine is already installed. Continue to close Dependencies and return to the main window.';
     if (state === 'success' && this.dependenciesBusy()) return `The install was verified, but other Dependencies work is still active. ${staysOpen}`;
     if (state === 'success') return 'The install was verified. Continue to close Dependencies and return to the main window.';
-    if (state === 'missing') return `llama-server is not installed. Download it if you want a local engine, or continue without it. ${staysOpen}`;
+    if (state === 'missing') return `The local engine is not installed. Download it if you want to run models on your computer, or continue without it. ${staysOpen}`;
     return '';
   }
 
@@ -351,20 +356,21 @@ export class TutorialOverlayComponent implements OnDestroy {
     const view = this.tour.view();
     if (view === 'hidden') {
       this.target = null;
+      this.skippingStep.set(false);
       this.setTarget('none', null, '');
-      this.mascotPosition.set(null);
       this.observeElements(null, null);
       return;
     }
     const step = view === 'step' ? this.tour.descriptor() : null;
-    // If Model Manager mounted or its filtered Small row appeared after the first event, notify it
+    this.openStepDetails(step);
+    // If Model Manager mounted or its filtered Low group appeared after the first event, notify it
     // once more. The component itself preserves intentional selections and never downloads.
     if (step?.stepId === 'featured-preview' && step.phaseId === 'featured-models') {
-      const small = document.querySelector('[data-tutorial="featured-small"]');
-      if (small && small !== this.previewTarget) {
-        this.previewTarget = small;
+      const low = document.querySelector('[data-tutorial="featured-low"]');
+      if (low && low !== this.previewTarget) {
+        this.previewTarget = low;
         this.emitStep(step);
-      } else if (!small) {
+      } else if (!low) {
         this.previewTarget = null;
       }
     }
@@ -379,17 +385,18 @@ export class TutorialOverlayComponent implements OnDestroy {
       this.captureCardFocus(true);
     }
     this.sourceRecovery.set(recovery.state);
-    const found: TargetMatch = recovery.target
+    let found: TargetMatch = recovery.target
       ? this.targetFromElement(recovery.target)
       : step?.targets?.length ? this.findTarget(step.targets) : { target: null, state: 'none', box: null };
+    if (step?.scrollToTarget && found.target && this.scrolledKey !== this.presentationKey) {
+      // Once per step, so it never fights the user's own scrolling.
+      this.scrolledKey = this.presentationKey;
+      found.target.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
+      found = this.targetFromElement(found.target);
+    }
     if (this.target !== found.target) this.activeTransitions.clear();
     this.target = found.target;
-    const highlightedTarget = found.state === 'available' ? found.target : null;
-    if (highlightedTarget !== this.highlightedTarget) {
-      // Re-enter only for a newly available target, not for every scroll/resize frame.
-      if (highlightedTarget && this.mascotPosition()) this.mascotKey.set(`${this.presentationKey}:${++this.mascotSerial}`);
-      this.highlightedTarget = highlightedTarget;
-    }
+    if (this.skipAbsentStep(step, found.state)) return;
     const box = found.box;
     // Only Model Manager's data-state describes metadata; a Dependencies row uses it for install state.
     const detailState = step?.phaseId === 'featured-models' ? found.target?.getAttribute('data-state') : null;
@@ -404,8 +411,11 @@ export class TutorialOverlayComponent implements OnDestroy {
       const nav = document.querySelector('[data-tutorial="settings-sources-nav"]');
       const models = found.target?.getAttribute('data-tutorial-models-state') ?? nav?.getAttribute('data-tutorial-models-state');
       if (models === 'loading' || models === 'unknown') detail = 'Checking downloaded models. Retry or continue while the inventory loads.';
-      if (models === 'empty') detail = 'No downloaded GGUF model is available. You can visit Model Manager later or continue without one.';
-      if (models === 'error') detail = 'The local model inventory could not be checked. Retry in Settings or continue without a model.';
+      if (models === 'empty') detail = 'No downloaded model yet. You can visit Model Manager later or continue without one.';
+      if (models === 'error') detail = 'Your downloaded models could not be checked. Retry in Settings or continue without a model.';
+    }
+    if (found.target?.closest('app-tutorial-source-example')) {
+      detail = 'This is an example with made-up data. Minimize the tour to work with your real sources.';
     }
     if (recovery.state === 'checking') {
       detail = 'Open Sources to check your previous source. Unapplied drafts do not survive closing Settings.';
@@ -436,13 +446,31 @@ export class TutorialOverlayComponent implements OnDestroy {
     const height = Math.min(panelRect.height || 280, Math.max(0, window.innerHeight - 24));
     const position = this.placePanel(box, width, height);
     if (position.x !== this.panelPosition().x || position.y !== this.panelPosition().y) this.panelPosition.set(position);
-    const scale = window.innerWidth < 360 || window.innerHeight < 320 ? 0.58 :
-      window.innerWidth < 600 || window.innerHeight < 480 ? 0.7 : 1;
-    if (scale !== this.mascotScale()) this.mascotScale.set(scale);
-    const mascot = this.placeMascot({ left: position.x, top: position.y, width, height }, box, scale, !!step?.celebration);
-    const currentMascot = this.mascotPosition();
-    if (!currentMascot || currentMascot.x !== mascot.x || currentMascot.y !== mascot.y) this.mascotPosition.set(mascot);
     this.queueFocusRestore();
+  }
+
+  /** Opens once per step and as soon as it exists; closing it again is the user's choice. */
+  private openStepDetails(step: TutorialStepDescriptor | null): void {
+    if (!step?.openDetails || this.openedDetailsKey === this.presentationKey) return;
+    const details = document.querySelector<HTMLDetailsElement>(`details[data-tutorial="${step.openDetails}"]`);
+    if (!details) return;
+    this.openedDetailsKey = this.presentationKey;
+    details.open = true;
+  }
+
+  /** Measuring runs before the next paint, so a skipped step's card never shows. A failed skip does, once. */
+  private skipAbsentStep(step: TutorialStepDescriptor | null, state: TargetState): boolean {
+    const revision = this.tour.snapshot()?.progress.revision ?? -1;
+    const busy = this.tour.busy();
+    const skipping = !!step?.skipWhenAbsent && state === 'missing' && (busy || this.skipAttemptRevision !== revision);
+    this.skippingStep.set(skipping);
+    if (!skipping) return false;
+    this.setTarget('none', null, '');
+    if (!busy) {
+      this.skipAttemptRevision = revision;
+      void this.tour.advance();
+    }
+    return true;
   }
 
   private setTarget(state: TargetState, box: Box | null, detail: string): void {
@@ -474,7 +502,7 @@ export class TutorialOverlayComponent implements OnDestroy {
   private findSourceRecovery(step: TutorialStepDescriptor | null): { state: SourceRecovery; target: HTMLElement | null } {
     const id = this.tour.snapshot()?.progress.sourceId;
     // The final step has no target and needs no source, so it must not block finishing the tour.
-    if (!id || !step || step.phaseId !== 'local-source' || ['sources-navigation', 'sources-add', 'celebration'].includes(step.stepId)) {
+    if (!id || !step || step.phaseId !== 'local-source' || ['sources-navigation', 'sources-lm-studio', 'sources-custom-endpoint', 'sources-openrouter', 'sources-claude', 'sources-add', 'tour-complete'].includes(step.stepId)) {
       return { state: 'none', target: null };
     }
     const nav = document.querySelector<HTMLElement>('[data-tutorial="settings-sources-nav"]');
@@ -513,6 +541,8 @@ export class TutorialOverlayComponent implements OnDestroy {
   private isDisplayed(target: HTMLElement): boolean {
     for (let node: HTMLElement | null = target; node; node = node.parentElement) {
       if (node.hidden || node.hasAttribute('inert') || node.getAttribute('aria-hidden') === 'true') return false;
+      // Content of a closed section keeps a layout box in Chromium, and nothing on it says it is hidden.
+      if (node.parentElement instanceof HTMLDetailsElement && !node.parentElement.open && node.localName !== 'summary') return false;
       const style = window.getComputedStyle(node);
       if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' ||
           style.opacity === '0' || style.getPropertyValue('content-visibility') === 'hidden') return false;
@@ -559,34 +589,5 @@ export class TutorialOverlayComponent implements OnDestroy {
     ].map(({ x, y }) => ({ x: clamp(x, 12, maxX), y: clamp(y, 12, maxY) }));
     const overlap = (point: Point): number => overlapArea({ left: point.x, top: point.y, width, height }, box);
     return candidates.reduce((best, candidate) => overlap(candidate) < overlap(best) ? candidate : best);
-  }
-
-  private placeMascot(panel: Box, target: Box | null, scale: number, celebrating: boolean): Point {
-    const width = 104 * scale;
-    const height = 120 * scale;
-    const halfWidth = width / 2;
-    const halfHeight = height / 2;
-    const centerX = panel.left + panel.width / 2;
-    const centerY = panel.top + Math.min(panel.height / 2, halfHeight);
-    // Leave space for the final burst so the card does not hide half of the fireworks.
-    const gap = celebrating ? 88 * scale : 8;
-    const candidates = [
-      { x: panel.left - halfWidth - gap, y: centerY },
-      { x: panel.left + panel.width + halfWidth + gap, y: centerY },
-      { x: centerX, y: panel.top - halfHeight - gap },
-      { x: centerX, y: panel.top + panel.height + halfHeight + gap },
-      { x: window.innerWidth - halfWidth, y: halfHeight },
-      { x: halfWidth, y: halfHeight },
-      { x: window.innerWidth - halfWidth, y: window.innerHeight - halfHeight },
-      { x: halfWidth, y: window.innerHeight - halfHeight },
-    ].map(({ x, y }) => ({
-      x: width > window.innerWidth ? window.innerWidth / 2 : clamp(x, halfWidth, window.innerWidth - halfWidth),
-      y: height > window.innerHeight ? window.innerHeight / 2 : clamp(y, halfHeight, window.innerHeight - halfHeight),
-    }));
-    const score = (point: Point): number => {
-      const bounds = { left: point.x - halfWidth, top: point.y - halfHeight, width, height };
-      return overlapArea(bounds, panel) * 4 + (target ? overlapArea(bounds, target) * 2 : 0);
-    };
-    return candidates.reduce((best, candidate) => score(candidate) < score(best) ? candidate : best);
   }
 }

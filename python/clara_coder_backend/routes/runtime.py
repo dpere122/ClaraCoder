@@ -145,6 +145,9 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             embeddings_model=(item.embeddingsModel or '').strip(),
             embeddings_configured=bool(item.embeddingsConfigured),
             context_window_tokens=int(item.contextWindowTokens),
+            idle_ttl_seconds=int(item.idleTtlSeconds),
+            open_ai_compat=item.openAiCompat.model_dump() if item.openAiCompat else None,
+            custom_headers=dict(item.customHeaders),
             chat_template_reasoning=_chat_template_reasoning_dict(item.chatTemplateReasoning),
         )
         for item in request.connections

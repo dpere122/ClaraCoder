@@ -20,6 +20,7 @@ Jinja caps omit it, or when the Gemma template is active without caps (use think
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Any
@@ -55,6 +56,8 @@ logger = logging.getLogger('clara.llm')
 _REASONING_API_VALUES = frozenset({'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'})
 
 # llama.cpp / LM Studio fields. OpenRouter forwards unknown body fields and upstreams reject them.
+# Clara builds these itself; overriding them would break the agent loop.
+_COMPAT_RESERVED_BODY_KEYS = frozenset({'model', 'messages', 'tools', 'tool_choice', 'stream', 'stream_options'})
 _LLAMA_EXTRA_BODY_KEYS = ('top_k', 'min_p', 'repeat_penalty', 'chat_template_kwargs')
 
 # OpenRouter app attribution (rankings). ``HTTP-Referer`` is the app id; title is the display name.
@@ -106,6 +109,67 @@ def _off_reasoning_effort(allowed: list[str] | None) -> str | None:
     return None
 
 
+def _apply_openai_compatible(kwargs: dict[str, Any], connection: RuntimeConnection, *, disable_thinking: bool) -> None:
+    """Rebuild the request for a generic server: only standard fields, plus what its settings say it accepts."""
+    compat = connection.open_ai_compat or {}
+    extra: dict[str, Any] = {}
+    kwargs.pop('reasoning_effort', None)
+    kwargs.pop('extra_body', None)
+
+    # LangChain always sends its ``max_tokens`` as ``max_completion_tokens``, so the other field goes in the body.
+    cap = kwargs.pop('max_tokens', None)
+    if cap:
+        if compat.get('tokensField') == 'max_completion_tokens':
+            kwargs['max_tokens'] = cap
+        else:
+            extra['max_tokens'] = cap
+
+    if not compat.get('sendTemperature', True):
+        kwargs['temperature'] = None
+    kwargs['stream_usage'] = bool(compat.get('streamUsage', True))
+    if compat.get('frequencyPenalty') is not None:
+        kwargs['frequency_penalty'] = float(compat['frequencyPenalty'])
+    if compat.get('seed') is not None:
+        kwargs['seed'] = int(compat['seed'])
+    if compat.get('stop'):
+        kwargs['stop'] = [*(kwargs.get('stop') or []), *compat['stop']]
+
+    if compat.get('nonStandardSampling'):
+        extra.update(connection_user_sampling_kwargs_for_llm(connection).get('extra_body') or {})
+
+    method = compat.get('thinkingMethod') or 'none'
+    mode = (connection.thinking_mode or 'default').strip().lower()
+    off = disable_thinking or mode == 'off'
+    effort = (connection.reasoning_effort or '').strip().lower()
+    if method == 'reasoning_effort' and (off or effort):
+        kwargs['reasoning_effort'] = 'none' if off else effort
+    elif method == 'reasoning' and (off or effort):
+        extra['reasoning'] = {'effort': 'none' if off else effort}
+    elif method == 'chat_template_kwargs' and (off or mode == 'on'):
+        extra['chat_template_kwargs'] = {'enable_thinking': not off}
+
+    extra.update(_compat_extra_body(compat.get('extraBody') or ''))
+    if extra:
+        kwargs['extra_body'] = extra
+    if connection.custom_headers:
+        kwargs['default_headers'] = dict(connection.custom_headers)
+
+
+def _compat_extra_body(text: str) -> dict[str, Any]:
+    """The user's extra request body. Settings validates it; a bad one is skipped rather than breaking chat."""
+    if not text.strip():
+        return {}
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        logger.warning('Ignoring the extra request body: not valid JSON')
+        return {}
+    if not isinstance(parsed, dict):
+        logger.warning('Ignoring the extra request body: not a JSON object')
+        return {}
+    return {k: v for k, v in parsed.items() if k not in _COMPAT_RESERVED_BODY_KEYS}
+
+
 def build_llm(*, disable_thinking: bool = False) -> BaseChatModel:
     """Build the chat model for the agent (tools bound separately): ``ChatOpenAI`` for
     OpenAI-compatible sources, ``ChatAnthropic`` for Claude (see :mod:`.anthropic_llm`).
@@ -144,6 +208,12 @@ def build_llm(*, disable_thinking: bool = False) -> BaseChatModel:
             normalize_openai_api_base(connection.base_url or DEFAULT_LLAMACPP_BASE_URL) or DEFAULT_LLAMACPP_BASE_URL
         )
         api_key = connection.api_key or os.getenv('LLAMACPP_API_KEY', 'not-needed')
+    elif connection.provider == 'openai-compatible':
+        if not (base_url or '').strip():
+            # Without a URL the client would default to OpenAI, sending this key somewhere unintended.
+            raise HTTPException(status_code=400, detail='Add a base URL for this source in Settings.')
+        # The client requires a value; many local servers ignore it.
+        api_key = api_key or 'not-needed'
     elif connection.provider == 'openrouter':
         api_key = api_key or os.getenv('OPENROUTER_API_KEY', '')
         require_openai_api_key(api_key, 'OpenRouter')
@@ -213,6 +283,10 @@ def build_llm(*, disable_thinking: bool = False) -> BaseChatModel:
         if resolved is not None and (allowed is None or resolved in allowed):
             kwargs['reasoning_effort'] = resolved
 
+    if connection.provider == 'lmstudio' and thinking_off:
+        # ``/v1/chat/completions`` ignores ``enable_thinking``; ``none`` is what turns thinking off.
+        kwargs['reasoning_effort'] = 'none'
+
     kwargs.update(llm_optional_kwargs(connection))
 
     user_sampling = connection_user_sampling_kwargs_for_llm(connection)
@@ -251,8 +325,14 @@ def build_llm(*, disable_thinking: bool = False) -> BaseChatModel:
         base_eb['chat_template_kwargs'] = ctk
         kwargs['extra_body'] = base_eb
 
-    if connection.provider in ('llamacpp', 'lmstudio') and gemma_optimize_profile_active(connection):
+    if connection.provider in ('llamacpp', 'lmstudio', 'openai-compatible') and gemma_optimize_profile_active(connection):
         kwargs['stop'] = [GEMMA_CHANNEL_LOOP_STOP]
+
+    idle_ttl = int(getattr(connection, 'idle_ttl_seconds', 0) or 0)
+    if connection.provider == 'lmstudio' and idle_ttl > 0:
+        base_eb = dict(kwargs.get('extra_body') or {})
+        base_eb['ttl'] = idle_ttl
+        kwargs['extra_body'] = base_eb
 
     if connection.provider == 'openrouter':
         effort = kwargs.pop('reasoning_effort', None)
@@ -275,6 +355,9 @@ def build_llm(*, disable_thinking: bool = False) -> BaseChatModel:
             'HTTP-Referer': OPENROUTER_HTTP_REFERER,
             'X-OpenRouter-Title': OPENROUTER_APP_TITLE,
         }
+
+    if connection.provider == 'openai-compatible':
+        _apply_openai_compatible(kwargs, connection, disable_thinking=disable_thinking)
 
     safe: dict[str, Any] = {
         'provider': connection.provider,
@@ -303,7 +386,11 @@ def build_llm(*, disable_thinking: bool = False) -> BaseChatModel:
             'stream_chunk_timeout',
             'http_client',
             'http_async_client',
+            'default_headers',
         ):
+            continue
+        # A custom request body can hold anything the user put there.
+        if k == 'extra_body' and connection.provider == 'openai-compatible':
             continue
         safe[k] = v
     log_llm_connection_settings(safe)

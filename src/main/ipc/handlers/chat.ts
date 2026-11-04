@@ -11,6 +11,7 @@ import {
 import { mainState } from '../../state';
 import { createSettingsWindow, notifySettingsRendererReady, parseSettingsWindowTab } from '../../windows/settings-window';
 import { getConversationMetaById } from '../../conversations-db';
+import { ensureActiveLmStudioModelLoaded } from '../../lm-studio-runtime';
 import { finalizeTurnEdits } from '../../turn-edits';
 import type { ParsedAgentStreamPayload } from '../../../shared';
 import { dispatchParsedPayload, parseStreamPayload, type RendererSend } from './chat-stream-payload';
@@ -219,6 +220,11 @@ export function registerChatIpc(): void {
         replyMessageDone(send, conversationId, 'completed', turn, abortController);
 
       try {
+        // A model load can take a while, and Stop must not have to wait for it.
+        await Promise.race([
+          ensureActiveLmStudioModelLoaded(),
+          new Promise((resolve) => abortController.signal.addEventListener('abort', resolve, { once: true })),
+        ]);
         const res = await pythonSsePost('/chat/stream', body, abortController.signal);
 
         if (!res.ok || !res.body) {

@@ -386,7 +386,14 @@ export {
   isPinnedLlmSourceId,
 } from './llm-provider-ids';
 export { lmStudioOpenAiBaseUrlToRestOrigin } from './lm-studio-url';
-export type { LmStudioModelCard, LmStudioListModelsResult, LmStudioMutationResult } from './lm-studio-ipc';
+export type {
+  LmStudioLoadOptions,
+  LmStudioModelCard,
+  LmStudioListModelsResult,
+  LmStudioMutationResult,
+  LmStudioRunningConfig,
+  LmStudioSettings,
+} from './lm-studio-ipc';
 export type { LlmSourcePingResult } from './llm-source-ping-ipc';
 export type {
   OpenRouterCatalogModel,
@@ -404,7 +411,16 @@ export type {
   AnthropicStatus,
 } from './anthropic-ipc';
 export { anthropicReasoningCaps, anthropicSourceLabel, ANTHROPIC_EFFORT_ORDER } from './anthropic-ipc';
-export { coerceLmStudioContextTokens, effectiveLmStudioContextTokens } from './lm-studio-ipc';
+export {
+  DEFAULT_LM_STUDIO_SETTINGS,
+  LM_STUDIO_PLACEHOLDER_API_KEY,
+  coerceLmStudioContextTokens,
+  effectiveLmStudioContextTokens,
+  lmStudioLoadOptions,
+  lmStudioReasoningCaps,
+  lmStudioRunningConfigDiffers,
+  normalizeLmStudioSettings,
+} from './lm-studio-ipc';
 export type {
   ChatStructuredContentPart,
   ConversationMeta,
@@ -703,3 +719,20 @@ export {
   WEB_SEARCH_ENGINE_IDS,
   normalizeWebSearchEngines,
 } from './web-search-engines';
+export type {
+  OpenAiCompatCheck,
+  OpenAiCompatCheckStatus,
+  OpenAiCompatEndpoint,
+  OpenAiCompatListResult,
+  OpenAiCompatModel,
+  OpenAiCompatSettings,
+  OpenAiCompatTestResult,
+  OpenAiCompatThinkingMethod,
+  OpenAiCompatTokensField,
+} from './openai-compat';
+export {
+  DEFAULT_OPENAI_COMPAT_SETTINGS,
+  normalizeOpenAiCompatSettings,
+  openAiCompatBaseUrl,
+  parseOpenAiCompatExtraBody,
+} from './openai-compat';

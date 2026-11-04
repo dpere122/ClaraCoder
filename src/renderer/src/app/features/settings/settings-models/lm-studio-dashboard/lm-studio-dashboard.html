@@ -1,0 +1,215 @@
+<div class='lms'>
+  <section class='lms-panel lms-connection'>
+    <div class='lms-connection__fields'>
+      <h5>Connection</h5>
+      <div class='lms-fields'>
+        <label class='field'>
+          <span>Base URL</span>
+          <input
+            type='text'
+            placeholder='http://127.0.0.1:1234/v1'
+            [ngModel]='s.selectedProvider()!.baseUrl'
+            (ngModelChange)='s.updateSelectedProvider({ baseUrl: $event })'
+            (keydown.enter)='s.refreshLmStudioInventory()'
+          />
+        </label>
+        <label class='field'>
+          <span class='lms-token-label'>
+            API token
+            @if (token()) {
+              @switch (s.modelManagerSecretStorage()) {
+                @case ('keychain') {
+                  <span class='lms-badge lms-badge--ok' title='Encrypted with the OS keychain'>
+                    <lucide-icon name='shield' [size]='11' />
+                    Encrypted
+                  </span>
+                }
+                @case ('plaintext') {
+                  <span class='lms-badge lms-badge--warn' title='OS keychain unavailable; stored in the owner-only config file'>
+                    <lucide-icon name='triangle-alert' [size]='11' />
+                    Not encrypted
+                  </span>
+                }
+              }
+            }
+          </span>
+          <input
+            type='password'
+            autocomplete='off'
+            placeholder='Only if Require Authentication is on'
+            [ngModel]='token()'
+            (ngModelChange)='onTokenChange($event)'
+            (keydown.enter)='s.refreshLmStudioInventory()'
+          />
+        </label>
+      </div>
+    </div>
+
+    <div class='lms-connection__status'>
+      <div [class]="'lms-status lms-status--' + statusView().tone" role='status' aria-live='polite'>
+        <lucide-icon [name]='statusView().icon' [size]='15' />
+        <strong>{{ statusView().label }}</strong>
+      </div>
+      <code class='lms-connection__endpoint'>{{ s.lmStudioConnection()?.origin || s.selectedProvider()!.baseUrl }}</code>
+      <div class='lms-connection__badges'>
+        @if (connected()) {
+          <span class='lms-badge'>REST {{ s.lmStudioConnection()!.source }}</span>
+        }
+        @if (s.sourceIsActive(s.selectedProvider()!)) {
+          <span class='lms-badge lms-badge--ok'><lucide-icon name='check' [size]='11' />Active source</span>
+        }
+      </div>
+      <div class='lms-connection__actions'>
+        <button
+          type='button'
+          class='action-button'
+          [class.action-button--primary]='!connected()'
+          [disabled]='s.lmStudioListInFlight()'
+          (click)='s.refreshLmStudioInventory()'
+        >
+          @if (connected()) {
+            <lucide-icon name='refresh-cw' [size]='13' />
+            Refresh
+          } @else if (s.lmStudioListInFlight()) {
+            Connecting…
+          } @else {
+            Connect
+          }
+        </button>
+        @if (!s.sourceIsActive(s.selectedProvider()!)) {
+          <button type='button' class='action-button' (click)='s.activateSource(s.selectedProvider()!.id)'>
+            Set as active source
+          </button>
+        }
+      </div>
+    </div>
+
+    @if (s.lmStudioInventoryError(); as err) {
+      <div class='lms-alert' role='alert'>
+        <lucide-icon name='circle-alert' [size]='14' />
+        <div class='lms-alert__body'>
+          <span>{{ err }}</span>
+          @if (s.lmStudioStatus() === 'offline') {
+            <span class='lms-muted'>Start the server in LM Studio's Developer tab, or run <code>lms server start</code>, then Connect.</span>
+          }
+        </div>
+        <button type='button' class='lms-icon-button' aria-label='Dismiss' (click)='s.lmStudioInventoryError.set(null)'>
+          <lucide-icon name='x' [size]='14' />
+        </button>
+      </div>
+    }
+  </section>
+
+  <section class='lms-panel'>
+    <h5>Chat model</h5>
+    <div class='lms-control-row'>
+      <label class='field lms-control-row__model'>
+        <span>Model</span>
+        <app-pill-select
+          [options]='chatOptions()'
+          [value]='chatValue()'
+          [placeholder]='chatPlaceholder()'
+          [disabled]='!chatOptions().length'
+          (valueChange)='s.onModelApiIdChange($event)'
+        />
+      </label>
+      @if (chatCard(); as card) {
+        @if (connected()) {
+          @if (chatLoaded()) {
+            <button type='button' class='action-button' [disabled]='chatBusy() || !canManage()' (click)='s.unloadLmStudioCard(card)'>
+              <lucide-icon name='square' [size]='12' />
+              {{ chatBusy() ? 'Unloading…' : 'Unload' }}
+            </button>
+          } @else {
+            <button
+              type='button'
+              class='action-button action-button--primary'
+              [disabled]='chatBusy() || !canManage()'
+              (click)='s.loadLmStudioModel(card.id)'
+            >
+              <lucide-icon name='play' [size]='12' />
+              {{ chatBusy() ? 'Loading…' : 'Load' }}
+            </button>
+          }
+        }
+      }
+    </div>
+    @if (connected() && !chatCard() && s.selectedModel()!.model) {
+      <p class='lms-note lms-note--warn'>
+        <lucide-icon name='triangle-alert' [size]='13' />
+        The saved model, {{ s.selectedModel()!.model }}, isn't on this server. Pick one above.
+      </p>
+    }
+    @if (chatCard(); as card) {
+      <div class='lms-caps'>
+        @if (card.toolUse === true) {
+          <span class='lms-badge lms-badge--ok' title='LM Studio reports this model was trained for tool use'><lucide-icon name='check' [size]='11' />Tool use</span>
+        } @else if (card.toolUse === false) {
+          <span class='lms-badge lms-badge--warn' title="LM Studio reports this model wasn't trained for tool use"><lucide-icon name='triangle-alert' [size]='11' />Not trained for tools</span>
+        }
+        @if (card.vision) {
+          <span class='lms-badge'>Vision</span>
+        }
+        @if (card.reasoningOptions?.length) {
+          <span class='lms-badge'>Thinking</span>
+        }
+        @if (card.arch) {
+          <span class='lms-badge'>{{ card.arch }}</span>
+        }
+        @if (card.quantization) {
+          <span class='lms-badge'>{{ card.quantization }}</span>
+        }
+      </div>
+      @if (card.toolUse === false) {
+        <p class='lms-note lms-note--warn'>
+          <lucide-icon name='triangle-alert' [size]='13' />
+          Clara's agent relies on tool calls, so this model may struggle with coding tasks.
+        </p>
+      }
+    }
+    @if (connected() && !canManage()) {
+      <p class='lms-muted lms-note'>Loading and unloading need LM Studio 0.4 or newer. This server can only list models.</p>
+    }
+    <p class='lms-muted lms-note'>Embeddings use Clara's built-in CPU model, not LM Studio.</p>
+  </section>
+
+  <app-lm-studio-controls>
+    <div class='lms-tiles'>
+      <div class='lms-tile'>
+        <span class='lms-tile__label'>Models</span>
+        <strong class='lms-tile__value'>{{ connected() ? s.lmStudioInventory().length : '—' }}</strong>
+        <span class='lms-tile__sub'>{{ connected() ? chatCount() + ' chat · ' + embeddingCount() + ' embedding' : 'Not connected' }}</span>
+      </div>
+      <div class='lms-tile'>
+        <span class='lms-tile__label'>Loaded</span>
+        <strong class='lms-tile__value'>{{ connected() ? loadedCount() : '—' }}</strong>
+        <span class='lms-tile__sub'>{{ connected() ? (loadedCount() ? 'In memory now' : 'Nothing in memory') : 'Not connected' }}</span>
+      </div>
+      <div class='lms-tile'>
+        <span class='lms-tile__label'>Chat model context</span>
+        @if (chatCard()?.loaded_context_length; as ctx) {
+          <strong class='lms-tile__value'>{{ formatTokens(ctx) }}</strong>
+          <div
+            class='lms-meter'
+            role='meter'
+            aria-label='Loaded context as a share of the model maximum'
+            aria-valuemin='0'
+            aria-valuemax='100'
+            [attr.aria-valuenow]='contextPercent()'
+          >
+            <span [style.width.%]='contextPercent()'></span>
+          </div>
+          <span class='lms-tile__sub'>of {{ formatTokens(chatCard()!.max_context_length) }} model max</span>
+        } @else {
+          <strong class='lms-tile__value'>—</strong>
+          <span class='lms-tile__sub'>Model not loaded</span>
+        }
+      </div>
+      <div class='lms-tile'>
+        <span class='lms-tile__label'>On disk</span>
+        <strong class='lms-tile__value'>{{ connected() && diskBytes() ? s.formatModelBytes(diskBytes()) : '—' }}</strong>
+        <span class='lms-tile__sub'>{{ connected() && diskBytes() ? 'All listed models' : 'Size not reported' }}</span>
+      </div>
+    </div>
+  </app-lm-studio-controls>
+</div>

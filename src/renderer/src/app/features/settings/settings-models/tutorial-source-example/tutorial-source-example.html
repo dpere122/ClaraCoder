@@ -1,0 +1,97 @@
+<p class='tutorial-example-banner' role='note'>
+  <lucide-icon name='triangle-alert' [size]='14' />
+  <span><strong>Example only.</strong> This is made-up data, not a real source. Nothing here can be changed or saved.</span>
+</p>
+
+<div class='settings-editor__header'>
+  <div>
+    <p class='settings-eyebrow'>Example source</p>
+    <h4>Example Model (not real)</h4>
+  </div>
+</div>
+
+<hr class='settings-divider' />
+
+<div class='form-section model-run-hero'>
+  <div class='form-section__header'>
+    <h5>Model</h5>
+  </div>
+  <div class='form-grid'>
+    <div class='field field--full'>
+      <span>Name</span>
+      <input type='text' disabled aria-label='Example name' value='Example Model (not real)' />
+    </div>
+    <div class='field field--full' data-tutorial='sources-local-model' data-tutorial-models-state='example'>
+      <span class='local-model-label'>Local model</span>
+      <app-pill-select [options]='modelOptions' value='example' [disabled]='true' ariaLabel='Example local model' />
+    </div>
+  </div>
+</div>
+
+<div class='form-section ready-defaults' data-tutorial='sources-defaults'>
+  <div class='form-section__header'>
+    <h5>Ready defaults</h5>
+    <p class='settings-copy'>Example: settings suggested for this made-up model.</p>
+  </div>
+  <div class='form-grid'>
+    <div class='field'>
+      <span>Template</span>
+      <app-pill-select [options]='templateOptions' value='example' [disabled]='true' ariaLabel='Example template' />
+    </div>
+  </div>
+</div>
+
+<hr class='settings-divider' />
+
+<details class='advanced-tuning' data-tutorial='sources-advanced-section'>
+  <summary data-tutorial='sources-advanced'>Advanced</summary>
+  <div class='form-section'>
+    <section class='run-command' data-tutorial='sources-run-command'>
+      <div class='run-command__head'>
+        <div class='run-command__title'>
+          <h6>Run command</h6>
+          <span class='run-command__summary'>Example commands</span>
+        </div>
+      </div>
+
+      <div class='run-flag-list' data-tutorial='sources-run-flags'>
+        @for (entry of flags; track entry.flag) {
+          <div class='run-flag' data-status='used' [attr.data-flag]='entry.flag'>
+            <div class='run-flag__name'>
+              <code>{{ entry.flag }}</code>
+              @if (entry.longName) {
+                <span class='run-flag__long'>{{ entry.longName }}</span>
+              }
+            </div>
+            <div class='run-flag__value'>
+              <code class='run-flag__fixed'>{{ entry.value }}</code>
+            </div>
+            <span class='run-flag__status'>Example</span>
+            <span class='run-flag__remove-gap'></span>
+          </div>
+        }
+      </div>
+
+      <div class='run-flag-add' data-tutorial='sources-flag-add'>
+        <lucide-icon name='plus' [size]='13' />
+        <input type='text' disabled aria-label='Add a flag (example)' placeholder='Add a flag: search the available options' />
+      </div>
+      <div class='run-flag-common' role='group' aria-label='Common flags (example)'>
+        @for (flag of commonFlags; track flag) {
+          <button type='button' disabled>{{ flag }}</button>
+        }
+      </div>
+
+      <div class='run-placement' data-tutorial='sources-vram'>
+        <span class='run-placement__label'>GPU placement</span>
+        <div class='run-command__views' role='radiogroup' aria-label='GPU placement (example)'>
+          <button type='button' role='radio' aria-checked='true' class='is-active' disabled>Example Graphics Card (recommended)</button>
+          <button type='button' role='radio' aria-checked='false' disabled>CPU only</button>
+        </div>
+        <ul class='run-vram' aria-label='Estimated VRAM (example)'>
+          <li data-level='ok'>Example Graphics Card: about 5.1 of 8 GB (made-up numbers)</li>
+        </ul>
+      </div>
+    </section>
+  </div>
+</details>

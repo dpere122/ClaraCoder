@@ -154,23 +154,45 @@
 
   <div class='mm-browser'>
     <div class='mm-list' role='listbox' aria-label='Models' (keydown)='onListKeydown($event)'>
-      @if (s.modelManagerLocalLoading()) {
-        <div class='mm-list__section'>Downloaded</div>
-        <div class='mm-list__note'><span class='model-card__mini-spinner' aria-hidden='true'></span> Scanning folder…</div>
-      } @else if (localRows().length) {
-        <div class='mm-list__section'>Downloaded <span>{{ localRows().length }}</span></div>
-        @for (row of localRows(); track row.key) {
-          <ng-container *ngTemplateOutlet='rowTpl; context: { $implicit: row }' />
-        }
+      @if (s.modelManagerLocalLoading() || localRows().length || !searching()) {
+        <details class='mm-accordion' data-tutorial='downloaded-list' [open]='isSectionOpen("downloaded")' (toggle)='onSectionToggle("downloaded", $event)'>
+          <summary class='mm-list__section'>
+            <lucide-icon class='mm-accordion__chevron' name='chevron-right' [size]='13' />
+            Downloaded
+            @if (s.modelManagerLocalLoading()) {
+              <span class='mm-accordion__count model-card__mini-spinner' role='status' aria-label='Scanning folder'></span>
+            } @else {
+              <span class='mm-accordion__count'>{{ localRows().length }}</span>
+            }
+          </summary>
+          @if (s.modelManagerLocalLoading()) {
+            <div class='mm-list__note'><span class='model-card__mini-spinner' aria-hidden='true'></span> Scanning folder…</div>
+          } @else {
+            @for (row of localRows(); track row.key) {
+              <ng-container *ngTemplateOutlet='rowTpl; context: { $implicit: row }' />
+            } @empty {
+              <div class='mm-list__note'>Nothing downloaded yet.</div>
+            }
+          }
+        </details>
       }
 
       @if (featuredRows().length) {
-        <div role='group' aria-label='Featured models' data-tutorial='featured-list'>
-          <div class='mm-list__section'>Featured <span>{{ featuredRows().length }}</span></div>
-          @for (row of featuredRows(); track row.key) {
-            <ng-container *ngTemplateOutlet='rowTpl; context: { $implicit: row }' />
+        <details class='mm-accordion' data-tutorial='featured-list' [open]='isSectionOpen("featured")' (toggle)='onSectionToggle("featured", $event)'>
+          <summary class='mm-list__section'>
+            <lucide-icon class='mm-accordion__chevron' name='chevron-right' [size]='13' />
+            Featured
+            <span class='mm-accordion__count'>{{ featuredRows().length }}</span>
+          </summary>
+          @for (group of featuredGroups(); track group.id) {
+            <div role='group' [attr.aria-label]='group.label + " models"' [attr.data-tutorial]='"featured-" + group.id'>
+              <div class='mm-list__group'>{{ group.label }} <span>{{ group.hint }}</span></div>
+              @for (row of group.rows; track row.key) {
+                <ng-container *ngTemplateOutlet='rowTpl; context: { $implicit: row }' />
+              }
+            </div>
           }
-        </div>
+        </details>
       }
 
       @if (resultRows().length) {
@@ -323,7 +345,6 @@
     class='mm-row'
     role='option'
     [attr.data-row-key]='row.key'
-    [attr.data-tutorial]='row.kind === "featured" && row.repoId === tutorialExamples().small?.id ? "featured-small" : row.kind === "featured" && row.repoId === tutorialExamples().largest?.id ? "featured-largest" : null'
     [attr.data-total-parameters-b]='row.kind === "featured" ? row.featured.totalParametersB : null'
     [attr.data-active-parameters-b]='row.kind === "featured" ? row.featured.activeParametersB : null'
     [attr.data-architecture]='row.kind === "featured" ? row.featured.architecture : null'
@@ -334,7 +355,7 @@
     (click)='select(row)'
   >
     <span class='mm-row__main'>
-      <span class='mm-row__name' [attr.data-tutorial]='row.kind === "featured" && row.repoId === tutorialExamples().small?.id && row.repoId === tutorialExamples().largest?.id ? "featured-largest" : null'>{{ row.name }}</span>
+      <span class='mm-row__name'>{{ row.name }}</span>
       <span class='mm-row__sub'>
         @switch (row.kind) {
           @case ('local') {

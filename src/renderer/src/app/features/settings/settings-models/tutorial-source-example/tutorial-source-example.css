@@ -1,0 +1,47 @@
+/* Lets the sections sit directly in the editor column, like the real ones do. */
+app-tutorial-source-example {
+  display: contents;
+}
+
+/* Stays in view while the editor scrolls, so the page can't be mistaken for a real source. */
+.tutorial-example-banner {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 7px 10px;
+  border: 1px dashed var(--t-warn, #e8b931);
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      color-mix(in srgb, var(--t-warn, #e8b931) 16%, transparent) 0 8px,
+      transparent 8px 16px
+    ),
+    var(--t-bg);
+  font-size: 12px;
+  color: var(--t-fg);
+}
+
+.tutorial-example-banner lucide-icon {
+  flex-shrink: 0;
+  color: var(--t-warn, #e8b931);
+}
+
+/* The editor's own divider rule only matches its direct children. */
+app-tutorial-source-example > .settings-divider {
+  margin: 12px 0;
+}
+
+/* The matching row in the sources list; it stands in for a source, so it isn't clickable. */
+.source-row-wrap--example {
+  outline: 1px dashed var(--t-warn, #e8b931);
+  outline-offset: -1px;
+}
+
+.source-row-wrap--example .source-row {
+  cursor: default;
+}

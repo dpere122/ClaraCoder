@@ -574,6 +574,157 @@ describe('migrateConfig managed --cache-ram 0', () => {
   });
 });
 
+describe('migrateConfig LM Studio name', () => {
+  const pinnedName = (name: string) => {
+    const cfg = sampleConfig();
+    cfg.llmProviders.find((p) => p.provider === 'lmstudio')!.name = name;
+    return migrateConfig(cfg).llmProviders.find((p) => p.provider === 'lmstudio')?.name;
+  };
+
+  it('starts a new config as LM Studio', () => {
+    expect(createDefaultConfig().llmProviders.find((p) => p.provider === 'lmstudio')?.name).toBe('LM Studio');
+  });
+
+  it('renames the old default', () => {
+    expect(pinnedName('LM Studio Default')).toBe('LM Studio');
+  });
+
+  it('keeps a name the user chose', () => {
+    expect(pinnedName('Workstation')).toBe('Workstation');
+  });
+});
+
+describe('the OpenAI-compatible source', () => {
+  const urlSource = (cfg: AppConfig) => cfg.llmProviders.find((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID)!;
+
+  it('starts a new config with its own source type, no invented model and no embeddings server', () => {
+    const source = urlSource(createDefaultConfig());
+    expect(source.provider).toBe('openai-compatible');
+    expect(source.models[0]?.model).toBe('');
+    expect(source.embeddingsBaseUrl).toBeUndefined();
+  });
+
+  it('moves a saved llamacpp row to the new type, keeping its URL and model', () => {
+    const cfg = sampleConfig();
+    const source = urlSource(cfg);
+    source.provider = 'llamacpp';
+    source.baseUrl = 'https://x.dev/v1';
+    source.models[0]!.model = 'my-model';
+    const migrated = urlSource(migrateConfig(cfg));
+    expect(migrated.provider).toBe('openai-compatible');
+    expect(migrated.baseUrl).toBe('https://x.dev/v1');
+    expect(migrated.models[0]?.model).toBe('my-model');
+  });
+
+  const migrateUrl = (baseUrl: string) => {
+    const cfg = sampleConfig();
+    const source = urlSource(cfg);
+    source.provider = 'llamacpp';
+    source.baseUrl = baseUrl;
+    return urlSource(migrateConfig(cfg));
+  };
+
+  it('keeps sending a saved row to the same address, which used to get /v1 added', () => {
+    expect(migrateUrl('http://proxy/lms').baseUrl).toBe('http://proxy/lms/v1');
+    expect(migrateUrl('http://host:8080/').baseUrl).toBe('http://host:8080/v1');
+    expect(migrateUrl('192.168.1.10:8080').baseUrl).toBe('http://192.168.1.10:8080/v1');
+    expect(migrateUrl('').baseUrl).toBe('http://127.0.0.1:8080/v1');
+  });
+
+  it('moves user:pw@ from a saved row into the header it was sending', () => {
+    const migrated = migrateUrl('http://u%40x:p@host/v1');
+    expect(migrated.baseUrl).toBe('http://host/v1');
+    expect(migrated.customHeaders?.map((h) => [h.key, unwrapSecret(h.value)])).toEqual([
+      ['Authorization', `Basic ${Buffer.from('u@x:p').toString('base64')}`],
+    ]);
+  });
+
+  it('leaves a saved row with an unusable URL for its screen to flag', () => {
+    expect(migrateUrl('http://[bad').baseUrl).toBe('http://[bad');
+  });
+
+  it('leaves a URL alone once the source has the new type', () => {
+    const cfg = sampleConfig();
+    urlSource(cfg).provider = 'openai-compatible';
+    urlSource(cfg).baseUrl = 'http://proxy/custom';
+    expect(urlSource(migrateConfig(cfg)).baseUrl).toBe('http://proxy/custom');
+  });
+
+  it('leaves managed local sources as llamacpp', () => {
+    const migrated = migrateConfig(sampleConfig());
+    const local = migrated.llmProviders.find(isLocalSource);
+    expect(local?.provider).toBe('llamacpp');
+  });
+
+  it('accepts the type on a save', () => {
+    const cfg = sampleConfig();
+    urlSource(cfg).provider = 'openai-compatible';
+    expect(urlSource(migrateConfig(cfg)).provider).toBe('openai-compatible');
+  });
+
+  it('keeps settings, and repairs invalid values', () => {
+    const cfg = sampleConfig();
+    (urlSource(cfg).models[0] as { openAiCompat?: unknown }).openAiCompat = { tokensField: 'bogus', seed: 7, sendTemperature: false };
+    const compat = urlSource(migrateConfig(cfg)).models[0]?.openAiCompat;
+    expect(compat).toMatchObject({ tokensField: 'max_tokens', seed: 7, sendTemperature: false, streamUsage: true });
+  });
+
+  describe('custom headers', () => {
+    const withHeaders = (headers: unknown) => {
+      const cfg = sampleConfig();
+      (urlSource(cfg) as { customHeaders?: unknown }).customHeaders = headers;
+      return urlSource(migrateConfig(cfg));
+    };
+
+    it('wrap values as secrets, from a plain string or a String object', () => {
+      const headers = withHeaders([{ key: 'api-key', value: 'abc' }, { key: 'b', value: new String('def') }]).customHeaders!;
+      expect(headers.map((h) => h.key)).toEqual(['api-key', 'b']);
+      expect(headers.map((h) => unwrapSecret(h.value))).toEqual(['abc', 'def']);
+      expect(JSON.stringify(headers)).not.toContain('abc');
+    });
+
+    it('go through the same disk encryption as API keys', async () => {
+      const tempDir = mkdtempSync(join(tmpdir(), 'clara-headers-'));
+      process.env.CLARA_TEST_CONFIG_DIR = tempDir;
+      try {
+        const cfg = sampleConfig();
+        urlSource(cfg).customHeaders = [{ key: 'api-key', value: SecretValue.of('hdr-secret') }];
+        await saveConfig(cfg);
+        const onDisk = JSON.parse(readFileSync(join(tempDir, 'config.json'), 'utf-8')) as AppConfig;
+        const stored = urlSource(onDisk).customHeaders as unknown as { key: string; value: unknown }[];
+        // No keychain in tests, so this is the plaintext fallback; what matters is the value is written as a string.
+        expect(stored).toEqual([{ key: 'api-key', value: 'hdr-secret' }]);
+        const loaded = await loadConfig();
+        expect(urlSource(loaded).customHeaders?.map((h) => unwrapSecret(h.value))).toEqual(['hdr-secret']);
+      } finally {
+        delete process.env.CLARA_TEST_CONFIG_DIR;
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+  });
+});
+
+describe('migrateConfig LM Studio settings', () => {
+  const migrate = (lmStudio: unknown) => {
+    const cfg = sampleConfig();
+    (cfg.llmProviders.find((p) => p.provider === 'lmstudio')!.models[0] as { lmStudio?: unknown }).lmStudio = lmStudio;
+    return migrateConfig(cfg).llmProviders.find((p) => p.provider === 'lmstudio')!.models[0]!.lmStudio;
+  };
+
+  it('keeps saved settings', () => {
+    const saved = { contextLength: 65536, parallel: 2, evalBatchSize: 512, flashAttention: false, offloadKvCacheToGpu: false, autoLoad: false, idleTtlSeconds: 300 };
+    expect(migrate(saved)).toEqual(saved);
+  });
+
+  it('repairs invalid values', () => {
+    expect(migrate({ contextLength: -1, parallel: 'many' })).toMatchObject({ contextLength: 32768, parallel: 4 });
+  });
+
+  it('adds nothing to a profile that never set any', () => {
+    expect(migrate(undefined)).toBeUndefined();
+  });
+});
+
 describe('migrateConfig openrouter pin', () => {
   it('inserts the pinned OpenRouter source without changing the active model', () => {
     const cfg = sampleConfig();
@@ -1050,8 +1201,8 @@ describe('durable tutorial progress', () => {
     };
     const next = applyTutorialTransition(progress, { action: 'advance', expectedRevision: 5 });
     expect(next.progress.active).toEqual({ phaseId: 'local-source', stepId: 'sources-defaults', extension: { keep: true } });
-    const registry = [{ id: 'local-source', steps: ['celebration'] }, { id: 'future', steps: ['start'] }];
-    const finished = applyTutorialTransition({ ...progress, active: { phaseId: 'local-source', stepId: 'celebration' } },
+    const registry = [{ id: 'local-source', steps: ['tour-complete'] }, { id: 'future', steps: ['start'] }];
+    const finished = applyTutorialTransition({ ...progress, active: { phaseId: 'local-source', stepId: 'tour-complete' } },
       { action: 'advance', expectedRevision: 5 }, registry);
     expect(finished.progress.active?.phaseId).toBe('future');
     expect(finished.progress.sourceId).toBeUndefined();

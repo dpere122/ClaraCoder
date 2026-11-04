@@ -1,4 +1,4 @@
-<section class='run-command'>
+<section class='run-command' data-tutorial='sources-run-command'>
   <div class='run-command__head'>
     <div class='run-command__title'>
       <h6>Run command</h6>
@@ -48,7 +48,7 @@
   }
 
   @if (view() === 'flags') {
-    <div class='run-flag-list'>
+    <div class='run-flag-list' data-tutorial='sources-run-flags'>
       @for (entry of analysis().entries; track entry.id) {
         <div class='run-flag' [attr.data-status]='entry.status' [attr.data-flag]='entry.flag' [title]='entryTitle(entry)'>
           <div class='run-flag__name'>
@@ -156,7 +156,7 @@
       </div>
     }
 
-    <div class='run-flag-add'>
+    <div class='run-flag-add' data-tutorial='sources-flag-add'>
       <lucide-icon name='plus' [size]='13' />
       <input
         type='text'
@@ -215,7 +215,7 @@
   }
 
   @if (s.cudaGpus().length) {
-    <div class='run-placement'>
+    <div class='run-placement' data-tutorial='sources-vram'>
       <span class='run-placement__label'>GPU placement</span>
       <div class='run-command__views' role='radiogroup' aria-label='GPU placement'>
         @for (placement of gpuPlacements(); track placement.id) {
@@ -282,7 +282,7 @@
     @if (catalog(); as c) {
       Checked against the installed llama-server{{ c.version ? ' (' + c.version + ')' : '' }}.
     } @else if (catalogError()) {
-      Flags aren’t verified: {{ catalogError() }}
+      Flags aren't verified: {{ catalogError() }}
     } @else {
       Reading llama-server options…
     }

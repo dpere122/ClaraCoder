@@ -104,10 +104,14 @@ export const createAppServicesApi = (ipcRenderer: PreloadIpc) => ({
   anthropicClearApiKey: () => ipcRenderer.invoke('anthropic:clear-api-key'),
   anthropicSetModel: (payload: { modelId: string }) => ipcRenderer.invoke('anthropic:set-model', payload),
   lmStudioListModels: (payload: { baseUrl: string; apiKey?: string }) => ipcRenderer.invoke('lm-studio:list-models', payload),
-  lmStudioLoadModel: (payload: { baseUrl: string; model: string; apiKey?: string }) =>
+  lmStudioLoadModel: (payload: { baseUrl: string; model: string; apiKey?: string; options?: Record<string, unknown> }) =>
     ipcRenderer.invoke('lm-studio:load-model', payload),
   lmStudioUnloadModel: (payload: { baseUrl: string; instanceId: string; apiKey?: string }) =>
     ipcRenderer.invoke('lm-studio:unload-model', payload),
+  openAiCompatListModels: (payload: { endpoint: Record<string, unknown> }) =>
+    ipcRenderer.invoke('openai-compat:list-models', payload),
+  openAiCompatTest: (payload: { endpoint: Record<string, unknown>; model: string }) =>
+    ipcRenderer.invoke('openai-compat:test', payload),
   onLlamaServerOutput: (callback: (event: unknown, data: unknown) => void) =>
     ipcRenderer.on('llama-server-output', callback),
   onLlamaServerProcessExit: (callback: (event: unknown, data: unknown) => void) =>

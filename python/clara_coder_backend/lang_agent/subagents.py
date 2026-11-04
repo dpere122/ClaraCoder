@@ -50,6 +50,7 @@ from collections.abc import Iterable
 from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 from clara_coder_backend.config import CLARA_CONTEXT_WINDOW_FALLBACK, CLARA_SUBAGENT_MAX_CONCURRENCY
 from clara_coder_backend.domain import RuntimeConnection, SessionState
@@ -179,6 +180,13 @@ def _active_connection() -> RuntimeConnection | None:
     return state.get_active_connection() if state.runtime_config.connections else None
 
 
+def _is_local_server(connection: RuntimeConnection) -> bool:
+    if connection.provider == 'openai-compatible':
+        host = (urlsplit(connection.base_url or '').hostname or '').lower()
+        return host in ('localhost', '::1') or host.startswith('127.')
+    return connection.provider in ('llamacpp', 'lmstudio')
+
+
 def parent_subagent_semaphore(parent: SessionState) -> asyncio.Semaphore:
     """This parent's concurrency cap (``CLARA_SUBAGENT_MAX_CONCURRENCY``), created on first use.
 
@@ -186,7 +194,7 @@ def parent_subagent_semaphore(parent: SessionState) -> asyncio.Semaphore:
     """
     if parent.subagent_semaphore is None:
         connection = _active_connection()
-        local = connection is not None and connection.provider in ('llamacpp', 'lmstudio')
+        local = connection is not None and _is_local_server(connection)
         parent.subagent_semaphore = asyncio.Semaphore(1 if local else CLARA_SUBAGENT_MAX_CONCURRENCY)
     return parent.subagent_semaphore
 

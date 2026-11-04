@@ -1,3 +1,5 @@
+import type { LmStudioSettings } from '../lm-studio-ipc';
+import type { OpenAiCompatSettings } from '../openai-compat';
 import type { Workspace } from './workspace';
 import type { TutorialProgress } from './tutorial';
 import type { ScreenshotRetentionSettings } from '../screenshot-retention';
@@ -230,6 +232,10 @@ export interface LlmModelProfile {
   maxOutputTokens: number;
   /** Managed ``llama-server`` launch profile (``llamacpp`` provider). */
   llamaCppManaged?: LlamaCppManaged;
+  /** How Clara loads this model on an ``lmstudio`` source. */
+  lmStudio?: LmStudioSettings;
+  /** What the server accepts, on an ``openai-compatible`` source. */
+  openAiCompat?: OpenAiCompatSettings;
 }
 
 /** One API base URL + credentials with many named model presets. */
@@ -244,8 +250,10 @@ export interface LlmProviderConfig {
   /**
    * ``llamacpp`` targets llama.cpp’s OpenAI-compatible HTTP server (``llama-server``). ``openrouter`` is OpenRouter’s chat API.
    * ``anthropic`` is the Claude API; its key lives in main's keychain store, never in ``apiKey``.
+   * ``openai-compatible`` is any other server with that API; Clara assumes nothing about it beyond
+   * ``openAiCompat``, unlike ``llamacpp``, which gets llama-server's own request fields.
    */
-  provider: 'openai' | 'lmstudio' | 'llamacpp' | 'openrouter' | 'anthropic' | 'python-t2i';
+  provider: 'openai' | 'lmstudio' | 'llamacpp' | 'openai-compatible' | 'openrouter' | 'anthropic' | 'python-t2i';
   baseUrl: string;
   apiKey: SecretValue<string>;
   /**
@@ -258,6 +266,8 @@ export interface LlmProviderConfig {
    * (e.g. remote ``llama-server`` chat on :8080 and embeddings on :8081).
    */
   embeddingsBaseUrl?: string;
+  /** ``openai-compatible``: sent on every request, for servers that don't use ``Authorization: Bearer``. */
+  customHeaders?: McpSecretEntry[];
   models: LlmModelProfile[];
 }
 
@@ -269,7 +279,7 @@ export interface LlamaManagedRuntimeEndpoints {
 
 /** Single resolved row for Python / UI (provider endpoint + one model preset). `id` is the model preset id. */
 export type LlmConnectionConfig = LlmModelProfile &
-  Pick<LlmProviderConfig, 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel' | 'embeddingsBaseUrl'>;
+  Pick<LlmProviderConfig, 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel' | 'embeddingsBaseUrl' | 'customHeaders'>;
 
 const GEMMA_THINKING_MODE_VALUES = new Set<string>(LLM_THINKING_MODE_OPTIONS.map((o) => o.value));
 /**

@@ -44,6 +44,7 @@ vi.mock('../../windows/settings-window', () => ({
   parseSettingsWindowTab: vi.fn(),
 }));
 vi.mock('../../turn-edits', () => ({ finalizeTurnEdits: mocks.finalizeTurnEdits }));
+vi.mock('../../lm-studio-runtime', () => ({ ensureActiveLmStudioModelLoaded: vi.fn(async () => undefined) }));
 vi.mock('./conversation-timeline', () => ({ workspacePathForWorkspaceId: vi.fn(() => '/ws') }));
 
 vi.mock('../../conversations-db', () => ({

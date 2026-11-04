@@ -19,6 +19,11 @@ import type {
   LlmOptimizationPreset,
   LlmProviderConfig,
   LmStudioModelCard,
+  LmStudioSettings,
+  OpenAiCompatEndpoint,
+  OpenAiCompatModel,
+  OpenAiCompatSettings,
+  OpenAiCompatTestResult,
   OpenRouterCatalogModel,
   AnthropicCatalogModel,
   ModelManagerFileEntry,
@@ -69,6 +74,10 @@ import {
   defaultLlamaCppManaged,
   detectShellQuotingPlatform,
   effectiveLmStudioContextTokens,
+  lmStudioLoadOptions,
+  lmStudioRunningConfigDiffers,
+  normalizeLmStudioSettings,
+  normalizeOpenAiCompatSettings,
   countLlmModels,
   defaultLlmModelId,
   findLlmModelLocation,
@@ -207,18 +216,6 @@ function clampTtsSpeechSpeed(raw: unknown): number {
   return +c.toFixed(2);
 }
 
-/** Compare OpenAI-compatible ``…/v1`` bases for equality (trailing slashes optional). */
-function openAiV1BasesEquivalent(a: string, b: string): boolean {
-  const norm = (raw: string) => {
-    let s = (raw || '').trim().replace(/\/+$/, '');
-    if (!s.toLowerCase().endsWith('/v1')) {
-      s = `${s}/v1`;
-    }
-    return s.toLowerCase();
-  };
-  return norm(a) === norm(b);
-}
-
 /** Strip a trailing .gguf / .ggml extension (case-insensitive) for rename pre-fill. */
 function stripModelExtension(fileName: string): string {
   const lower = (fileName || '').toLowerCase();
@@ -261,6 +258,15 @@ const DEFAULT_HF_FILE_TYPE = 'gguf';
 
 /** What the Model Manager detail panel shows. */
 export type ModelManagerSelection = { kind: 'hf'; id: string } | { kind: 'local'; path: string };
+
+export type LmStudioStatus = 'idle' | 'checking' | 'connected' | 'stale' | 'offline';
+
+export interface LmStudioConnection {
+  /** Base URL that was checked; a different draft URL makes the connection stale. */
+  baseUrl: string;
+  origin: string;
+  source: 'v1' | 'v0';
+}
 
 @Injectable()
 export class SettingsStore {
@@ -505,11 +511,6 @@ export class SettingsStore {
     }
     return mergeLlmProviderModel(loc.provider, loc.model);
   });
-  /** True for the pinned remote llama-server row (URL + Connect), not managed run commands. */
-  readonly isUrlOnlyLlamacpp = computed(() => {
-    const p = this.selectedProvider();
-    return !!p && p.provider === 'llamacpp' && isPinnedLlamaServerUrlProviderId(p.id);
-  });
   /** Managed llama-server commands for the selected model (defaults when missing). */
   readonly selectedLlamaCppManaged = computed((): LlamaCppManaged => {
     const m = this.selectedModel();
@@ -572,21 +573,67 @@ export class SettingsStore {
   readonly lmStudioInventoryError = signal<string | null>(null);
   readonly lmStudioListInFlight = signal(false);
   private lmStudioListGen = 0;
-  readonly lmStudioMainModelOptions = computed(() =>
-    this.lmStudioInventory().filter((c) => !/embed/i.test(c.type)),
+  readonly openAiCompatModels = signal<OpenAiCompatModel[]>([]);
+  readonly openAiCompatListError = signal<string | null>(null);
+  readonly openAiCompatListInFlight = signal(false);
+  readonly openAiCompatTestRunning = signal(false);
+  readonly openAiCompatTestResult = signal<OpenAiCompatTestResult | null>(null);
+  /** What the last test changed, in words, so the update isn't silent. */
+  readonly openAiCompatApplied = signal<string[]>([]);
+  private readonly openAiCompatTestedFor = signal('');
+  /** Discards a slow reply that arrives after the user moved to another source. */
+  private openAiCompatGen = 0;
+  /** A slow listing of an old URL must not replace a newer one. */
+  private openAiCompatListGen = 0;
+  readonly openAiCompatSettings = computed(() => normalizeOpenAiCompatSettings(this.selectedModel()?.openAiCompat));
+  /** The connection as typed, since a test runs before Apply. */
+  private readonly openAiCompatEndpoint = computed((): OpenAiCompatEndpoint => {
+    const p = this.selectedProvider();
+    return {
+      baseUrl: p?.baseUrl ?? '',
+      apiKey: unwrapSecret(p?.apiKey),
+      headers: (p?.customHeaders ?? []).map((h) => ({ key: h.key, value: unwrapSecret(h.value) })),
+    };
+  });
+  /** True when the URL, key, headers or model changed after the last test. */
+  readonly openAiCompatTestStale = computed(
+    () =>
+      !!this.openAiCompatTestResult() &&
+      this.openAiCompatTestedFor() !== JSON.stringify([this.openAiCompatEndpoint(), this.selectedModel()?.model ?? '']),
   );
-  readonly lmStudioEmbeddingModelOptions = computed(() =>
-    this.lmStudioInventory().filter((c) => /embed/i.test(c.type)),
-  );
-  readonly lmStudioLoadedCards = computed(() =>
-    this.lmStudioInventory().filter((c) => c.state === 'loaded' || c.state === 'loading'),
-  );
+  /** Server that answered the last listing; null until one does. */
+  readonly lmStudioConnection = signal<LmStudioConnection | null>(null);
+  /** Model ids with a load or unload in flight. */
+  readonly lmStudioBusyIds = signal<ReadonlySet<string>>(new Set());
+  readonly lmStudioStatus = computed<LmStudioStatus>(() => {
+    if (this.lmStudioListInFlight()) {
+      return 'checking';
+    }
+    const connection = this.lmStudioConnection();
+    if (connection) {
+      return connection.baseUrl === this.selectedProvider()?.baseUrl ? 'connected' : 'stale';
+    }
+    return this.lmStudioInventoryError() ? 'offline' : 'idle';
+  });
+  readonly lmStudioSettings = computed(() => normalizeLmStudioSettings(this.selectedModel()?.lmStudio));
+  /** True when the chat model runs with settings other than the ones saved here. */
+  readonly lmStudioNeedsReload = computed(() => {
+    const running = this.lmStudioChatCard()?.runningConfig;
+    if (!running) {
+      return false;
+    }
+    const maxContext = this.lmStudioChatCard()?.max_context_length ?? 0;
+    return lmStudioRunningConfigDiffers(running, lmStudioLoadOptions(this.lmStudioSettings(), maxContext));
+  });
+  /** Inventory row for the selected chat model; null when this server does not list it. */
+  readonly lmStudioChatCard = computed(() => {
+    const id = this.selectedModel()?.model;
+    return this.lmStudioInventory().find((c) => c.id === id) ?? null;
+  });
   readonly llamacppManagedModelIds = signal<string[]>([]);
   readonly openRouterModels = signal<OpenRouterCatalogModel[]>([]);
   readonly openRouterModelsListInFlight = signal(false);
   readonly openRouterModelsListError = signal<string | null>(null);
-  /** ``GET /v1/models`` from embeddings base URL when it differs from chat (URL-only llama.cpp). */
-  readonly llamacppUrlEmbeddingModelIds = signal<string[]>([]);
   readonly llamacppModelsListError = signal<string | null>(null);
   readonly llamacppModelsListInFlight = signal(false);
   /** Optional Hugging Face id (`org/repo` or `org/repo:quant`) for managed local without a local GGUF. */
@@ -619,6 +666,24 @@ export class SettingsStore {
   readonly tutorialLocalModelSelected = computed(() =>
     this.managedInventoryModels().some((model) => this.managedInventoryOptionValue(model) === this.managedPickerValue()),
   );
+  /**
+   * The tour's local-source steps show an example page when there is nothing real to point at, so
+   * nobody needs a model to see them. This only chooses a view; the page never touches the draft.
+   * Minimizing the tour gives the real editor back.
+   */
+  readonly tutorialShowsExample = computed(() => {
+    const cursor = this.tutorial.cursor();
+    if (this.tutorial.view() !== 'step' || this.tutorial.minimized() || cursor?.phaseId !== 'local-source') return false;
+    if (!['sources-model', 'sources-defaults', 'sources-advanced', 'sources-commands', 'sources-add-command', 'sources-vram'].includes(cursor.stepId)) return false;
+    const provider = this.selectedProvider();
+    // The overlay is already leading the way back to the source the user created.
+    const sourceId = this.tutorial.snapshot()?.progress.sourceId;
+    if (sourceId && provider?.id !== sourceId) return false;
+    if (!provider || !this.isManagedLlamacppSource(provider)) return true;
+    if (this.tutorialLocalModelSelected()) return false;
+    // With downloaded models to choose from, the step that asks for one keeps the real picker.
+    return !(cursor.stepId === 'sources-model' && this.tutorialLocalModelsState() === 'ready');
+  });
   /** NVIDIA cards in CUDA index order (empty until NVML inventory returns). */
   readonly cudaGpus = signal<CudaGpuDevice[]>([]);
   readonly managedGpuOffloadMode = computed((): ManagedGpuOffloadMode =>
@@ -713,19 +778,6 @@ export class SettingsStore {
     return (
       optimizationPresetsForProvider(c.provider).find((p) => p.id === c.optimizationPreset)?.summary ?? ''
     );
-  });
-  readonly llamacppUrlModelsSummary = computed(() => {
-    const chat = this.llamacppManagedModelIds().length;
-    const emb = this.llamacppUrlEmbeddingModelIds().length;
-    const p = this.selectedProvider();
-    if (!p || p.provider !== 'llamacpp') {
-      return `${chat} models`;
-    }
-    const embUrl = (p.embeddingsBaseUrl ?? '').trim();
-    if (!embUrl || openAiV1BasesEquivalent(p.baseUrl, embUrl)) {
-      return `${chat} models`;
-    }
-    return `${chat} chat · ${emb} embedding`;
   });
 
   private subscription: Subscription | null = null;
@@ -1135,20 +1187,18 @@ export class SettingsStore {
     } else {
       this.clearLmStudioInventory();
     }
+    this.clearOpenAiCompatState();
+    if (p.provider === 'openai-compatible') {
+      void this.refreshOpenAiCompatModels();
+    }
     if (p.provider === 'llamacpp') {
-      if (isPinnedLlamaServerUrlProviderId(p.id)) {
-        void this.refreshLlamacppUrlModels();
-      } else {
-        this.llamacppUrlEmbeddingModelIds.set([]);
-        void this.refreshCustomModelCards();
-        void this.refreshLlamacppManagedModels();
-        const cmd = p.models[0]?.llamaCppManaged?.chatRunCommand ?? '';
-        const sel = parseManagedLlamaModelSelection(cmd);
-        this.managedHfIdDraft.set(sel?.kind === 'hf' ? sel.hfId : '');
-      }
+      void this.refreshCustomModelCards();
+      void this.refreshLlamacppManagedModels();
+      const cmd = p.models[0]?.llamaCppManaged?.chatRunCommand ?? '';
+      const sel = parseManagedLlamaModelSelection(cmd);
+      this.managedHfIdDraft.set(sel?.kind === 'hf' ? sel.hfId : '');
     } else {
       this.llamacppManagedModelIds.set([]);
-      this.llamacppUrlEmbeddingModelIds.set([]);
       this.llamacppModelsListError.set(null);
     }
     if (p.provider !== 'openrouter') {
@@ -1196,54 +1246,12 @@ export class SettingsStore {
       const res = await this.electron.llamacppManagedListModels({ modelId: m.id, config: cfg });
       if (res.ok) {
         this.llamacppManagedModelIds.set(res.models);
-        this.llamacppUrlEmbeddingModelIds.set([]);
       } else {
         this.llamacppManagedModelIds.set([]);
-        this.llamacppUrlEmbeddingModelIds.set([]);
         this.llamacppModelsListError.set(res.error);
       }
     } catch (e) {
       this.llamacppManagedModelIds.set([]);
-      this.llamacppUrlEmbeddingModelIds.set([]);
-      this.llamacppModelsListError.set(e instanceof Error ? e.message : String(e));
-    } finally {
-      this.llamacppModelsListInFlight.set(false);
-    }
-  }
-
-  async refreshLlamacppUrlModels(): Promise<void> {
-    const p = this.selectedProvider();
-    if (!p || p.provider !== 'llamacpp') {
-      return;
-    }
-    this.llamacppModelsListInFlight.set(true);
-    this.llamacppModelsListError.set(null);
-    try {
-      const chatRes = await this.electron.llamacppOpenAiListModels({ baseUrl: p.baseUrl, apiKey: unwrapSecret(p.apiKey) || '' });
-      if (!chatRes.ok) {
-        this.llamacppManagedModelIds.set([]);
-        this.llamacppUrlEmbeddingModelIds.set([]);
-        this.llamacppModelsListError.set(chatRes.error);
-        return;
-      }
-      this.llamacppManagedModelIds.set(chatRes.models);
-
-      const embBase = (p.embeddingsBaseUrl ?? '').trim();
-      if (!embBase || openAiV1BasesEquivalent(p.baseUrl, embBase)) {
-        this.llamacppUrlEmbeddingModelIds.set([...chatRes.models]);
-        return;
-      }
-
-      const embRes = await this.electron.llamacppOpenAiListModels({ baseUrl: embBase, apiKey: unwrapSecret(p.apiKey || '') });
-      if (!embRes.ok) {
-        this.llamacppUrlEmbeddingModelIds.set([]);
-        this.llamacppModelsListError.set(`Chat OK; embeddings server: ${embRes.error}`);
-        return;
-      }
-      this.llamacppUrlEmbeddingModelIds.set(embRes.models);
-    } catch (e) {
-      this.llamacppManagedModelIds.set([]);
-      this.llamacppUrlEmbeddingModelIds.set([]);
       this.llamacppModelsListError.set(e instanceof Error ? e.message : String(e));
     } finally {
       this.llamacppModelsListInFlight.set(false);
@@ -1335,6 +1343,7 @@ export class SettingsStore {
     this.lmStudioListInFlight.set(false);
     this.lmStudioInventory.set([]);
     this.lmStudioInventoryError.set(null);
+    this.lmStudioConnection.set(null);
   }
 
   async refreshLmStudioInventory(): Promise<void> {
@@ -1357,9 +1366,11 @@ export class SettingsStore {
       }
       if (res.ok) {
         this.lmStudioInventory.set(res.models);
+        this.lmStudioConnection.set({ baseUrl: p.baseUrl, origin: res.origin, source: res.source });
         this.applyLmStudioLiveContextFromInventory();
       } else {
         this.lmStudioInventory.set([]);
+        this.lmStudioConnection.set(null);
         this.lmStudioInventoryError.set(res.error);
       }
     } catch (e) {
@@ -1367,6 +1378,7 @@ export class SettingsStore {
         return;
       }
       this.lmStudioInventory.set([]);
+      this.lmStudioConnection.set(null);
       this.lmStudioInventoryError.set(e instanceof Error ? e.message : String(e));
     } finally {
       if (gen === this.lmStudioListGen) {
@@ -1388,65 +1400,167 @@ export class SettingsStore {
     }
   }
 
-  lmStudioLoadDisabled(): boolean {
-    const p = this.selectedProvider();
-    const m = this.selectedModel();
-    if (!p || p.provider !== 'lmstudio' || !m) {
-      return true;
-    }
-    const main = (m.model || '').trim();
-    const emb = (p.embeddingsModel || '').trim();
-    const inv = this.lmStudioInventory();
-    const needLoad = (id: string) => {
-      const c = inv.find((x) => x.id === id);
-      return !c || (c.state !== 'loaded' && c.state !== 'loading');
-    };
-    const wantsMain = !!main && needLoad(main);
-    const wantsEmb = !!emb && needLoad(emb);
-    return !wantsMain && !wantsEmb;
+  updateOpenAiCompatSettings(changes: Partial<OpenAiCompatSettings>): void {
+    this.updateSelectedModel({ openAiCompat: { ...this.openAiCompatSettings(), ...changes } });
   }
 
-  async loadLmStudioSelectedModels(): Promise<void> {
-    const p = this.selectedProvider();
-    const m = this.selectedModel();
-    if (!p || p.provider !== 'lmstudio' || !m) {
+  private clearOpenAiCompatState(): void {
+    this.openAiCompatGen += 1;
+    this.openAiCompatModels.set([]);
+    this.openAiCompatListError.set(null);
+    this.openAiCompatListInFlight.set(false);
+    this.openAiCompatTestRunning.set(false);
+    this.openAiCompatTestResult.set(null);
+    this.openAiCompatApplied.set([]);
+  }
+
+  async refreshOpenAiCompatModels(): Promise<void> {
+    if (this.selectedProvider()?.provider !== 'openai-compatible') {
       return;
     }
-    const keys: string[] = [];
-    const main = (m.model || '').trim();
-    const emb = (p.embeddingsModel || '').trim();
-    if (main) {
-      keys.push(main);
-    }
-    if (emb && emb !== main) {
-      keys.push(emb);
-    }
-    const errors: string[] = [];
-    for (const k of keys) {
-      const r = await this.electron.lmStudioLoadModel({ baseUrl: p.baseUrl, model: k, apiKey: unwrapSecret(p.apiKey) });
-      if (!r.ok) {
-        errors.push(`${k}: ${r.error}`);
+    const gen = this.openAiCompatGen;
+    const list = ++this.openAiCompatListGen;
+    const current = () => gen === this.openAiCompatGen && list === this.openAiCompatListGen;
+    this.openAiCompatListInFlight.set(true);
+    this.openAiCompatListError.set(null);
+    try {
+      const res = await this.electron.openAiCompatListModels(this.openAiCompatEndpoint());
+      if (!current()) {
+        return;
+      }
+      this.openAiCompatModels.set(res.ok ? res.models : []);
+      this.openAiCompatListError.set(res.ok ? null : res.error);
+    } catch (e) {
+      if (current()) {
+        this.openAiCompatModels.set([]);
+        this.openAiCompatListError.set(e instanceof Error ? e.message : String(e));
+      }
+    } finally {
+      if (current()) {
+        this.openAiCompatListInFlight.set(false);
       }
     }
-    await this.refreshLmStudioInventory();
-    if (errors.length) {
-      this.lmStudioInventoryError.set(errors.join('; '));
+  }
+
+  /** Test the connection as typed, then set Compatibility to what the server turned out to accept. */
+  async runOpenAiCompatConnectionTest(): Promise<void> {
+    if (this.selectedProvider()?.provider !== 'openai-compatible' || this.openAiCompatTestRunning()) {
+      return;
+    }
+    const gen = this.openAiCompatGen;
+    const endpoint = this.openAiCompatEndpoint();
+    const model = this.selectedModel()?.model ?? '';
+    this.openAiCompatTestRunning.set(true);
+    this.openAiCompatApplied.set([]);
+    try {
+      const result = await this.electron.openAiCompatTest(endpoint, model);
+      if (gen !== this.openAiCompatGen || !result) {
+        return;
+      }
+      this.openAiCompatTestResult.set(result);
+      this.openAiCompatTestedFor.set(JSON.stringify([endpoint, model]));
+      this.applyOpenAiCompatSuggestions(result);
+      void this.refreshOpenAiCompatModels();
+    } finally {
+      if (gen === this.openAiCompatGen) {
+        this.openAiCompatTestRunning.set(false);
+      }
+    }
+  }
+
+  private applyOpenAiCompatSuggestions(result: OpenAiCompatTestResult): void {
+    const current = this.openAiCompatSettings();
+    const changed = (Object.keys(result.suggestions) as (keyof OpenAiCompatTestResult['suggestions'])[]).filter(
+      (key) => result.suggestions[key] !== current[key],
+    );
+    if (!changed.length) {
+      return;
+    }
+    const describe: Record<(typeof changed)[number], () => string> = {
+      tokensField: () => `output tokens field is ${result.suggestions.tokensField}`,
+      thinkingMethod: () => `thinking control is ${result.suggestions.thinkingMethod === 'none' ? 'off' : result.suggestions.thinkingMethod}`,
+      sendTemperature: () => `temperature ${result.suggestions.sendTemperature ? 'sent' : 'not sent'}`,
+      sendParallelToolCalls: () => `parallel_tool_calls ${result.suggestions.sendParallelToolCalls ? 'sent' : 'not sent'}`,
+      streamUsage: () => `token usage ${result.suggestions.streamUsage ? 'requested' : 'not requested'}`,
+    };
+    this.updateOpenAiCompatSettings(result.suggestions);
+    this.openAiCompatApplied.set(changed.map((key) => describe[key]()));
+  }
+
+  lmStudioModelBusy(id: string): boolean {
+    return this.lmStudioBusyIds().has(id);
+  }
+
+  private setLmStudioBusy(id: string, busy: boolean): void {
+    this.lmStudioBusyIds.update((ids) => {
+      const next = new Set(ids);
+      if (busy) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  }
+
+  updateLmStudioSettings(changes: Partial<LmStudioSettings>): void {
+    this.updateSelectedModel({ lmStudio: { ...this.lmStudioSettings(), ...changes } });
+  }
+
+  /** Load one model with the saved settings. */
+  async loadLmStudioModel(id: string): Promise<void> {
+    const p = this.selectedProvider();
+    if (!p || p.provider !== 'lmstudio' || !id || this.lmStudioModelBusy(id)) {
+      return;
+    }
+    const maxContext = this.lmStudioInventory().find((c) => c.id === id)?.max_context_length ?? 0;
+    this.setLmStudioBusy(id, true);
+    try {
+      const r = await this.electron.lmStudioLoadModel({
+        baseUrl: p.baseUrl,
+        model: id,
+        apiKey: unwrapSecret(p.apiKey),
+        options: lmStudioLoadOptions(this.lmStudioSettings(), maxContext),
+      });
+      await this.refreshLmStudioInventory();
+      if (!r.ok) {
+        this.lmStudioInventoryError.set(`${id}: ${r.error}`);
+      }
+    } finally {
+      this.setLmStudioBusy(id, false);
+    }
+  }
+
+  /** Apply changed load settings to the running chat model. */
+  async reloadLmStudioChatModel(): Promise<void> {
+    const card = this.lmStudioChatCard();
+    if (!card) {
+      return;
+    }
+    await this.unloadLmStudioCard(card);
+    if (!this.lmStudioInventoryError()) {
+      await this.loadLmStudioModel(card.id);
     }
   }
 
   async unloadLmStudioCard(card: LmStudioModelCard): Promise<void> {
     const p = this.selectedProvider();
-    if (!p || p.provider !== 'lmstudio' || !card.instanceId) {
+    if (!p || p.provider !== 'lmstudio' || !card.instanceId || this.lmStudioModelBusy(card.id)) {
       return;
     }
-    const r = await this.electron.lmStudioUnloadModel({
-      baseUrl: p.baseUrl,
-      instanceId: card.instanceId,
-      apiKey: unwrapSecret(p.apiKey),
-    });
-    await this.refreshLmStudioInventory();
-    if (!r.ok) {
-      this.lmStudioInventoryError.set(r.error);
+    this.setLmStudioBusy(card.id, true);
+    try {
+      const r = await this.electron.lmStudioUnloadModel({
+        baseUrl: p.baseUrl,
+        instanceId: card.instanceId,
+        apiKey: unwrapSecret(p.apiKey),
+      });
+      await this.refreshLmStudioInventory();
+      if (!r.ok) {
+        this.lmStudioInventoryError.set(r.error);
+      }
+    } finally {
+      this.setLmStudioBusy(card.id, false);
     }
   }
 
@@ -1545,7 +1659,7 @@ export class SettingsStore {
     changes: Partial<
       Pick<
         LlmProviderConfig,
-        'name' | 'customName' | 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel' | 'embeddingsBaseUrl'
+        'name' | 'customName' | 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel' | 'embeddingsBaseUrl' | 'customHeaders'
       >
     >,
   ): void {
@@ -1580,16 +1694,23 @@ export class SettingsStore {
       return;
     }
     let contextWindowTokens = inferContextWindowTokens(model, loc.provider.provider);
+    let name = model;
     if (loc.provider.provider === 'lmstudio') {
       const card = this.lmStudioInventory().find((c) => c.id === model);
       const live = card ? effectiveLmStudioContextTokens(card) : 0;
       if (live > 0) {
         contextWindowTokens = live;
       }
+      // LM Studio ids can be snapshot hashes, which mean nothing wherever the name is shown.
+      name = card?.displayName || model;
+    } else if (loc.provider.provider === 'openai-compatible') {
+      // Only a size the server reports replaces the one typed in; a model ID is no guide here.
+      contextWindowTokens =
+        this.openAiCompatModels().find((m) => m.id === model)?.contextLength ?? loc.model.contextWindowTokens;
     }
     this.applyLlmModelPatch(loc.model.id, {
       model,
-      name: model,
+      name,
       contextWindowTokens,
     });
     this.markSettingsDirty();
@@ -1612,6 +1733,9 @@ export class SettingsStore {
     const kind = provider.provider;
     if (kind === 'lmstudio') {
       return 'LM Studio';
+    }
+    if (kind === 'openai-compatible') {
+      return 'OpenAI-compatible';
     }
     if (kind === 'llamacpp') {
       return this.isManagedLlamacppSource(provider) ? 'Local Model' : 'OpenAI-compatible';
@@ -2192,7 +2316,7 @@ export class SettingsStore {
     const ensureLocal = (): LlmModelProfile | null => {
       const current = this.selectedModel();
       const p = this.selectedProvider();
-      if (current && p?.provider === 'llamacpp' && !this.isUrlOnlyLlamacpp()) {
+      if (current && p?.provider === 'llamacpp') {
         return current;
       }
       const local = this.llmProviders().find((x) => this.isManagedLlamacppSource(x));
@@ -2458,11 +2582,17 @@ export class SettingsStore {
     if (options?.clearStatus !== false) {
       this.modelManagerStatus.set('');
     }
-    void this.electron
-      .modelManagerSecretStorage()
-      .then((mode) => this.modelManagerSecretStorage.set(mode))
-      .catch(() => this.modelManagerSecretStorage.set(null));
+    void this.refreshSecretStorage();
     await this.refreshCustomModelCards();
+  }
+
+  /** Whether saved secrets are keychain-encrypted on this host, for the status badges. */
+  async refreshSecretStorage(): Promise<void> {
+    try {
+      this.modelManagerSecretStorage.set(await this.electron.modelManagerSecretStorage());
+    } catch {
+      this.modelManagerSecretStorage.set(null);
+    }
   }
 
   /**
@@ -2470,7 +2600,7 @@ export class SettingsStore {
    * command once inventory has a local projector. No-ops if Off or already pinned.
    */
   private syncManagedMmprojFromInventory(): void {
-    if (this.isUrlOnlyLlamacpp()) {
+    if (this.selectedProvider()?.provider === 'openai-compatible') {
       return;
     }
     const cmd = this.selectedLlamaCppManaged().chatRunCommand;
@@ -3816,16 +3946,13 @@ export class SettingsStore {
       this.clearLmStudioInventory();
     }
 
+    if (locAfter?.provider.provider === 'openai-compatible') {
+      void this.refreshOpenAiCompatModels();
+    }
     if (locAfter?.provider.provider === 'llamacpp' && locAfter.model) {
-      if (isPinnedLlamaServerUrlProviderId(locAfter.provider.id)) {
-        void this.refreshLlamacppUrlModels();
-      } else {
-        this.llamacppUrlEmbeddingModelIds.set([]);
-        void this.refreshLlamacppManagedModels();
-      }
+      void this.refreshLlamacppManagedModels();
     } else {
       this.llamacppManagedModelIds.set([]);
-      this.llamacppUrlEmbeddingModelIds.set([]);
       this.llamacppModelsListError.set(null);
     }
 

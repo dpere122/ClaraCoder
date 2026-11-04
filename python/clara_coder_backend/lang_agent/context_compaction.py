@@ -947,6 +947,13 @@ def summary_prompt(last_reasoning: str, window: int) -> str:
     return f'{request}\n\nThe end of your last reasoning:\n{excerpt}'
 
 
+def _compat_uses_max_tokens() -> bool:
+    from clara_coder_backend.session.state import get_active_connection
+
+    connection = get_active_connection()
+    return (connection.open_ai_compat or {}).get('tokensField', 'max_tokens') == 'max_tokens'
+
+
 def continuation_request(request: Any, view: list[BaseMessage], prompt: str, provider: str, window: int) -> Any:
     """The notes call: the agent call's own request plus one message, so a local server reuses the whole prefix.
 
@@ -959,8 +966,11 @@ def continuation_request(request: Any, view: list[BaseMessage], prompt: str, pro
     settings: dict[str, Any] = {**request.model_settings, 'max_tokens': max_tokens}
     if provider == 'llamacpp':
         settings['extra_body'] = _extra_body(request, max_tokens=max_tokens, reasoning_budget_tokens=0)
-    elif provider == 'lmstudio':
+    elif provider == 'lmstudio' or (provider == 'openai-compatible' and _compat_uses_max_tokens()):
         settings['extra_body'] = _extra_body(request, max_tokens=max_tokens)
+        # LangChain would also send this as ``max_completion_tokens``, which a strict server rejects.
+        if provider == 'openai-compatible':
+            del settings['max_tokens']
     tool_choice: Any = 'none'
     if provider == 'anthropic':
         # A bare string names a forced tool there, and ``parallel_tool_calls`` would add a field ``none`` rejects.

@@ -1,0 +1,103 @@
+/* Generic OpenAI-compatible source. Shares the LM Studio dashboard's panels; these are its own parts. */
+.oc-resolved code {
+  overflow-wrap: anywhere;
+}
+
+.oc-header-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.lms-fields .field > .action-button--compact {
+  align-self: flex-start;
+}
+
+.oc-checks {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--t-border-subtle);
+  list-style: none;
+}
+
+.oc-checks--stale {
+  opacity: 0.6;
+}
+
+.oc-check {
+  display: grid;
+  grid-template-columns: 14px minmax(9rem, 12rem) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--t-border-subtle);
+  font-size: 12px;
+  color: var(--t-fg);
+}
+
+.oc-check strong {
+  font-weight: 500;
+}
+
+.oc-check > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--t-text-muted, var(--t-muted));
+}
+
+.oc-check--ok lucide-icon {
+  color: var(--t-success);
+}
+
+.oc-check--warn lucide-icon {
+  color: var(--t-warn);
+}
+
+.oc-check--fail lucide-icon {
+  color: var(--t-danger);
+}
+
+.oc-check--skipped lucide-icon,
+.oc-check--skipped strong {
+  color: var(--t-text-muted, var(--t-muted));
+}
+
+.lms-connection > .lms-note {
+  grid-column: 1 / -1;
+}
+
+.oc-json,
+.lms-panel .field textarea {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.oc-json--invalid {
+  border-color: var(--t-danger) !important;
+}
+
+.oc-json-error {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--t-danger);
+}
+
+/* Four fields don't fit three columns' labels; two rows of two keep them readable. */
+.lms-controls .lms-panel .lms-control-grid--tight .field > span {
+  white-space: nowrap;
+}
+
+@container (max-width: 620px) {
+  .oc-check {
+    grid-template-columns: 14px minmax(0, 1fr);
+  }
+
+  .oc-check > span {
+    grid-column: 2;
+  }
+}

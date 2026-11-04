@@ -108,10 +108,10 @@ export function lmStudioLoadOptions(settings: LmStudioSettings, maxContext: numb
   };
 }
 
-/** True when a running instance differs from what loading now would ask for. Unreported fields don't count. */
+/** True when a running instance differs from what loading now would ask for. Unreported fields don't count; a context of 0 is one. */
 export function lmStudioRunningConfigDiffers(running: LmStudioRunningConfig, wanted: LmStudioLoadOptions): boolean {
   return (Object.keys(wanted) as (keyof LmStudioLoadOptions)[]).some(
-    (key) => running[key] !== undefined && wanted[key] !== undefined && running[key] !== wanted[key],
+    (key) => running[key] !== undefined && running[key] !== 0 && wanted[key] !== undefined && running[key] !== wanted[key],
   );
 }
 

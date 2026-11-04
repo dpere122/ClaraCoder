@@ -616,6 +616,40 @@ describe('the OpenAI-compatible source', () => {
     expect(migrated.models[0]?.model).toBe('my-model');
   });
 
+  const migrateUrl = (baseUrl: string) => {
+    const cfg = sampleConfig();
+    const source = urlSource(cfg);
+    source.provider = 'llamacpp';
+    source.baseUrl = baseUrl;
+    return urlSource(migrateConfig(cfg));
+  };
+
+  it('keeps sending a saved row to the same address, which used to get /v1 added', () => {
+    expect(migrateUrl('http://proxy/lms').baseUrl).toBe('http://proxy/lms/v1');
+    expect(migrateUrl('http://host:8080/').baseUrl).toBe('http://host:8080/v1');
+    expect(migrateUrl('192.168.1.10:8080').baseUrl).toBe('http://192.168.1.10:8080/v1');
+    expect(migrateUrl('').baseUrl).toBe('http://127.0.0.1:8080/v1');
+  });
+
+  it('moves user:pw@ from a saved row into the header it was sending', () => {
+    const migrated = migrateUrl('http://u%40x:p@host/v1');
+    expect(migrated.baseUrl).toBe('http://host/v1');
+    expect(migrated.customHeaders?.map((h) => [h.key, unwrapSecret(h.value)])).toEqual([
+      ['Authorization', `Basic ${Buffer.from('u@x:p').toString('base64')}`],
+    ]);
+  });
+
+  it('leaves a saved row with an unusable URL for its screen to flag', () => {
+    expect(migrateUrl('http://[bad').baseUrl).toBe('http://[bad');
+  });
+
+  it('leaves a URL alone once the source has the new type', () => {
+    const cfg = sampleConfig();
+    urlSource(cfg).provider = 'openai-compatible';
+    urlSource(cfg).baseUrl = 'http://proxy/custom';
+    expect(urlSource(migrateConfig(cfg)).baseUrl).toBe('http://proxy/custom');
+  });
+
   it('leaves managed local sources as llamacpp', () => {
     const migrated = migrateConfig(sampleConfig());
     const local = migrated.llmProviders.find(isLocalSource);

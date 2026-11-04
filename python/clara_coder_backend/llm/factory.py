@@ -325,7 +325,7 @@ def build_llm(*, disable_thinking: bool = False) -> BaseChatModel:
         base_eb['chat_template_kwargs'] = ctk
         kwargs['extra_body'] = base_eb
 
-    if connection.provider in ('llamacpp', 'lmstudio') and gemma_optimize_profile_active(connection):
+    if connection.provider in ('llamacpp', 'lmstudio', 'openai-compatible') and gemma_optimize_profile_active(connection):
         kwargs['stop'] = [GEMMA_CHANNEL_LOOP_STOP]
 
     idle_ttl = int(getattr(connection, 'idle_ttl_seconds', 0) or 0)

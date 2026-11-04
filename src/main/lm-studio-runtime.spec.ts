@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LlmConnectionConfig } from '../shared';
 import { SecretValue } from '../shared/types/app-config';
-import { ensureLmStudioModelLoaded } from './lm-studio-runtime';
+import { refreshLmStudioReasoningForConnection, ensureLmStudioModelLoaded } from './lm-studio-runtime';
 
 vi.mock('electron', () => ({ app: { getPath: () => '' }, ipcMain: {}, BrowserWindow: {} }));
 vi.mock('./llama-server-manager', () => ({ getLlamaManagedRuntimeOverrides: () => ({}) }));
@@ -38,6 +38,34 @@ function server(models: Record<string, unknown>[], loadStatus = 200) {
 
 const unloaded = { key: 'gemma', type: 'llm', max_context_length: 262144, loaded_instances: [] };
 const loaded = { ...unloaded, loaded_instances: [{ id: 'gemma', config: { context_length: 8192 } }] };
+
+describe('refreshLmStudioReasoningForConnection', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('reports what a v1 server says about the model', async () => {
+    server([{ ...unloaded, capabilities: { reasoning: { allowed_options: ['off', 'on'], default: 'on' } } }]);
+    expect(await refreshLmStudioReasoningForConnection(connection())).toMatchObject({ enableThinking: true });
+  });
+
+  it('treats a v1 model with no reasoning block as having no controls', async () => {
+    server([{ ...unloaded, capabilities: {} }]);
+    expect(await refreshLmStudioReasoningForConnection(connection())).toEqual({ enableThinking: false, reasoningEffortValues: null });
+  });
+
+  it('knows nothing about a model on a v0 server, so generic controls stay', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url.endsWith('/api/v1/models')
+          ? new Response('', { status: 404 })
+          : new Response(JSON.stringify({ data: [{ id: 'gemma', type: 'llm', state: 'loaded' }] }), { status: 200 }),
+      ),
+    );
+    expect(await refreshLmStudioReasoningForConnection(connection())).toBeUndefined();
+  });
+});
 
 describe('ensureLmStudioModelLoaded', () => {
   afterEach(() => {

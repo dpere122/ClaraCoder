@@ -231,6 +231,19 @@ describe('the list sections', () => {
     fixture.destroy();
   });
 
+  it('stay open for a row picked during a search once the search ends', async () => {
+    const { store, fixture } = setup();
+    const el = await render(fixture);
+    store.modelManagerHfQuery.set('qwen');
+    await render(fixture);
+    store.modelManagerSelection.set({ kind: 'hf', id: FEATURED_HF_MODELS.find((m) => /qwen/i.test(m.id))!.id });
+    await render(fixture);
+    store.modelManagerHfQuery.set('');
+    await render(fixture);
+    expect(section(el, 'featured-list')?.open).toBe(true);
+    fixture.destroy();
+  });
+
   it('leave collapsed rows out of arrow-key movement', async () => {
     vi.stubGlobal('CSS', { escape: (value: string) => value });
     const { store, fixture } = setup();

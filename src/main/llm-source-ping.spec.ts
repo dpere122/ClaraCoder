@@ -70,6 +70,39 @@ describe('pingLlmSource', () => {
     return { url: String(url), authorization: (init?.headers as Record<string, string>).Authorization };
   }
 
+  describe('an OpenAI-compatible source', () => {
+    const compat = (baseUrl: string, apiKey = '', customHeaders: { key: string; value: string }[] = []): AppConfig => {
+      const cfg = config('openai-compatible', baseUrl, apiKey);
+      cfg.llmProviders[0]!.customHeaders = customHeaders.map((h) => ({ key: h.key, value: SecretValue.of(h.value) }));
+      return cfg;
+    };
+
+    it('lets a custom Authorization header win over the key, as real requests do', async () => {
+      fetchMock.mockResolvedValue(answer(200));
+      await pingLlmSource('mid', compat('http://x/v1', 'key', [{ key: 'authorization', value: 'Token abc' }]));
+      const headers = fetchMock.mock.calls[0][1]?.headers as Record<string, string>;
+      expect(headers['authorization']).toBe('Token abc');
+      expect(headers['Authorization']).toBeUndefined();
+    });
+
+    it('still sends the key alongside other custom headers', async () => {
+      fetchMock.mockResolvedValue(answer(200));
+      await pingLlmSource('mid', compat('http://x/v1', 'key', [{ key: 'api-key', value: 'abc' }]));
+      const headers = fetchMock.mock.calls[0][1]?.headers as Record<string, string>;
+      expect(headers['Authorization']).toBe('Bearer key');
+      expect(headers['api-key']).toBe('abc');
+    });
+
+    it('tells a missing URL from one it cannot use', async () => {
+      expect(await pingLlmSource('mid', compat(' '))).toEqual({ ok: false, error: 'Add a base URL for Source in Settings to send' });
+      expect(await pingLlmSource('mid', compat('http://u:p@x/v1'))).toEqual({
+        ok: false,
+        error: 'Source has an invalid base URL. Check it in Settings.',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
   it('fails without a request when the model preset is gone', async () => {
     expect(await pingLlmSource('other', config('lmstudio'))).toEqual({ ok: false, error: 'No LLM source selected' });
     expect(fetchMock).not.toHaveBeenCalled();

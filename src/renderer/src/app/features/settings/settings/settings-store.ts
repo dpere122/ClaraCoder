@@ -216,18 +216,6 @@ function clampTtsSpeechSpeed(raw: unknown): number {
   return +c.toFixed(2);
 }
 
-/** Compare OpenAI-compatible ``…/v1`` bases for equality (trailing slashes optional). */
-function openAiV1BasesEquivalent(a: string, b: string): boolean {
-  const norm = (raw: string) => {
-    let s = (raw || '').trim().replace(/\/+$/, '');
-    if (!s.toLowerCase().endsWith('/v1')) {
-      s = `${s}/v1`;
-    }
-    return s.toLowerCase();
-  };
-  return norm(a) === norm(b);
-}
-
 /** Strip a trailing .gguf / .ggml extension (case-insensitive) for rename pre-fill. */
 function stripModelExtension(fileName: string): string {
   const lower = (fileName || '').toLowerCase();
@@ -523,11 +511,6 @@ export class SettingsStore {
     }
     return mergeLlmProviderModel(loc.provider, loc.model);
   });
-  /** True for the pinned remote llama-server row (URL + Connect), not managed run commands. */
-  readonly isUrlOnlyLlamacpp = computed(() => {
-    const p = this.selectedProvider();
-    return p?.provider === 'openai-compatible';
-  });
   /** Managed llama-server commands for the selected model (defaults when missing). */
   readonly selectedLlamaCppManaged = computed((): LlamaCppManaged => {
     const m = this.selectedModel();
@@ -647,21 +630,10 @@ export class SettingsStore {
     const id = this.selectedModel()?.model;
     return this.lmStudioInventory().find((c) => c.id === id) ?? null;
   });
-  readonly lmStudioMainModelOptions = computed(() =>
-    this.lmStudioInventory().filter((c) => !/embed/i.test(c.type)),
-  );
-  readonly lmStudioEmbeddingModelOptions = computed(() =>
-    this.lmStudioInventory().filter((c) => /embed/i.test(c.type)),
-  );
-  readonly lmStudioLoadedCards = computed(() =>
-    this.lmStudioInventory().filter((c) => c.state === 'loaded' || c.state === 'loading'),
-  );
   readonly llamacppManagedModelIds = signal<string[]>([]);
   readonly openRouterModels = signal<OpenRouterCatalogModel[]>([]);
   readonly openRouterModelsListInFlight = signal(false);
   readonly openRouterModelsListError = signal<string | null>(null);
-  /** ``GET /v1/models`` from embeddings base URL when it differs from chat (URL-only llama.cpp). */
-  readonly llamacppUrlEmbeddingModelIds = signal<string[]>([]);
   readonly llamacppModelsListError = signal<string | null>(null);
   readonly llamacppModelsListInFlight = signal(false);
   /** Optional Hugging Face id (`org/repo` or `org/repo:quant`) for managed local without a local GGUF. */
@@ -806,19 +778,6 @@ export class SettingsStore {
     return (
       optimizationPresetsForProvider(c.provider).find((p) => p.id === c.optimizationPreset)?.summary ?? ''
     );
-  });
-  readonly llamacppUrlModelsSummary = computed(() => {
-    const chat = this.llamacppManagedModelIds().length;
-    const emb = this.llamacppUrlEmbeddingModelIds().length;
-    const p = this.selectedProvider();
-    if (!p || p.provider !== 'llamacpp') {
-      return `${chat} models`;
-    }
-    const embUrl = (p.embeddingsBaseUrl ?? '').trim();
-    if (!embUrl || openAiV1BasesEquivalent(p.baseUrl, embUrl)) {
-      return `${chat} models`;
-    }
-    return `${chat} chat · ${emb} embedding`;
   });
 
   private subscription: Subscription | null = null;
@@ -1233,7 +1192,6 @@ export class SettingsStore {
       void this.refreshOpenAiCompatModels();
     }
     if (p.provider === 'llamacpp') {
-      this.llamacppUrlEmbeddingModelIds.set([]);
       void this.refreshCustomModelCards();
       void this.refreshLlamacppManagedModels();
       const cmd = p.models[0]?.llamaCppManaged?.chatRunCommand ?? '';
@@ -1241,7 +1199,6 @@ export class SettingsStore {
       this.managedHfIdDraft.set(sel?.kind === 'hf' ? sel.hfId : '');
     } else {
       this.llamacppManagedModelIds.set([]);
-      this.llamacppUrlEmbeddingModelIds.set([]);
       this.llamacppModelsListError.set(null);
     }
     if (p.provider !== 'openrouter') {
@@ -1289,15 +1246,12 @@ export class SettingsStore {
       const res = await this.electron.llamacppManagedListModels({ modelId: m.id, config: cfg });
       if (res.ok) {
         this.llamacppManagedModelIds.set(res.models);
-        this.llamacppUrlEmbeddingModelIds.set([]);
       } else {
         this.llamacppManagedModelIds.set([]);
-        this.llamacppUrlEmbeddingModelIds.set([]);
         this.llamacppModelsListError.set(res.error);
       }
     } catch (e) {
       this.llamacppManagedModelIds.set([]);
-      this.llamacppUrlEmbeddingModelIds.set([]);
       this.llamacppModelsListError.set(e instanceof Error ? e.message : String(e));
     } finally {
       this.llamacppModelsListInFlight.set(false);
@@ -2362,7 +2316,7 @@ export class SettingsStore {
     const ensureLocal = (): LlmModelProfile | null => {
       const current = this.selectedModel();
       const p = this.selectedProvider();
-      if (current && p?.provider === 'llamacpp' && !this.isUrlOnlyLlamacpp()) {
+      if (current && p?.provider === 'llamacpp') {
         return current;
       }
       const local = this.llmProviders().find((x) => this.isManagedLlamacppSource(x));
@@ -2646,7 +2600,7 @@ export class SettingsStore {
    * command once inventory has a local projector. No-ops if Off or already pinned.
    */
   private syncManagedMmprojFromInventory(): void {
-    if (this.isUrlOnlyLlamacpp()) {
+    if (this.selectedProvider()?.provider === 'openai-compatible') {
       return;
     }
     const cmd = this.selectedLlamaCppManaged().chatRunCommand;
@@ -3996,11 +3950,9 @@ export class SettingsStore {
       void this.refreshOpenAiCompatModels();
     }
     if (locAfter?.provider.provider === 'llamacpp' && locAfter.model) {
-      this.llamacppUrlEmbeddingModelIds.set([]);
       void this.refreshLlamacppManagedModels();
     } else {
       this.llamacppManagedModelIds.set([]);
-      this.llamacppUrlEmbeddingModelIds.set([]);
       this.llamacppModelsListError.set(null);
     }
 

@@ -894,7 +894,7 @@ async function boot() {
     await expectStep(homeWindow, 'intro', 'welcome', 'Welcome to Clara Coder');
     await clickPrimary(homeWindow, /^next$/i);
     await expectStep(homeWindow, 'intro', 'home-workspace', 'Your workspace');
-    const afterTour =JSON.parse(fs.readFileSync(configFile, 'utf8'));
+    const afterTour = JSON.parse(fs.readFileSync(configFile, 'utf8'));
     assert.equal(afterTour.currentWorkspaceId, 'smoke-workspace');
     assert.equal(afterTour.workspaces[0].path, workspaceDir);
     console.log('[tutorial-smoke] PASS restored workspace remains open while Home targets are absent');

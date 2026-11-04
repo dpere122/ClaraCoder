@@ -66,6 +66,21 @@ describe('openAiCompatUrl', () => {
   });
 });
 
+describe('openAiCompatUrl on a bind-all address', () => {
+  it('uses the address chat requests go to', () => {
+    expect(openAiCompatUrl('http://0.0.0.0:8080/v1', 'models')).toBe('http://127.0.0.1:8080/v1/models');
+  });
+});
+
+describe('request headers', () => {
+  it('let a custom Authorization header win over the key, as chat requests do', async () => {
+    const { seenHeaders } = server(healthy());
+    await openAiCompatListModels({ baseUrl: 'http://x/v1', apiKey: 'key', headers: [{ key: 'authorization', value: 'Token abc' }] });
+    expect(seenHeaders[0]?.['authorization']).toBe('Token abc');
+    expect(seenHeaders[0]?.['Authorization']).toBeUndefined();
+  });
+});
+
 describe('openAiCompatListModels', () => {
   it('reads ids and any context length the server reports, under its various names', async () => {
     server(healthy(), { json: { data: [{ id: 'a', context_length: 1000 }, { id: 'b', max_model_len: 2000 }, { id: 'c', meta: { n_ctx_train: 3000 } }, { id: 'd' }] } });
@@ -238,6 +253,21 @@ describe('runOpenAiCompatTest', () => {
         return asThinkingOff(body) ? ok() : thinks;
       });
       expect((await runOpenAiCompatTest(endpoint, 'm1')).suggestions.thinkingMethod).toBe('chat_template_kwargs');
+    });
+
+    it('notices thinking returned inside the reply, and keeps a control that turns it off', async () => {
+      server((body) => {
+        if (body['stream']) {
+          return stream();
+        }
+        if (body['tools']) {
+          return toolCall;
+        }
+        return ok({ role: 'assistant', content: body['reasoning_effort'] === 'none' ? '<think>\n\n</think>\n\nok' : '<think>Plan it.</think>ok' });
+      });
+      const r = await runOpenAiCompatTest(endpoint, 'm1');
+      expect(r.suggestions.thinkingMethod).toBe('reasoning_effort');
+      expect(statusOf(r, 'thinking')).toBe('ok');
     });
 
     it('notices thinking from the usage count when the text is hidden', async () => {

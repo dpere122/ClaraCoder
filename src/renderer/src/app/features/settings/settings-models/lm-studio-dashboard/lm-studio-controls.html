@@ -23,7 +23,7 @@
             [value]='String(s.lmStudioSettings().parallel)'
             (valueChange)="onIntSetting('parallel', $event)"
           />
-          <small class='lms-hint'>Lets sub-agents run at the same time instead of queueing.</small>
+          <small class='lms-hint'>How many requests LM Studio handles at once. Clara runs its own sub-agents one at a time here.</small>
         </label>
         <label class='field'>
           <span>Eval batch size</span>

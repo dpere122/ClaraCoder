@@ -65,10 +65,14 @@ async function pingHttp(name: string, rawTarget: string, apiKey: string, extraHe
     return { ok: false, error: `${name} has an invalid base URL. Check it in Settings.` };
   }
   const headers: Record<string, string> = { Accept: 'application/json', ...extraHeaders };
-  if (basicAuth) {
-    headers.Authorization = `Basic ${basicAuth}`;
-  } else if (apiKey) {
-    headers.Authorization = `Bearer ${apiKey}`;
+  // A custom Authorization header beats the key, as it does on the requests this stands in for.
+  const hasCustomAuth = Object.keys(extraHeaders).some((name) => name.toLowerCase() === 'authorization');
+  if (!hasCustomAuth) {
+    if (basicAuth) {
+      headers.Authorization = `Basic ${basicAuth}`;
+    } else if (apiKey) {
+      headers.Authorization = `Bearer ${apiKey}`;
+    }
   }
   const attempt = async (): Promise<number> => {
     const res = await envProxyFetch(url, { headers, signal: AbortSignal.timeout(PING_TIMEOUT_MS) });
@@ -132,7 +136,10 @@ function pingOpenAiCompatible(provider: LlmProviderConfig): Promise<LlmSourcePin
     case 'openai-compatible': {
       const base = openAiCompatBaseUrl(baseUrl);
       if (!base) {
-        return Promise.resolve({ ok: false, error: `Add a base URL for ${name} in Settings to send` });
+        return Promise.resolve({
+          ok: false,
+          error: baseUrl.trim() ? `${name} has an invalid base URL. Check it in Settings.` : `Add a base URL for ${name} in Settings to send`,
+        });
       }
       const extra = Object.fromEntries((provider.customHeaders ?? []).map((h) => [h.key, unwrapSecret(h.value)]));
       return pingHttp(name, `${base}/models`, key, extra);

@@ -37,6 +37,16 @@ const HUB_SEARCH_DEBOUNCE_MS = 450;
 
 type ListSection = 'downloaded' | 'featured';
 
+function withSection(sections: ReadonlySet<ListSection>, section: ListSection, present: boolean): ReadonlySet<ListSection> {
+  const next = new Set(sections);
+  if (present) {
+    next.add(section);
+  } else {
+    next.delete(section);
+  }
+  return next;
+}
+
 @Component({
   selector: 'app-settings-model-manager',
   imports: [FormsModule, LucideAngularModule, NgTemplateOutlet, PillSelectComponent],
@@ -61,7 +71,7 @@ export class SettingsModelManager {
     effect(() => {
       const section = this.selectedSection();
       if (section) {
-        untracked(() => this.setSectionOpen(section, true));
+        untracked(() => this.revealSection(section));
       }
     });
   }
@@ -84,20 +94,17 @@ export class SettingsModelManager {
   }
 
   private setSectionOpen(section: ListSection, open: boolean): void {
-    const change = (sections: ReadonlySet<ListSection>, present: boolean): ReadonlySet<ListSection> => {
-      const next = new Set(sections);
-      if (present) {
-        next.add(section);
-      } else {
-        next.delete(section);
-      }
-      return next;
-    };
     if (this.searching()) {
-      this.searchClosed.update((sections) => change(sections, !open));
+      this.searchClosed.update((sections) => withSection(sections, section, !open));
     } else {
-      this.browseOpen.update((sections) => change(sections, open));
+      this.browseOpen.update((sections) => withSection(sections, section, open));
     }
+  }
+
+  /** Opens for browsing as well as for a search, so a row picked while searching still shows once it ends. */
+  private revealSection(section: ListSection): void {
+    this.browseOpen.update((sections) => withSection(sections, section, true));
+    this.searchClosed.update((sections) => withSection(sections, section, false));
   }
 
   /** What a separate head or projector file is, which works beside a model and can't load as one. Empty for anything else. */

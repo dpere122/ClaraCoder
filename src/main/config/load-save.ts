@@ -1069,16 +1069,42 @@ function ensurePinnedLmStudioProvider(providers: LlmProviderConfig[]): boolean {
   return true;
 }
 
+/**
+ * Move a URL source saved as ``llamacpp``, which sent every server llama-server's own fields, to its
+ * own type without changing where its requests go. That type doesn't add ``/v1`` to a path or accept
+ * ``user:pw@``, so the URL gets its ``/v1`` here, and the credentials become the header httpx was sending.
+ */
+function retypeLegacyUrlSource(source: LlmProviderConfig): boolean {
+  if (source.provider === 'openai-compatible') {
+    return false;
+  }
+  source.provider = 'openai-compatible';
+  const raw = (source.baseUrl ?? '').trim() || (process.env.LLAMACPP_BASE_URL ?? '').trim() || 'http://127.0.0.1:8080/v1';
+  try {
+    const url = new URL(raw.includes('://') ? raw : `http://${raw}`);
+    if (url.username || url.password) {
+      const credentials = `${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`;
+      source.customHeaders = [
+        ...(source.customHeaders ?? []),
+        { key: 'Authorization', value: SecretValue.of(`Basic ${Buffer.from(credentials).toString('base64')}`) },
+      ];
+      url.username = '';
+      url.password = '';
+    }
+    const path = url.pathname.replace(/\/+$/, '');
+    url.pathname = path.toLowerCase().endsWith('/v1') ? path : `${path}/v1`;
+    source.baseUrl = url.href;
+  } catch {
+    // Not a URL: its screen says so, and the text stays for the user to fix.
+  }
+  return true;
+}
+
 /** Ensure pinned remote ``llama-server`` URL source exists (next to LM Studio in the list). */
 function ensurePinnedLlamaServerUrlProvider(providers: LlmProviderConfig[]): boolean {
   const pinned = providers.find((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID);
   if (pinned) {
-    // This source used to be typed llamacpp, which sent every server llama-server's own fields.
-    if (pinned.provider === 'openai-compatible') {
-      return false;
-    }
-    pinned.provider = 'openai-compatible';
-    return true;
+    return retypeLegacyUrlSource(pinned);
   }
   const lmIdx = providers.findIndex((p) => p.id === PINNED_LM_STUDIO_PROVIDER_ID);
   const at = lmIdx >= 0 ? lmIdx + 1 : 1;
@@ -1207,7 +1233,7 @@ function migrateLlmProvidersToLeadingPinnedSources(
   if (!url.name?.trim()) {
     url.name = DEFAULT_URL_SOURCE_NAME;
   }
-  url.provider = 'openai-compatible';
+  retypeLegacyUrlSource(url);
 
   const pinnedIdSet = new Set([PINNED_LM_STUDIO_PROVIDER_ID, PINNED_LLAMA_SERVER_URL_PROVIDER_ID]);
   const extras = pool.filter((p) => !pinnedIdSet.has(p.id) && !absorbedIds.has(p.id));

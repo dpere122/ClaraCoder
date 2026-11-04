@@ -11,6 +11,8 @@ import type {
   OpenAiCompatTestResult,
 } from '../shared/openai-compat';
 import { openAiCompatBaseUrl } from '../shared/openai-compat';
+import { envProxyFetch } from './env-proxy-fetch';
+import { normalizeBindAllHostToLocalhost } from './python/workspace-sync';
 
 const LIST_TIMEOUT_MS = 15_000;
 /** A local server may load the model on the first request. */
@@ -33,20 +35,19 @@ function asRecord(v: unknown): Record<string, unknown> | null {
 }
 
 export function openAiCompatUrl(baseUrl: string, path: string): string | null {
-  const base = openAiCompatBaseUrl(baseUrl);
+  const base = openAiCompatBaseUrl(normalizeBindAllHostToLocalhost(baseUrl));
   return base ? `${base}/${path}` : null;
 }
 
 function requestHeaders(endpoint: OpenAiCompatEndpoint): Record<string, string> {
   const headers: Record<string, string> = { Accept: 'application/json', 'Content-Type': 'application/json' };
+  const custom = (endpoint.headers ?? []).filter((h) => h.key.trim());
   const key = (endpoint.apiKey ?? '').trim();
-  if (key) {
+  if (key && !custom.some((h) => h.key.trim().toLowerCase() === 'authorization')) {
     headers['Authorization'] = `Bearer ${key}`;
   }
-  for (const { key: name, value } of endpoint.headers ?? []) {
-    if (name.trim()) {
-      headers[name.trim()] = value;
-    }
+  for (const { key: name, value } of custom) {
+    headers[name.trim()] = value;
   }
   return headers;
 }
@@ -113,7 +114,7 @@ export async function openAiCompatListModels(endpoint: OpenAiCompatEndpoint): Pr
     return { ok: false, error: 'Enter a valid http or https URL.' };
   }
   try {
-    const res = await fetch(url, { headers: requestHeaders(endpoint), signal: AbortSignal.timeout(LIST_TIMEOUT_MS) });
+    const res = await envProxyFetch(url, { headers: requestHeaders(endpoint), signal: AbortSignal.timeout(LIST_TIMEOUT_MS) });
     if (!res.ok) {
       return { ok: false, error: errorText(res.status, await res.text().catch(() => '')) };
     }
@@ -130,7 +131,7 @@ type ChatOutcome =
 
 async function postChat(endpoint: OpenAiCompatEndpoint, url: string, body: Record<string, unknown>): Promise<ChatOutcome> {
   try {
-    const res = await fetch(url, {
+    const res = await envProxyFetch(url, {
       method: 'POST',
       headers: requestHeaders(endpoint),
       body: JSON.stringify(body),
@@ -158,7 +159,7 @@ async function postStream(
   body: Record<string, unknown>,
 ): Promise<{ kind: 'ok'; chunks: number; usage: boolean } | { kind: 'rejected'; status: number; error: string } | { kind: 'failed'; error: string }> {
   try {
-    const res = await fetch(url, {
+    const res = await envProxyFetch(url, {
       method: 'POST',
       headers: requestHeaders(endpoint),
       body: JSON.stringify({ ...body, stream: true }),
@@ -205,10 +206,18 @@ function reasoningTokens(usage: Record<string, unknown> | null): number {
   return typeof n === 'number' ? n : 0;
 }
 
-/** Whether a reply shows the model thought: reasoning text, or a reasoning token count. */
+/** Thinking returned in the reply itself, as servers without a reasoning parser do. An empty block doesn't count. */
+const INLINE_THINKING = /<think>\s*(?!<\/think>)\S|<\|channel>thought/i;
+
+/** Whether a reply shows the model thought: reasoning text, inline thinking, or a reasoning token count. */
 function showedThinking(outcome: Extract<ChatOutcome, { kind: 'ok' }>): boolean {
   const { message, usage } = outcome;
-  return !!(message['reasoning_content'] || message['reasoning']) || reasoningTokens(usage) > 0;
+  const content = message['content'];
+  return (
+    !!(message['reasoning_content'] || message['reasoning']) ||
+    (typeof content === 'string' && INLINE_THINKING.test(content)) ||
+    reasoningTokens(usage) > 0
+  );
 }
 
 /**
@@ -242,7 +251,7 @@ export async function runOpenAiCompatTest(endpoint: OpenAiCompatEndpoint, select
 
   let listed: OpenAiCompatModel[] = [];
   try {
-    const res = await fetch(modelsUrl, { headers: requestHeaders(endpoint), signal: AbortSignal.timeout(LIST_TIMEOUT_MS) });
+    const res = await envProxyFetch(modelsUrl, { headers: requestHeaders(endpoint), signal: AbortSignal.timeout(LIST_TIMEOUT_MS) });
     if (res.status === 401 || res.status === 403) {
       add('reachable', 'Server and API key', 'fail', `The server rejected the API key (HTTP ${res.status}).`);
       return skipRest([['models', 'Model list'], ...AFTER_MODELS], 'Needs an accepted API key.');
@@ -250,7 +259,7 @@ export async function runOpenAiCompatTest(endpoint: OpenAiCompatEndpoint, select
     add('reachable', 'Server and API key', 'ok', `The server answered at ${new URL(modelsUrl).origin}.`);
     if (res.ok) {
       listed = modelsFromBody(await res.json().catch(() => null));
-      add('models', 'Model list', listed.length ? 'ok' : 'warn', listed.length ? `${listed.length} models listed.` : 'The list came back empty. Type a model ID instead.');
+      add('models', 'Model list', listed.length ? 'ok' : 'warn', listed.length ? `${listed.length} ${listed.length === 1 ? 'model' : 'models'} listed.` : 'The list came back empty. Type a model ID instead.');
     } else {
       add('models', 'Model list', 'warn', `No list here (HTTP ${res.status}). Type a model ID instead.`);
     }

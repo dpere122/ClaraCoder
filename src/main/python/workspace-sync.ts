@@ -342,7 +342,8 @@ async function refreshLmStudioLiveNctx(config: AppConfig): Promise<void> {
           if (n > 0) {
             setCachedLlamaServerNctx(row.id, n);
           }
-          if (card) {
+          // Only v1 reports capabilities; see refreshLmStudioReasoningForConnection.
+          if (card && res.source === 'v1') {
             setCachedChatTemplateReasoning(row.id, lmStudioReasoningCaps(card));
           }
         }

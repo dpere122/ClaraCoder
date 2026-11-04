@@ -3454,6 +3454,24 @@ async def test_subagent_concurrency_per_provider(session: SessionState, provider
     assert parent_subagent_semaphore(parent) is parent.subagent_semaphore
 
 
+@pytest.mark.parametrize(
+    ('base_url', 'limit'),
+    [
+        ('http://127.0.0.1:8080/v1', 1),
+        ('http://localhost:8080/v1', 1),
+        ('http://[::1]:8080/v1', 1),
+        ('https://api.example.com/v1', CLARA_SUBAGENT_MAX_CONCURRENCY),
+        ('', CLARA_SUBAGENT_MAX_CONCURRENCY),
+    ],
+)
+async def test_subagent_concurrency_on_a_generic_server_follows_its_address(
+    session: SessionState, base_url: str, limit: int
+) -> None:
+    set_window(32768, 'openai-compatible')
+    runtime_config.connections[0].base_url = base_url
+    assert parent_subagent_semaphore(SessionState())._value == limit
+
+
 async def test_subagent_reports_are_capped_each(session: SessionState) -> None:
     set_window(20_000)
     reports = [

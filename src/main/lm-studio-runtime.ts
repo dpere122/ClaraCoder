@@ -31,20 +31,25 @@ export function findLmStudioConnection(config: AppConfig, connectionId: string):
 
 /**
  * Recomputes and caches caps for one LM Studio connection. ``undefined`` (cache cleared) when the
- * server is unreachable or does not list the model, so the UI keeps its generic controls.
+ * server is unreachable, does not list the model or can't report caps, so the UI keeps its generic controls.
  */
 export async function refreshLmStudioReasoningForConnection(
   connection: LlmConnectionConfig,
 ): Promise<ChatTemplateReasoningCaps | undefined> {
   const list = await lmStudioListModels(connection.baseUrl, unwrapSecret(connection.apiKey));
   const card = list.ok ? list.models.find((c) => c.id === connection.model.trim()) : undefined;
-  if (!card) {
+  if (!list.ok || !card) {
     clearCachedChatTemplateReasoning(connection.id);
     return undefined;
   }
   const n = effectiveLmStudioContextTokens(card);
   if (n > 0) {
     setCachedLlamaServerNctx(connection.id, n);
+  }
+  // Only v1 reports capabilities: an older server saying nothing doesn't mean the model can't think.
+  if (list.source !== 'v1') {
+    clearCachedChatTemplateReasoning(connection.id);
+    return undefined;
   }
   const caps = lmStudioReasoningCaps(card);
   setCachedChatTemplateReasoning(connection.id, caps);

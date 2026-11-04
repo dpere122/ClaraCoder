@@ -651,7 +651,7 @@
               @if (connection.provider !== 'openrouter' && connection.provider !== 'anthropic' && connection.provider !== 'lmstudio' && connection.provider !== 'openai-compatible') {
               <hr class='settings-divider' />
 
-              <div class='form-section ready-defaults' [attr.data-tutorial]="connection.provider === 'llamacpp' && !s.isUrlOnlyLlamacpp() ? 'sources-defaults' : null">
+              <div class='form-section ready-defaults' [attr.data-tutorial]="connection.provider === 'llamacpp' ? 'sources-defaults' : null">
                 <div class='form-section__header'>
                   <h5>Ready defaults</h5>
                   <p class='settings-copy'>{{ s.readyDefaultsSummary() }}</p>
@@ -690,7 +690,7 @@
                     </label>
                   }
 
-                  @if (connection.provider !== 'llamacpp' || s.isUrlOnlyLlamacpp()) {
+                  @if (connection.provider !== 'llamacpp') {
                     <label class='field'>
                       <span>Context</span>
                       <input
@@ -708,10 +708,10 @@
 
               <hr class='settings-divider' />
 
-              <details class='advanced-tuning' [attr.data-tutorial]="connection.provider === 'llamacpp' && !s.isUrlOnlyLlamacpp() ? 'sources-advanced-section' : null">
-                <summary [attr.data-tutorial]="connection.provider === 'llamacpp' && !s.isUrlOnlyLlamacpp() ? 'sources-advanced' : null">Advanced</summary>
+              <details class='advanced-tuning' [attr.data-tutorial]="connection.provider === 'llamacpp' ? 'sources-advanced-section' : null">
+                <summary [attr.data-tutorial]="connection.provider === 'llamacpp' ? 'sources-advanced' : null">Advanced</summary>
                 <div class='form-section'>
-                @if (connection.provider === 'llamacpp' && !s.isUrlOnlyLlamacpp()) {
+                @if (connection.provider === 'llamacpp') {
                   <div class='form-grid' style='margin-bottom: 1rem'>
                     <label class='field field--full'>
                       <span>API key</span>

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { effectiveLmStudioContextTokens, lmStudioReasoningCaps, normalizeLmStudioSettings, type LmStudioLoadOptions } from '../shared/lm-studio-ipc';
+import { effectiveLmStudioContextTokens, lmStudioReasoningCaps, lmStudioRunningConfigDiffers, normalizeLmStudioSettings, type LmStudioLoadOptions } from '../shared/lm-studio-ipc';
 import {
   lmStudioHttpError,
   lmStudioListModels,
@@ -176,6 +176,19 @@ describe('lmStudioLoadModel', () => {
     expect(await loadBody({ contextLength: 32768, flashAttention: false })).toEqual({ model: 'm', context_length: 32768, flash_attention: false });
     expect(await loadBody({ parallel: 2, evalBatchSize: 512, offloadKvCacheToGpu: true })).toEqual({ model: 'm', parallel: 2, eval_batch_size: 512, offload_kv_cache_to_gpu: true });
     expect(await loadBody()).toEqual({ model: 'm' });
+  });
+});
+
+describe('lmStudioRunningConfigDiffers', () => {
+  it('compares what the instance reports', () => {
+    expect(lmStudioRunningConfigDiffers({ contextLength: 8192 }, { contextLength: 32768 })).toBe(true);
+    expect(lmStudioRunningConfigDiffers({ contextLength: 8192, flashAttention: false }, { contextLength: 8192, flashAttention: true })).toBe(true);
+    expect(lmStudioRunningConfigDiffers({ contextLength: 8192, parallel: 2 }, { contextLength: 8192, parallel: 2 })).toBe(false);
+  });
+
+  it('does not count a field the instance leaves out', () => {
+    expect(lmStudioRunningConfigDiffers({ contextLength: 0 }, { contextLength: 32768 })).toBe(false);
+    expect(lmStudioRunningConfigDiffers({ contextLength: 32768 }, { contextLength: 32768, parallel: 4 })).toBe(false);
   });
 });
 

@@ -885,6 +885,14 @@ def test_compat_standard_request_fields(get: MagicMock, ctor: MagicMock, log: Ma
 
 
 @_with_compat
+def test_compat_gemma_profile_keeps_the_channel_loop_stop(get: MagicMock, ctor: MagicMock, log: MagicMock) -> None:
+    loop_stop = '<|channel>thought\n<channel|>' * 8
+    kwargs = _compat_kwargs(get, ctor, _compat_conn({'stop': ['END']}, optimization_preset='gemma'))
+    assert kwargs['stop'] == [loop_stop, 'END']
+    assert 'stop' not in _compat_kwargs(get, ctor, _compat_conn())
+
+
+@_with_compat
 def test_compat_non_standard_sampling_only_when_turned_on(get: MagicMock, ctor: MagicMock, log: MagicMock) -> None:
     conn = dict(top_k=40, min_p=0.1, repeat_penalty=1.1)
     assert 'extra_body' not in _compat_kwargs(get, ctor, _compat_conn(**conn))

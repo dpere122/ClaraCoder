@@ -473,22 +473,19 @@ async function boot() {
       matchMedia('(prefers-reduced-motion: reduce)').matches === expectReduce, value === 'reduce'));
   }
 
-  async function checkReducedMotion(win, celebration) {
+  async function checkReducedMotion(win) {
     await setMotion(win, 'reduce');
     const styles = await waitFor('rendered tutorial mascot', () => evaluate(win, () => {
       const mascot = document.querySelector('.tutorial-mascot');
       const mark = document.querySelector('.tutorial-mascot__mark');
-      const sparkles = document.querySelector('.tutorial-mascot__sparkles');
       if (!mascot || !mark) return null;
       return {
-        animation: getComputedStyle(mascot).animationName,
+        animation: getComputedStyle(document.querySelector('.tutorial-card')).animationName,
         markOpacity: getComputedStyle(mark).opacity,
-        sparkles: sparkles ? getComputedStyle(sparkles).display : null,
       };
     }));
     assert.equal(styles.animation, 'none');
     assert.equal(styles.markOpacity, '1');
-    if (celebration) assert.equal(styles.sparkles, 'none');
     await setMotion(win, 'no-preference');
   }
 
@@ -541,25 +538,17 @@ async function boot() {
     homeWindow.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
     await expectStep(homeWindow, 'intro', 'welcome', 'Welcome to Clara Coder');
     console.log('[tutorial-smoke] PASS keyboard activation');
-    await checkReducedMotion(homeWindow, false);
+    await checkReducedMotion(homeWindow);
     console.log('[tutorial-smoke] PASS reduced-motion mascot');
 
     const homeSteps = [
       ['home-start', 'Start here'],
       ['home-workspace', 'Your workspace'],
-      ['home-navigation', 'Model sources'],
+      ['home-navigation', 'Connect an AI model'],
       ['home-models', 'Your model library'],
-      ['home-dependencies', 'Optional local engine'],
+      ['home-dependencies', 'Running AI on your computer'],
     ];
     for (const [step, title] of homeSteps) {
-      // The fade is too brief to poll for, so record its end from before the click.
-      if (step === 'home-workspace') {
-        await evaluate(homeWindow, () => {
-          document.addEventListener('animationend', (event) => {
-            if (event.target.classList?.contains('tutorial-mascot-departure')) window.__tutorialDeparture = event.animationName;
-          }, { capture: true });
-        });
-      }
       await clickPrimary(homeWindow, /^(next|continue anyway)$/i);
       await expectStep(homeWindow, 'intro', step, title);
       if (step === 'home-start') {
@@ -572,19 +561,15 @@ async function boot() {
         );
       }
       if (step === 'home-workspace') {
-        const departure = await waitFor('mascot fade-out finished', () => evaluate(homeWindow, () => {
-          const name = window.__tutorialDeparture;
-          return name && !document.querySelector('.tutorial-mascot-departure') && document.querySelector('.tutorial-mascot') ? name : null;
-        }));
-        assert.match(departure, /tutorial-mascot-fade-out/);
-        console.log('[tutorial-smoke] PASS mascot fades out of its previous location');
+        assert.equal(await evaluate(homeWindow, () => !!document.querySelector('.tutorial-card .tutorial-mascot')), true);
+        console.log('[tutorial-smoke] PASS mascot sits inside the card');
       }
       if (step === 'home-navigation') await expectHighlight(homeWindow, '[data-tutorial="home-sources"]');
       if (step === 'home-models') await expectHighlight(homeWindow, '[data-tutorial="home-model-manager"]');
     }
     await clickPrimary(homeWindow, /^open dependencies$/i);
     let dependenciesWindow = await waitWindow('dependencies');
-    await expectStep(dependenciesWindow, 'local-engine', 'engine-intro', 'Meet llama-server');
+    await expectStep(dependenciesWindow, 'local-engine', 'engine-intro', 'Meet the local engine');
     assert.equal((await snapshot(homeWindow)).ownerId, dependenciesWindow.webContents.id);
     await waitFor('asynchronous dependency checking state', () => evaluate(dependenciesWindow, () => {
       const target = document.querySelector('[data-tutorial="dependencies-llama"]');
@@ -603,7 +588,7 @@ async function boot() {
     });
     await clickPrimary(homeWindow, /^(continue in|reopen) dependencies$/i);
     dependenciesWindow = await waitWindow('dependencies');
-    await expectStep(dependenciesWindow, 'local-engine', 'engine-intro', 'Meet llama-server');
+    await expectStep(dependenciesWindow, 'local-engine', 'engine-intro', 'Meet the local engine');
     depsGate.resolve();
     await waitFor('dependency fixture missing state', () => evaluate(dependenciesWindow, () => {
       const target = document.querySelector('[data-tutorial="dependencies-llama"]');
@@ -635,10 +620,11 @@ async function boot() {
 
     await clickPrimary(homeWindow, /^open model manager$/i);
     let settingsWindow = await waitWindow('settings');
-    await expectStep(settingsWindow, 'featured-models', 'featured-intro', 'Featured models');
+    await expectStep(settingsWindow, 'featured-models', 'downloaded-list', 'Your downloads');
+    assert.equal(await evaluate(settingsWindow, () => document.querySelector('[data-tutorial="downloaded-list"]')?.open), true);
     assert.equal((await snapshot(homeWindow)).ownerId, settingsWindow.webContents.id);
     await waitFor('home overlay hidden during settings ownership', async () => (await card(homeWindow)) === null);
-    for (const [step, title] of [['featured-small', 'A smaller example'], ['featured-largest', 'Compare a larger model'], ['featured-preview', 'Preview model details']]) {
+    for (const [step, title] of [['featured-intro', 'Featured models'], ['featured-low', 'Low models'], ['featured-medium', 'Medium models'], ['featured-big', 'Big models'], ['featured-moe', 'MoE models'], ['featured-preview', 'Who made this model']]) {
       await clickPrimary(settingsWindow, /^(next|continue anyway)$/i);
       await expectStep(settingsWindow, 'featured-models', step, title);
     }
@@ -646,12 +632,12 @@ async function boot() {
       (calls.get('model-manager:hf-model-details') ?? 0) > 0 && (calls.get('model-manager:list-hf-files') ?? 0) > 0);
     const loading = await waitFor('preview loading states', () => evaluate(settingsWindow, () => {
       const panel = document.querySelector('.mm-panel');
-      const small = document.querySelector('[data-tutorial="featured-small"]');
+      const small = document.querySelector('[data-tutorial="featured-low"] .mm-row');
       const quants = document.querySelector('[data-tutorial="featured-quantizations"]');
       if (panel?.getAttribute('data-details-state') !== 'loading' || quants?.getAttribute('data-state') !== 'loading') return null;
       return { repo: panel.getAttribute('data-repo-id'), small: small?.getAttribute('data-row-key') };
     }));
-    assert.equal(`hf:${loading.repo}`, loading.small, 'Preview should select the featured Small example');
+    assert.equal(`hf:${loading.repo}`, loading.small, 'Preview should select the lightest featured Low model');
     detailsGate.resolve();
     await waitFor('model details ready while quantizations remain pending', () => evaluate(settingsWindow, () =>
       document.querySelector('.mm-panel')?.getAttribute('data-details-state') === 'ready' &&
@@ -665,10 +651,10 @@ async function boot() {
     }));
     await expectHighlight(settingsWindow, '[data-tutorial="featured-provider"]');
     await clickPrimary(settingsWindow, /^(next|continue anyway)$/i);
-    await expectStep(settingsWindow, 'featured-models', 'featured-uploader', 'Meet the uploader');
+    await expectStep(settingsWindow, 'featured-models', 'featured-uploader', 'Who shared this copy');
     await expectHighlight(settingsWindow, '[data-tutorial="featured-uploader"]');
     await clickPrimary(settingsWindow, /^(next|continue anyway)$/i);
-    await expectStep(settingsWindow, 'featured-models', 'featured-quantizations', 'Quantizations');
+    await expectStep(settingsWindow, 'featured-models', 'featured-quantizations', 'Pick a size');
     await capture(settingsWindow, 'featured-quantizations', 1400);
     console.log('[tutorial-smoke] PASS settings handoff and independently delayed model metadata/files');
 
@@ -676,8 +662,18 @@ async function boot() {
     await expectStep(settingsWindow, 'local-source', 'sources-navigation', 'Open Sources');
     await clickTarget(settingsWindow, '[data-tutorial="settings-sources-nav"]');
     await waitFor('Sources navigation rendered', () => evaluate(settingsWindow, () => !!document.querySelector('[data-tutorial="sources-add"]')));
+    for (const [step, title, row] of [
+      ['sources-lm-studio', 'LM Studio', 'lm-studio-default'],
+      ['sources-custom-endpoint', 'Custom OpenAI Endpoint', 'llama-server-url-default'],
+      ['sources-openrouter', 'OpenRouter', 'openrouter-default'],
+      ['sources-claude', 'Claude', 'anthropic-default'],
+    ]) {
+      await clickPrimary(settingsWindow, /^(next|continue anyway)$/i);
+      await expectStep(settingsWindow, 'local-source', step, title);
+      await expectHighlight(settingsWindow, `[data-tutorial="source-${row}"]`);
+    }
     await clickPrimary(settingsWindow, /^(next|continue anyway)$/i);
-    await expectStep(settingsWindow, 'local-source', 'sources-add', 'Add a source');
+    await expectStep(settingsWindow, 'local-source', 'sources-add', 'Create a new source');
     const diskProviderCount = JSON.parse(fs.readFileSync(configFile, 'utf8')).llmProviders.length;
     await clickTarget(settingsWindow, '[data-tutorial="sources-add"]');
     let draftId = await waitFor('unsaved source draft', () => evaluate(settingsWindow, () => {
@@ -696,7 +692,7 @@ async function boot() {
     await waitFor('lost draft warning', async () => (await card(settingsWindow))?.title === 'Source draft unavailable');
     assert.equal((await snapshot(settingsWindow)).progress.active.stepId, 'sources-model');
     await clickPrimary(settingsWindow, /^return to add source$/i);
-    await expectStep(settingsWindow, 'local-source', 'sources-add', 'Add a source');
+    await expectStep(settingsWindow, 'local-source', 'sources-add', 'Create a new source');
     await clickTarget(settingsWindow, '[data-tutorial="sources-add"]');
     const oldDraftId = draftId;
     draftId = await waitFor('replacement source draft', () => evaluate(settingsWindow, (oldId) => {
@@ -707,14 +703,21 @@ async function boot() {
     console.log('[tutorial-smoke] PASS lost source draft warning and explicit recovery');
     for (const [step, title] of [
       ['sources-model', 'Choose a local model'],
-      ['sources-defaults', 'Model defaults'],
+      ['sources-defaults', 'Ready-made settings'],
       ['sources-advanced', 'Advanced options'],
+      ['sources-commands', 'Commands'],
+      ['sources-add-command', 'Add more commands'],
+      ['sources-vram', 'Graphics card memory'],
       ['sources-apply', 'Apply your changes'],
-      ['celebration', 'You’re ready to explore'],
+      ['tour-complete', "You're ready to explore"],
     ]) {
       await clickPrimary(settingsWindow, /^(next|continue anyway|continue without applying)$/i);
       await expectStep(settingsWindow, 'local-source', step, title);
-      if (step === 'celebration') await capture(settingsWindow, 'celebration', 1800);
+      if (step === 'tour-complete') await capture(settingsWindow, 'tour-complete', 800);
+      if (step === 'sources-defaults') {
+        assert.equal(await evaluate(settingsWindow, () => !!document.querySelector('app-tutorial-source-example [data-tutorial="sources-defaults"]')), true, 'A source with no model should show the example page');
+        await capture(settingsWindow, 'source-example', 1400);
+      }
       if (step === 'sources-advanced') {
         await capture(settingsWindow, 'advanced-wiki', 1400);
         await clickTarget(settingsWindow, '.tutorial-wiki');
@@ -731,20 +734,11 @@ async function boot() {
     assert.equal(JSON.parse(fs.readFileSync(configFile, 'utf8')).llmProviders.length, diskProviderCount, 'Unapplied draft reached disk');
     console.log('[tutorial-smoke] PASS source draft preserved through tutorial transitions');
 
-    await setMotion(settingsWindow, 'no-preference');
-    const burst = await waitFor('celebration sparkle animation', () => evaluate(settingsWindow, () => {
-      const node = document.querySelector('.tutorial-mascot__sparkles');
-      const ring = document.querySelector('.tutorial-mascot__ring');
-      if (!node || !ring) return null;
-      const style = getComputedStyle(node);
-      return { count: node.querySelectorAll('span').length, name: style.animationName,
-        iterations: style.animationIterationCount, radius: getComputedStyle(ring).borderTopLeftRadius };
+    const finalCard = await evaluate(settingsWindow, () => ({
+      check: !!document.querySelector('.tutorial-card .tutorial-complete-icon svg'),
+      mascot: !!document.querySelector('.tutorial-mascot'),
     }));
-    assert.equal(burst.count, 5);
-    assert.match(burst.name, /tutorial-mascot-celebrate/);
-    assert.equal(burst.iterations, '1');
-    assert.equal(burst.radius, '50%', 'Celebration rings must remain round despite the app-wide corner reset');
-    await checkReducedMotion(settingsWindow, true);
+    assert.deepEqual(finalCard, { check: true, mascot: false }, 'The final step shows a checkmark instead of the mascot');
     await clickPrimary(settingsWindow, /^finish$/i);
     const completed = await waitFor('completed tutorial on disk', async () => {
       const current = await snapshot(homeWindow);
@@ -752,7 +746,7 @@ async function boot() {
         ['intro', 'local-engine', 'featured-models', 'local-source'].every((id) => current.progress.phases[id] === 'completed') ? current : null;
     });
     assert.deepEqual(JSON.parse(fs.readFileSync(configFile, 'utf8')).tutorial, completed.progress);
-    console.log('[tutorial-smoke] PASS celebration, reduced motion, and completed progress');
+    console.log('[tutorial-smoke] PASS completion checkmark and completed progress');
 
     // Close child windows only after verifying the draft; destroying the parent first
     // would implicitly close Settings while its captured parent is already destroyed.
@@ -795,7 +789,7 @@ async function boot() {
     await waitFor('resume Sources from Home', async () => /continue in settings/i.test((await card(homeWindow))?.primary ?? ''));
     await clickPrimary(homeWindow, /^continue in settings$/i);
     settingsWindow = await waitWindow('settings');
-    await expectStep(settingsWindow, 'local-source', 'sources-add', 'Add a source');
+    await expectStep(settingsWindow, 'local-source', 'sources-add', 'Create a new source');
     await clickTarget(settingsWindow, '[data-tutorial="sources-add"]');
     const appliedId = await waitFor('draft before Apply', () => evaluate(settingsWindow, () => {
       const nav = document.querySelector('[data-tutorial="settings-sources-nav"]');
@@ -899,8 +893,8 @@ async function boot() {
     await clickPrimary(homeWindow, /^start tour$/i);
     await expectStep(homeWindow, 'intro', 'welcome', 'Welcome to Clara Coder');
     await clickPrimary(homeWindow, /^next$/i);
-    await expectStep(homeWindow, 'intro', 'home-start', 'Start here');
-    const afterTour = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+    await expectStep(homeWindow, 'intro', 'home-workspace', 'Your workspace');
+    const afterTour =JSON.parse(fs.readFileSync(configFile, 'utf8'));
     assert.equal(afterTour.currentWorkspaceId, 'smoke-workspace');
     assert.equal(afterTour.workspaces[0].path, workspaceDir);
     console.log('[tutorial-smoke] PASS restored workspace remains open while Home targets are absent');

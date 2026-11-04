@@ -32,10 +32,35 @@
   /* The card can sit over a frameless drag region, which would otherwise swallow its clicks. */
   -webkit-app-region: no-drag;
   app-region: no-drag;
+  /* The short delay keeps it hidden until it has been measured and moved to its new spot. */
+  animation: tutorial-card-fade-in 320ms ease-out 50ms both;
 }
 
-.tutorial-card--celebration {
-  background: radial-gradient(circle at 100% 0, color-mix(in srgb, var(--t-primary) 20%, transparent), transparent 55%), var(--t-bg-surface);
+/* A second name, because changing to a different animation is what restarts it. */
+.tutorial-card--refade {
+  animation-name: tutorial-card-fade-in-again;
+}
+
+@keyframes tutorial-card-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes tutorial-card-fade-in-again {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Takes the mascot's place beside the heading on the last step. */
+.tutorial-complete-icon {
+  float: left;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin: 0 0.6rem 0.25rem 0;
+  color: var(--t-primary);
 }
 
 .tutorial-card--minimized {
@@ -43,6 +68,8 @@
   max-width: calc(100vw - 24px);
   padding: 0.4rem;
 }
+
+.tutorial-card--skipping { visibility: hidden; }
 
 .tutorial-card__content[hidden] { display: none; }
 
@@ -60,10 +87,14 @@
 }
 
 .tutorial-card h2 {
+  /* A second line stays beside the mascot instead of wrapping under it. */
+  display: flow-root;
   margin: 0 0 0.45rem;
   font-size: 1.05rem;
   line-height: 1.25;
 }
+
+.tutorial-card h2 + p { clear: left; }
 
 .tutorial-card p {
   margin: 0 0 0.65rem;
@@ -83,6 +114,21 @@
   padding: 0.5rem 0.6rem;
   border-left: 3px solid var(--t-primary);
   background: color-mix(in srgb, var(--t-primary) 9%, var(--t-bg-surface));
+}
+
+.tutorial-details {
+  margin: 0 0 0.65rem;
+  font-size: 0.76rem;
+}
+
+.tutorial-details summary {
+  color: var(--t-primary);
+  cursor: pointer;
+}
+
+.tutorial-card .tutorial-details p {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
 }
 
 .tutorial-card .tutorial-error {
@@ -183,7 +229,7 @@
 }
 
 @media (max-height: 400px) {
-  /* Leave a usable area for the app and the compact mascot on short windows. */
+  /* Leave a usable area for the app on short windows. */
   .tutorial-card { max-height: min(calc(100vh - 24px), max(96px, calc(100vh - 104px))); }
 }
 

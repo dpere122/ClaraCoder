@@ -26,11 +26,12 @@
                 <div
                   class='source-row-wrap'
                   data-tutorial-source-row='true'
+                  [attr.data-tutorial]="s.isPinnedSource(provider.id) ? 'source-' + provider.id : null"
                   [attr.data-tutorial-source-id]='provider.id'
                   [attr.data-tutorial-source-state]='s.sourcePersistenceState(provider)'
                   [attr.data-tutorial-source-selected]="s.sourceIsSelected(provider) ? 'true' : 'false'"
                   [attr.data-tutorial-source-kind]="s.isManagedLlamacppSource(provider) ? 'managed-local' : 'other'"
-                  [class.is-selected]='s.sourceIsSelected(provider)'
+                  [class.is-selected]='s.sourceIsSelected(provider) && !s.tutorialShowsExample()'
                   [class.is-activated]='s.sourceIsActive(provider)'
                 >
                   <label class='source-row__activate' title='Use this source for chat'>
@@ -75,11 +76,28 @@
                   <p>No sources.</p>
                 </div>
               }
+              @if (s.tutorialShowsExample()) {
+                @if (s.firstLocalSourceIndex() < 0) {
+                  <hr class='sources-list__separator' />
+                }
+                <div class='source-row-wrap source-row-wrap--example is-selected'>
+                  <div class='source-row'>
+                    <div class='source-row__body'>
+                      <div class='source-row__top'>
+                        <strong>Example Model (not real)</strong>
+                      </div>
+                      <span class='source-row__kind'>Example</span>
+                    </div>
+                  </div>
+                </div>
+              }
             </div>
           </div>
 
           <div class='settings-editor'>
-            @if (s.selectedResolved(); as connection) {
+            @if (s.tutorialShowsExample()) {
+              <app-tutorial-source-example />
+            } @else if (s.selectedResolved(); as connection) {
               <div class='settings-editor__header'>
                 <div>
                   <p class='settings-eyebrow'>Source</p>
@@ -690,7 +708,7 @@
 
               <hr class='settings-divider' />
 
-              <details class='advanced-tuning'>
+              <details class='advanced-tuning' [attr.data-tutorial]="connection.provider === 'llamacpp' && !s.isUrlOnlyLlamacpp() ? 'sources-advanced-section' : null">
                 <summary [attr.data-tutorial]="connection.provider === 'llamacpp' && !s.isUrlOnlyLlamacpp() ? 'sources-advanced' : null">Advanced</summary>
                 <div class='form-section'>
                 @if (connection.provider === 'llamacpp' && !s.isUrlOnlyLlamacpp()) {

@@ -204,7 +204,7 @@ describe('local source tutorial targets', () => {
     expect(target(host, 'sources-defaults').textContent).toContain('Ready defaults');
     expect(target(host, 'sources-advanced').tagName).toBe('SUMMARY');
 
-    for (const stepId of ['sources-navigation', 'sources-add', 'sources-model', 'sources-defaults', 'sources-advanced', 'sources-apply']) {
+    for (const stepId of ['sources-navigation', 'sources-lm-studio', 'sources-custom-endpoint', 'sources-openrouter', 'sources-claude', 'sources-add', 'sources-model', 'sources-defaults', 'sources-advanced', 'sources-apply']) {
       window.dispatchEvent(new CustomEvent('clara-tutorial-step', { detail: { phaseId: 'local-source', stepId } }));
     }
     await flush(fixture);

@@ -6,7 +6,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
   LLM_OPTIMIZATION_PRESET_LIST,
+  PINNED_ANTHROPIC_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
+  PINNED_LM_STUDIO_PROVIDER_ID,
+  PINNED_OPENROUTER_PROVIDER_ID,
+  TUTORIAL_PHASE_REGISTRY,
   type LlmProviderConfig,
   type ModelManagerListModelsResult,
 } from '@shared/index';
@@ -16,6 +20,7 @@ import { ThemeEngineService } from '../../../core/theme/theme-engine.service';
 import { lucideAppProviders } from '../../../lucide-setup';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { ThemedPromptDialogService } from '../../../shared/themed-prompt-dialog/themed-prompt-dialog.service';
+import { TutorialCoordinator } from '../../tutorial/tutorial-coordinator';
 import { tutorialStepFor } from '../../tutorial/tutorial-steps';
 import { SettingsStore } from '../settings/settings-store';
 import { SettingsThemesStore } from '../settings-themes/settings-themes-store';
@@ -256,7 +261,7 @@ describe('local source tutorial', () => {
 
     const before = structuredClone(store.llmProviders());
     const choose = vi.spyOn(store, 'onManagedInventoryPick');
-    for (const stepId of ['sources-model', 'sources-defaults', 'sources-advanced', 'sources-apply']) {
+    for (const stepId of ['sources-model', 'sources-defaults', 'sources-advanced', 'sources-commands', 'sources-add-command', 'sources-vram', 'sources-apply']) {
       window.dispatchEvent(new CustomEvent('clara-tutorial-step', { detail: { phaseId: 'local-source', stepId } }));
     }
     fixture.detectChanges();
@@ -264,6 +269,26 @@ describe('local source tutorial', () => {
     expect(store.settingsDirty()).toBe(false);
     expect(choose).not.toHaveBeenCalled();
     expect(TestBed.inject(ElectronService).saveConfig).not.toHaveBeenCalled();
+    fixture.destroy();
+  });
+
+  it('highlights each built-in provider row, then asks to create a source', () => {
+    const steps = TUTORIAL_PHASE_REGISTRY.find((phase) => phase.id === 'local-source')!.steps as readonly string[];
+    const rows = ['sources-lm-studio', 'sources-custom-endpoint', 'sources-openrouter', 'sources-claude'];
+    expect(steps.slice(steps.indexOf('sources-navigation') + 1, steps.indexOf('sources-add'))).toEqual(rows);
+
+    const fixture = setup();
+    const store = TestBed.inject(SettingsStore);
+    const host = fixture.nativeElement as HTMLElement;
+    const pinned = [PINNED_LM_STUDIO_PROVIDER_ID, PINNED_LLAMA_SERVER_URL_PROVIDER_ID, PINNED_OPENROUTER_PROVIDER_ID, PINNED_ANTHROPIC_PROVIDER_ID];
+    store.llmProviders.set([...pinned.map((id) => llamaSource(id)), llamaSource('managed-source')]);
+    fixture.detectChanges();
+
+    rows.forEach((stepId, index) => {
+      const [name] = tutorialStepFor({ phaseId: 'local-source', stepId })!.targets!;
+      expect(target(host, name)?.getAttribute('data-tutorial-source-id')).toBe(pinned[index]);
+    });
+    expect(host.querySelector('[data-tutorial-source-id="managed-source"]')?.hasAttribute('data-tutorial')).toBe(false);
     fixture.destroy();
   });
 
@@ -322,21 +347,139 @@ describe('local source tutorial', () => {
     fixture.destroy();
   });
 
+  describe('example page', () => {
+    const example = (host: HTMLElement) => host.querySelector('app-tutorial-source-example');
+    function tourAt(stepId: string, sourceId?: string) {
+      const electron = TestBed.inject(ElectronService) as unknown as Record<string, unknown>;
+      Object.assign(electron, { isElectron: true, releaseTutorial: vi.fn(async () => ({})) });
+      const tour = TestBed.inject(TutorialCoordinator);
+      tour.role.set('settings');
+      (tour as unknown as { leaseId: { set(id: number): void } }).leaseId.set(1);
+      tour.snapshot.set({
+        ownerId: 1,
+        requestedWindow: null,
+        progress: { revision: 1, phases: {}, active: { phaseId: 'local-source', stepId }, ...(sourceId ? { sourceId } : {}) },
+      } as never);
+      return tour;
+    }
+    function withDownloadedModel(selected: boolean) {
+      const store = TestBed.inject(SettingsStore);
+      store.modelManagerCustomModels.set([{ fileName: 'real.gguf', absolutePath: '/models/real.gguf', sizeBytes: 1, modifiedMs: 0, source: 'custom' }]);
+      if (selected) {
+        store.onManagedInventoryPick(store.managedInventoryOptionValue(store.managedInventoryModels()[0]!));
+      }
+      return store;
+    }
+
+    it('takes over the editor when no local source is selected, with no effect on the draft', () => {
+      const fixture = setup();
+      const store = TestBed.inject(SettingsStore);
+      const host = fixture.nativeElement as HTMLElement;
+      const before = structuredClone(store.llmProviders());
+      tourAt('sources-model');
+      fixture.detectChanges();
+
+      expect(example(host)).not.toBeNull();
+      expect(host.querySelector('app-lm-studio-dashboard')).toBeNull();
+      expect(host.querySelector('.tutorial-example-banner')?.textContent).toContain('Example only');
+      for (const name of ['sources-local-model', 'sources-defaults', 'sources-advanced', 'sources-advanced-section', 'sources-run-flags', 'sources-flag-add', 'sources-vram']) {
+        expect(target(host, name)?.closest('app-tutorial-source-example')).not.toBeNull();
+      }
+      expect(host.querySelector('.source-row-wrap--example')?.hasAttribute('data-tutorial-source-row')).toBe(false);
+      expect(host.querySelectorAll('.source-row-wrap.is-selected')).toHaveLength(1);
+      for (const control of Array.from(example(host)!.querySelectorAll<HTMLButtonElement | HTMLInputElement>('button, input'))) {
+        expect(control.disabled).toBe(true);
+      }
+      expect(store.llmProviders()).toEqual(before);
+      expect(store.settingsDirty()).toBe(false);
+      fixture.destroy();
+    });
+
+    it('covers a new source with no model, but not the Apply step or other tour stages', () => {
+      const fixture = setup();
+      const store = TestBed.inject(SettingsStore);
+      const host = fixture.nativeElement as HTMLElement;
+      store.llmProviders.set([llamaSource('managed-source')]);
+      store.selectedModelId.set('llama-model');
+      const tour = tourAt('sources-defaults');
+      fixture.detectChanges();
+      expect(example(host)).not.toBeNull();
+
+      tour.snapshot.update((snapshot) => ({ ...snapshot!, progress: { ...snapshot!.progress, active: { phaseId: 'local-source', stepId: 'sources-apply' } } }));
+      fixture.detectChanges();
+      expect(example(host)).toBeNull();
+
+      tour.snapshot.update((snapshot) => ({ ...snapshot!, progress: { ...snapshot!.progress, active: { phaseId: 'local-source', stepId: 'sources-add' } } }));
+      fixture.detectChanges();
+      expect(example(host)).toBeNull();
+      fixture.destroy();
+    });
+
+    it('gives the real editor back when the tour is minimized', () => {
+      const fixture = setup();
+      const host = fixture.nativeElement as HTMLElement;
+      const tour = tourAt('sources-defaults');
+      fixture.detectChanges();
+      expect(example(host)).not.toBeNull();
+
+      tour.minimized.set(true);
+      fixture.detectChanges();
+      expect(example(host)).toBeNull();
+      expect(host.querySelector('app-lm-studio-dashboard')).not.toBeNull();
+      fixture.destroy();
+    });
+
+    it('keeps the real picker when there are downloaded models to choose from, then shows the example if none was chosen', async () => {
+      const fixture = setup();
+      const store = TestBed.inject(SettingsStore);
+      const host = fixture.nativeElement as HTMLElement;
+      store.llmProviders.set([llamaSource('managed-source')]);
+      store.selectedModelId.set('llama-model');
+      await store.refreshCustomModelCards();
+      withDownloadedModel(false);
+      const tour = tourAt('sources-model');
+      fixture.detectChanges();
+      expect(store.tutorialLocalModelsState()).toBe('ready');
+      expect(example(host)).toBeNull();
+      expect(target(host, 'sources-local-model')).not.toBeNull();
+
+      tour.snapshot.update((snapshot) => ({ ...snapshot!, progress: { ...snapshot!.progress, active: { phaseId: 'local-source', stepId: 'sources-defaults' } } }));
+      fixture.detectChanges();
+      expect(example(host)).not.toBeNull();
+
+      withDownloadedModel(true);
+      fixture.detectChanges();
+      expect(store.tutorialLocalModelSelected()).toBe(true);
+      expect(example(host)).toBeNull();
+      expect(target(host, 'sources-defaults')).not.toBeNull();
+      fixture.destroy();
+    });
+
+    it('leaves recovery of a created source to the overlay', () => {
+      const fixture = setup();
+      const host = fixture.nativeElement as HTMLElement;
+      tourAt('sources-model', 'draft-that-is-gone');
+      fixture.detectChanges();
+      expect(example(host)).toBeNull();
+      fixture.destroy();
+    });
+  });
+
   it('explains local requirements, metadata, inference and whole-draft Apply without promising side effects', () => {
     const step = (phaseId: string, stepId: string) => tutorialStepFor({ phaseId, stepId })!;
-    expect(step('intro', 'welcome').body).toContain('Agentic Integrated Development Environment');
+    expect(step('intro', 'welcome').details).toContain('Agentic Development Environment');
     expect(step('intro', 'home-navigation').targets).toEqual(['home-sources', 'home-settings-menu']);
-    expect(step('local-engine', 'engine-intro').body).toContain('requires llama-server');
-    expect(step('local-engine', 'engine-install').body).toContain('including a reinstall');
-    expect(step('featured-models', 'featured-intro').body).toContain('metadata uses the network');
-    expect(step('featured-models', 'featured-largest').body).toContain('highest total parameter count');
-    expect(step('featured-models', 'featured-preview').body).toContain('No model is downloaded');
-    expect(step('featured-models', 'featured-quantizations').body).toContain('GGUF is a model-file format');
-    expect(step('local-source', 'sources-add').body).toContain('does not activate');
-    expect(step('local-source', 'sources-model').body).toContain('not a downloaded model');
-    expect(step('local-source', 'sources-defaults').body).toContain('inference templates');
+    expect(step('local-engine', 'engine-intro').body).toContain('listed here as llama-server');
+    expect(step('local-engine', 'engine-install').details).toContain('including a reinstall');
+    expect(step('featured-models', 'featured-intro').details).toContain('metadata uses the network');
+    expect(step('featured-models', 'featured-moe').details).toContain('activate only part per token');
+    expect(step('featured-models', 'featured-preview').body).toContain('Nothing gets downloaded');
+    expect(step('featured-models', 'featured-quantizations').details).toContain('GGUF is a model-file format');
+    expect(step('local-source', 'sources-add').details).toContain('does not activate');
+    expect(step('local-source', 'sources-model').details).toContain('not a downloaded model');
+    expect(step('local-source', 'sources-defaults').details).toContain('inference templates');
     expect(step('local-source', 'sources-advanced').wiki).toBe(true);
-    expect(step('local-source', 'sources-apply').body).toContain('all unsaved Settings changes');
+    expect(step('local-source', 'sources-apply').body).toContain('everything you\'ve changed in Settings');
   });
 });
 

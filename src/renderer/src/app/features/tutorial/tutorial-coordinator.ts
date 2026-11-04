@@ -34,6 +34,8 @@ export class TutorialCoordinator {
   readonly snapshot = signal<TutorialSnapshot | null>(null);
   readonly busy = signal(false);
   readonly message = signal('');
+  /** The card is tucked away so the user can work in the real window. */
+  readonly minimized = signal(false);
   readonly ownsLease = computed(() => {
     const id = this.leaseId();
     return id !== null && this.snapshot()?.ownerId === id;

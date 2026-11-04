@@ -1,6 +1,9 @@
 import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { applyTutorialTransition, type TutorialProgress, type TutorialTransition } from '@shared/index';
+import { ElectronService } from '../../../core/electron.service';
+import { lucideAppProviders } from '../../../lucide-setup';
 import { TutorialCoordinator, type TutorialView } from '../tutorial-coordinator';
 import { TUTORIAL_STEPS, type TutorialStepDescriptor } from '../tutorial-steps';
 import { TutorialOverlayComponent } from './tutorial-overlay';
@@ -20,6 +23,7 @@ function target(name: string, rect: () => DOMRect): HTMLButtonElement {
   const element = document.createElement('button');
   element.setAttribute('data-tutorial', name);
   element.getBoundingClientRect = rect;
+  element.scrollIntoView = vi.fn();
   document.body.appendChild(element);
   return element;
 }
@@ -34,13 +38,14 @@ function setup(initial: TutorialStepDescriptor) {
     snapshot: signal<{ progress: { sourceId?: string } } | null>(null),
     destination: signal(initial.window),
     busy: signal(false),
+    minimized: signal(false),
     message: signal(''),
     start: vi.fn(), advance: vi.fn(), skipPhase: vi.fn(), dismissAll: vi.fn(), recoverSource: vi.fn(), noteSourceDraft: vi.fn(), later: vi.fn(),
     handoff: vi.fn(), reopenRequested: vi.fn(), refresh: vi.fn(),
   };
   TestBed.configureTestingModule({
     imports: [TutorialOverlayComponent],
-    providers: [{ provide: TutorialCoordinator, useValue: tour }],
+    providers: [...lucideAppProviders, { provide: TutorialCoordinator, useValue: tour }],
   });
   const fixture = TestBed.createComponent(TutorialOverlayComponent);
   fixtures.push(fixture);
@@ -157,8 +162,8 @@ describe('TutorialOverlayComponent', () => {
   });
 
   it('offers explicit retry, continue and skip when a conditional target disappears', async () => {
-    const source = target('featured-small', () => rectangle(80));
-    const h = setup(descriptor('featured-small'));
+    const source = target('featured-low', () => rectangle(80));
+    const h = setup(descriptor('featured-low'));
     await paint(h.fixture);
     source.remove();
     await Promise.resolve(); // MutationObserver
@@ -183,7 +188,7 @@ describe('TutorialOverlayComponent', () => {
     picker.setAttribute('data-tutorial-models-state', 'empty');
     await Promise.resolve();
     await paint(h.fixture);
-    expect(h.host.textContent).toContain('No downloaded GGUF model');
+    expect(h.host.textContent).toContain('No downloaded model yet');
     picker.setAttribute('data-tutorial-models-state', 'error');
     await Promise.resolve();
     await paint(h.fixture);
@@ -208,9 +213,9 @@ describe('TutorialOverlayComponent', () => {
   });
 
   it('offers a user-initiated scroll for an offscreen target', async () => {
-    const source = target('featured-small', () => rectangle(window.innerWidth + 100));
+    const source = target('home-add-workspace', () => rectangle(window.innerWidth + 100));
     source.scrollIntoView = vi.fn();
-    const h = setup(descriptor('featured-small'));
+    const h = setup(descriptor('home-workspace'));
     await paint(h.fixture);
     expect(h.host.textContent).toContain('outside the visible area');
     button(h.host, 'Show target').click();
@@ -226,7 +231,7 @@ describe('TutorialOverlayComponent', () => {
     await paint(h.fixture);
     expect(events).toContainEqual({ phaseId: 'featured-models', stepId: 'featured-preview' });
     const before = events.length;
-    target('featured-small', () => rectangle(80));
+    target('featured-low', () => rectangle(80));
     await Promise.resolve();
     await paint(h.fixture);
     expect(events.length).toBeGreaterThan(before);
@@ -286,7 +291,7 @@ describe('TutorialOverlayComponent', () => {
     expect(button(h.host, 'Next')).toBeTruthy();
   });
 
-  it('uses the existing external-link handler and celebrates the final rendered step', async () => {
+  it('uses the existing external-link handler and marks the final rendered step complete', async () => {
     const h = setup(descriptor('sources-advanced'));
     await paint(h.fixture);
     const link = h.host.querySelector<HTMLAnchorElement>('.tutorial-wiki');
@@ -294,21 +299,22 @@ describe('TutorialOverlayComponent', () => {
     expect(link?.target).toBe('_blank');
     expect(link?.rel).toContain('noopener');
 
-    const final = descriptor('celebration');
+    expect(h.host.querySelector('.tutorial-complete-icon')).toBeNull();
+    expect(h.host.querySelector('.tutorial-mascot')).toBeTruthy();
+
+    const final = descriptor('tour-complete');
     h.step.set(final);
     h.cursor.set({ phaseId: final.phaseId, stepId: final.stepId });
     h.fixture.detectChanges();
     await paint(h.fixture);
-    expect(h.host.textContent).toContain('You’re ready to explore');
-    expect(h.host.querySelector('.tutorial-mascot__sparkles')).toBeTruthy();
-    const panelLeft = parseFloat(h.host.querySelector<HTMLElement>('.tutorial-card')!.style.left);
-    const mascotX = parseFloat(h.host.querySelector<HTMLElement>('.tutorial-mascot')!.style.getPropertyValue('--tutorial-mascot-x'));
-    expect(panelLeft - mascotX).toBeGreaterThanOrEqual(130); // Room for the final burst beside the card.
+    expect(h.host.textContent).toContain("You're ready to explore");
+    expect(h.host.querySelector('.tutorial-card lucide-icon.tutorial-complete-icon svg')).toBeTruthy();
+    expect(h.host.querySelector('.tutorial-mascot')).toBeNull();
     expect(button(h.host, 'Finish')).toBeTruthy();
   });
 
   it('lets the final step finish even when the recorded source is gone or unselected', async () => {
-    const h = setup(descriptor('celebration'));
+    const h = setup(descriptor('tour-complete'));
     h.tour.snapshot.set({ progress: { sourceId: 'lost-source' } });
     target('settings-sources-nav', () => rectangle(0)).setAttribute('data-tutorial-source-id', 'another-source');
     target('sources-add', () => rectangle(200));
@@ -325,10 +331,10 @@ describe('TutorialOverlayComponent', () => {
     await paint(h.fixture);
     expect(h.host.textContent).not.toContain('Details could not be loaded');
 
-    const featured = descriptor('featured-small');
+    const featured = descriptor('featured-low');
     h.step.set(featured);
     h.cursor.set({ phaseId: featured.phaseId, stepId: featured.stepId });
-    target('featured-small', () => rectangle(0)).setAttribute('data-state', 'error');
+    target('featured-low', () => rectangle(0)).setAttribute('data-state', 'error');
     h.fixture.detectChanges();
     await paint(h.fixture);
     expect(h.host.textContent).toContain('Details could not be loaded');
@@ -423,39 +429,157 @@ describe('TutorialOverlayComponent', () => {
     expect(window.requestAnimationFrame).not.toHaveBeenCalled();
   });
 
-  it('replays the fade for a newly available target or step, but not ordinary scrolling', async () => {
+  it('fades the whole card on each new step, but not when it only follows scrolling', async () => {
     const h = setup(descriptor('home-workspace'));
     await paint(h.fixture);
-    const initial = h.host.querySelector('.tutorial-mascot');
-    expect(initial).toBeTruthy();
-    let left = 100;
-    const source = target('home-add-workspace', () => rectangle(left));
+    const card = h.host.querySelector<HTMLElement>('.tutorial-card')!;
+    const mark = h.host.querySelector('.tutorial-card__content .tutorial-mascot');
+    expect(mark).toBeTruthy();
+    const replays = (): boolean => card.classList.contains('tutorial-card--refade');
+    const before = replays();
+
+    target('home-add-workspace', () => rectangle(100));
     await Promise.resolve();
     await paint(h.fixture);
-    const acquired = h.host.querySelector('.tutorial-mascot');
-    expect(acquired).toBeTruthy();
-    expect(acquired).not.toBe(initial);
-    left = 220;
     window.dispatchEvent(new Event('scroll'));
     await paint(h.fixture);
-    expect(h.host.querySelector('.tutorial-mascot')).toBe(acquired);
-    source.remove();
-    await Promise.resolve();
-    await paint(h.fixture);
-    expect(h.host.querySelector('.tutorial-mascot')).toBe(acquired);
-    target('home-add-workspace', () => rectangle(300));
-    await Promise.resolve();
-    await paint(h.fixture);
-    const reacquired = h.host.querySelector('.tutorial-mascot');
-    expect(reacquired).not.toBe(acquired);
+    expect(replays()).toBe(before);
+
     const next = descriptor('home-navigation');
     h.step.set(next);
     h.cursor.set({ phaseId: next.phaseId, stepId: next.stepId });
     h.fixture.detectChanges();
-    expect(h.host.querySelector('.tutorial-mascot')).toBeNull();
-    expect(h.host.querySelector('.tutorial-mascot-departure')).toBeTruthy();
     await paint(h.fixture);
-    expect(h.host.querySelector('.tutorial-mascot')).not.toBe(reacquired);
+    expect(replays()).toBe(!before);
+    // The same card and mark stay mounted, so focus inside the card survives the fade.
+    expect(h.host.querySelector('.tutorial-card')).toBe(card);
+    expect(h.host.querySelector('.tutorial-mascot')).toBe(mark);
+  });
+
+  it('hides the mascot with the rest of the card when minimized', async () => {
+    const h = setup(descriptor('home-workspace'));
+    await paint(h.fixture);
+    button(h.host, 'Minimize').click();
+    h.fixture.detectChanges();
+    expect(h.host.querySelector<HTMLElement>('.tutorial-card__content')?.hidden).toBe(true);
+    expect(h.host.querySelector('.tutorial-card__content .tutorial-mascot')).toBeTruthy();
+  });
+
+  it('opens Advanced once per step, as soon as it exists, without fighting the user', async () => {
+    const h = setup(descriptor('sources-commands'));
+    await paint(h.fixture);
+    const details = document.createElement('details');
+    details.setAttribute('data-tutorial', 'sources-advanced-section');
+    document.body.appendChild(details);
+    window.dispatchEvent(new Event('resize'));
+    await paint(h.fixture);
+    expect(details.open).toBe(true);
+
+    details.open = false;
+    window.dispatchEvent(new Event('resize'));
+    await paint(h.fixture);
+    expect(details.open).toBe(false);
+
+    const next = descriptor('sources-add-command');
+    h.step.set(next);
+    h.cursor.set({ phaseId: next.phaseId, stepId: next.stepId });
+    h.fixture.detectChanges();
+    await paint(h.fixture);
+    expect(details.open).toBe(true);
+    details.remove();
+  });
+
+  it('reopens a section the user closed when they ask to retry the target', async () => {
+    const details = document.createElement('details');
+    details.setAttribute('data-tutorial', 'featured-list');
+    document.body.appendChild(details);
+    const h = setup(descriptor('featured-low'));
+    await paint(h.fixture);
+    expect(details.open).toBe(true);
+    details.open = false;
+    window.dispatchEvent(new Event('resize'));
+    await paint(h.fixture);
+    expect(details.open).toBe(false);
+    button(h.host, 'Retry target').click();
+    await paint(h.fixture);
+    expect(details.open).toBe(true);
+    details.remove();
+  });
+
+  it('reopens the section of a step after the tour is minimized and restored', async () => {
+    const details = document.createElement('details');
+    details.setAttribute('data-tutorial', 'sources-advanced-section');
+    details.appendChild(target('sources-run-flags', () => rectangle(100)));
+    document.body.appendChild(details);
+    const h = setup(descriptor('sources-commands'));
+    await paint(h.fixture);
+    expect(details.open).toBe(true);
+
+    details.open = false;
+    h.host.querySelector<HTMLButtonElement>('.tutorial-minimize')!.click();
+    h.fixture.detectChanges();
+    await paint(h.fixture);
+    h.host.querySelector<HTMLButtonElement>('.tutorial-show')!.click();
+    h.fixture.detectChanges();
+    await paint(h.fixture);
+    expect(details.open).toBe(true);
+    details.remove();
+  });
+
+  it('says so when the highlighted target is on the example page', async () => {
+    const page = document.createElement('app-tutorial-source-example');
+    page.appendChild(target('sources-defaults', () => rectangle(80)));
+    document.body.appendChild(page);
+    const h = setup(descriptor('sources-defaults'));
+    await paint(h.fixture);
+    expect(h.host.querySelector('.tutorial-status')?.textContent).toContain('made-up data');
+    page.remove();
+  });
+
+  it('does not highlight a target inside a section the user closed, but still highlights the heading', async () => {
+    const details = document.createElement('details');
+    details.setAttribute('data-tutorial', 'featured-list');
+    const summary = document.createElement('summary');
+    summary.setAttribute('data-tutorial', 'sources-add');
+    summary.getBoundingClientRect = () => rectangle(100);
+    details.appendChild(summary);
+    details.appendChild(target('featured-low', () => rectangle(100)));
+    document.body.appendChild(details);
+    const h = setup(descriptor('featured-low'));
+    await paint(h.fixture);
+    expect(h.host.querySelector('.tutorial-highlight')).toBeTruthy();
+
+    details.open = false;
+    window.dispatchEvent(new Event('resize'));
+    await paint(h.fixture);
+    expect(h.host.querySelector('.tutorial-highlight')).toBeNull();
+    expect(h.host.textContent).toContain('hidden or unavailable');
+
+    const add = descriptor('sources-add');
+    h.step.set(add);
+    h.cursor.set({ phaseId: add.phaseId, stepId: add.stepId });
+    h.fixture.detectChanges();
+    await paint(h.fixture);
+    expect(h.host.querySelector('.tutorial-highlight')).toBeTruthy();
+    details.remove();
+  });
+
+  it('brings a far-down target into view once per step, then leaves scrolling to the user', async () => {
+    const vram = target('sources-vram', () => rectangle(100));
+    const h = setup(descriptor('sources-vram'));
+    await paint(h.fixture);
+    expect(vram.scrollIntoView).toHaveBeenCalledOnce();
+    window.dispatchEvent(new Event('scroll'));
+    await paint(h.fixture);
+    expect(vram.scrollIntoView).toHaveBeenCalledOnce();
+    expect(h.host.querySelector('.tutorial-highlight')).toBeTruthy();
+  });
+
+  it('explains a missing graphics card section instead of skipping it', async () => {
+    const h = setup(descriptor('sources-vram'));
+    await paint(h.fixture);
+    expect(h.tour.advance).not.toHaveBeenCalled();
+    expect(h.host.textContent).toContain('detects an NVIDIA graphics card');
   });
 
   it('keeps the live region mounted and does not steal focus when the guide appears', async () => {
@@ -492,6 +616,134 @@ describe('TutorialOverlayComponent', () => {
     h.fixture.detectChanges();
     await paint(h.fixture);
     expect(document.activeElement).toBe(h.host.querySelector('#tutorial-title'));
+  });
+
+  it('skips the Start step without showing its card when Home is not on screen', async () => {
+    const h = setup(descriptor('home-start'));
+    await paint(h.fixture);
+    expect(h.tour.advance).toHaveBeenCalledOnce();
+    expect(h.host.querySelector('.tutorial-card--skipping')).toBeTruthy();
+    expect(h.host.querySelector('.tutorial-highlight')).toBeNull();
+  });
+
+  it('shows the Start step and never skips it while Home is on screen', async () => {
+    target('home-start', () => rectangle(100));
+    const h = setup(descriptor('home-start'));
+    await paint(h.fixture);
+    expect(h.tour.advance).not.toHaveBeenCalled();
+    expect(h.host.querySelector('.tutorial-card--skipping')).toBeNull();
+    expect(h.host.querySelector('.tutorial-highlight')).toBeTruthy();
+  });
+
+  it('skips the Start step if Home goes away while it is showing', async () => {
+    const start = target('home-start', () => rectangle(100));
+    const h = setup(descriptor('home-start'));
+    await paint(h.fixture);
+    expect(h.tour.advance).not.toHaveBeenCalled();
+    start.remove();
+    window.dispatchEvent(new Event('resize'));
+    await paint(h.fixture);
+    expect(h.tour.advance).toHaveBeenCalledOnce();
+    expect(h.host.querySelector('.tutorial-highlight')).toBeNull();
+  });
+
+  it('waits for an action in flight, then skips only once and shows the card if that fails', async () => {
+    const h = setup(descriptor('home-start'));
+    h.tour.busy.set(true);
+    await paint(h.fixture);
+    expect(h.tour.advance).not.toHaveBeenCalled();
+    expect(h.host.querySelector('.tutorial-card--skipping')).toBeTruthy();
+    h.tour.busy.set(false);
+    h.fixture.detectChanges();
+    await paint(h.fixture);
+    expect(h.tour.advance).toHaveBeenCalledOnce();
+    window.dispatchEvent(new Event('resize'));
+    await paint(h.fixture);
+    expect(h.tour.advance).toHaveBeenCalledOnce();
+    expect(h.host.querySelector('.tutorial-card--skipping')).toBeNull();
+  });
+
+  it('goes from the welcome step straight to the workspace step with the real coordinator', async () => {
+    let progress: TutorialProgress = { revision: 1, phases: {}, active: { phaseId: 'intro', stepId: 'welcome' } };
+    const snapshot = () => ({ progress, ownerId: 1, requestedWindow: null });
+    const titles: (string | undefined)[] = [];
+    TestBed.configureTestingModule({
+      imports: [TutorialOverlayComponent],
+      providers: [{
+        provide: ElectronService,
+        useValue: {
+          isElectron: true,
+          getTutorialSnapshot: async () => snapshot(),
+          onTutorialUpdated: () => () => {},
+          claimTutorial: async () => ({ acquired: true, snapshot: snapshot() }),
+          releaseTutorial: async () => snapshot(),
+          transitionTutorial: async (request: TutorialTransition) => {
+            const result = applyTutorialTransition(progress, request);
+            progress = result.progress;
+            return { applied: result.applied, snapshot: snapshot() };
+          },
+        },
+      }],
+    });
+    const tour = TestBed.inject(TutorialCoordinator);
+    tour.markHomeRestored();
+    tour.enterWindow('home');
+    const fixture = TestBed.createComponent(TutorialOverlayComponent);
+    fixtures.push(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+    document.body.appendChild(host);
+    const settle = async (): Promise<void> => {
+      for (let i = 0; i < 8; i++) {
+        await new Promise((resolve) => setTimeout(resolve));
+        fixture.detectChanges();
+        await paint(fixture);
+        const card = host.querySelector('.tutorial-card');
+        if (card && !card.classList.contains('tutorial-card--skipping')) titles.push(host.querySelector('h2')?.textContent ?? undefined);
+      }
+    };
+    await settle();
+    expect(host.querySelector('h2')?.textContent).toBe('Welcome to Clara Coder');
+    button(host, 'Next').click();
+    await settle();
+    expect(progress.active).toEqual({ phaseId: 'intro', stepId: 'home-workspace' });
+    expect(progress.revision).toBe(3);
+    expect(host.querySelector('h2')?.textContent).toBe('Your workspace');
+    expect(titles).not.toContain('Start here');
+  });
+
+  it('keeps technical details collapsed, out of the announcement, and closed again on the next step', async () => {
+    target('home-add-workspace', () => rectangle(100));
+    target('home-sources', () => rectangle(300));
+    const h = setup(descriptor('home-workspace'));
+    await paint(h.fixture);
+    const section = h.host.querySelector<HTMLDetailsElement>('.tutorial-details')!;
+    expect(section.open).toBe(false);
+    expect(section.textContent).toContain('semantic index');
+    expect(h.host.querySelector('[aria-live="polite"]')?.textContent).not.toContain('semantic index');
+    section.open = true;
+
+    const next = descriptor('home-navigation');
+    h.step.set(next);
+    h.cursor.set({ phaseId: next.phaseId, stepId: next.stepId });
+    h.fixture.detectChanges();
+    await paint(h.fixture);
+    const nextSection = h.host.querySelector<HTMLDetailsElement>('.tutorial-details')!;
+    expect(nextSection.textContent).toContain('cloud API');
+    expect(nextSection.open).toBe(false);
+  });
+
+  it('shows no details section on a step without any', async () => {
+    target('settings-apply', () => rectangle(100));
+    const h = setup(descriptor('sources-apply'));
+    await paint(h.fixture);
+    expect(h.host.querySelector('.tutorial-details')).toBeNull();
+  });
+
+  it('does not skip other steps whose targets are absent', async () => {
+    const h = setup(descriptor('home-workspace'));
+    await paint(h.fixture);
+    expect(h.tour.advance).not.toHaveBeenCalled();
+    expect(h.host.textContent).toContain('This target is not available right now');
   });
 
   it('preserves focus when a cursor update reuses the same card control', async () => {
@@ -561,9 +813,9 @@ describe('TutorialOverlayComponent', () => {
 
   it('preserves keyboard focus when Show target disappears after scrolling', async () => {
     let left = window.innerWidth + 100;
-    const source = target('featured-small', () => rectangle(left));
+    const source = target('home-add-workspace', () => rectangle(left));
     source.scrollIntoView = vi.fn(() => { left = 100; });
-    const h = setup(descriptor('featured-small'));
+    const h = setup(descriptor('home-workspace'));
     await paint(h.fixture);
     const show = button(h.host, 'Show target');
     show.focus();
@@ -573,7 +825,7 @@ describe('TutorialOverlayComponent', () => {
     expect(document.activeElement).toBe(h.host.querySelector('#tutorial-title'));
   });
 
-  it('keeps the panel and scaled mascot in a short, narrow viewport without covering a small target', async () => {
+  it('keeps the panel in a short, narrow viewport without covering a small target', async () => {
     vi.stubGlobal('innerWidth', 320);
     vi.stubGlobal('innerHeight', 240);
     target('home-add-workspace', () => rectangle(100, 20, 120, 40));
@@ -587,14 +839,6 @@ describe('TutorialOverlayComponent', () => {
     expect(x + 296).toBeLessThanOrEqual(320);
     expect(y).toBeGreaterThanOrEqual(60);
     expect(y + 120).toBeLessThanOrEqual(240);
-    const mascot = h.host.querySelector<HTMLElement>('.tutorial-mascot')!;
-    expect(mascot.style.getPropertyValue('--tutorial-mascot-scale')).toBe('0.58');
-    const mx = parseFloat(mascot.style.getPropertyValue('--tutorial-mascot-x'));
-    const my = parseFloat(mascot.style.getPropertyValue('--tutorial-mascot-y'));
-    expect(mx).toBeGreaterThanOrEqual(104 * 0.58 / 2);
-    expect(mx).toBeLessThanOrEqual(320 - 104 * 0.58 / 2);
-    expect(my).toBeGreaterThanOrEqual(120 * 0.58 / 2);
-    expect(my).toBeLessThanOrEqual(240 - 120 * 0.58 / 2);
   });
 
   it('ignores its own animation and scroll events when scheduling layout', async () => {

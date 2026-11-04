@@ -694,6 +694,24 @@ export class SettingsStore {
   readonly tutorialLocalModelSelected = computed(() =>
     this.managedInventoryModels().some((model) => this.managedInventoryOptionValue(model) === this.managedPickerValue()),
   );
+  /**
+   * The tour's local-source steps show an example page when there is nothing real to point at, so
+   * nobody needs a model to see them. This only chooses a view; the page never touches the draft.
+   * Minimizing the tour gives the real editor back.
+   */
+  readonly tutorialShowsExample = computed(() => {
+    const cursor = this.tutorial.cursor();
+    if (this.tutorial.view() !== 'step' || this.tutorial.minimized() || cursor?.phaseId !== 'local-source') return false;
+    if (!['sources-model', 'sources-defaults', 'sources-advanced', 'sources-commands', 'sources-add-command', 'sources-vram'].includes(cursor.stepId)) return false;
+    const provider = this.selectedProvider();
+    // The overlay is already leading the way back to the source the user created.
+    const sourceId = this.tutorial.snapshot()?.progress.sourceId;
+    if (sourceId && provider?.id !== sourceId) return false;
+    if (!provider || !this.isManagedLlamacppSource(provider)) return true;
+    if (this.tutorialLocalModelSelected()) return false;
+    // With downloaded models to choose from, the step that asks for one keeps the real picker.
+    return !(cursor.stepId === 'sources-model' && this.tutorialLocalModelsState() === 'ready');
+  });
   /** NVIDIA cards in CUDA index order (empty until NVML inventory returns). */
   readonly cudaGpus = signal<CudaGpuDevice[]>([]);
   readonly managedGpuOffloadMode = computed((): ManagedGpuOffloadMode =>

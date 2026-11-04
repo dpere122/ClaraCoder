@@ -1167,8 +1167,8 @@ describe('durable tutorial progress', () => {
     };
     const next = applyTutorialTransition(progress, { action: 'advance', expectedRevision: 5 });
     expect(next.progress.active).toEqual({ phaseId: 'local-source', stepId: 'sources-defaults', extension: { keep: true } });
-    const registry = [{ id: 'local-source', steps: ['celebration'] }, { id: 'future', steps: ['start'] }];
-    const finished = applyTutorialTransition({ ...progress, active: { phaseId: 'local-source', stepId: 'celebration' } },
+    const registry = [{ id: 'local-source', steps: ['tour-complete'] }, { id: 'future', steps: ['start'] }];
+    const finished = applyTutorialTransition({ ...progress, active: { phaseId: 'local-source', stepId: 'tour-complete' } },
       { action: 'advance', expectedRevision: 5 }, registry);
     expect(finished.progress.active?.phaseId).toBe('future');
     expect(finished.progress.sourceId).toBeUndefined();

@@ -183,7 +183,7 @@
           }
         </p>
         @if (status.schemaWarning) {
-          <p class='mcp-warning'>This server’s tool schemas are large and are still sent in full.</p>
+          <p class='mcp-warning'>This server's tool schemas are large and are still sent in full.</p>
         }
         @if (status.tools.length > 0) {
           <button type='button' class='action-button' (click)='toggleExpanded(server.id)'>

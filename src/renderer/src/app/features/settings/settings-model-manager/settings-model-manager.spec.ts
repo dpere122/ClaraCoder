@@ -10,7 +10,7 @@ import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialo
 import { ThemedPromptDialogService } from '../../../shared/themed-prompt-dialog/themed-prompt-dialog.service';
 import { SettingsStore } from '../settings/settings-store';
 import { SettingsThemesStore } from '../settings-themes/settings-themes-store';
-import { FEATURED_HF_MODELS, featuredModelExamples, type FeaturedHfModel } from './hf-models';
+import { FEATURED_HF_MODELS, FEATURED_MODEL_GROUPS, featuredModelGroup, smallestLowModel, type FeaturedHfModel } from './hf-models';
 import { SettingsModelManager } from './settings-model-manager';
 
 const REPO = 'ggml-org/gpt-oss-20b-GGUF';
@@ -135,59 +135,162 @@ describe('the featured catalog', () => {
     }
   });
 
-  it('recomputes examples for catalog changes using total parameters, never display text or active MoE size', () => {
-    const example = (id: string, tag: FeaturedHfModel['tag'], total: number, active: number): FeaturedHfModel => ({
-      id, maker: 'Maker', size: 'This text is not a parameter count', tag,
+  it('groups by total parameters, never display text, with MoE models apart from size', () => {
+    const model = (id: string, total: number, active = total): FeaturedHfModel => ({
+      id, maker: 'Maker', size: 'This text is not a parameter count', tag: 'General',
       architecture: total === active ? 'dense' : 'moe', totalParametersB: total, activeParametersB: active,
     });
-    const small = example('org/small', 'Small', 4, 4);
-    const otherSmall = example('org/other-small', 'Small', 10, 10);
-    const dense = example('org/dense', 'Coding', 40, 40);
-    const largestMoe = example('org/largest-moe', 'General', 100, 2);
-    const badSize = example('org/bad-size', 'Small', Number.NaN, 1);
-    const badActive = example('org/bad-active', 'Small', 200, Number.NaN);
-    const impossibleActive = example('org/impossible-active', 'General', 300, 301);
+    expect(featuredModelGroup(model('org/a', 14.9))).toBe('low');
+    expect(featuredModelGroup(model('org/b', 15))).toBe('medium');
+    expect(featuredModelGroup(model('org/c', 25))).toBe('medium');
+    expect(featuredModelGroup(model('org/d', 25.1))).toBe('big');
+    expect(featuredModelGroup(model('org/e', 4, 2))).toBe('moe');
+    expect(featuredModelGroup(model('org/f', 100, 2))).toBe('moe');
+    const lightest = model('org/lightest', 4);
+    expect(smallestLowModel([model('org/big', 40), model('org/other', 10), lightest, model('org/moe', 2, 1)])).toBe(lightest);
+    expect(smallestLowModel([model('org/big', 40), model('org/moe', 2, 1)])).toBeNull();
+    expect(smallestLowModel([])).toBeNull();
+  });
 
-    expect(featuredModelExamples([dense, badSize, badActive, impossibleActive, otherSmall, largestMoe, small])).toEqual({ small, largest: largestMoe });
-    expect(featuredModelExamples([largestMoe, dense])).toEqual({ small: null, largest: largestMoe });
-    expect(featuredModelExamples([])).toEqual({ small: null, largest: null });
+  it('puts every current model in the agreed group', () => {
+    const groups = Object.fromEntries(FEATURED_MODEL_GROUPS.map((group) => [
+      group.id,
+      FEATURED_HF_MODELS.filter((model) => featuredModelGroup(model) === group.id).map((model) => model.totalParametersB).sort((a, b) => a - b),
+    ]));
+    expect(groups).toEqual({ low: [9, 11.95], medium: [24], big: [27], moe: [21, 25.2, 30.5, 35] });
+  });
+});
+
+describe('the list sections', () => {
+  const LOCAL: ModelManagerFileEntry = { fileName: 'my-qwen.gguf', absolutePath: '/models/my-qwen.gguf', sizeBytes: 1, modifiedMs: 0, source: 'custom' };
+  const section = (el: HTMLElement, name: string): HTMLDetailsElement | null => el.querySelector(`details[data-tutorial="${name}"]`);
+  /** Stands in for what the browser does when a heading is clicked. */
+  const userToggle = async (fixture: ComponentFixture<SettingsModelManager>, details: HTMLDetailsElement, open: boolean): Promise<void> => {
+    details.open = open;
+    details.dispatchEvent(new Event('toggle'));
+    await render(fixture);
+  };
+
+  it('start collapsed with a chevron and open on request, with a note when nothing is downloaded', async () => {
+    const { fixture } = setup();
+    const el = await render(fixture);
+    const downloaded = section(el, 'downloaded-list')!;
+    const featured = section(el, 'featured-list')!;
+    expect(downloaded.open).toBe(false);
+    expect(featured.open).toBe(false);
+    expect(downloaded.querySelector('summary .mm-accordion__chevron')).toBeTruthy();
+    expect(downloaded.querySelector('summary')?.textContent).toContain('Downloaded');
+    expect(featured.querySelector('summary .mm-accordion__count')?.textContent).toBe(String(FEATURED_HF_MODELS.length));
+    expect(downloaded.textContent).toContain('Nothing downloaded yet.');
+
+    await userToggle(fixture, featured, true);
+    expect(section(el, 'featured-list')?.open).toBe(true);
+    expect(section(el, 'downloaded-list')?.open).toBe(false);
+    fixture.destroy();
+  });
+
+  it('open only where a search finds something, and go back to how they were when it clears', async () => {
+    const { store, fixture } = setup();
+    store.modelManagerCustomModels.set([LOCAL]);
+    const el = await render(fixture);
+
+    store.modelManagerHfQuery.set('my-qwen');
+    fixture.detectChanges();
+    expect(section(el, 'downloaded-list')?.open).toBe(true);
+    expect(section(el, 'featured-list')).toBeNull();
+
+    store.modelManagerHfQuery.set('gemma');
+    fixture.detectChanges();
+    expect(section(el, 'downloaded-list')).toBeNull();
+    expect(section(el, 'featured-list')?.open).toBe(true);
+
+    store.modelManagerHfQuery.set('qwen');
+    fixture.detectChanges();
+    expect(section(el, 'downloaded-list')?.open).toBe(true);
+    expect(section(el, 'featured-list')?.open).toBe(true);
+
+    await userToggle(fixture, section(el, 'featured-list')!, false);
+    expect(section(el, 'featured-list')?.open).toBe(false);
+
+    store.modelManagerHfQuery.set('');
+    fixture.detectChanges();
+    expect(section(el, 'downloaded-list')?.open).toBe(false);
+    expect(section(el, 'featured-list')?.open).toBe(false);
+    fixture.destroy();
+  });
+
+  it('open to show a selection made elsewhere, without undoing a later close', async () => {
+    const { store, fixture } = setup();
+    const el = await render(fixture);
+    store.modelManagerSelection.set({ kind: 'hf', id: FEATURED_HF_MODELS[0]!.id });
+    await render(fixture);
+    expect(section(el, 'featured-list')?.open).toBe(true);
+    await userToggle(fixture, section(el, 'featured-list')!, false);
+    await render(fixture);
+    expect(section(el, 'featured-list')?.open).toBe(false);
+    fixture.destroy();
+  });
+
+  it('leave collapsed rows out of arrow-key movement', async () => {
+    vi.stubGlobal('CSS', { escape: (value: string) => value });
+    const { store, fixture } = setup();
+    store.modelManagerCustomModels.set([LOCAL]);
+    const el = await render(fixture);
+    const select = vi.spyOn(store, 'selectHfModel').mockImplementation((id) => store.modelManagerSelection.set({ kind: 'hf', id }));
+    const selectLocal = vi.spyOn(store, 'selectLocalModel');
+    const press = (): void => {
+      el.querySelector('.mm-list')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    };
+    press();
+    expect(select).not.toHaveBeenCalled();
+    expect(selectLocal).not.toHaveBeenCalled();
+
+    await userToggle(fixture, section(el, 'featured-list')!, true);
+    press();
+    expect(selectLocal).not.toHaveBeenCalled();
+    expect(select).toHaveBeenCalledOnce();
+    await Promise.resolve();
+    fixture.destroy();
+    vi.unstubAllGlobals();
   });
 });
 
 describe('featured tutorial targets', () => {
-  it('points to the smallest tagged model and the highest total parameter count in the visible list', async () => {
+  it('renders a labelled group per size, smallest first, and only for groups with a visible row', async () => {
     const { store, fixture } = setup();
     const el = await render(fixture);
-    const examples = featuredModelExamples(FEATURED_HF_MODELS);
-    const small = el.querySelector<HTMLElement>('[data-tutorial="featured-small"]');
-    const largest = el.querySelector<HTMLElement>('[data-tutorial="featured-largest"]');
-    expect(small?.tagName).toBe('BUTTON');
-    expect(small?.getAttribute('data-row-key')).toBe(`hf:${examples.small?.id}`);
-    expect(largest?.getAttribute('data-row-key')).toBe(`hf:${examples.largest?.id}`);
-    expect(Number(largest?.getAttribute('data-total-parameters-b'))).toBe(
-      Math.max(...FEATURED_HF_MODELS.map((model) => model.totalParametersB)),
-    );
+    const keys = (name: string): (string | null)[] =>
+      [...el.querySelectorAll('[data-tutorial="' + name + '"] .mm-row')].map((row) => row.getAttribute('data-row-key'));
+    expect(keys('featured-low')).toEqual(['hf:unsloth/Qwen3.5-9B-GGUF', 'hf:unsloth/gemma-4-12b-it-GGUF']);
+    expect(keys('featured-medium')).toEqual(['hf:unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF']);
+    expect(keys('featured-big')).toEqual(['hf:unsloth/Qwen3.8-27B-GGUF']);
+    expect(keys('featured-moe')).toEqual([
+      'hf:ggml-org/gpt-oss-20b-GGUF', 'hf:unsloth/gemma-4-26B-A4B-it-GGUF',
+      'hf:unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF', 'hf:unsloth/Qwen3.6-35B-A3B-GGUF',
+    ]);
+    expect([...el.querySelectorAll('.mm-list__group')].map((heading) => heading.textContent?.trim().split(' ')[0])).toEqual(['Low', 'Medium', 'Big', 'MoE']);
+    expect(el.querySelector('[data-tutorial="featured-moe"]')?.textContent).not.toContain('whole model still has to fit');
     expect(store.modelManagerSelection()).toBeNull();
 
     store.modelManagerHfQuery.set('gemma');
     fixture.detectChanges();
-    const visible = FEATURED_HF_MODELS.filter((model) => model.id.toLowerCase().includes('gemma'));
-    const visibleExamples = featuredModelExamples(visible);
-    expect(el.querySelector('[data-tutorial="featured-small"]')?.getAttribute('data-row-key')).toBe(`hf:${visibleExamples.small?.id}`);
-    expect(el.querySelector('[data-tutorial="featured-largest"]')?.getAttribute('data-row-key')).toBe(`hf:${visibleExamples.largest?.id}`);
+    expect(keys('featured-low')).toEqual(['hf:unsloth/gemma-4-12b-it-GGUF']);
+    expect(keys('featured-moe')).toEqual(['hf:unsloth/gemma-4-26B-A4B-it-GGUF']);
+    expect(el.querySelector('[data-tutorial="featured-medium"]')).toBeNull();
+    expect(el.querySelector('[data-tutorial="featured-big"]')).toBeNull();
     expect(store.modelManagerSelection()).toBeNull();
     fixture.destroy();
   });
 
-  it('only selects a visible Small preview on the preview event and never starts a download', () => {
+  it('only selects a visible Low preview on the preview event and never starts a download', () => {
     const { store, fixture } = setup();
     fixture.detectChanges();
     const select = vi.spyOn(store, 'selectHfModel').mockImplementation((id) => store.modelManagerSelection.set({ kind: 'hf', id }));
     const download = vi.spyOn(store, 'downloadHfQuant');
-    window.dispatchEvent(new CustomEvent('clara-tutorial-step', { detail: { phaseId: 'featured-models', stepId: 'featured-small' } }));
+    window.dispatchEvent(new CustomEvent('clara-tutorial-step', { detail: { phaseId: 'featured-models', stepId: 'featured-low' } }));
     expect(select).not.toHaveBeenCalled();
     window.dispatchEvent(new CustomEvent('clara-tutorial-step', { detail: { phaseId: 'featured-models', stepId: 'featured-preview' } }));
-    expect(select).toHaveBeenCalledExactlyOnceWith(featuredModelExamples(FEATURED_HF_MODELS).small?.id);
+    expect(select).toHaveBeenCalledExactlyOnceWith(smallestLowModel(FEATURED_HF_MODELS)?.id);
     window.dispatchEvent(new CustomEvent('clara-tutorial-step', { detail: { phaseId: 'featured-models', stepId: 'featured-preview' } }));
     expect(select).toHaveBeenCalledTimes(1);
     expect(download).not.toHaveBeenCalled();

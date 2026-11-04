@@ -2793,6 +2793,7 @@
         "source-row__kind",
         "source-row__remove",
         "empty-state",
+        "source-row-wrap--example",
         "settings-editor",
         "settings-editor__header",
         "settings-eyebrow",
@@ -2883,8 +2884,12 @@
         "mm-token-form",
         "mm-browser",
         "mm-list",
+        "mm-accordion",
         "mm-list__section",
+        "mm-accordion__chevron",
+        "mm-accordion__count",
         "mm-list__note",
+        "mm-list__group",
         "mm-list__results",
         "is-loading",
         "mm-pager",
@@ -2934,12 +2939,7 @@
         "model-quant-row--downloading",
         "model-quant-row--done",
         "model-quant-row__name",
-        "model-quant-row__size",
-        "model-quant-row__progress-label",
-        "model-quant-row__cancel",
-        "model-quant-row__progress",
-        "model-quant-row__progress--indeterminate",
-        "model-quant-row__progress-fill"
+        "model-quant-row__size"
       ]
     },
     {
@@ -3092,6 +3092,7 @@
         "source-row__kind",
         "source-row__remove",
         "empty-state",
+        "source-row-wrap--example",
         "settings-editor",
         "settings-editor__header",
         "settings-eyebrow",
@@ -3181,8 +3182,12 @@
         "mm-token-form",
         "mm-browser",
         "mm-list",
+        "mm-accordion",
         "mm-list__section",
+        "mm-accordion__chevron",
+        "mm-accordion__count",
         "mm-list__note",
+        "mm-list__group",
         "mm-list__results",
         "is-loading",
         "mm-pager",
@@ -3214,12 +3219,7 @@
         "mm-row__done",
         "mm-avatar",
         "mm-avatar--initial",
-        "mm-stats",
-        "model-tile__badge--warn",
-        "mm-owners",
-        "mm-tags",
-        "mm-tag",
-        "model-card__versions-error"
+        "mm-stats"
       ]
     },
     {

@@ -24,6 +24,7 @@ import { SettingsStore } from '../settings/settings-store';
 import { LlamaRunCommandComponent } from './llama-run-command/llama-run-command';
 import { LmStudioDashboardComponent } from './lm-studio-dashboard/lm-studio-dashboard';
 import { OpenAiCompatDashboardComponent } from './openai-compat-dashboard/openai-compat-dashboard';
+import { TutorialSourceExampleComponent } from './tutorial-source-example/tutorial-source-example';
 import {
   OPENROUTER_MODEL_SORT_OPTIONS,
   filterOpenRouterModels,
@@ -48,6 +49,7 @@ const OPENROUTER_GRID_PAGE = 48;
     NgxSpinnerComponent,
     OpenAiCompatDashboardComponent,
     PillSelectComponent,
+    TutorialSourceExampleComponent,
   ],
   templateUrl: './settings-models.html',
   styleUrl: './settings-models.css',

@@ -6,6 +6,8 @@ import {
   formatThoughtDuration,
   formatToolDuration,
   humanizeToolName,
+  isAwaitingApprovalText,
+  isDeclinedToolCall,
   runCommandIdFromReport,
   toolCallsRunMs,
   toolPillGroupLabel,
@@ -24,6 +26,21 @@ function pill(part: StreamPart, live = false): string {
   const label = toolPillLabel(part, live);
   return [label.verb, toolPillMeta(label)].filter(Boolean).join(' · ');
 }
+
+describe('approval outcomes', () => {
+  it('reads every staged card result as awaiting approval', () => {
+    expect(isAwaitingApprovalText('Pending user confirmation for `run_command`.')).toBe(true);
+    expect(isAwaitingApprovalText('Pending user confirmation: big.bin is too large to restore.')).toBe(true);
+    expect(isAwaitingApprovalText('Exit code: 0')).toBe(false);
+  });
+
+  it('counts a denied MCP call as declined: it never ran, and its row keeps saying denied', () => {
+    const denied = status('mcp__docs__lookup', 'Tool `lookup` on MCP server `docs` is denied.');
+    expect(isDeclinedToolCall(denied)).toBe(true);
+    expect(pill(denied)).toBe('Lookup · denied');
+    expect(isDeclinedToolCall(status('mcp__docs__lookup', 'Found 3 results'))).toBe(false);
+  });
+});
 
 describe('toolCallsRunMs', () => {
   it('counts the slowest call of each step, and adds up the steps and unbatched calls', () => {

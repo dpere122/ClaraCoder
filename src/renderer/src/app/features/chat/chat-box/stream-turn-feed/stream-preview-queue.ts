@@ -170,7 +170,7 @@ export function previewRunsCommand(current: TurnFeedItem | undefined, inbound: r
 
 /**
  * True once the open preview's batch holds a finished command or a declined call, and nothing there
- * still runs or waits on its card. A quiet command has no lane left, only its call row.
+ * still runs or waits on its card. A call that never started a command has no lane, only its call row.
  */
 function previewCommandFinished(current: TurnFeedItem, inbound: readonly TurnFeedItem[]): boolean {
   const parts = [current, ...currentBatchInbound(current, inbound)].flatMap((item) =>

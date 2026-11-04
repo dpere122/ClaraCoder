@@ -62,9 +62,36 @@ describe('activitySummary declined calls', () => {
     expect(activitySummary([refused], [0], new Set())).toMatchObject({ headline: 'Declined npm test', outcomes: '' });
   });
 
+  it('does not count an MCP call the user denied as run', () => {
+    const denied = tool('mcp__docs__lookup', 'Tool `lookup` on MCP server `docs` is denied.');
+    expect(activitySummary([read('a.py'), denied], [0, 1], new Set())).toMatchObject({ headline: 'Read a.py', outcomes: '1 declined' });
+    expect(activitySummary([denied], [0], new Set())).toMatchObject({ headline: 'Declined lookup', outcomes: '' });
+  });
+
   it('does not mistake command output for a decline', () => {
     const lane: TurnFeedItem = { kind: 'tool', part: { streamTag: 'run-command:a', label: 'x', text: 'User cancelled the job', runComplete: true } };
     expect(activitySummary([lane], [0], new Set()).outcomes).toBe('');
+  });
+});
+
+describe('activitySummary command lanes', () => {
+  const lane = (text: string, extra: Partial<StreamPart> = {}): TurnFeedItem => ({
+    kind: 'tool',
+    part: { streamTag: 'run-command:a', label: 'npm run dev', text, ...extra },
+  });
+
+  it('counts one command however many rows an older saved turn split its output into', () => {
+    const summary = activitySummary([lane('one\n'), read('a.py'), lane('two\n')], [0, 1, 2], new Set());
+    expect(summary.headline).toBe('Ran npm run dev, read a.py');
+    expect(summary.title).toContain('2 tools');
+  });
+
+  it('leaves out a lane that printed nothing: its status row is the call', () => {
+    const call = tool('run_command', 'Command report: - Command id: `a` - Command: `mkdir out`', { toolTarget: 'mkdir out' });
+    const items = [call, lane('', { label: 'mkdir out', runComplete: true, exitCode: 0 })];
+    const summary = activitySummary(items, [0, 1], toolChipLayout(items, rolesOf(items)).merged);
+    expect(summary.headline).toBe('Ran mkdir out');
+    expect(summary.title).toContain('1 tool');
   });
 });
 

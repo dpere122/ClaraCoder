@@ -275,17 +275,20 @@ function deleteDetail(text: string): string {
   return deleted > 1 ? plural(deleted, 'entry', 'entries') : '';
 }
 
+/** Start of every result a tool returns when it staged an approval card (Python's `PENDING_APPROVAL_PREFIX`). */
+const AWAITING_APPROVAL_RESULT = /^Pending user confirmation/;
 const DECLINED_RESULT = /^User (?:cancelled|declined|dismissed)\b/;
+const DENIED_RESULT = /^Tool `[^`]+` on MCP server `[^`]+` is denied\./;
 
 function completedDetail(name: string, category: ToolPillCategory, text: string): string {
-  if (/^Pending user confirmation/.test(text)) {
+  if (AWAITING_APPROVAL_RESULT.test(text)) {
     return 'awaiting approval';
   }
   // An answered approval card replaces the pending text with the answer's note.
   if (DECLINED_RESULT.test(text)) {
     return 'declined';
   }
-  if (/^Tool `[^`]+` on MCP server `[^`]+` is denied\./.test(text)) {
+  if (DENIED_RESULT.test(text)) {
     return 'denied';
   }
   if (name === 'mark_build_plan_steps_complete') {
@@ -371,6 +374,14 @@ function liveRunningVerb(name: string, verb: string): string {
  */
 export function isRunCommandLaneRunning(part: Pick<StreamPart, 'streamTag' | 'runComplete'>, live: boolean): boolean {
   return live && !part.runComplete && isRunCommandStreamTag(part.streamTag);
+}
+
+/**
+ * A finished `run-command:*` lane that printed nothing. It stays in the live feed so the rows behind
+ * it keep their places, but it shows nothing: its status row has the result.
+ */
+export function isQuietCommandLane(part: Pick<StreamPart, 'streamTag' | 'runComplete' | 'text'>): boolean {
+  return !!part.runComplete && isRunCommandStreamTag(part.streamTag) && !part.text.trim();
 }
 
 /**
@@ -469,12 +480,16 @@ export function toolOutcomeNotes(failed: number, stopped: number, declined = 0):
 
 /** A tool call's result while its approval card waits (what `completedDetail` calls awaiting approval). */
 export function isAwaitingApprovalText(text: string): boolean {
-  return /^Pending user confirmation for /.test(text.trim());
+  return AWAITING_APPROVAL_RESULT.test(text.trim());
 }
 
-/** A tool call whose approval card was declined: its result is the card's cancel note, so it never ran. */
+/** A tool call the user declined or denied: its result is that answer's note, so it never ran. */
 export function isDeclinedToolCall(part: Pick<StreamPart, 'streamTag' | 'text'>): boolean {
-  return isToolTrailStatusStreamTag(part.streamTag) && DECLINED_RESULT.test(part.text.trim());
+  if (!isToolTrailStatusStreamTag(part.streamTag)) {
+    return false;
+  }
+  const text = part.text.trim();
+  return DECLINED_RESULT.test(text) || DENIED_RESULT.test(text);
 }
 
 /** Pill meta line: `target · detail` (either may be empty). */

@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
-import { toolTrailStatusStreamTag, type ChatThinkingDisplay, type TurnFeedItem } from '@shared/index';
+import { buildTurnFeed, toolTrailStatusStreamTag, type ChatThinkingDisplay, type StreamPart, type TurnFeedItem } from '@shared/index';
+import { markToolExecStreamComplete } from '../../../shell/app-stream-parts';
 import { StreamTurnFeedComponent } from './stream-turn-feed';
 
 const read: TurnFeedItem = {
@@ -106,6 +107,33 @@ describe('StreamTurnFeedComponent activity blocks', () => {
     expect(header?.querySelector('.stream-tool-pill__name')?.textContent).toContain('Read a.py');
     const running = el.querySelector('.stream-turn-feed__activity-body .stream-tool-pill__name--shimmer');
     expect(running?.getAttribute('aria-label')).toBe('Search');
+  });
+
+  it('keeps the open preview, and the open block, when a quiet command ends behind them', () => {
+    const lane = 'run-command:abc12345';
+    const parts: StreamPart[] = [
+      { streamTag: toolTrailStatusStreamTag('c1'), label: 'run_command', text: 'Command id: `abc12345`', toolChainState: 'complete' },
+      { streamTag: lane, label: 'npm run dev', text: '' },
+      { streamTag: 'clara', label: '', text: 'Now the search.' },
+      thinking.part,
+      (searching as Extract<TurnFeedItem, { kind: 'tool' }>).part,
+    ];
+    const fixture = TestBed.createComponent(StreamTurnFeedComponent);
+    fixture.componentRef.setInput('items', buildTurnFeed(parts));
+    fixture.componentRef.setInput('live', true);
+    fixture.componentRef.setInput('spinnerActive', true);
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    const blocks = () => el.querySelectorAll('.stream-turn-feed__activity');
+    expect(blocks()[1]?.querySelector('.stream-tool-pill__name--shimmer')?.getAttribute('aria-label')).toBe('Search');
+    fixture.componentInstance.toggleActivity(3, [3, 4]);
+    fixture.detectChanges();
+    expect(blocks()[1]?.classList.contains('stream-turn-feed__activity--open')).toBe(true);
+
+    fixture.componentRef.setInput('items', buildTurnFeed(markToolExecStreamComplete(parts, lane, 0)));
+    fixture.detectChanges();
+    expect(blocks()[1]?.classList.contains('stream-turn-feed__activity--open')).toBe(true);
+    expect(blocks()[1]?.querySelector('.stream-tool-pill__name--shimmer')?.getAttribute('aria-label')).toBe('Search');
   });
 
   it('hides the block pill while the first thought streams in its reasoning box', () => {

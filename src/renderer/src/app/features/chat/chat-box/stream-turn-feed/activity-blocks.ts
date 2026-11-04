@@ -3,6 +3,8 @@ import {
   formatThoughtDuration,
   isHitlTrailStreamTag,
   isDeclinedToolCall,
+  isQuietCommandLane,
+  isRunCommandStreamTag,
   isStoppedToolCall,
   plural,
   toolCallsRunMs,
@@ -129,6 +131,7 @@ export function activitySummary(
   const labels: ToolPillLabel[] = [];
   const unsettled: boolean[] = [];
   const declined: boolean[] = [];
+  const seenLanes = new Set<string>();
 
   for (const index of members) {
     const item = items[index];
@@ -145,9 +148,19 @@ export function activitySummary(
       continue;
     }
     const part: StreamPart = item.part;
+    if (isQuietCommandLane(part)) {
+      continue;
+    }
     calls.push(part);
     if (merged.has(index)) {
       continue;
+    }
+    if (isRunCommandStreamTag(part.streamTag)) {
+      // Older saved turns split a command's output into one lane row per burst: it is still one call.
+      if (seenLanes.has(part.streamTag)) {
+        continue;
+      }
+      seenLanes.add(part.streamTag);
     }
     tools += 1;
     labels.push(toolPillLabel(part));

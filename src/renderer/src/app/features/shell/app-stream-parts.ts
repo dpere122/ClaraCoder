@@ -49,15 +49,16 @@ function appendStreamPartWithTag(
   const reasoning = isReasoningAuxiliaryStreamTag(t);
   const resolvedLabel = label || (reasoning ? DEFAULT_REASONING_STREAM_LABEL : '');
   const next = [...parts];
-  const last = next[next.length - 1];
-  if (last?.streamTag === t) {
-    next[next.length - 1] = { ...last, label: last.label || resolvedLabel, text: last.text + delta };
-    return next;
-  }
-  // A lane opened before its first output takes that output in place, whatever arrived since.
-  const opened = delta && isRunCommandStreamTag(t) ? next.findIndex((p) => p.streamTag === t && !p.text) : -1;
-  if (opened >= 0) {
-    next[opened] = { ...next[opened]!, label: next[opened]!.label || resolvedLabel, text: delta };
+  // A command has one output lane, whatever arrived since it opened: another row per burst would
+  // read as another command, and only the last would ever be stamped finished.
+  const same = isRunCommandStreamTag(t)
+    ? next.findIndex((p) => p.streamTag === t)
+    : next[next.length - 1]?.streamTag === t
+      ? next.length - 1
+      : -1;
+  if (same >= 0) {
+    const part = next[same]!;
+    next[same] = { ...part, label: part.label || resolvedLabel, text: part.text + delta };
     return next;
   }
   const closed = closeOpenThought(next, now);
@@ -67,8 +68,8 @@ function appendStreamPartWithTag(
 
 /**
  * Open a command's output lane when the command starts, not at its first output, so a quiet
- * command still shows as running. {@link markToolExecStreamComplete} drops the lane if the
- * command ends without printing anything.
+ * command still shows as running. A lane that ends without printing shows nothing from then on
+ * (`isQuietCommandLane`), and the saved turn leaves it out.
  */
 export function openRunCommandLane(
   parts: StreamPart[],
@@ -262,11 +263,6 @@ export function markToolExecStreamComplete(
     } else if (!text.includes(head)) {
       text = `${text.endsWith('\n') ? text : `${text}\n`}\n${ex}`;
     }
-  }
-  // Nothing printed: the lane only stood in while the command ran, and its status row has the result.
-  if (!text.trim() && isRunCommandStreamTag(next[targetIdx].streamTag)) {
-    next.splice(targetIdx, 1);
-    return next;
   }
   next[targetIdx] = {
     ...next[targetIdx],

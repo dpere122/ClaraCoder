@@ -141,7 +141,7 @@ export class StreamTurnFeedComponent {
     for (const [lead, members] of layout.groups) {
       groupParts.set(lead, toolChipGroupParts(items, members, layout.timedLanes));
     }
-    return { hidden: layout.hidden, groupParts, groups: layout.groups, merged: layout.merged, timedLanes: layout.timedLanes };
+    return { ...layout, groupParts };
   });
 
   /** Each stretch of work (no prose between them) wrapped in one activity block from its first row. */
@@ -371,8 +371,9 @@ export class StreamTurnFeedComponent {
    * name that its reasoning box does not.
    */
   activityName(step: string, working: boolean, open: boolean, summary: ActivitySummary | undefined): string {
-    if (step || summary?.headline) {
-      return step || summary!.headline;
+    const named = step || summary?.headline;
+    if (named) {
+      return named;
     }
     if (!working) {
       return 'Worked';

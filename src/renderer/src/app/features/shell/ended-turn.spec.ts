@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ConversationMessage, StreamPart } from '@shared/index';
+import { buildAssistantTurnFromStreamParts } from './app-assistant-turn';
 import {
   attachTurnEditedFiles,
   cancelSubagentApprovals,
@@ -26,6 +27,25 @@ const acceptCard = (requestId: string, subagentId?: string): ConversationMessage
   reviewStatus: 'pending',
 });
 
+describe('a command lane that never printed, in the saved turn', () => {
+  const status: StreamPart = { streamTag: 'tool-trail:a', label: 'run_command', text: 'x', toolChainState: 'complete' };
+  const lane: StreamPart = { streamTag: 'run-command:c1', label: 'npm run dev', text: '' };
+
+  it('goes, so the status row shows the result, when the turn ends with the command still running', () => {
+    expect(buildAssistantTurnFromStreamParts([status, lane], 'Done.')?.auxiliaryStreamTimeline).toEqual([status]);
+  });
+
+  it('goes when the turn was stopped too', () => {
+    const settled = settleInFlightStreamParts([status, lane]);
+    expect(buildAssistantTurnFromStreamParts(settled, undefined, { endedEarly: 'stopped' })?.auxiliaryStreamTimeline).toEqual([status]);
+  });
+
+  it('stays once it has printed', () => {
+    const printed = { ...lane, text: 'ready' };
+    expect(buildAssistantTurnFromStreamParts([status, printed], 'Done.')?.auxiliaryStreamTimeline).toEqual([status, printed]);
+  });
+});
+
 describe('settleInFlightStreamParts', () => {
   it('stops running tool rows and closes open command lanes, leaving finished parts alone', () => {
     const parts: StreamPart[] = [
@@ -39,12 +59,6 @@ describe('settleInFlightStreamParts', () => {
     expect(settled[1]).toMatchObject({ toolChainState: 'error', toolStopped: true });
     expect(settled[2]).toBe(parts[2]);
     expect(settled[3]).toMatchObject({ runComplete: true });
-  });
-
-  it('drops a command lane that never printed anything', () => {
-    const status: StreamPart = { streamTag: 'tool-trail:a', label: 'run_command', text: 'x', toolChainState: 'complete' };
-    const parts: StreamPart[] = [status, { streamTag: 'run-command:c1', label: 'npm test', text: '' }];
-    expect(settleInFlightStreamParts(parts)).toEqual([status]);
   });
 
   it('returns the same array when nothing is in flight', () => {

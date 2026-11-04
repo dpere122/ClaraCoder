@@ -539,6 +539,7 @@ export {
   toolPillFamily,
   isAwaitingApprovalText,
   isDeclinedToolCall,
+  isQuietCommandLane,
   toolOutcomeNotes,
   toolPillVerb,
   toolTargetFromRunningDetail,

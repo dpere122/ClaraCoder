@@ -605,6 +605,24 @@ describe('decidePreviewCommit', () => {
       expect(decide(fetch, [])).toEqual({ action: 'commit' });
     });
 
+    it('lands a call the user denied', () => {
+      const denied: TurnFeedItem = {
+        kind: 'tool',
+        part: { streamTag: toolTrailStatusStreamTag('m1'), label: 'mcp__docs__lookup', text: 'Tool `lookup` on MCP server `docs` is denied.', toolChainState: 'complete' },
+      };
+      expect(decide(denied, [])).toEqual({ action: 'commit' });
+    });
+
+    it('stays while a sibling still waits on a delete card', () => {
+      const row = (id: string, label: string, text: string): TurnFeedItem => ({
+        kind: 'tool',
+        part: { streamTag: toolTrailStatusStreamTag(id), label, text, toolChainState: 'complete', toolBatch: 's1' },
+      });
+      const ran = row('c1', 'run_command', 'Command report: - Status: exited with code 0');
+      const deleting = row('d1', 'delete_workspace_entry', 'Pending user confirmation: big.bin is too large to restore after the turn.');
+      expect(decide(ran, [deleting])).toEqual({ action: 'stay' });
+    });
+
     it('leaves a finished tool that is not a command alone', () => {
       expect(decide(tool, [])).toEqual({ action: 'stay' });
     });

@@ -273,9 +273,27 @@ describe('openRunCommandLane', () => {
     expect(out[1]!.text).toBe('done');
   });
 
-  it('drops a lane that ends without printing, so the status row shows the result', () => {
-    const opened = openRunCommandLane([status], lane, 'mkdir out');
-    expect(markToolExecStreamComplete(opened, lane, 0)).toEqual([status]);
+  it('keeps a lane that ends without printing, so the rows behind it hold their places', () => {
+    const read = { streamTag: toolTrailStatusStreamTag('call-2'), label: 'read_workspace_file', text: 'a.py' };
+    const out = markToolExecStreamComplete([...openRunCommandLane([status], lane, 'mkdir out'), read], lane, 0);
+    expect(out.map((p) => p.streamTag)).toEqual([status.streamTag, lane, read.streamTag]);
+    expect(out[1]).toMatchObject({ text: '', runComplete: true, exitCode: 0 });
+  });
+
+  it('keeps one lane for a command, whatever arrived between its outputs', () => {
+    const read = { streamTag: toolTrailStatusStreamTag('call-2'), label: 'read_workspace_file', text: 'a.py' };
+    const first = appendStreamPart([...openRunCommandLane([status], lane, 'npm run dev'), read], lane, 'one\n', 'npm run dev');
+    const second = appendStreamPart(first, lane, 'two\n', 'npm run dev');
+    expect(second.map((p) => p.streamTag)).toEqual([status.streamTag, lane, read.streamTag]);
+    expect(second[1]!.text).toBe('one\ntwo\n');
+    expect(markToolExecStreamComplete(second, lane, 0)[1]).toMatchObject({ runComplete: true, exitCode: 0 });
+  });
+
+  it('adds output that follows a quiet end to the finished lane', () => {
+    const ended = markToolExecStreamComplete(openRunCommandLane([status], lane, 'npm start'), lane, 0);
+    const late = appendStreamPart(ended, lane, 'listening\n', 'npm start');
+    expect(late).toHaveLength(2);
+    expect(late[1]).toMatchObject({ text: 'listening\n', runComplete: true });
   });
 
   it('keeps a quiet lane whose completion carries an output excerpt', () => {

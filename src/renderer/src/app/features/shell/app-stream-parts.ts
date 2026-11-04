@@ -5,6 +5,7 @@ import {
   mergeHitlTrailIntoAuxiliaryTimeline,
   isClaraOuterBriefStreamTag,
   isReasoningAuxiliaryStreamTag,
+  isRunCommandStreamTag,
   isShellStyleToolStreamTag,
   isToolLikeStreamTag,
   isWorkspaceReadToolLabel,
@@ -48,14 +49,39 @@ function appendStreamPartWithTag(
   const reasoning = isReasoningAuxiliaryStreamTag(t);
   const resolvedLabel = label || (reasoning ? DEFAULT_REASONING_STREAM_LABEL : '');
   const next = [...parts];
-  const last = next[next.length - 1];
-  if (last?.streamTag === t) {
-    next[next.length - 1] = { ...last, label: last.label || resolvedLabel, text: last.text + delta };
+  // A command has one output lane, whatever arrived since it opened: another row per burst would
+  // read as another command, and only the last would ever be stamped finished.
+  const same = isRunCommandStreamTag(t)
+    ? next.findIndex((p) => p.streamTag === t)
+    : next[next.length - 1]?.streamTag === t
+      ? next.length - 1
+      : -1;
+  if (same >= 0) {
+    const part = next[same]!;
+    next[same] = { ...part, label: part.label || resolvedLabel, text: part.text + delta };
     return next;
   }
   const closed = closeOpenThought(next, now);
   const base = isToolLikeStreamTag(t) ? clearPrimaryStreamParts(closed) : closed;
   return [...base, { streamTag: t, label: resolvedLabel, text: delta, ...(reasoning ? { thoughtStartedAt: now } : {}) }];
+}
+
+/**
+ * Open a command's output lane when the command starts, not at its first output, so a quiet
+ * command still shows as running. A lane that ends without printing shows nothing from then on
+ * (`isQuietCommandLane`), and the saved turn leaves it out.
+ */
+export function openRunCommandLane(
+  parts: StreamPart[],
+  streamTag: string,
+  label: string,
+  now = Date.now(),
+): StreamPart[] {
+  const t = streamTag.trim();
+  if (!isRunCommandStreamTag(t) || parts.some((p) => p.streamTag === t)) {
+    return parts;
+  }
+  return appendStreamPartWithTag(parts, t, '', label, now);
 }
 
 /**

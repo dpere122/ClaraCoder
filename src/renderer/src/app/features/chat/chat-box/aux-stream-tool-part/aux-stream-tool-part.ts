@@ -141,7 +141,9 @@ export class AuxStreamToolPartComponent {
   });
 
   /** How long the finished call ran (`1.2s`); empty while running and for rows saved before timing. */
-  readonly durationMs = computed(() => (this.kind() === 'status' ? this.part().toolDurationMs : undefined));
+  readonly durationMs = computed(() =>
+    this.kind() === 'status' || isRunCommandStreamTag(this.part().streamTag) ? this.part().toolDurationMs : undefined,
+  );
   readonly pillDuration = computed(() => {
     const ms = this.durationMs();
     return ms === undefined ? '' : formatToolDuration(ms);

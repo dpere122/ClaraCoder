@@ -22,6 +22,7 @@ import {
   previewItemLabel,
   previewItemText,
   previewQueueHeader,
+  previewRunsCommand,
   previewQueueToolGlyph,
   previewQueueToolSpinnerKind,
   previewQueueMeta,
@@ -554,6 +555,77 @@ describe('decidePreviewCommit', () => {
 
   it('flushes when live ends', () => {
     expect(decidePreviewCommit({ ...base, live: false, now: 0 })).toEqual({ action: 'flush' });
+  });
+
+  describe('a command lane in the open preview', () => {
+    const lane = (runComplete?: boolean): TurnFeedItem => ({
+      kind: 'tool',
+      part: { streamTag: 'run-command:abc12345', label: 'npm test', text: 'ok', ...(runComplete ? { runComplete } : {}) },
+    });
+    const callRow = (toolChainState: 'running' | 'complete'): TurnFeedItem => ({
+      kind: 'tool',
+      part: { streamTag: toolTrailStatusStreamTag('c1'), label: 'run_command', text: 'npm test', toolChainState },
+    });
+    const decide = (current: TurnFeedItem, inbound: TurnFeedItem[], now = 10_000) =>
+      decidePreviewCommit({ ...base, items: [current, ...inbound], current, inbound, now });
+
+    it('stays while the command runs, and counts as running', () => {
+      expect(decide(lane(), [])).toEqual({ action: 'stay' });
+      expect(previewRunsCommand(lane(), [])).toBe(true);
+    });
+
+    it('lands once the command ends, with nothing else inbound', () => {
+      expect(decide(lane(true), [])).toEqual({ action: 'commit' });
+      expect(previewRunsCommand(lane(true), [])).toBe(false);
+    });
+
+    it('still honours the open dwell for a command that ended quickly', () => {
+      expect(decide(lane(true), [], 100)).toEqual({ action: 'wait', delayMs: PREVIEW_OPEN_DWELL_MS - 100 });
+    });
+
+    it('waits for its call row to finish too', () => {
+      expect(decide(callRow('running'), [lane(true)])).toEqual({ action: 'stay' });
+      expect(decide(callRow('complete'), [lane(true)])).toEqual({ action: 'commit' });
+    });
+
+    it('lands a command that printed nothing, once its card is answered', () => {
+      const answered = (extra: object): TurnFeedItem => ({
+        kind: 'tool',
+        part: { streamTag: toolTrailStatusStreamTag('c1'), label: 'run_command', text: 'Exit code: 0', toolChainState: 'complete', ...extra },
+      });
+      expect(decide(answered({}), [])).toEqual({ action: 'commit' });
+      expect(decide(answered({ text: 'Pending user confirmation for `run_command`.' }), [])).toEqual({ action: 'stay' });
+    });
+
+    it('lands any tool whose card was declined', () => {
+      const fetch: TurnFeedItem = {
+        kind: 'tool',
+        part: { streamTag: toolTrailStatusStreamTag('f1'), label: 'fetch_url', text: 'User cancelled the pending command.', toolChainState: 'complete' },
+      };
+      expect(decide(fetch, [])).toEqual({ action: 'commit' });
+    });
+
+    it('lands a call the user denied', () => {
+      const denied: TurnFeedItem = {
+        kind: 'tool',
+        part: { streamTag: toolTrailStatusStreamTag('m1'), label: 'mcp__docs__lookup', text: 'Tool `lookup` on MCP server `docs` is denied.', toolChainState: 'complete' },
+      };
+      expect(decide(denied, [])).toEqual({ action: 'commit' });
+    });
+
+    it('stays while a sibling still waits on a delete card', () => {
+      const row = (id: string, label: string, text: string): TurnFeedItem => ({
+        kind: 'tool',
+        part: { streamTag: toolTrailStatusStreamTag(id), label, text, toolChainState: 'complete', toolBatch: 's1' },
+      });
+      const ran = row('c1', 'run_command', 'Command report: - Status: exited with code 0');
+      const deleting = row('d1', 'delete_workspace_entry', 'Pending user confirmation: big.bin is too large to restore after the turn.');
+      expect(decide(ran, [deleting])).toEqual({ action: 'stay' });
+    });
+
+    it('leaves a finished tool that is not a command alone', () => {
+      expect(decide(tool, [])).toEqual({ action: 'stay' });
+    });
   });
 
   it('commits HITL immediately', () => {

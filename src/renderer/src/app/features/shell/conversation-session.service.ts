@@ -60,6 +60,7 @@ import {
   mergeHitlTrailIntoLiveStreamParts,
   upsertClaraOuterBriefStreamPart,
   upsertToolTrailStatusStreamPart,
+  openRunCommandLane,
 } from './app-stream-parts';
 import { abandonStaleHitlMessages } from './abandon-stale-hitl';
 import {
@@ -332,6 +333,15 @@ export class ConversationSessionService {
       } else {
         const prev = this.backgroundStreamParts.get(conversationId) ?? [];
         this.setBackgroundParts(conversationId, mergeRead(prev));
+      }
+    });
+
+    this.electron.backgroundCommandOpen$.pipe(this.unfenced(), takeUntilDestroyed(this.destroyRef)).subscribe(({ conversationId, streamTag, label }) => {
+      if (conversationId === this.activeConversationId()) {
+        this.streamingParts.update((prev) => openRunCommandLane(prev, streamTag, label));
+      } else {
+        const prev = this.backgroundStreamParts.get(conversationId) ?? [];
+        this.setBackgroundParts(conversationId, openRunCommandLane(prev, streamTag, label));
       }
     });
 

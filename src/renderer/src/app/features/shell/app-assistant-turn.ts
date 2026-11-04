@@ -3,6 +3,7 @@ import {
   delegatedStreamPartsForDisplay,
   emptyPrimaryAssistantFallbackMessage,
   isReasoningAuxiliaryStreamTag,
+  isRunCommandStreamTag,
   isShellStyleToolStreamTag,
   multiplexAuxiliaryStreamTimeline,
   normalizeReasoningStreamPart,
@@ -31,7 +32,10 @@ export function buildAssistantTurnFromStreamParts(
   // A turn that ends while still reasoning (or whose reply came only as `final_text`) closes the thought here.
   const normalizedParts = closeOpenThought(parts)
     .map(normalizeStreamPart)
-    .filter((p): p is StreamPart => p !== null);
+    .filter((p): p is StreamPart => p !== null)
+    // A command lane that never printed (finished, or still running as the turn ended) only stood
+    // in while the turn was live: left in, it would hide the status row that has the result.
+    .filter((p) => !(isRunCommandStreamTag(p.streamTag) && !p.text.trim()));
   const toolStreamCandidates = delegatedStreamPartsForDisplay(normalizedParts, null).filter(
     (p) => isShellStyleToolStreamTag(p.streamTag) && p.text.trim(),
   );

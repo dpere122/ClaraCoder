@@ -38,6 +38,63 @@ function layout(items: TurnFeedItem[], live = false, overrides: Record<number, F
   return activityLayout(items, roleOf, live, toolChipLayout(items, roleOf, live).hidden);
 }
 
+describe('activitySummary declined calls', () => {
+  it('notes declined calls beside the headline, and says nothing about approved ones', () => {
+    const items = [
+      tool('run_command', 'Command id: `a` Exit code: 0', { toolTarget: 'a' }),
+      tool('run_command', 'User cancelled the pending command: Run terminal command.', { toolTarget: 'c' }),
+    ];
+    expect(activitySummary(items, [0, 1], new Set()).outcomes).toBe('1 declined');
+    expect(activitySummary(items, [0], new Set()).outcomes).toBe('');
+  });
+
+  it('does not count a declined call as run', () => {
+    const ran = (id: string) => tool('run_command', `Command id: \`${id}\` Exit code: 0`, { toolTarget: id });
+    const refused = (id: string) => tool('run_command', 'User cancelled the pending command: Run terminal command.', { toolTarget: id });
+    expect(activitySummary([ran('a'), refused('b'), ran('c')], [0, 1, 2], new Set())).toMatchObject({
+      headline: 'Ran 2 commands',
+      outcomes: '1 declined',
+    });
+  });
+
+  it('names the decline in the headline alone when nothing ran', () => {
+    const refused = tool('run_command', 'User cancelled the pending command: Run terminal command.', { toolTarget: 'npm test' });
+    expect(activitySummary([refused], [0], new Set())).toMatchObject({ headline: 'Declined npm test', outcomes: '' });
+  });
+
+  it('does not count an MCP call the user denied as run', () => {
+    const denied = tool('mcp__docs__lookup', 'Tool `lookup` on MCP server `docs` is denied.');
+    expect(activitySummary([read('a.py'), denied], [0, 1], new Set())).toMatchObject({ headline: 'Read a.py', outcomes: '1 declined' });
+    expect(activitySummary([denied], [0], new Set())).toMatchObject({ headline: 'Declined lookup', outcomes: '' });
+  });
+
+  it('does not mistake command output for a decline', () => {
+    const lane: TurnFeedItem = { kind: 'tool', part: { streamTag: 'run-command:a', label: 'x', text: 'User cancelled the job', runComplete: true } };
+    expect(activitySummary([lane], [0], new Set()).outcomes).toBe('');
+  });
+});
+
+describe('activitySummary command lanes', () => {
+  const lane = (text: string, extra: Partial<StreamPart> = {}): TurnFeedItem => ({
+    kind: 'tool',
+    part: { streamTag: 'run-command:a', label: 'npm run dev', text, ...extra },
+  });
+
+  it('counts one command however many rows an older saved turn split its output into', () => {
+    const summary = activitySummary([lane('one\n'), read('a.py'), lane('two\n')], [0, 1, 2], new Set());
+    expect(summary.headline).toBe('Ran npm run dev, read a.py');
+    expect(summary.title).toContain('2 tools');
+  });
+
+  it('leaves out a lane that printed nothing: its status row is the call', () => {
+    const call = tool('run_command', 'Command report: - Command id: `a` - Command: `mkdir out`', { toolTarget: 'mkdir out' });
+    const items = [call, lane('', { label: 'mkdir out', runComplete: true, exitCode: 0 })];
+    const summary = activitySummary(items, [0, 1], toolChipLayout(items, rolesOf(items)).merged);
+    expect(summary.headline).toBe('Ran mkdir out');
+    expect(summary.title).toContain('1 tool');
+  });
+});
+
 describe('activityLayout', () => {
   it('wraps each stretch between prose in one block, keeping execution order', () => {
     const items = [thought(), read('a.py'), edit('a.py'), md('Fixed it.'), thought(), read('b.py'), md()];
@@ -123,6 +180,18 @@ describe('activitySummary', () => {
       edit('a.py', { toolBatch: 's2', toolDurationMs: 1_000 }),
     ];
     expect(activitySummary(items, [0, 1, 2], new Set()).duration).toBe('6s');
+  });
+
+  it('counts the run time of a command whose output lane stands in for its call row', () => {
+    const call = (id: string, ms: number) => tool('run_command', `Command id: \`${id}\``, { toolBatch: id, toolDurationMs: ms });
+    const lane = (id: string): TurnFeedItem => ({
+      kind: 'tool',
+      part: { streamTag: `run-command:${id}`, label: 'npm test', text: 'ok', runComplete: true, exitCode: 0 },
+    });
+    const items = [call('a', 20_000), lane('a'), call('b', 12_000)];
+    const summary = activitySummary(items, [0, 1, 2], new Set([0]));
+    expect(summary.duration).toBe('32s');
+    expect(summary.title).toContain('2 tools');
   });
 
   it('reports failures and skips merged duplicate rows', () => {

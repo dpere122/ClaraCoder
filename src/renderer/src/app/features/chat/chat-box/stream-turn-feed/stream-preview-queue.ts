@@ -2,8 +2,11 @@ import {
   type ChatThinkingDisplay,
   type StreamPart,
   condenseToolTrailText,
+  isAwaitingApprovalText,
+  isDeclinedToolCall,
   isHitlTrailStreamTag,
   isRunCommandLaneRunning,
+  isRunCommandStreamTag,
   isToolTrailStatusStreamTag,
   toolPillLabel,
   toolStatusStreamPartMeta,
@@ -158,13 +161,41 @@ function isRunningCommandItem(item: TurnFeedItem): boolean {
 }
 
 /**
+ * True while a command in the open preview's batch is in flight. An approved command runs while
+ * its card still reads as pending, so this, not the turn's spinner state, decides that it glows.
+ */
+export function previewRunsCommand(current: TurnFeedItem | undefined, inbound: readonly TurnFeedItem[]): boolean {
+  return !!current && [current, ...currentBatchInbound(current, inbound)].some(isRunningCommandItem);
+}
+
+/**
+ * True once the open preview's batch holds a finished command or a declined call, and nothing there
+ * still runs or waits on its card. A call that never started a command has no lane, only its call row.
+ */
+function previewCommandFinished(current: TurnFeedItem, inbound: readonly TurnFeedItem[]): boolean {
+  const parts = [current, ...currentBatchInbound(current, inbound)].flatMap((item) =>
+    item.kind === 'tool' ? [item.part] : [],
+  );
+  const settled = parts.some(
+    (part) => isRunCommandStreamTag(part.streamTag) || isDeclinedToolCall(part) || part.label.trim() === 'run_command',
+  );
+  return (
+    settled
+    && !parts.some(
+      (part) =>
+        part.toolChainState === 'running' || isRunCommandLaneRunning(part, true) || isAwaitingApprovalText(part.text),
+    )
+  );
+}
+
+/**
  * Live preview label: the current event, then the next inbound one it anticipates. Only one
  * event is announced ahead, so a wide parallel batch never stacks a long run of names.
  * A command's call row and output lane are one category: `Running` while either is in flight
  * (the command itself shows as the meta), never `Run — Running`.
  */
 export function previewQueueHeader(current: TurnFeedItem, inbound: readonly TurnFeedItem[]): string {
-  const commandRunning = [current, ...currentBatchInbound(current, inbound)].some(isRunningCommandItem);
+  const commandRunning = previewRunsCommand(current, inbound);
   const fold = (label: string): string => (commandRunning && COMMAND_VERBS.has(label) ? 'Running' : label);
   const head = fold(previewItemLabel(current));
   // Parallel calls of one kind share a verb; `Read — Read` says nothing new.
@@ -511,7 +542,11 @@ export function decidePreviewCommit(opts: {
   if (isZeroDwellQueueItem(opts.current)) {
     return { action: 'commit' };
   }
-  if (!hasCommitPressure(opts.items, opts.current, opts.inbound)) {
+  // A finished command lands without waiting for the next event: its verb must not outlive the run.
+  if (
+    !hasCommitPressure(opts.items, opts.current, opts.inbound)
+    && !previewCommandFinished(opts.current, opts.inbound)
+  ) {
     return { action: 'stay' };
   }
   const dwellLeft = PREVIEW_OPEN_DWELL_MS - (opts.now - opts.previewStartedAt);

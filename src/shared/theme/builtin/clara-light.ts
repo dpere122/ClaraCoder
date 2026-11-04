@@ -64,7 +64,7 @@ export const CLARA_LIGHT_THEME: ClaraThemeDocument = {
     '--t-user-fg': '#12332b',
     '--t-user-border': '#0b7a6266',
     '--t-assistant-bg': '#f7fdfa',
-    '--t-assistant-fg': '#24463c',
+    '--t-assistant-fg': '#12332b',
     '--t-assistant-border': '#9ccbb8',
 
     // Code

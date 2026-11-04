@@ -64,7 +64,7 @@ export const CLARA_LIGHT_IRIS_THEME: ClaraThemeDocument = {
     '--t-user-fg': '#231a45',
     '--t-user-border': '#5b3fc066',
     '--t-assistant-bg': '#fbfaff',
-    '--t-assistant-fg': '#342a5c',
+    '--t-assistant-fg': '#231a45',
     '--t-assistant-border': '#b9addf',
 
     // Code

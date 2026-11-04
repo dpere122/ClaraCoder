@@ -39,7 +39,7 @@
                       name='settingsChatSource'
                       [checked]='s.sourceIsActive(provider)'
                       (change)='s.activateSource(provider.id)'
-                      (click)='$event.stopPropagation()'
+                      (click)='s.selectSource(provider.id); $event.stopPropagation()'
                     />
                   </label>
                   <button type='button' class='source-row' (click)='s.selectSource(provider.id)'>
@@ -90,203 +90,9 @@
               <hr class='settings-divider' />
 
               @if (connection.provider === 'lmstudio') {
-                <div class='form-section'>
-                  <div class='form-section__header'>
-                    <h5>Connection</h5>
-                  </div>
-                  <div class='form-grid'>
-                    <label class='field field--full'>
-                      <span>Name</span>
-                      <input
-                        type='text'
-                        [ngModel]='s.selectedProvider()!.name'
-                        (ngModelChange)='s.updateSelectedProvider({ name: $event })'
-                      />
-                    </label>
-                    <label class='field field--full'>
-                      <span>Base URL</span>
-                      <input
-                        type='text'
-                        placeholder='http://127.0.0.1:1234/v1'
-                        [ngModel]='s.selectedProvider()!.baseUrl'
-                        (ngModelChange)='s.updateSelectedProvider({ baseUrl: $event })'
-                      />
-                    </label>
-                    <div class='field field--full lm-studio-connect-row'>
-                      <button
-                        type='button'
-                        class='action-button action-button--primary'
-                        [disabled]='s.lmStudioListInFlight()'
-                        (click)='s.refreshLmStudioInventory()'
-                      >
-                        @if (s.lmStudioListInFlight()) {
-                          Connecting…
-                        } @else {
-                          Connect
-                        }
-                      </button>
-                      @if (s.lmStudioInventoryError(); as err) {
-                        <span class='lm-studio-status lm-studio-status--err'>{{ err }}</span>
-                      } @else if (s.lmStudioInventory().length) {
-                        <span class='lm-studio-status lm-studio-status--ok'>{{ s.lmStudioInventory().length }} models</span>
-                      }
-                    </div>
-                  </div>
-                </div>
-
-                <div class='form-section'>
-                  <div class='form-section__header'>
-                    <h5>Models</h5>
-                  </div>
-                  <div class='form-grid'>
-                    <label class='field field--full'>
-                      <span>Chat model</span>
-                      <app-pill-select
-                        [options]='lmStudioChatOptions()'
-                        [value]='s.selectedModel()!.model'
-                        (valueChange)='s.onModelApiIdChange($event)'
-                      />
-                    </label>
-                    <label class='field field--full'>
-                      <span>Embedding model</span>
-                      <app-pill-select [disabled]='true' value='' [options]='builtinEmbeddingsOptions' />
-                    </label>
-                    <div class='field field--full'>
-                      <button
-                        type='button'
-                        class='action-button action-button--primary'
-                        [disabled]='s.lmStudioLoadDisabled() || s.lmStudioListInFlight()'
-                        (click)='s.loadLmStudioSelectedModels()'
-                        title='Disabled when the selected models are already loaded'
-                      >
-                        Load model(s)
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                @if (s.lmStudioLoadedCards().length) {
-                  <hr class='settings-divider' />
-                  <div class='form-section'>
-                    <div class='form-section__header'>
-                      <h5>Loaded</h5>
-                    </div>
-                    <div class='lm-loaded-grid'>
-                      @for (card of s.lmStudioLoadedCards(); track card.id) {
-                        <div class='lm-loaded-card'>
-                          <div class='lm-loaded-card__head'>
-                            <strong>{{ card.id }}</strong>
-                            <button
-                              type='button'
-                              class='action-button action-button--compact'
-                              [disabled]='!card.instanceId'
-                              (click)='s.unloadLmStudioCard(card)'
-                            >
-                              Unload
-                            </button>
-                          </div>
-                          <dl class='lm-loaded-card__meta'>
-                            <div><dt>type</dt><dd>{{ card.type }}</dd></div>
-                            <div><dt>publisher</dt><dd>{{ card.publisher }}</dd></div>
-                            <div><dt>arch</dt><dd>{{ card.arch }}</dd></div>
-                            <div><dt>compat</dt><dd>{{ card.compatibility_type }}</dd></div>
-                            <div><dt>quant</dt><dd>{{ card.quantization }}</dd></div>
-                            <div><dt>state</dt><dd>{{ card.state }}</dd></div>
-                            <div><dt>ctx</dt><dd>{{ card.loaded_context_length > 0 ? card.loaded_context_length + ' loaded / ' + card.max_context_length + ' max' : card.max_context_length }}</dd></div>
-                          </dl>
-                        </div>
-                      }
-                    </div>
-                  </div>
-                }
-              } @else if (connection.provider === 'llamacpp' && s.isUrlOnlyLlamacpp()) {
-                <div class='form-section'>
-                  <div class='form-section__header'>
-                    <h5>Connection</h5>
-                  </div>
-                  <div class='form-grid'>
-                    <label class='field field--full'>
-                      <span>Name</span>
-                      <input
-                        type='text'
-                        [ngModel]='s.selectedProvider()!.name'
-                        (ngModelChange)='s.updateSelectedProvider({ name: $event })'
-                      />
-                    </label>
-                    <label class='field field--full'>
-                      <span>Chat URL</span>
-                      <input
-                        type='text'
-                        placeholder='http://192.168.1.10:8080/v1'
-                        [ngModel]='s.selectedProvider()!.baseUrl'
-                        (ngModelChange)='s.updateSelectedProvider({ baseUrl: $event })'
-                      />
-                    </label>
-                    <label class='field field--full'>
-                      <span>Embeddings URL</span>
-                      <input
-                        type='text'
-                        placeholder='Built-in CPU embeddings (disabled)'
-                        disabled
-                      />
-                    </label>
-                    <label class='field field--full'>
-                      <span>API key</span>
-                      <input
-                        type='password'
-                        [ngModel]='s.selectedProvider()!.apiKey'
-                        (ngModelChange)='s.updateSelectedProvider({ apiKey: $event })'
-                      />
-                    </label>
-                    <div class='field field--full lm-studio-connect-row'>
-                      <button
-                        type='button'
-                        class='action-button action-button--primary'
-                        [disabled]='s.llamacppModelsListInFlight()'
-                        (click)='s.refreshLlamacppUrlModels()'
-                      >
-                        @if (s.llamacppModelsListInFlight()) {
-                          Connecting…
-                        } @else {
-                          Connect
-                        }
-                      </button>
-                      @if (s.llamacppModelsListError(); as lerr) {
-                        <span class='lm-studio-status lm-studio-status--err'>{{ lerr }}</span>
-                      } @else if (s.llamacppManagedModelIds().length || s.llamacppUrlEmbeddingModelIds().length) {
-                        <span class='lm-studio-status lm-studio-status--ok'>{{ s.llamacppUrlModelsSummary() }}</span>
-                      }
-                    </div>
-                  </div>
-                </div>
-                <div class='form-section'>
-                  <div class='form-section__header'>
-                    <h5>Models</h5>
-                  </div>
-                  <div class='form-grid'>
-                    <label class='field field--full'>
-                      <span>Chat model</span>
-                      <input
-                        type='text'
-                        list='llamacpp-url-chat-models'
-                        placeholder='model id, e.g. anthropic/claude-sonnet-4.5'
-                        autocomplete='off'
-                        spellcheck='false'
-                        [ngModel]='s.selectedModel()!.model'
-                        (ngModelChange)='s.onModelApiIdChange($event)'
-                      />
-                      <datalist id='llamacpp-url-chat-models'>
-                        @for (id of s.llamacppManagedModelIds(); track id) {
-                          <option [value]='id'></option>
-                        }
-                      </datalist>
-                    </label>
-                    <label class='field field--full'>
-                      <span>Embedding model</span>
-                      <app-pill-select [disabled]='true' value='' [options]='builtinEmbeddingsOptions' />
-                    </label>
-                  </div>
-                </div>
+                <app-lm-studio-dashboard />
+              } @else if (connection.provider === 'openai-compatible') {
+                <app-openai-compat-dashboard />
               } @else if (connection.provider === 'llamacpp') {
                 <div class='form-section model-run-hero'>
                   <div class='form-section__header'>
@@ -824,7 +630,7 @@
                 </div>
               }
 
-              @if (connection.provider !== 'openrouter' && connection.provider !== 'anthropic') {
+              @if (connection.provider !== 'openrouter' && connection.provider !== 'anthropic' && connection.provider !== 'lmstudio' && connection.provider !== 'openai-compatible') {
               <hr class='settings-divider' />
 
               <div class='form-section ready-defaults' [attr.data-tutorial]="connection.provider === 'llamacpp' && !s.isUrlOnlyLlamacpp() ? 'sources-defaults' : null">

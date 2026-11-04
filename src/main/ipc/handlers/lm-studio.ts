@@ -1,7 +1,25 @@
 import { ipcMain } from 'electron';
-import type { LmStudioListModelsResult, LmStudioMutationResult } from '../../../shared/lm-studio-ipc';
+import {
+  coerceLmStudioContextTokens,
+  type LmStudioListModelsResult,
+  type LmStudioLoadOptions,
+  type LmStudioMutationResult,
+} from '../../../shared/lm-studio-ipc';
 import { lmStudioListModels, lmStudioLoadModel, lmStudioUnloadModel } from '../../lm-studio-client';
 import { lmStudioOpenAiBaseUrlToRestOrigin } from '../../../shared/lm-studio-url';
+
+function loadOptionsFromIpc(raw: LmStudioLoadOptions | undefined): LmStudioLoadOptions {
+  const contextLength = coerceLmStudioContextTokens(raw?.contextLength);
+  const parallel = coerceLmStudioContextTokens(raw?.parallel);
+  const evalBatchSize = coerceLmStudioContextTokens(raw?.evalBatchSize);
+  return {
+    ...(contextLength ? { contextLength } : {}),
+    ...(parallel ? { parallel } : {}),
+    ...(evalBatchSize ? { evalBatchSize } : {}),
+    ...(typeof raw?.flashAttention === 'boolean' ? { flashAttention: raw.flashAttention } : {}),
+    ...(typeof raw?.offloadKvCacheToGpu === 'boolean' ? { offloadKvCacheToGpu: raw.offloadKvCacheToGpu } : {}),
+  };
+}
 
 export function registerLmStudioIpc(): void {
   ipcMain.handle(
@@ -17,7 +35,7 @@ export function registerLmStudioIpc(): void {
     'lm-studio:load-model',
     async (
       _event,
-      payload: { baseUrl: string; model: string; apiKey?: string },
+      payload: { baseUrl: string; model: string; apiKey?: string; options?: LmStudioLoadOptions },
     ): Promise<LmStudioMutationResult> => {
       const baseUrl = typeof payload?.baseUrl === 'string' ? payload.baseUrl : '';
       const model = typeof payload?.model === 'string' ? payload.model : '';
@@ -29,7 +47,7 @@ export function registerLmStudioIpc(): void {
       if (!model.trim()) {
         return { ok: false, error: 'Missing model id' };
       }
-      const r = await lmStudioLoadModel(origin, model.trim(), apiKey);
+      const r = await lmStudioLoadModel(origin, model.trim(), apiKey, loadOptionsFromIpc(payload?.options));
       return r;
     },
   );

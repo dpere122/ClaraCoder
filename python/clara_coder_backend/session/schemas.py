@@ -281,6 +281,21 @@ class TtsRequest(BaseModel):
         return v
 
 
+class OpenAiCompatRequest(BaseModel):
+    """What an ``openai-compatible`` server accepts; see ``OpenAiCompatSettings`` in the app."""
+
+    tokensField: Literal['max_tokens', 'max_completion_tokens'] = 'max_tokens'
+    thinkingMethod: Literal['none', 'reasoning_effort', 'reasoning', 'chat_template_kwargs'] = 'none'
+    sendTemperature: bool = True
+    sendParallelToolCalls: bool = True
+    streamUsage: bool = True
+    nonStandardSampling: bool = False
+    frequencyPenalty: float | None = Field(default=None, ge=-2.0, le=2.0)
+    seed: int | None = None
+    stop: list[str] = Field(default_factory=list)
+    extraBody: str = ''
+
+
 class ChatTemplateReasoningCapsRequest(BaseModel):
     """Live reasoning caps, not a persisted setting: a llama-server Jinja scan (Electron ``GET /props``)
     or, for OpenRouter, the model catalog's ``reasoning`` block (``enableThinking`` = can be turned off).
@@ -299,7 +314,7 @@ class RuntimeConnectionRequest(BaseModel):
 
     id: str
     name: str
-    provider: Literal['openai', 'lmstudio', 'llamacpp', 'openrouter', 'anthropic']
+    provider: Literal['openai', 'lmstudio', 'llamacpp', 'openai-compatible', 'openrouter', 'anthropic']
     baseUrl: str = ''
     model: str
     apiKey: str = ''
@@ -337,6 +352,19 @@ class RuntimeConnectionRequest(BaseModel):
         ge=0,
         le=10_000_000,
         validation_alias=AliasChoices('contextWindowTokens', 'context_window_tokens'),
+    )
+    openAiCompat: OpenAiCompatRequest | None = Field(
+        default=None,
+        validation_alias=AliasChoices('openAiCompat', 'open_ai_compat'),
+    )
+    customHeaders: dict[str, str] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices('customHeaders', 'custom_headers'),
+    )
+    idleTtlSeconds: int = Field(
+        default=0,
+        ge=0,
+        validation_alias=AliasChoices('idleTtlSeconds', 'idle_ttl_seconds'),
     )
     chatTemplateReasoning: ChatTemplateReasoningCapsRequest | None = Field(
         default=None,

@@ -81,7 +81,7 @@ export function defaultLlmModelId(provider: LlmConnectionConfig['provider']): st
   if (provider === 'lmstudio' || provider === 'llamacpp') {
     return 'local-model';
   }
-  if (provider === 'openrouter' || provider === 'anthropic') {
+  if (provider === 'openrouter' || provider === 'anthropic' || provider === 'openai-compatible') {
     return '';
   }
   return 'gpt-4o-mini';

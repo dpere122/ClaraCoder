@@ -48,6 +48,10 @@ import type {
   HfDownloadProgressEvent,
   LlmSourcePingResult,
   LmStudioListModelsResult,
+  LmStudioLoadOptions,
+  OpenAiCompatEndpoint,
+  OpenAiCompatListResult,
+  OpenAiCompatTestResult,
   LmStudioMutationResult,
   MaybeAutoTitleResult,
   PythonInterpreterListItem,
@@ -476,8 +480,15 @@ declare global {
     anthropicSetApiKey: (payload: { apiKey: string }) => Promise<AnthropicListModelsResult>;
     anthropicClearApiKey: () => Promise<AnthropicListModelsResult>;
     anthropicSetModel: (payload: { modelId: string }) => Promise<AnthropicSetModelResult>;
+    openAiCompatListModels: (payload: { endpoint: OpenAiCompatEndpoint }) => Promise<OpenAiCompatListResult>;
+    openAiCompatTest: (payload: { endpoint: OpenAiCompatEndpoint; model: string }) => Promise<OpenAiCompatTestResult>;
     lmStudioListModels: (payload: { baseUrl: string; apiKey?: string }) => Promise<LmStudioListModelsResult>;
-    lmStudioLoadModel: (payload: { baseUrl: string; model: string; apiKey?: string }) => Promise<LmStudioMutationResult>;
+    lmStudioLoadModel: (payload: {
+      baseUrl: string;
+      model: string;
+      apiKey?: string;
+      options?: LmStudioLoadOptions;
+    }) => Promise<LmStudioMutationResult>;
     lmStudioUnloadModel: (payload: {
       baseUrl: string;
       instanceId: string;

@@ -45,6 +45,10 @@ import type {
   ChatTemplateReasoningCaps,
   LlmSourcePingResult,
   LmStudioListModelsResult,
+  LmStudioLoadOptions,
+  OpenAiCompatEndpoint,
+  OpenAiCompatListResult,
+  OpenAiCompatTestResult,
   LmStudioMutationResult,
   LlmStatus,
   MenuFileCommand,
@@ -1785,7 +1789,12 @@ export class ElectronService {
     return this.api?.lmStudioListModels(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
   }
 
-  lmStudioLoadModel(payload: { baseUrl: string; model: string; apiKey?: string }): Promise<LmStudioMutationResult> {
+  lmStudioLoadModel(payload: {
+    baseUrl: string;
+    model: string;
+    apiKey?: string;
+    options?: LmStudioLoadOptions;
+  }): Promise<LmStudioMutationResult> {
     return this.api?.lmStudioLoadModel(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
   }
 
@@ -1795,6 +1804,14 @@ export class ElectronService {
     apiKey?: string;
   }): Promise<LmStudioMutationResult> {
     return this.api?.lmStudioUnloadModel(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  openAiCompatListModels(endpoint: OpenAiCompatEndpoint): Promise<OpenAiCompatListResult> {
+    return this.api?.openAiCompatListModels({ endpoint }) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  openAiCompatTest(endpoint: OpenAiCompatEndpoint, model: string): Promise<OpenAiCompatTestResult | null> {
+    return this.api?.openAiCompatTest({ endpoint, model }) ?? Promise.resolve(null);
   }
 
   openSettingsWindow(tab?: string): void {

@@ -1,4 +1,10 @@
-import type { LmStudioListModelsResult, LmStudioModelCard, LmStudioMutationResult } from '../shared/lm-studio-ipc';
+import type {
+  LmStudioListModelsResult,
+  LmStudioLoadOptions,
+  LmStudioModelCard,
+  LmStudioMutationResult,
+  LmStudioRunningConfig,
+} from '../shared/lm-studio-ipc';
 import { coerceLmStudioContextTokens } from '../shared/lm-studio-ipc';
 import { lmStudioOpenAiBaseUrlToRestOrigin } from '../shared/lm-studio-url';
 
@@ -31,6 +37,24 @@ function fetchErrorMessage(e: unknown): string {
   return e.message;
 }
 
+/** Readable message for a non-2xx response; LM Studio errors are usually ``{ error: { message } }``. */
+export function lmStudioHttpError(status: number, body: string, url?: string): string {
+  if (status === 401 || status === 403) {
+    return `LM Studio rejected the API token (HTTP ${status}). Check the token, or turn off Require Authentication.`;
+  }
+  const text = body.trim();
+  try {
+    const err = asRecord(JSON.parse(text))?.error;
+    const message = typeof err === 'string' ? err : asRecord(err)?.message;
+    if (typeof message === 'string' && message.trim()) {
+      return message.trim();
+    }
+  } catch {
+    // Not JSON: use the body as it is.
+  }
+  return text || `HTTP ${status}${url ? ` from ${url}` : ''}`;
+}
+
 function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), ms);
@@ -48,6 +72,22 @@ function instanceContextLength(inst: Record<string, unknown> | null): number {
     coerceLmStudioContextTokens(inst['loaded_context_length']) ||
     coerceLmStudioContextTokens(inst['context_length'])
   );
+}
+
+function runningConfig(inst: Record<string, unknown> | null): LmStudioRunningConfig | undefined {
+  const cfg = asRecord(inst?.config);
+  if (!cfg) {
+    return undefined;
+  }
+  const num = (v: unknown) => (typeof v === 'number' ? v : undefined);
+  const flag = (v: unknown) => (typeof v === 'boolean' ? v : undefined);
+  return {
+    contextLength: instanceContextLength(inst),
+    parallel: num(cfg.parallel),
+    evalBatchSize: num(cfg.eval_batch_size),
+    flashAttention: flag(cfg.flash_attention),
+    offloadKvCacheToGpu: flag(cfg.offload_kv_cache_to_gpu),
+  };
 }
 
 function loadedInstanceId(inst: Record<string, unknown> | null, fallback: string): string {
@@ -75,6 +115,8 @@ export function normalizeLmStudioV1Entry(raw: unknown): LmStudioModelCard | null
   const instanceId = loaded ? loadedInstanceId(firstInst, id) : undefined;
   const maxCtx = coerceLmStudioContextTokens(m.max_context_length);
   const loadedCtx = loaded ? instanceContextLength(firstInst) : 0;
+  const caps = asRecord(m.capabilities);
+  const reasoning = asRecord(caps?.reasoning);
   return {
     id,
     type: String(m.type ?? ''),
@@ -86,6 +128,15 @@ export function normalizeLmStudioV1Entry(raw: unknown): LmStudioModelCard | null
     max_context_length: maxCtx,
     loaded_context_length: loadedCtx,
     instanceId,
+    displayName: typeof m.display_name === 'string' && m.display_name.trim() ? m.display_name.trim() : undefined,
+    sizeBytes: typeof m.size_bytes === 'number' && m.size_bytes > 0 ? m.size_bytes : undefined,
+    toolUse: typeof caps?.trained_for_tool_use === 'boolean' ? caps.trained_for_tool_use : undefined,
+    vision: typeof caps?.vision === 'boolean' ? caps.vision : undefined,
+    reasoningOptions: Array.isArray(reasoning?.allowed_options)
+      ? reasoning.allowed_options.filter((o): o is string => typeof o === 'string')
+      : undefined,
+    reasoningDefault: typeof reasoning?.default === 'string' ? reasoning.default : undefined,
+    runningConfig: runningConfig(firstInst),
   };
 }
 
@@ -139,7 +190,7 @@ export async function lmStudioListModels(baseUrl: string, apiKey: string): Promi
     }
     if (!res.ok) {
       const t = await res.text().catch(() => '');
-      return { kind: 'fail', error: t.trim() || `HTTP ${res.status} from ${url}` };
+      return { kind: 'fail', error: lmStudioHttpError(res.status, t, url) };
     }
     const body = asRecord(await res.json().catch(() => null));
     if (!body || !Array.isArray(body.models)) {
@@ -162,7 +213,7 @@ export async function lmStudioListModels(baseUrl: string, apiKey: string): Promi
     }
     if (!res.ok) {
       const t = await res.text().catch(() => '');
-      return { kind: 'fail', error: t.trim() || `HTTP ${res.status} from ${url}` };
+      return { kind: 'fail', error: lmStudioHttpError(res.status, t, url) };
     }
     const body = asRecord(await res.json().catch(() => null));
     if (!body || !Array.isArray(body.data)) {
@@ -198,17 +249,26 @@ export async function lmStudioLoadModel(
   origin: string,
   modelKey: string,
   apiKey: string,
+  options: LmStudioLoadOptions = {},
 ): Promise<LmStudioMutationResult> {
   const headers = { ...authHeaders(apiKey), 'Content-Type': 'application/json' };
   try {
     const res = await fetch(`${origin}/api/v1/models/load`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ model: modelKey }),
+      // The server rejects unknown keys, so send only what's set.
+      body: JSON.stringify({
+        model: modelKey,
+        ...(options.contextLength ? { context_length: options.contextLength } : {}),
+        ...(options.parallel ? { parallel: options.parallel } : {}),
+        ...(options.evalBatchSize ? { eval_batch_size: options.evalBatchSize } : {}),
+        ...(options.flashAttention !== undefined ? { flash_attention: options.flashAttention } : {}),
+        ...(options.offloadKvCacheToGpu !== undefined ? { offload_kv_cache_to_gpu: options.offloadKvCacheToGpu } : {}),
+      }),
     });
     if (!res.ok) {
       const t = await res.text().catch(() => '');
-      return { ok: false, error: t || `HTTP ${res.status}` };
+      return { ok: false, error: lmStudioHttpError(res.status, t) };
     }
     return { ok: true };
   } catch (e) {
@@ -230,7 +290,7 @@ export async function lmStudioUnloadModel(
     });
     if (!res.ok) {
       const t = await res.text().catch(() => '');
-      return { ok: false, error: t || `HTTP ${res.status}` };
+      return { ok: false, error: lmStudioHttpError(res.status, t) };
     }
     return { ok: true };
   } catch (e) {

@@ -111,6 +111,13 @@ def effective_parallel_tool_calls(connection: RuntimeConnection) -> bool:
     return bool(connection.parallel_tool_calls)
 
 
+def sends_parallel_tool_calls_field(connection: RuntimeConnection) -> bool:
+    """False for an ``openai-compatible`` server that rejects ``parallel_tool_calls``."""
+    if connection.provider != 'openai-compatible':
+        return True
+    return bool((connection.open_ai_compat or {}).get('sendParallelToolCalls', True))
+
+
 def connection_user_sampling_kwargs_for_llm(connection: RuntimeConnection) -> dict[str, Any]:
     """Map explicit Settings sampling fields to ``ChatOpenAI`` kwargs / ``extra_body``.
 

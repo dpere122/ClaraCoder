@@ -11,6 +11,7 @@ export function mergeLlmProviderModel(provider: LlmProviderConfig, model: LlmMod
     apiKey: provider.apiKey,
     embeddingsModel: provider.embeddingsModel,
     ...(embBase ? { embeddingsBaseUrl: embBase } : {}),
+    ...(provider.customHeaders?.length ? { customHeaders: provider.customHeaders } : {}),
   };
 }
 

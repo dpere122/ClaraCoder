@@ -1,0 +1,373 @@
+<div class='lms'>
+  <section class='lms-panel lms-connection'>
+    <div class='lms-connection__fields'>
+      <h5>Connection</h5>
+      <div class='lms-fields'>
+        <label class='field'>
+          <span>Base URL</span>
+          <input
+            type='text'
+            placeholder='http://127.0.0.1:8080/v1'
+            spellcheck='false'
+            [ngModel]='s.selectedProvider()!.baseUrl'
+            (ngModelChange)='s.updateSelectedProvider({ baseUrl: $event })'
+          />
+          <small class='lms-hint oc-resolved'>
+            @if (resolvedUrl(); as url) {
+              Requests go to <code>{{ url }}</code>
+            } @else if (s.selectedProvider()!.baseUrl.trim()) {
+              Enter a valid http or https URL.
+            } @else {
+              The address of the server, with or without /v1.
+            }
+          </small>
+        </label>
+        <label class='field'>
+          <span class='lms-token-label'>
+            API key
+            @if (hasSecret()) {
+              @switch (s.modelManagerSecretStorage()) {
+                @case ('keychain') {
+                  <span class='lms-badge lms-badge--ok' title='Encrypted with the OS keychain'>
+                    <lucide-icon name='shield' [size]='11' />
+                    Encrypted
+                  </span>
+                }
+                @case ('plaintext') {
+                  <span class='lms-badge lms-badge--warn' title='OS keychain unavailable; stored in the owner-only config file'>
+                    <lucide-icon name='triangle-alert' [size]='11' />
+                    Not encrypted
+                  </span>
+                }
+              }
+            }
+          </span>
+          <input
+            type='password'
+            autocomplete='off'
+            placeholder="Leave empty if the server doesn't need one"
+            [ngModel]='apiKey()'
+            (ngModelChange)='onApiKeyChange($event)'
+          />
+        </label>
+        <div class='field'>
+          <span>Custom headers</span>
+          @for (header of headers(); track $index; let i = $index) {
+            <div class='oc-header-row'>
+              <input
+                type='text'
+                placeholder='Header name'
+                spellcheck='false'
+                aria-label='Header name'
+                [ngModel]='header.key'
+                (ngModelChange)='setHeader(i, { key: $event })'
+              />
+              <input
+                type='password'
+                autocomplete='off'
+                placeholder='Value'
+                aria-label='Header value'
+                [ngModel]='header.value'
+                (ngModelChange)='setHeader(i, { value: $event })'
+              />
+              <button type='button' class='lms-icon-button' aria-label='Remove header' (click)='removeHeader(i)'>
+                <lucide-icon name='x' [size]='14' />
+              </button>
+            </div>
+          }
+          <button type='button' class='action-button action-button--compact' (click)='addHeader()'>
+            <lucide-icon name='plus' [size]='12' />
+            Add header
+          </button>
+          <small class='lms-hint'>For servers that don't use a Bearer key, like Azure's <code>api-key</code>.</small>
+        </div>
+      </div>
+    </div>
+
+    <div class='lms-connection__status'>
+      <div [class]="'lms-status lms-status--' + statusView().tone" role='status' aria-live='polite'>
+        <lucide-icon [name]='statusView().icon' [size]='15' />
+        <strong>{{ statusView().label }}</strong>
+      </div>
+      @if (s.sourceIsActive(s.selectedProvider()!)) {
+        <div class='lms-connection__badges'>
+          <span class='lms-badge lms-badge--ok'><lucide-icon name='check' [size]='11' />Active source</span>
+        </div>
+      }
+      <small class='lms-hint'>Sends a few short requests, which can cost a little on a paid service.</small>
+      <div class='lms-connection__actions'>
+        <button
+          type='button'
+          class='action-button action-button--primary'
+          [disabled]='s.openAiCompatTestRunning() || !resolvedUrl()'
+          (click)='s.runOpenAiCompatConnectionTest()'
+        >
+          {{ s.openAiCompatTestRunning() ? 'Testing…' : 'Test connection' }}
+        </button>
+        @if (!s.sourceIsActive(s.selectedProvider()!)) {
+          <button type='button' class='action-button' (click)='s.activateSource(s.selectedProvider()!.id)'>
+            Set as active source
+          </button>
+        }
+      </div>
+    </div>
+
+    @if (s.openAiCompatTestResult(); as result) {
+      <ul class='oc-checks' [class.oc-checks--stale]='s.openAiCompatTestStale()'>
+        @for (check of result.checks; track check.id) {
+          <li [class]="'oc-check oc-check--' + check.status">
+            <lucide-icon [name]='checkIcons[check.status]' [size]='14' />
+            <strong>{{ check.label }}</strong>
+            <span>{{ check.detail }}</span>
+          </li>
+        }
+      </ul>
+      @if (s.openAiCompatApplied().length) {
+        <p class='lms-muted lms-note'>Compatibility updated to match: {{ s.openAiCompatApplied().join(', ') }}. Click Apply to keep it.</p>
+      }
+    }
+  </section>
+
+  <section class='lms-panel'>
+    <div class='lms-panel__head'>
+      <h5>Model</h5>
+      @if (s.openAiCompatListError(); as err) {
+        <span class='lms-muted'>Couldn't list models: {{ err }}</span>
+      } @else if (s.openAiCompatModels().length) {
+        <span class='lms-muted'>{{ s.openAiCompatModels().length }} listed</span>
+      }
+    </div>
+    <div class='lms-control-row'>
+      <label class='field lms-control-row__model'>
+        <span>Model ID</span>
+        <input
+          type='text'
+          list='openai-compat-models'
+          placeholder='Pick from the list, or type an ID'
+          autocomplete='off'
+          spellcheck='false'
+          [ngModel]='s.selectedModel()!.model'
+          (ngModelChange)='s.onModelApiIdChange($event)'
+        />
+        <datalist id='openai-compat-models'>
+          @for (model of s.openAiCompatModels(); track model.id) {
+            <option [value]='model.id'></option>
+          }
+        </datalist>
+      </label>
+      <button
+        type='button'
+        class='action-button'
+        [disabled]='s.openAiCompatListInFlight() || !resolvedUrl()'
+        (click)='s.refreshOpenAiCompatModels()'
+      >
+        <lucide-icon name='refresh-cw' [size]='13' />
+        {{ s.openAiCompatListInFlight() ? 'Listing…' : 'Refresh list' }}
+      </button>
+    </div>
+    <div class='lms-control-grid lms-control-grid--two'>
+      <label class='field'>
+        <span>Context window</span>
+        <input
+          type='number'
+          min='1024'
+          max='10000000'
+          step='1024'
+          [ngModel]='connection()?.contextWindowTokens'
+          (ngModelChange)='s.onContextWindowTokensChange($event)'
+        />
+        <small class='lms-hint'>
+          {{ contextReported() ? 'Reported by the server.' : "Most servers don't report this, so type it in." }}
+          Clara uses it to know when to compact.
+        </small>
+      </label>
+      <label class='field'>
+        <span>Max output</span>
+        <input
+          type='number'
+          min='0'
+          max='200000'
+          step='256'
+          placeholder='0'
+          [ngModel]='connection()?.maxOutputTokens'
+          (ngModelChange)='s.onMaxOutputTokensChange($event)'
+        />
+        <small class='lms-hint'>Tokens per reply. 0 sends no limit, leaving it to the server.</small>
+      </label>
+    </div>
+  </section>
+
+  @if (connection(); as c) {
+    <div class='lms-controls'>
+      <section class='lms-panel'>
+        <div class='lms-panel__head'>
+          <h5>Compatibility</h5>
+          <span class='lms-muted'>Test connection sets these for you</span>
+        </div>
+        <div class='lms-fields'>
+          <label class='field'>
+            <span>Output tokens field</span>
+            <app-pill-select
+              [options]='tokensFieldOptions'
+              [value]='compat().tokensField'
+              (valueChange)='s.updateOpenAiCompatSettings({ tokensField: $any($event) })'
+            />
+            <small class='lms-hint'>Newer OpenAI models need max_completion_tokens. Most other servers use max_tokens.</small>
+          </label>
+          <label class='field'>
+            <span>Thinking control</span>
+            <app-pill-select
+              [options]='thinkingMethodOptions'
+              [value]='compat().thinkingMethod'
+              (valueChange)='s.updateOpenAiCompatSettings({ thinkingMethod: $any($event) })'
+            />
+            <small class='lms-hint'>How this server switches thinking. There's no standard.</small>
+          </label>
+          <label class='lms-toggle'>
+            <input type='checkbox' [ngModel]='compat().sendTemperature' (ngModelChange)='s.updateOpenAiCompatSettings({ sendTemperature: $event })' />
+            <span>
+              <strong>Send temperature</strong>
+              <small class='lms-hint'>Some models only accept their default and reject the field.</small>
+            </span>
+          </label>
+          <label class='lms-toggle'>
+            <input type='checkbox' [ngModel]='compat().sendParallelToolCalls' (ngModelChange)='s.updateOpenAiCompatSettings({ sendParallelToolCalls: $event })' />
+            <span>
+              <strong>Send parallel_tool_calls</strong>
+              <small class='lms-hint'>Turn off if the server rejects the field.</small>
+            </span>
+          </label>
+          <label class='lms-toggle'>
+            <input type='checkbox' [ngModel]='compat().streamUsage' (ngModelChange)='s.updateOpenAiCompatSettings({ streamUsage: $event })' />
+            <span>
+              <strong>Ask for token usage</strong>
+              <small class='lms-hint'>Sends stream_options. Without it, Clara estimates how full the context is.</small>
+            </span>
+          </label>
+        </div>
+      </section>
+
+      <section class='lms-panel'>
+        <div class='lms-panel__head'>
+          <h5>Request settings</h5>
+          <span class='lms-muted'>Sent with every message</span>
+        </div>
+
+        <div class='lms-control-grid lms-control-grid--two'>
+          <label class='field'>
+            <span>Clara profile</span>
+            <app-pill-select
+              [options]='profileOptions()'
+              [value]='c.optimizationPreset'
+              (valueChange)='s.onOptimizationPresetChange($event)'
+            />
+            <small class='lms-hint'>{{ s.readyDefaultsSummary() }}</small>
+          </label>
+          @if (thinkingOptions().length) {
+            <label class='field'>
+              <span>Thinking</span>
+              <app-pill-select
+                [options]='thinkingOptions()'
+                [value]='thinkingValue()'
+                (valueChange)='onThinkingChange($event)'
+              />
+            </label>
+          }
+        </div>
+
+        <label class='field'>
+          <span>Temperature <b class='lms-value'>{{ compat().sendTemperature ? c.temperature : 'Not sent' }}</b></span>
+          <input
+            type='range'
+            min='0'
+            max='1'
+            step='0.05'
+            aria-label='Temperature'
+            [disabled]='!compat().sendTemperature'
+            [ngModel]='c.temperature'
+            (ngModelChange)='s.onTemperatureChange($event)'
+          />
+        </label>
+
+        <div class='lms-control-grid lms-control-grid--tight'>
+          <label class='field'>
+            <span>Top P</span>
+            <input type='number' min='0' max='1' step='0.01' placeholder='Not set' [ngModel]='c.topP' (ngModelChange)='s.onOptionalTopPChange($event)' />
+          </label>
+          <label class='field'>
+            <span>Presence penalty</span>
+            <input type='number' min='-2' max='2' step='0.05' placeholder='Not set' [ngModel]='c.presencePenalty' (ngModelChange)='s.onOptionalPresencePenaltyChange($event)' />
+          </label>
+          <label class='field'>
+            <span>Frequency penalty</span>
+            <input type='number' min='-2' max='2' step='0.05' placeholder='Not set' [ngModel]='compat().frequencyPenalty' (ngModelChange)="onNumberSetting('frequencyPenalty', $event)" />
+          </label>
+          <label class='field'>
+            <span>Seed</span>
+            <input type='number' step='1' placeholder='Not set' [ngModel]='compat().seed' (ngModelChange)="onNumberSetting('seed', $event)" />
+          </label>
+        </div>
+
+        <label class='field'>
+          <span>Stop sequences</span>
+          <textarea rows='2' spellcheck='false' placeholder='One per line, up to 4' [ngModel]='stopText()' (ngModelChange)='onStopChange($event)'></textarea>
+        </label>
+
+        <label class='lms-toggle'>
+          <input type='checkbox' [ngModel]='compat().nonStandardSampling' (ngModelChange)='s.updateOpenAiCompatSettings({ nonStandardSampling: $event })' />
+          <span>
+            <strong>Non-standard sampling</strong>
+            <small class='lms-hint'>Useful on local servers, but strict ones can reject these fields.</small>
+          </span>
+        </label>
+        @if (compat().nonStandardSampling) {
+          <div class='lms-control-grid lms-control-grid--tight'>
+            <label class='field'>
+              <span>Top K</span>
+              <input type='number' min='1' max='256' step='1' placeholder='Not set' [ngModel]='c.topK' (ngModelChange)='s.onOptionalTopKChange($event)' />
+            </label>
+            <label class='field'>
+              <span>Min P</span>
+              <input type='number' min='0' max='1' step='0.01' placeholder='Not set' [ngModel]='c.minP' (ngModelChange)='s.onOptionalMinPChange($event)' />
+            </label>
+            <label class='field'>
+              <span>Repeat penalty</span>
+              <input type='number' min='0.01' max='4' step='0.05' placeholder='Not set' [ngModel]='c.repeatPenalty' (ngModelChange)='s.onOptionalRepeatPenaltyChange($event)' />
+            </label>
+          </div>
+        }
+
+        <label class='lms-toggle'>
+          <input type='checkbox' [ngModel]='c.parallelToolCalls' (ngModelChange)='s.updateSelectedModel({ parallelToolCalls: $event })' />
+          <span>
+            <strong>Parallel tool calls</strong>
+            <small class='lms-hint'>Asks the model to batch several tool calls in one reply.</small>
+          </span>
+        </label>
+
+        <label class='field'>
+          <span>Extra request body</span>
+          <textarea
+            class='oc-json'
+            rows='3'
+            spellcheck='false'
+            placeholder='{ "any_field": "merged into every request" }'
+            [class.oc-json--invalid]='extraBodyError()'
+            [ngModel]='compat().extraBody'
+            (ngModelChange)='s.updateOpenAiCompatSettings({ extraBody: $event })'
+          ></textarea>
+          @if (extraBodyError(); as err) {
+            <small class='oc-json-error' role='alert'>{{ err }} This won't be sent until it's fixed.</small>
+          } @else {
+            <small class='lms-hint'>For anything without a control here. Clara keeps its own model, messages, tools and stream fields.</small>
+          }
+        </label>
+
+        <button type='button' class='action-button lms-reset' (click)='s.onOptimizationPresetChange(c.optimizationPreset)'>
+          <lucide-icon name='rotate-ccw' [size]='12' />
+          Reset to profile values
+        </button>
+      </section>
+    </div>
+  }
+</div>

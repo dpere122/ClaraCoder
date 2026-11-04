@@ -20,9 +20,12 @@ import { readWorkspaceSystemPromptText } from '../workspace/system-prompt';
 import {
   getAllCachedChatTemplateReasoning,
   getAllCachedLlamaServerNctx,
+  setCachedChatTemplateReasoning,
   setCachedLlamaServerNctx,
 } from '../chat-template-reasoning-cache';
 import { lmStudioListModels } from '../lm-studio-client';
+import { lmStudioReasoningCaps, normalizeLmStudioSettings } from '../../shared/lm-studio-ipc';
+import { normalizeOpenAiCompatSettings, openAiCompatBaseUrl } from '../../shared/openai-compat';
 import { refreshOpenRouterReasoningCaps } from '../openrouter-reasoning';
 import { refreshAnthropicReasoningCaps } from '../anthropic-models';
 import { getAnthropicApiKey } from '../anthropic-key-store';
@@ -199,9 +202,11 @@ function connectionToRuntimeWire(
   const resolvedBase = c.provider === 'llamacpp' && llamaOverride ? llamaOverride.baseUrl : c.baseUrl;
   const normalizedHost = normalizeBindAllHostToLocalhost(resolvedBase);
   const baseUrl =
-    c.provider === 'lmstudio' || c.provider === 'llamacpp' || c.provider === 'openrouter'
-      ? ensureOpenAiV1Base(normalizedHost)
-      : normalizedHost;
+    c.provider === 'openai-compatible'
+      ? (openAiCompatBaseUrl(normalizedHost) ?? normalizedHost)
+      : c.provider === 'lmstudio' || c.provider === 'llamacpp' || c.provider === 'openrouter'
+        ? ensureOpenAiV1Base(normalizedHost)
+        : normalizedHost;
   const rawEmbeddingsBase =
     c.provider === 'llamacpp' && llamaOverride
       ? (llamaOverride.embeddingsBaseUrl || '').trim() || (c.embeddingsBaseUrl ?? '').trim()
@@ -243,8 +248,24 @@ function connectionToRuntimeWire(
     embeddingsEnabled: embeddingsEnabledForWire(c, llamaOverride),
     embeddingsConfigured: embeddingsConfiguredForWire(c),
     contextWindowTokens,
+    idleTtlSeconds: lmStudioIdleTtlSeconds(c),
+    ...(c.provider === 'openai-compatible'
+      ? {
+          openAiCompat: normalizeOpenAiCompatSettings(c.openAiCompat),
+          customHeaders: Object.fromEntries((c.customHeaders ?? []).filter((h) => h.key.trim()).map((h) => [h.key.trim(), unwrapSecret(h.value)])),
+        }
+      : {}),
     ...(chatTemplateReasoning ? { chatTemplateReasoning } : {}),
   };
+}
+
+/** Sent only when LM Studio does the loading; it ignores the value on a model Clara already loaded. */
+function lmStudioIdleTtlSeconds(c: LlmConnectionConfig): number {
+  if (c.provider !== 'lmstudio') {
+    return 0;
+  }
+  const settings = normalizeLmStudioSettings(c.lmStudio);
+  return settings.autoLoad ? 0 : settings.idleTtlSeconds;
 }
 
 /**
@@ -320,6 +341,9 @@ async function refreshLmStudioLiveNctx(config: AppConfig): Promise<void> {
           const n = card ? effectiveLmStudioContextTokens(card) : 0;
           if (n > 0) {
             setCachedLlamaServerNctx(row.id, n);
+          }
+          if (card) {
+            setCachedChatTemplateReasoning(row.id, lmStudioReasoningCaps(card));
           }
         }
       } catch {

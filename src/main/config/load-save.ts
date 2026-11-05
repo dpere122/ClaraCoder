@@ -1,3 +1,4 @@
+import { normalizeLspServersSettings } from '../../shared/lsp-settings';
 import { normalizeLmStudioSettings } from '../../shared/lm-studio-ipc';
 import { normalizeOpenAiCompatSettings } from '../../shared/openai-compat';
 import { createHash, randomUUID } from 'crypto';
@@ -1651,6 +1652,13 @@ export function migrateConfig(config: AppConfig): AppConfig {
   const codeFont = (newConfig as AppConfig).codeFontFamily;
   if (codeFont !== undefined && typeof codeFont !== 'string') {
     (newConfig as AppConfig).codeFontFamily = '';
+    migrated = true;
+  }
+
+  const lspPrev = (newConfig as AppConfig).lspServers;
+  const lspNorm = normalizeLspServersSettings(lspPrev);
+  if (JSON.stringify(lspPrev) !== JSON.stringify(lspNorm)) {
+    (newConfig as AppConfig).lspServers = lspNorm;
     migrated = true;
   }
 

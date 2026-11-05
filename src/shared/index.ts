@@ -611,6 +611,13 @@ export type { LspDashboardServerEntry, LspDashboardStatus, LspLifecyclePhase } f
 export type { LspEditorDiagnostic, LspEditorDiagnosticsPayload } from './types/lsp-editor-diagnostics';
 export { lspServerKindForWorkspaceRelativePath } from './lsp-file-policy';
 export type {
+  GdscriptDiagnosticsProfile,
+  GdscriptLspSettings,
+  LspServerCatalogEntry,
+  LspServersSettings,
+} from './lsp-settings';
+export { LSP_SERVER_CATALOG, defaultLspServersSettings, normalizeLspServersSettings } from './lsp-settings';
+export type {
   LspEditorFeature,
   LspEditorFeatureResponse,
   LspEditorFeatureResults,

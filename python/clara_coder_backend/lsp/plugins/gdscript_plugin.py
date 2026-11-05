@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from clara_coder_backend.config import env_clara
+from clara_coder_backend.domain import RuntimeGdscriptLspConfig
 from clara_coder_backend.lsp.godot_project_root import resolve_godot_project_root
 from clara_coder_backend.lsp.server_plugin import (
     LspServerNotInstalledError,
@@ -18,6 +19,7 @@ from clara_coder_backend.lsp.server_plugin import (
     LspStartParams,
 )
 from clara_coder_backend.runtime.deps.paths import gdls_stub_cache_dir, get_runtime_gdls_dir
+from clara_coder_backend.session.state import runtime_config
 
 if TYPE_CHECKING:
     from clara_coder_backend.domain import SessionState
@@ -35,13 +37,21 @@ class GdscriptPluginState:
     project_root: Path | None = None
 
 
-def _formatter_options() -> dict[str, Any] | None:
-    """``formatter`` init option: gdls advertises formatting only when one is configured."""
+def _formatter_options(settings: RuntimeGdscriptLspConfig) -> dict[str, Any] | None:
+    """``formatter`` init option: gdls advertises formatting only when one is configured.
+
+    ``CLARA_GDSCRIPT_FORMATTER_COMMAND`` wins over Settings → LSP, then ``gdformat`` on ``PATH``.
+    """
 
     raw = env_clara('CLARA_GDSCRIPT_FORMATTER_COMMAND', '').strip()
     if raw:
         parts = shlex.split(raw, posix=os.name != 'nt')
         return {'command': parts[0], 'args': parts[1:]} if parts else None
+    if settings.formatter_command:
+        return {
+            'command': settings.formatter_command,
+            'args': shlex.split(settings.formatter_args, posix=os.name != 'nt'),
+        }
     found = shutil.which(GDFORMAT_COMMAND)
     return {'command': found, 'args': list(_GDFORMAT_ARGS)} if found else None
 
@@ -52,10 +62,23 @@ def _build_init_options(project_root: Path) -> dict[str, Any]:
         # gdls adds its own ``stubs/`` below this, which is ``gdls_stub_cache_dir()``.
         'stubCacheDir': str(get_runtime_gdls_dir()),
     }
-    godot_binary = env_clara('CLARA_GODOT_BINARY', '').strip()
-    if godot_binary:
-        options['godotBinaryPath'] = godot_binary
-    formatter = _formatter_options()
+    settings = runtime_config.lsp.gdscript
+    env_binary = env_clara('CLARA_GODOT_BINARY', '').strip()
+    if env_binary or settings.allow_engine_api_dump:
+        godot_binary = env_binary or settings.godot_binary_path
+        if godot_binary:
+            options['godotBinaryPath'] = godot_binary
+    else:
+        # gdls would otherwise find Godot on its own and run it on the project to dump the engine
+        # API, which can load the project's native GDExtension libraries. Opening a file must not
+        # run project code, so this takes an explicit opt-in; gdls's bundled classes cover the rest.
+        options['autoDumpExtensionApi'] = False
+    options['strict'] = {'profile': settings.diagnostics_profile}
+    options['inlayHint'] = {
+        'typeHints': settings.inlay_type_hints,
+        'parameterHints': settings.inlay_parameter_hints,
+    }
+    formatter = _formatter_options(settings)
     if formatter:
         options['formatter'] = formatter
     return options

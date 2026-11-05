@@ -1,0 +1,130 @@
+<div class='settings-pane settings-pane--sectioned'>
+  @if (server().editable) {
+    <div class='form-section'>
+      <h4>Language server</h4>
+      <div class='settings-lsp-status'>
+        <div>
+          @if (gdls(); as dep) {
+            <p class='panel__copy'>
+              gdls · {{ dep.state === 'installed' ? 'Installed, ' + dep.version : 'Not installed' }}
+            </p>
+            @if (dep.path) {
+              <p class='settings-field-hint settings-lsp-status__path'>{{ dep.path }}</p>
+            }
+          } @else {
+            <p class='panel__copy'>gdls</p>
+          }
+        </div>
+        <button type='button' class='action-button' (click)='openDependencies()'>Open Dependencies</button>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Godot engine</h4>
+      <div class='form-grid'>
+        <div class='field field--full'>
+          <label for='settings-lsp-godot-path'>Godot executable</label>
+          <div class='settings-lsp-path-row'>
+            <input
+              id='settings-lsp-godot-path'
+              type='text'
+              [ngModel]='godot().godotBinaryPath'
+              (ngModelChange)='patch({ godotBinaryPath: $event })'
+              placeholder='Find godot4 or godot on PATH'
+            />
+            <button type='button' class='action-button' (click)='browseForGodot()'>Browse…</button>
+          </div>
+          <p class='settings-field-hint'>Only used when the option below is on.</p>
+        </div>
+        <div class='field field--full field--hint'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='godot().allowEngineApiDump'
+              (ngModelChange)='patch({ allowEngineApiDump: $event })'
+            />
+            <span>Let gdls run Godot to read native add-on classes</span>
+          </label>
+          <p class='settings-field-hint'>
+            Adds completion and type checks for GDExtension classes. Godot runs on each project you open
+            here, which can load that project's native code with your permissions. Leave this off unless
+            you trust every project you open on this machine.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Diagnostics</h4>
+      <div class='form-grid'>
+        <label class='field'>
+          <span>Warning profile</span>
+          <app-pill-select
+            [options]='profileOptions'
+            [value]='godot().diagnosticsProfile'
+            (valueChange)='patch({ diagnosticsProfile: $any($event) })'
+          />
+        </label>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Inlay hints</h4>
+      <div class='form-grid'>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='godot().inlayTypeHints'
+              (ngModelChange)='patch({ inlayTypeHints: $event })'
+            />
+            <span>Show inferred types on <code>:=</code> declarations</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='godot().inlayParameterHints'
+              (ngModelChange)='patch({ inlayParameterHints: $event })'
+            />
+            <span>Show parameter names at call sites</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Formatter</h4>
+      <div class='form-grid'>
+        <label class='field'>
+          <span>Command</span>
+          <input
+            type='text'
+            [ngModel]='godot().formatterCommand'
+            (ngModelChange)='patch({ formatterCommand: $event })'
+            placeholder='gdformat, if it is on PATH'
+          />
+        </label>
+        <label class='field'>
+          <span>Arguments</span>
+          <input
+            type='text'
+            [ngModel]='godot().formatterArgs'
+            (ngModelChange)='patch({ formatterArgs: $event })'
+          />
+        </label>
+      </div>
+      <p class='settings-field-hint'>
+        Gets the document on stdin and must print the formatted result. With no formatter, Format Document
+        does nothing for GDScript.
+      </p>
+    </div>
+  } @else {
+    <div class='form-section'>
+      <h4>{{ server().label }}</h4>
+      <p class='panel__copy'>Runs {{ server().server }} for {{ server().languages }}.</p>
+      <p class='settings-field-hint'>
+        Status: {{ s.settingsSubTabSummary('lsp', server().id) }}. Settings for this server aren't available yet.
+      </p>
+    </div>
+  }
+</div>

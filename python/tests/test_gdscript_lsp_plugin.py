@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from clara_coder_backend.domain import RuntimeGdscriptLspConfig
 from clara_coder_backend.lsp.editor_features import run_editor_feature, workspace_symbols
 from clara_coder_backend.lsp.editor_monaco import serialize_locations_payload
 from clara_coder_backend.lsp.godot_project_root import resolve_godot_project_root
@@ -20,7 +21,7 @@ from clara_coder_backend.lsp.manager import (
 from clara_coder_backend.lsp.plugins.gdscript_plugin import GdscriptLspPlugin, GdscriptPluginState
 from clara_coder_backend.lsp.server_plugin import LspServerNotInstalledError
 from clara_coder_backend.runtime.deps.providers import gdls
-from clara_coder_backend.session.state import current_session_id, get_session
+from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
 
 
 def _project(path: Path) -> Path:
@@ -90,7 +91,66 @@ def test_plugin_runs_the_installed_binary_with_init_options(tmp_path: Path, monk
     assert params.init_options['projectRoot'] == str(game.resolve())
     assert params.init_options['stubCacheDir'] == str((tmp_path / 'runtime' / 'gdls').resolve())
     assert params.init_options['godotBinaryPath'] == 'C:/godot/godot.exe'
+    assert 'autoDumpExtensionApi' not in params.init_options, 'naming an engine opts in to the dump'
     assert 'formatter' not in params.init_options
+
+
+def test_gdls_may_not_run_godot_unless_asked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv('CLARA_GDSCRIPT_LSP_COMMAND', 'custom-server')
+    monkeypatch.delenv('CLARA_GODOT_BINARY', raising=False)
+    plugin = GdscriptLspPlugin()
+    params = plugin.compute_start_params(session=_session(), workspace_root=tmp_path, state=plugin.create_state())
+    assert params.init_options['autoDumpExtensionApi'] is False
+    assert 'godotBinaryPath' not in params.init_options
+
+
+@pytest.fixture
+def gdscript_settings(monkeypatch: pytest.MonkeyPatch) -> RuntimeGdscriptLspConfig:
+    settings = RuntimeGdscriptLspConfig()
+    monkeypatch.setattr(runtime_config.lsp, 'gdscript', settings)
+    monkeypatch.setenv('CLARA_GDSCRIPT_LSP_COMMAND', 'custom-server')
+    monkeypatch.delenv('CLARA_GODOT_BINARY', raising=False)
+    monkeypatch.delenv('CLARA_GDSCRIPT_FORMATTER_COMMAND', raising=False)
+    monkeypatch.setattr('shutil.which', lambda name: None)
+    return settings
+
+
+def _init_options(workspace: Path) -> dict[str, Any]:
+    plugin = GdscriptLspPlugin()
+    return plugin.compute_start_params(session=_session(), workspace_root=workspace, state=plugin.create_state()).init_options
+
+
+def test_a_saved_godot_path_alone_does_not_opt_in(tmp_path: Path, gdscript_settings) -> None:  # noqa: ANN001
+    gdscript_settings.godot_binary_path = 'C:/godot/godot.exe'
+    options = _init_options(tmp_path)
+    assert options['autoDumpExtensionApi'] is False
+    assert 'godotBinaryPath' not in options
+
+
+def test_the_settings_toggle_opts_in(tmp_path: Path, gdscript_settings) -> None:  # noqa: ANN001
+    gdscript_settings.allow_engine_api_dump = True
+    options = _init_options(tmp_path)
+    assert 'autoDumpExtensionApi' not in options
+    assert 'godotBinaryPath' not in options, 'with no path, gdls finds Godot itself'
+    gdscript_settings.godot_binary_path = 'C:/godot/godot.exe'
+    assert _init_options(tmp_path)['godotBinaryPath'] == 'C:/godot/godot.exe'
+
+
+def test_settings_reach_gdls(tmp_path: Path, gdscript_settings) -> None:  # noqa: ANN001
+    gdscript_settings.diagnostics_profile = 'strict'
+    gdscript_settings.inlay_type_hints = False
+    gdscript_settings.formatter_command = 'gdscript-formatter'
+    gdscript_settings.formatter_args = '--stdin --check'
+    options = _init_options(tmp_path)
+    assert options['strict'] == {'profile': 'strict'}
+    assert options['inlayHint'] == {'typeHints': False, 'parameterHints': True}
+    assert options['formatter'] == {'command': 'gdscript-formatter', 'args': ['--stdin', '--check']}
+
+
+def test_the_formatter_env_var_wins_over_settings(tmp_path: Path, gdscript_settings, monkeypatch) -> None:  # noqa: ANN001
+    gdscript_settings.formatter_command = 'from-settings'
+    monkeypatch.setenv('CLARA_GDSCRIPT_FORMATTER_COMMAND', 'from-env')
+    assert _init_options(tmp_path)['formatter'] == {'command': 'from-env', 'args': []}
 
 
 def test_formatter_comes_from_path_or_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

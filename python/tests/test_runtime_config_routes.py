@@ -262,3 +262,57 @@ def test_runtime_config_applies_hugging_face_token() -> None:
         state.runtime_config.audio = orig.audio
         state.runtime_config.host = orig.host
         state.runtime_config.tools = orig.tools
+
+
+def test_runtime_config_applies_lsp_settings_and_restarts_gdls_only_when_they_change(monkeypatch) -> None:
+    import os
+
+    from clara_coder_backend.main import app
+    from clara_coder_backend.session import state
+    from clara_coder_backend.lsp import manager as lsp_manager
+    from clara_coder_backend.lsp.plugins import gdscript_plugin
+
+    stopped: list[str] = []
+    monkeypatch.setattr(lsp_manager, 'shutdown_lsp_server_for_all_sessions', stopped.append)
+    orig = deepcopy(state.runtime_config)
+    orig_path = os.environ.get('PATH', '')
+    settings = {
+        'godotBinaryPath': ' C:/godot/godot.exe ',
+        'allowEngineApiDump': True,
+        'diagnosticsProfile': 'strict',
+        'inlayTypeHints': False,
+        'inlayParameterHints': True,
+        'formatterCommand': 'fmt',
+        'formatterArgs': '--stdin',
+    }
+    try:
+        with TestClient(app) as client:
+            assert client.post('/runtime-config', json=_payload()).status_code == 200
+            before = state.runtime_config.lsp
+            assert stopped == [], 'a payload without lsp settings keeps what is there'
+
+            body = {**_payload(), 'lsp': {'gdscript': settings}}
+            assert client.post('/runtime-config', json=body).status_code == 200
+            applied = state.runtime_config.lsp.gdscript
+            assert applied.godot_binary_path == 'C:/godot/godot.exe'
+            assert applied.allow_engine_api_dump is True
+            assert applied.diagnostics_profile == 'strict'
+            assert applied.inlay_type_hints is False
+            assert applied.formatter_args == '--stdin'
+            assert gdscript_plugin.runtime_config.lsp.gdscript is applied, 'importers see live values'
+            assert before.gdscript is not applied
+            assert stopped == ['gdscript']
+
+            assert client.post('/runtime-config', json=body).status_code == 200
+            assert stopped == ['gdscript'], 'saving unrelated settings must not restart gdls'
+
+            bad = {**_payload(), 'lsp': {'gdscript': {**settings, 'diagnosticsProfile': 'loud'}}}
+            assert client.post('/runtime-config', json=bad).status_code == 422
+    finally:
+        state.runtime_config.lsp = orig.lsp
+        state.runtime_config.tools = orig.tools
+        state.runtime_config.connections = orig.connections
+        state.runtime_config.active_connection_id = orig.active_connection_id
+        state.runtime_config.audio = orig.audio
+        state.runtime_config.host = orig.host
+        os.environ['PATH'] = orig_path

@@ -1,3 +1,5 @@
+import { LSP_SERVER_CATALOG, defaultLspServersSettings, normalizeLspServersSettings, type GdscriptLspSettings, type LspServersSettings } from '@shared/lsp-settings';
+import type { DependencyInfo } from '@shared/types/dependencies';
 import { Injectable, afterNextRender, effect, inject, Injector, computed, signal, untracked } from '@angular/core';
 import { NgxSpinnerService } from 'ngx-spinner';
 import { Subscription } from 'rxjs';
@@ -359,6 +361,9 @@ export class SettingsStore {
   /** Code font override (CSS font-family value); empty = theme default. Overrides Monaco's own fontFamily. */
   readonly codeFontFamily = signal('');
   readonly monacoWorkspaceEditor = signal<MonacoWorkspaceEditorSettings>(defaultMonacoWorkspaceEditorSettings());
+  readonly lspServers = signal<LspServersSettings>(defaultLspServersSettings());
+  /** Dependencies rows behind the LSP tab; loaded when the tab opens. */
+  readonly lspDependencies = signal<readonly DependencyInfo[]>([]);
   readonly ttsVoice = signal(DEFAULT_KOKORO_TTS_VOICE);
   readonly ttsSpeechSpeed = signal(TTS_SPEECH_SPEED_DEFAULT);
   readonly ttsProvider = signal<TtsProvider>(DEFAULT_TTS_PROVIDER);
@@ -969,6 +974,8 @@ export class SettingsStore {
           return `${this.screenshotRetention().retentionDays}d`;
         }
         break;
+      case 'lsp':
+        return this.lspServerStatus(id);
       case 'monaco':
         return this.monacoSubTabSummary(id);
       case 'audio': {
@@ -3355,6 +3362,34 @@ export class SettingsStore {
     this.markSettingsDirty();
   }
 
+  patchGdscriptLsp(patch: Partial<GdscriptLspSettings>): void {
+    this.lspServers.update((servers) => ({ ...servers, gdscript: { ...servers.gdscript, ...patch } }));
+    this.markSettingsDirty();
+  }
+
+  async refreshLspDependencies(): Promise<void> {
+    const res = await this.electron.depsList();
+    if (res.ok) {
+      this.lspDependencies.set(res.dependencies);
+    }
+  }
+
+  /** Install state of one language server, for the LSP tab's list. */
+  private lspServerStatus(id: string): string {
+    const server = LSP_SERVER_CATALOG.find((entry) => entry.id === id);
+    if (!server) {
+      return '';
+    }
+    if (!server.dependencyId) {
+      return 'Bundled';
+    }
+    const dep = this.lspDependencies().find((row) => row.id === server.dependencyId);
+    if (!dep) {
+      return '…';
+    }
+    return dep.state === 'installed' ? `Installed${dep.version ? ` · ${dep.version}` : ''}` : 'Not installed';
+  }
+
   monacoEditorThemeLabel(id: MonacoWorkspaceEditorThemeId): string {
     return MONACO_EDITOR_THEME_LABELS[id];
   }
@@ -3749,6 +3784,7 @@ export class SettingsStore {
           : null,
       })),
       monacoWorkspaceEditor: structuredClone(this.monacoWorkspaceEditor()),
+      lspServers: structuredClone(this.lspServers()),
     };
   }
 
@@ -3839,6 +3875,7 @@ export class SettingsStore {
       this.monacoWorkspaceEditor.set(
         normalizeMonacoWorkspaceEditorSettings(config.monacoWorkspaceEditor ?? undefined).settings,
       );
+      this.lspServers.set(normalizeLspServersSettings(config.lspServers));
       this.modelManagerCustomDir.set(config.modelManager.customModelsDir);
       this.modelManagerHfToken.set(unwrapSecret(config.modelManager.huggingFaceToken));
       return;
@@ -3897,6 +3934,7 @@ export class SettingsStore {
     this.monacoWorkspaceEditor.set(
       normalizeMonacoWorkspaceEditorSettings(config.monacoWorkspaceEditor ?? undefined).settings,
     );
+    this.lspServers.set(normalizeLspServersSettings(config.lspServers));
 
     const wt = config.workspaceTools;
     this.editToolsMode.set(wt.editToolsMode === 'strict' ? 'strict' : 'standard');

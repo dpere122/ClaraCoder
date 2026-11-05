@@ -112,6 +112,46 @@ def test_starts_without_an_editor_and_advertises_features(godot: SessionWorkspac
     assert godot.code_lens(DOG) == []
 
 
+def _fake_godot(tmp_path: Path) -> tuple[Path, Path]:
+    """A stand-in engine that records being run. Returns ``(executable, marker)``."""
+
+    marker = tmp_path / 'godot-was-run'
+    if os.name == 'nt':
+        script = tmp_path / 'fake-godot.cmd'
+        script.write_text(f'@echo ran> "{marker}"\r\n', encoding='utf-8')
+    else:
+        script = tmp_path / 'fake-godot'
+        script.write_text(f'#!/bin/sh\necho ran > "{marker}"\n', encoding='utf-8')
+        script.chmod(0o755)
+    return script, marker
+
+
+def test_opening_a_script_does_not_run_a_discoverable_godot(
+    godot: SessionWorkspaceLspManager, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """gdls's dump runs the engine on the project, which can load its native libraries."""
+
+    executable, marker = _fake_godot(tmp_path)
+    monkeypatch.delenv('CLARA_GODOT_BINARY', raising=False)
+    monkeypatch.setenv('GODOT', str(executable))
+    godot.sync_workspace_document(DOG)
+    assert godot.lifecycle_phase() in {'running', 'indexing'}
+    # Long enough for the background dump, which the opt-in test below sees start well within this.
+    time.sleep(3.0)
+    assert not marker.exists()
+
+
+def test_naming_an_engine_opts_in_to_the_dump(
+    godot: SessionWorkspaceLspManager, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The control for the test above: it shows this stand-in can detect a spawn at all."""
+
+    executable, marker = _fake_godot(tmp_path)
+    monkeypatch.setenv('CLARA_GODOT_BINARY', str(executable))
+    godot.sync_workspace_document(DOG)
+    assert _wait_for(marker.exists, timeout_s=3.0)
+
+
 def test_diagnostics_are_pushed_for_a_warning(godot: SessionWorkspaceLspManager) -> None:
     diagnostics = godot.sync_workspace_document(DOG)
     assert any(d.get('code') == 'UNUSED_VARIABLE' for d in diagnostics), diagnostics

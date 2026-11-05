@@ -610,9 +610,21 @@ export type { HitlTrailArtifact, HitlTrailItem, HitlTrailKind } from './hitl-tra
 export type { LspDashboardServerEntry, LspDashboardStatus, LspLifecyclePhase } from './types/lsp-dashboard';
 export type { LspEditorDiagnostic, LspEditorDiagnosticsPayload } from './types/lsp-editor-diagnostics';
 export { lspServerKindForWorkspaceRelativePath } from './lsp-file-policy';
+export type {
+  LspEditorFeature,
+  LspEditorFeatureResponse,
+  LspEditorFeatureResults,
+  LspFileRenameIpc,
+  LspWireColor,
+  LspWireInlayHint,
+  LspWireLocation,
+  LspWireRange,
+  LspWireTextEdit,
+} from './lsp-editor-features';
 export type { LspServerKind } from './lsp-file-policy';
 export {
   LSP_EXTENSION_TO_SERVER,
+  LSP_EXTENDED_FEATURE_MONACO_LANGUAGE_IDS,
   LSP_MONACO_LANGUAGE_IDS,
   LSP_SEMANTIC_LEGEND_PREFETCH_SERVER_IDS,
   LSP_SEMANTIC_LEGEND_SERVER_IDS,

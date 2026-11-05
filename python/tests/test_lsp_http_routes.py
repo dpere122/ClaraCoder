@@ -10,6 +10,7 @@ from starlette.testclient import TestClient
 
 from clara_coder_backend.domain import RuntimeToolsConfig
 from clara_coder_backend.lsp.manager import get_lsp_dashboard_status, get_session_lsp_manager, shutdown_all_lsp_managers
+from clara_coder_backend.runtime.deps.providers import gdls
 from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
 
 
@@ -390,10 +391,10 @@ def test_lsp_semantic_tokens_legend_unknown_server_returns_400(lsp_http_env) -> 
     assert r.status_code == 400
 
 
-def test_lsp_semantic_tokens_legend_gdscript_default_bridge_deferred_without_seed(
+def test_lsp_semantic_tokens_legend_gdscript_deferred_without_seed(
     lsp_http_env, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Default GDScript bridge is not started for legend until a ``.gd`` file has been synced (seed)."""
+    """gdls is not started for the legend until a ``.gd`` file has been synced (seed)."""
 
     monkeypatch.delenv('CLARA_GDSCRIPT_LSP_COMMAND', raising=False)
     with TestClient(lsp_http_env.app) as client:
@@ -412,6 +413,7 @@ def test_lsp_semantic_tokens_legend_gdscript_after_disk_sync_uses_injected_clien
     """After syncing a ``.gd`` path, legend prefetch may start the injected gdscript client."""
 
     monkeypatch.delenv('CLARA_GDSCRIPT_LSP_COMMAND', raising=False)
+    monkeypatch.setattr(gdls, 'installed_binary', lambda: Path('gdls-under-test'))
     session = get_session(lsp_http_env.session_id)
     root = Path(session.workspace_path)
     gd = root / 'game' / 'Main.gd'

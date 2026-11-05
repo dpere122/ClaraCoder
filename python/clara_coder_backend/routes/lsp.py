@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from clara_coder_backend.lsp.editor_features import file_rename_edits, run_editor_feature, workspace_symbols
 from clara_coder_backend.lsp.editor_monaco import (
     serialize_code_actions_payload,
     serialize_code_lenses_payload,
@@ -47,6 +48,10 @@ from clara_coder_backend.workspace.workspace_text_io import validate_workspace_e
 
 router = APIRouter()
 _logger = logging.getLogger('clara.lsp.http')
+
+# Only gdls takes part in file renames: moving a script or scene rewrites ``load``/``preload`` paths.
+_FILE_RENAME_SERVER = 'gdscript'
+_FILE_RENAME_SUFFIXES = frozenset({'.gd', '.tscn'})
 
 
 def _lsp_http_400(exc: BaseException) -> HTTPException:
@@ -681,6 +686,28 @@ class LspEditorCodeLensResolveBody(BaseModel):
     lens: dict[str, Any] = Field(default_factory=dict)
 
 
+class LspEditorFeatureBody(BaseModel):
+    relative_path: str = Field(..., min_length=1)
+    feature: str = Field(..., min_length=1)
+    params: dict[str, Any] = Field(default_factory=dict)
+    document_text: str | None = None
+    skip_document_sync: bool = False
+
+
+class LspWorkspaceSymbolsBody(BaseModel):
+    server: str = Field(..., min_length=1)
+    query: str = ''
+
+
+class LspFileRename(BaseModel):
+    old_relative_path: str = Field(..., min_length=1)
+    new_relative_path: str = Field(..., min_length=1)
+
+
+class LspFileRenamesBody(BaseModel):
+    files: list[LspFileRename] = Field(default_factory=list)
+
+
 class LspSemanticTokensDeltaBody(BaseModel):
     relative_path: str = Field(..., min_length=1)
     previous_result_id: str = Field(..., min_length=1)
@@ -1233,6 +1260,107 @@ async def lsp_semantic_tokens_full_delta(
             body.document_text,
             skip_document_sync=body.skip_document_sync,
         )
+    except Exception as exc:
+        raise _lsp_http_400(exc) from exc
+
+
+def _lsp_editor_feature_sync(
+    session_id: str,
+    relative_path: str,
+    feature: str,
+    params: dict[str, Any],
+    document_text: str | None,
+    *,
+    skip_document_sync: bool = False,
+) -> dict[str, Any]:
+    rel = normalize_relative_posix_path(relative_path.strip())
+    server = lsp_server_for_path(rel)
+    if not server:
+        raise ValueError(f'No LSP integration for `{rel}`.')
+    manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
+    synced_from_disk = _synced_from_disk_flag(manager, rel, skip_document_sync=skip_document_sync)
+    _maybe_sync_buffer(manager, rel, document_text, skip_document_sync=skip_document_sync)
+    return {**run_editor_feature(manager, rel, feature, params), 'synced_from_disk': synced_from_disk}
+
+
+@router.post('/lsp/editor/feature')
+async def lsp_editor_feature(session_id: str, body: LspEditorFeatureBody) -> dict[str, Any]:
+    try:
+        await _bootstrap_python_env_for_relative_path(session_id, body.relative_path)
+        return await asyncio.to_thread(
+            _lsp_editor_feature_sync,
+            session_id,
+            body.relative_path,
+            body.feature,
+            body.params,
+            body.document_text,
+            skip_document_sync=body.skip_document_sync,
+        )
+    except Exception as exc:
+        raise _lsp_http_400(exc) from exc
+
+
+def _lsp_workspace_symbols_sync(session_id: str, server: str, query: str) -> dict[str, Any]:
+    if not lsp_server_id_is_registered(server):
+        raise ValueError(f'Unknown LSP server: {server!r}')
+    manager = get_session_lsp_manager(session_id, scope='workspace', server=server)
+    return {'symbols': workspace_symbols(manager, query)}
+
+
+@router.post('/lsp/workspace-symbols')
+async def lsp_workspace_symbols(session_id: str, body: LspWorkspaceSymbolsBody) -> dict[str, Any]:
+    try:
+        return await asyncio.to_thread(_lsp_workspace_symbols_sync, session_id, body.server, body.query)
+    except Exception as exc:
+        raise _lsp_http_400(exc) from exc
+
+
+def _renames_from_body(body: LspFileRenamesBody) -> list[tuple[str, str]]:
+    return [
+        (
+            normalize_relative_posix_path(item.old_relative_path.strip()),
+            normalize_relative_posix_path(item.new_relative_path.strip()),
+        )
+        for item in body.files
+    ]
+
+
+def _manager_for_file_renames(session_id: str, renames: list[tuple[str, str]]) -> Any | None:
+    """The Godot server when these moves can affect it: a script or scene, or a folder it may hold.
+
+    A folder rename never starts a server; only one already running can be holding references.
+    """
+
+    manager = get_session_lsp_manager(session_id, scope='workspace', server=_FILE_RENAME_SERVER)
+    if any(Path(old).suffix.lower() in _FILE_RENAME_SUFFIXES for old, _new in renames):
+        return manager
+    return manager if manager.is_client_running() else None
+
+
+def _lsp_will_rename_files_sync(session_id: str, renames: list[tuple[str, str]]) -> dict[str, Any]:
+    manager = _manager_for_file_renames(session_id, renames)
+    return {'changes': file_rename_edits(manager, renames) if manager is not None else {}}
+
+
+def _lsp_did_rename_files_sync(session_id: str, renames: list[tuple[str, str]]) -> dict[str, Any]:
+    manager = _manager_for_file_renames(session_id, renames)
+    if manager is not None:
+        manager.did_rename_files(renames)
+    return {'ok': True}
+
+
+@router.post('/lsp/will-rename-files')
+async def lsp_will_rename_files(session_id: str, body: LspFileRenamesBody) -> dict[str, Any]:
+    try:
+        return await asyncio.to_thread(_lsp_will_rename_files_sync, session_id, _renames_from_body(body))
+    except Exception as exc:
+        raise _lsp_http_400(exc) from exc
+
+
+@router.post('/lsp/did-rename-files')
+async def lsp_did_rename_files(session_id: str, body: LspFileRenamesBody) -> dict[str, Any]:
+    try:
+        return await asyncio.to_thread(_lsp_did_rename_files_sync, session_id, _renames_from_body(body))
     except Exception as exc:
         raise _lsp_http_400(exc) from exc
 

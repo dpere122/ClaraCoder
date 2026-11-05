@@ -71,6 +71,7 @@ export function dependencyDeletePrompt(args: {
   const impact: Record<string, string> = {
     'llama-server': 'Managed local models stop working until you download llama-server again.',
     'java-lsp': 'Java diagnostics and navigation stop working until you download it again.',
+    gdls: 'GDScript diagnostics and navigation stop working until you download it again.',
   };
   const where = args.path ? ` Files under ${args.path} are removed.` : '';
   return {

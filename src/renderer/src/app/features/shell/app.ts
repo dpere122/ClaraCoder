@@ -117,6 +117,7 @@ import {
   WorkspaceMonacoModelStore,
   type WorkspaceMonacoSaveAsResult,
 } from '../workspace/workspace-monaco/workspace-monaco-model-store';
+import type { WorkspaceMonacoLspNavigatePayload } from '../workspace/workspace-monaco/workspace-monaco-lsp';
 import { applyAppFontOverrides } from '../../core/theme/app-font-overrides';
 import { SETTINGS_TABS, type SettingsTab } from '../settings/settings/settings-tabs';
 import {
@@ -2018,7 +2019,12 @@ export class App implements OnInit, OnDestroy {
       return;
     }
 
-    const tab = workspaceChatFileTab(norm);
+    this.openFileTabInFocusedSlot(workspaceChatFileTab(norm));
+  }
+
+  /** Focus ``tab`` wherever it is already open, else add it to the focused slot. */
+  private openFileTabInFocusedSlot(tab: ChatFileTab): void {
+    const focusedId = this.ensureFocusedSlotId();
     const id = chatFileTabId(tab);
     const key = chatFileTabModelKey(tab);
     const layout = this.editorGrid();
@@ -2611,8 +2617,12 @@ export class App implements OnInit, OnDestroy {
     );
   }
 
-  protected onWorkspaceMonacoNavigate(payload: { relativePath: string; line: number; column: number }): void {
-    this.openOrFocusFileTab(payload.relativePath);
+  protected onWorkspaceMonacoNavigate(payload: WorkspaceMonacoLspNavigatePayload): void {
+    if (payload.absolutePath) {
+      this.openFileTabInFocusedSlot({ absolutePath: payload.absolutePath, outsideWorkspace: true });
+    } else {
+      this.openOrFocusFileTab(payload.relativePath);
+    }
     this.monacoRevealPending.set({
       relativePath: normalizePathSlashes(payload.relativePath),
       line: payload.line,

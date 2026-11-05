@@ -17,9 +17,14 @@ if TYPE_CHECKING:
     from clara_coder_backend.domain import SessionState
 
 __all__ = [
+    'LspServerNotInstalledError',
     'LspStartParams',
     'LspServerPlugin',
 ]
+
+
+class LspServerNotInstalledError(RuntimeError):
+    """The server needs a Dependencies download; the message tells the user what to do."""
 
 
 @dataclass(frozen=True)
@@ -54,6 +59,10 @@ class LspServerPlugin(ABC):
     #: for clean → clean edits). Silence through the wait window then means the cache still applies.
     silent_when_diagnostics_unchanged: bool = False
 
+    #: Completion items passed to the editor. Lower than a server's list only if the server filters
+    #: by what was typed; items past the limit could otherwise never be offered.
+    completion_item_limit: int = 500
+
     @abstractmethod
     def create_state(self) -> Any:
         """Mutable per-manager state (e.g. TypeScript project root + last seed)."""
@@ -69,6 +78,20 @@ class LspServerPlugin(ABC):
         scope: str = 'workspace',
     ) -> LspStartParams:
         """Return cwd + command + initializationOptions for ``initialize``."""
+
+    def client_capability_overrides(self) -> dict[str, Any]:
+        """Deep-merged over the shared ``initialize`` capabilities for this server only.
+
+        The shared set goes to every server, so a capability that changes what a server sends
+        (lazy resolve, progress, file operations) belongs here.
+        """
+
+        return {}
+
+    def read_only_document_roots(self, state: Any) -> list[Path]:
+        """Directories outside the workspace holding server-generated pages the editor may open."""
+
+        return []
 
     def should_defer_semantic_tokens_legend_without_document_seed(self, state: Any) -> bool:
         """If True, ``GET /lsp/semantic-tokens-legend`` returns unsupported without spawning."""

@@ -22,7 +22,8 @@ import { WorkspaceFileChangeStatusService } from '../../../core/workspace-file-c
 import { Subscription } from 'rxjs';
 import type { EditorOutlineSymbol } from '../editor-outline/editor-outline';
 import { WorkspaceOutlineDockComponent } from '../workspace-outline-dock/workspace-outline-dock';
-import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
+import { normalizePathSlashes, workspaceRelativePathIfUnderRoot } from '../../../utils/workspace-relative-path';
+import { WorkspaceMonacoModelStore } from '../workspace-monaco/workspace-monaco-model-store';
 import {
   absolutePathsFromWorkspaceChangeEvent,
   collectExpandedPaths,
@@ -71,6 +72,7 @@ import {
 export class WorkspaceComponent implements OnDestroy {
   private readonly workspaceFileChangeStatus = inject(WorkspaceFileChangeStatusService);
   private readonly themedConfirm = inject(ThemedConfirmDialogService);
+  private readonly monacoStore = inject(WorkspaceMonacoModelStore);
 
   readonly workspaces = input<Workspace[]>([]);
   readonly currentWorkspaceId = input<string | null>(null);
@@ -1191,12 +1193,20 @@ export class WorkspaceComponent implements OnDestroy {
 
     const newAbsPath = joinTreeAbsolutePath(parentDirectoryPath(targetPath), trimmed);
     this.markDiskOpPending(targetPath, newAbsPath);
+    const oldRel = workspaceRelativePathIfUnderRoot(ws.path, targetPath);
+    const newRel = workspaceRelativePathIfUnderRoot(ws.path, newAbsPath);
+    if (oldRel && newRel) {
+      await this.monacoStore.applyFileRenameEdits(ws.path, oldRel, newRel);
+    }
     const res = await this.electron.renameWorkspaceEntry(ws.path, targetPath, trimmed);
     if (!res.ok) {
       this.clearDiskOpPending(targetPath, newAbsPath);
       window.alert(res.error ?? 'Failed to rename.');
       this.refocusRenameInput();
       return;
+    }
+    if (oldRel && newRel) {
+      this.monacoStore.notifyFileRenamed(oldRel, newRel);
     }
     this.cancelInlineRename();
   }

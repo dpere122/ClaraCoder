@@ -4,6 +4,13 @@
  */
 import { Injectable, NgZone } from '@angular/core';
 import type { ScreenshotAssetStatus, ScreenshotStorageStats } from '@shared/screenshot-retention';
+import type {
+  LspEditorFeature,
+  LspEditorFeatureResponse,
+  LspFileRenameIpc,
+  LspWireLocation,
+  LspWireTextEdit,
+} from '@shared/lsp-editor-features';
 import {
   createDefaultTutorialProgress,
   type TutorialClaimResult,
@@ -2356,6 +2363,72 @@ export class ElectronService {
   > {
     return (
       this.api?.lspEditorCodeLensResolve?.(sessionId, relativePath, lens) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorFeature<F extends LspEditorFeature>(
+    sessionId: string,
+    relativePath: string,
+    feature: F,
+    params: Record<string, unknown>,
+    documentText: string,
+    skipDocumentSync = false,
+  ): Promise<LspEditorFeatureResponse<F>> {
+    return (
+      this.api?.lspEditorFeature?.(sessionId, relativePath, feature, params, documentText, skipDocumentSync) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspWorkspaceSymbols(
+    sessionId: string,
+    server: string,
+    query: string,
+  ): Promise<{ ok: true; symbols: LspWireLocation[] } | { ok: false; error: string }> {
+    return (
+      this.api?.lspWorkspaceSymbols?.(sessionId, server, query) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspWillRenameFiles(
+    sessionId: string,
+    files: LspFileRenameIpc[],
+  ): Promise<{ ok: true; changes: Record<string, LspWireTextEdit[]> } | { ok: false; error: string }> {
+    return (
+      this.api?.lspWillRenameFiles?.(sessionId, files) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspDidRenameFiles(sessionId: string, files: LspFileRenameIpc[]): Promise<{ ok: true } | { ok: false; error: string }> {
+    return (
+      this.api?.lspDidRenameFiles?.(sessionId, files) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorSemanticTokensDelta(
+    sessionId: string,
+    relativePath: string,
+    previousResultId: string,
+    documentText: string,
+    skipDocumentSync = false,
+  ): Promise<
+    | {
+        ok: true;
+        payload: {
+          legend: { tokenTypes: string[]; tokenModifiers: string[] };
+          resultId: string | null;
+          edits: unknown[];
+          data?: number[];
+        };
+      }
+    | { ok: false; error: string }
+  > {
+    return (
+      this.api?.lspEditorSemanticTokensDelta?.(sessionId, relativePath, previousResultId, documentText, skipDocumentSync) ??
       Promise.resolve({ ok: false as const, error: 'API not available' })
     );
   }

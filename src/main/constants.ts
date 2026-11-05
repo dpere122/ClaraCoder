@@ -19,6 +19,8 @@ export const WORKSPACE_CHANGE_HISTORY_LIMIT = 8;
 export const WORKSPACE_CONTEXT_IGNORED_NAMES = new Set([
   '.git',
   '.angular',
+  '.gdls',
+  '.godot',
   '.cache',
   '.cursor',
   '.idea',

@@ -11,7 +11,7 @@ import {
   resolveExistingOrResolvedPath,
   resolveSafeWorkspacePath,
 } from '../../utils/workspace-safe-path';
-import { getEditorDetachedSnapshotsDir } from '../../paths';
+import { getEditorDetachedSnapshotsDir, getGdlsStubCacheDir } from '../../paths';
 import { mainState } from '../../state';
 import { emitWorkspaceFilesChanged } from '../../workspace/emit-files-changed';
 
@@ -49,6 +49,10 @@ async function resolveContainedAbsoluteFilePath(absolutePath: string): Promise<s
     return abs;
   }
   if (isAllowlistedAbsolutePath(abs)) {
+    return abs;
+  }
+  // Go-to-definition on an engine class opens one of these generated pages.
+  if (isAbsolutePathWithinWorkspaceRoot(path.resolve(getGdlsStubCacheDir()), abs)) {
     return abs;
   }
   const config = await loadConfig();

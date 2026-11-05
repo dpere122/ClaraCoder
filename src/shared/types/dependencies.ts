@@ -1,9 +1,9 @@
 /**
  * Shared types for the runtime dependency download framework
- * (llama-server, Java LSP, Kokoro, Whisper).
+ * (llama-server, Java LSP, gdls, Kokoro, Whisper).
  */
 
-export type DependencyId = 'llama-server' | 'java-lsp' | 'kokoro' | 'whisper';
+export type DependencyId = 'llama-server' | 'java-lsp' | 'gdls' | 'kokoro' | 'whisper';
 
 export type DependencyState = 'missing' | 'installed' | 'updating' | 'error';
 
@@ -93,6 +93,7 @@ export interface DependencyActionResult {
 export const DEPENDENCY_IDS: readonly DependencyId[] = [
   'llama-server',
   'java-lsp',
+  'gdls',
   'kokoro',
   'whisper',
 ] as const;
@@ -100,6 +101,7 @@ export const DEPENDENCY_IDS: readonly DependencyId[] = [
 export const DEPENDENCY_LABELS: Record<DependencyId, string> = {
   'llama-server': 'llama-server',
   'java-lsp': 'Java LSP (JDT LS)',
+  gdls: 'GDScript LSP (gdls)',
   kokoro: 'Kokoro TTS',
   whisper: 'Whisper STT',
 };
@@ -107,6 +109,7 @@ export const DEPENDENCY_LABELS: Record<DependencyId, string> = {
 export const DEPENDENCY_DESCRIPTIONS: Record<DependencyId, string> = {
   'llama-server': 'llama.cpp server binary for managed local models.',
   'java-lsp': 'Eclipse JDT Language Server for Java diagnostics and navigation.',
+  gdls: 'Standalone GDScript language server for Godot 4.6+. Needs no running Godot editor.',
   kokoro: 'Local neural TTS (CPU PyTorch + kokoro).',
   whisper: 'Local speech-to-text (faster-whisper, CPU CTranslate2).',
 };
@@ -114,6 +117,7 @@ export const DEPENDENCY_DESCRIPTIONS: Record<DependencyId, string> = {
 export const DEPENDENCY_SIZE_HINTS: Record<DependencyId, string> = {
   'llama-server': '~40–400 MB (CPU ~40 MB; CUDA build + cudart DLLs up to ~400 MB)',
   'java-lsp': '~50–80 MB',
+  gdls: '~12 MB (macOS: built from source with Rust)',
   kokoro: '~1–2 GB (CPU PyTorch + Kokoro)',
   whisper: '~80–500 MB (CTranslate2 + small model)',
 };
@@ -125,6 +129,7 @@ export const DEPENDENCY_SIZE_HINTS: Record<DependencyId, string> = {
 export const DEPENDENCY_COMPONENTS: Record<DependencyId, readonly string[]> = {
   'llama-server': ['llama-server', 'ggml / llama shared libs', 'cudart DLLs (CUDA builds)'],
   'java-lsp': ['Eclipse JDT LS', 'Equinox launcher', 'JDT plugins'],
+  gdls: ['gdls'],
   kokoro: ['torch (CPU)', 'kokoro', 'misaki', 'spacy'],
   whisper: ['faster-whisper', 'CTranslate2', 'Whisper model weights'],
 };
@@ -178,6 +183,13 @@ export const DEPENDENCY_SOURCES: Record<DependencyId, readonly DependencySource[
       label: 'Eclipse JDT Language Server',
       url: 'https://github.com/eclipse-jdtls/eclipse.jdt.ls',
       detail: 'Milestone tarball from download.eclipse.org/jdtls/milestones.',
+    },
+  ],
+  gdls: [
+    {
+      label: 'gdls',
+      url: 'https://github.com/kurushimee/gdls',
+      detail: 'Prebuilt binary from the pinned GitHub release, checksum verified; built with cargo on macOS.',
     },
   ],
   kokoro: [

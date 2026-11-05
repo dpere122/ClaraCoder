@@ -1,19 +1,26 @@
 import type * as Monaco from 'monaco-editor';
 import type { ElectronService } from '../../../core/electron.service';
 import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
-import type { LspEditorDiagnostic } from '@shared/index';
+import type { LspEditorDiagnostic, LspWireInlayHint } from '@shared/index';
 import {
+  LSP_EXTENDED_FEATURE_MONACO_LANGUAGE_IDS,
   LSP_MONACO_LANGUAGE_IDS,
   lspServerIdForMonacoLanguageId,
   lspServerKindForWorkspaceRelativePath,
 } from '@shared/index';
 import { invalidateMonacoModelLspDocumentSync, markMonacoModelLspDocumentSynced, monacoModelNeedsLspDocumentSync } from './workspace-monaco-lsp-sync-state';
 import { registerJavaShowLocationCommands } from './workspace-monaco-java-code-lens';
+import { lspErrorMessage, lspLocationToMonaco, registerExtendedLspFeatures } from './workspace-monaco-lsp-features';
+import { writeEditsForClosedFiles } from './workspace-monaco-workspace-edit';
+
+const GDSCRIPT_COMPLETION_TRIGGERS = ['.', '$', '%', '"', '@'];
 
 export interface WorkspaceMonacoLspNavigatePayload {
   readonly relativePath: string;
   readonly line: number;
   readonly column: number;
+  /** Set for a read-only page outside the workspace; ``relativePath`` is then that same path. */
+  readonly absolutePath?: string;
 }
 
 export interface RegisterWorkspaceMonacoLspOptions {
@@ -32,6 +39,10 @@ export interface RegisterWorkspaceMonacoLspOptions {
   /** Prefetched from ``GET /lsp/semantic-tokens-legend`` so ``getLegend()`` is valid on first paint. */
   readonly semanticLegendsByServer?: Record<string, Monaco.languages.SemanticTokensLegend>;
   readonly getEditor: () => Monaco.editor.IStandaloneCodeEditor | null;
+  readonly getWorkspaceRoot: () => string;
+  /** Whether the model store owns this model (peek previews create their own). */
+  readonly isStoreModel: (model: Monaco.editor.ITextModel) => boolean;
+  readonly languageIdForPath: (path: string) => string;
 }
 
 function wireRange(api: typeof Monaco, r: Monaco.IRange): Monaco.Range {
@@ -139,6 +150,24 @@ type LspBackedCompletionItem = Monaco.languages.CompletionItem & {
   lspKind?: number;
 };
 
+type LspBackedInlayHint = Monaco.languages.InlayHint & { lspHint?: Record<string, unknown> };
+
+/** Copies what may arrive with the hint or only on resolve. */
+function applyInlayHintDetails(api: typeof Monaco, hint: LspBackedInlayHint, wire: LspWireInlayHint): void {
+  const tip = wire.tooltip;
+  if (typeof tip === 'string') {
+    hint.tooltip = tip;
+  } else if (tip && typeof tip === 'object' && 'value' in tip) {
+    hint.tooltip = { value: String(tip.value), isTrusted: true };
+  }
+  if (wire.textEdits?.length) {
+    hint.textEdits = wire.textEdits.map((e) => ({ range: wireRange(api, e.range), text: e.newText }));
+  }
+  if (wire.lspHint) {
+    hint.lspHint = wire.lspHint;
+  }
+}
+
 function lspCancelled(token: Monaco.CancellationToken | undefined): boolean {
   return token?.isCancellationRequested === true;
 }
@@ -159,8 +188,23 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
     onNavigateToWorkspaceFile,
     semanticLegendsByServer,
     getEditor,
+    getWorkspaceRoot,
+    isStoreModel,
+    languageIdForPath,
   } = opts;
   const disposables: Monaco.IDisposable[] = [];
+  const extended = registerExtendedLspFeatures({
+    monacoApi: api,
+    electron,
+    getLspSessionId,
+    getWorkspaceRoot,
+    getWorkspaceRelativePathForModel,
+    isStoreModel,
+    languageIdForPath,
+    getEditor,
+    onNavigate: onNavigateToWorkspaceFile,
+  });
+  disposables.push(extended.disposable);
 
   disposables.push(
     registerJavaShowLocationCommands({
@@ -173,10 +217,12 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
   disposables.push(
     api.editor.registerEditorOpener({
       openCodeEditor: (_source, resource, selectionOrPosition) => {
-        if (resource.scheme !== 'clara-workspace') {
+        const external = resource.scheme === 'clara-external';
+        if (resource.scheme !== 'clara-workspace' && !external) {
           return false;
         }
-        const rel = decodeURI(resource.path.replace(/^\/+/, ''));
+        // Only the URI's own separator goes: a POSIX absolute path keeps its leading slash.
+        const rel = external ? decodeURI(resource.path.slice(1)) : decodeURI(resource.path.replace(/^\/+/, ''));
         if (!rel) {
           return false;
         }
@@ -191,7 +237,7 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
             column = selectionOrPosition.column;
           }
         }
-        onNavigateToWorkspaceFile({ relativePath: rel, line, column });
+        onNavigateToWorkspaceFile({ relativePath: rel, line, column, ...(external ? { absolutePath: rel } : {}) });
         return true;
       },
     }),
@@ -231,6 +277,8 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
   };
 
   for (const lang of LSP_MONACO_LANGUAGE_IDS) {
+    const extendedFeatures = LSP_EXTENDED_FEATURE_MONACO_LANGUAGE_IDS.includes(lang);
+
     disposables.push(
       api.languages.registerDefinitionProvider(lang, {
         provideDefinition: async (model, position, token) => {
@@ -267,10 +315,7 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
           if (!res || !res.ok || !res.locations?.length) {
             return null;
           }
-          return res.locations.map((loc) => ({
-            uri: api.Uri.parse(`clara-workspace:///${encodeURI(normalizePathSlashes(loc.relativePath))}`),
-            range: wireRange(api, loc.range),
-          }));
+          return res.locations.map((loc) => lspLocationToMonaco(api, loc));
         },
       }),
     );
@@ -295,10 +340,11 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
           if (!res || !res.ok || !res.locations?.length) {
             return null;
           }
-          return res.locations.map((loc) => ({
-            uri: api.Uri.parse(`clara-workspace:///${encodeURI(normalizePathSlashes(loc.relativePath))}`),
-            range: wireRange(api, loc.range),
-          }));
+          // References open in a peek widget, which previews from a model.
+          if (extendedFeatures) {
+            await extended.ensurePeekModels(res.locations);
+          }
+          return res.locations.map((loc) => lspLocationToMonaco(api, loc));
         },
       }),
     );
@@ -306,7 +352,11 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
     disposables.push(
       api.languages.registerCompletionItemProvider(lang, {
         triggerCharacters:
-          lang === 'java' ? ['.', '@', '#', '*', ' '] : ['.', '/', '"', "'", '`', '@', '<', '#'],
+          lang === 'java'
+            ? ['.', '@', '#', '*', ' ']
+            : lang === 'gdscript'
+              ? GDSCRIPT_COMPLETION_TRIGGERS
+              : ['.', '/', '"', "'", '`', '@', '<', '#'],
         provideCompletionItems: async (model, position, context, token) => {
           if (!canRun(model)) {
             return { suggestions: [] };
@@ -508,15 +558,61 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
           if (!res || !res.ok || !res.workspaceEdit) {
             return null;
           }
-          return mapWorkspaceEdit(api, res.workspaceEdit);
+          // Monaco can only edit open models; a multi-file rename also touches closed files.
+          const { openChanges, error } = await writeEditsForClosedFiles(
+            api,
+            electron,
+            getWorkspaceRoot(),
+            res.workspaceEdit.changes,
+          );
+          if (error) {
+            return { edits: [], rejectReason: error };
+          }
+          return mapWorkspaceEdit(api, { changes: openChanges });
         },
+        ...(extendedFeatures
+          ? {
+              resolveRenameLocation: async (
+                model: Monaco.editor.ITextModel,
+                position: Monaco.Position,
+                token: Monaco.CancellationToken,
+              ): Promise<Monaco.languages.RenameLocation & Monaco.languages.Rejection> => {
+                const word = model.getWordAtPosition(position);
+                const fallback = {
+                  range: new api.Range(
+                    position.lineNumber,
+                    word?.startColumn ?? position.column,
+                    position.lineNumber,
+                    word?.endColumn ?? position.column,
+                  ),
+                  text: word?.word ?? '',
+                };
+                const res = await extended.call(model, 'prepareRename', {
+                  line: position.lineNumber,
+                  character: position.column,
+                });
+                if (lspCancelled(token) || !res) {
+                  return fallback;
+                }
+                // gdls refuses names it can't safely rewrite, such as engine symbols.
+                if (!res.ok) {
+                  return { ...fallback, rejectReason: lspErrorMessage(res.error) };
+                }
+                const { range, placeholder } = res.result;
+                if (!range) {
+                  return { ...fallback, rejectReason: 'This element cannot be renamed.' };
+                }
+                return { range: wireRange(api, range), text: placeholder ?? model.getValueInRange(range) };
+              },
+            }
+          : {}),
       }),
     );
 
     disposables.push(
       api.languages.registerDocumentSemanticTokensProvider(lang, {
         getLegend: () => legendForMonacoLang(lang),
-        provideDocumentSemanticTokens: async (model, _lastResultId, token) => {
+        provideDocumentSemanticTokens: async (model, lastResultId, token) => {
           if (!canRun(model)) {
             return null;
           }
@@ -528,6 +624,36 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
           const neededSync = monacoModelNeedsLspDocumentSync(model);
           const sentVersion = model.getAlternativeVersionId();
           const skip = !neededSync;
+          if (extendedFeatures && lastResultId) {
+            const delta = await electron.lspEditorSemanticTokensDelta(
+              sessionId,
+              rel,
+              lastResultId,
+              skip ? '' : model.getValue(),
+              skip,
+            );
+            if (lspCancelled(token)) {
+              return null;
+            }
+            // Falls through to a full request when the server no longer has that result.
+            if (delta.ok) {
+              if (neededSync) {
+                markMonacoModelLspDocumentSynced(model, sentVersion);
+              }
+              const { resultId, edits, data } = delta.payload;
+              if (Array.isArray(data)) {
+                return { data: new Uint32Array(data), ...(resultId ? { resultId } : {}) };
+              }
+              return {
+                ...(resultId ? { resultId } : {}),
+                edits: (edits as Array<{ start: number; deleteCount: number; data?: number[] }>).map((e) => ({
+                  start: e.start,
+                  deleteCount: e.deleteCount,
+                  ...(e.data ? { data: new Uint32Array(e.data) } : {}),
+                })),
+              };
+            }
+          }
           const res = await electron.lspEditorSemanticTokensFull(sessionId, rel, skip ? '' : model.getValue(), skip);
           if (neededSync && res?.ok) {
             markMonacoModelLspDocumentSynced(model, sentVersion);
@@ -555,6 +681,26 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
         releaseDocumentSemanticTokens: () => {},
       }),
     );
+
+    if (extendedFeatures) {
+      disposables.push(
+        api.languages.registerDocumentRangeSemanticTokensProvider(lang, {
+          getLegend: () => legendForMonacoLang(lang),
+          provideDocumentRangeSemanticTokens: async (model, range, token) => {
+            const res = await extended.call(model, 'semanticTokensRange', {
+              start_line: range.startLineNumber,
+              start_character: range.startColumn,
+              end_line: range.endLineNumber,
+              end_character: range.endColumn,
+            });
+            if (lspCancelled(token) || !res?.ok) {
+              return null;
+            }
+            return { data: new Uint32Array(res.result.payload.data) };
+          },
+        }),
+      );
+    }
 
     disposables.push(
       api.languages.registerSignatureHelpProvider(lang, {
@@ -838,16 +984,27 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
               paddingLeft: h.paddingLeft,
               paddingRight: h.paddingRight,
             };
-            const tip = h.tooltip;
-            if (typeof tip === 'string') {
-              hint.tooltip = tip;
-            } else if (tip && typeof tip === 'object' && 'value' in tip) {
-              hint.tooltip = { value: String(tip.value), isTrusted: true };
-            }
+            applyInlayHintDetails(api, hint, h);
             return hint;
           });
           return { hints, dispose: () => {} };
         },
+        ...(extendedFeatures
+          ? {
+              resolveInlayHint: async (hint: LspBackedInlayHint, token: Monaco.CancellationToken) => {
+                const model = getEditor()?.getModel();
+                if (!hint.lspHint || !model || !canRun(model)) {
+                  return hint;
+                }
+                const res = await extended.call(model, 'inlayHintResolve', { hint: hint.lspHint });
+                if (lspCancelled(token) || !res?.ok || !res.result.hint) {
+                  return hint;
+                }
+                applyInlayHintDetails(api, hint, res.result.hint);
+                return hint;
+              },
+            }
+          : {}),
       }),
     );
 

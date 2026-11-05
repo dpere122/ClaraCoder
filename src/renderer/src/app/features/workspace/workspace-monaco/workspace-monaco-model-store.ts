@@ -15,6 +15,7 @@ import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
 import {
   absolutePathFromModelKey,
   displayPathForModelKey,
+  editorModelKeyForAbsolutePath,
   editorModelKeyForRelativePath,
   isExternalModelKey,
   type OpenEditorFileRef,
@@ -26,6 +27,8 @@ import {
   markMonacoModelLspDocumentSynced,
   monacoModelNeedsLspDocumentSync,
 } from './workspace-monaco-lsp-sync-state';
+import { GODOT_EXTENSION_TO_LANGUAGE } from './workspace-monaco-godot-languages';
+import { applyEditsToOpenModels, writeEditsForClosedFiles } from './workspace-monaco-workspace-edit';
 
 const EXT_TO_LANG: Record<string, string> = {
   ts: 'typescript',
@@ -46,7 +49,7 @@ const EXT_TO_LANG: Record<string, string> = {
   md: 'markdown',
   mdx: 'markdown',
   py: 'python',
-  gd: 'gdscript',
+  ...GODOT_EXTENSION_TO_LANGUAGE,
   yml: 'yaml',
   yaml: 'yaml',
   xml: 'xml',
@@ -125,6 +128,11 @@ export interface GetOrCreateModelResult {
   error?: string;
 }
 
+/** Longest a file rename waits for reference fixes; a cold server must not hold up the rename. */
+const FILE_RENAME_EDITS_TIMEOUT_MS = 8000;
+/** Scripts and scenes are referenced by path; a name with no extension may be a folder holding them. */
+const FILE_RENAME_LSP_PATH = /\.(gd|tscn)$|(^|\/)[^./]+$/i;
+
 /** Owner id for the shell's grid-wide claim (see {@link WorkspaceMonacoModelStore.syncGridOpenFiles}). */
 export const EDITOR_GRID_MODEL_OWNER_ID = 'editor-grid';
 
@@ -158,6 +166,8 @@ export class WorkspaceMonacoModelStore {
   private readonly dirtyDisposables = new Map<string, Monaco.IDisposable>();
   private readonly fileRefByKey = new Map<string, OpenEditorFileRef>();
   private readonly detachedByKey = new Map<string, DetachedModelInfo>();
+  /** Server-generated pages opened from go-to-definition; they must not look editable. */
+  private readonly readOnlyKeys = new Set<string>();
   private readonly ownersByKey = new Map<string, Set<string>>();
   private readonly keysByOwner = new Map<string, Set<string>>();
   /** Cached LSP diagnostics per model key (code actions + Problems tab). */
@@ -291,10 +301,59 @@ export class WorkspaceMonacoModelStore {
           };
         },
         getEditor: () => this.focusedEditor,
-        onNavigateToWorkspaceFile: (p) => this.navigateWorkspaceFile$.next(p),
+        getWorkspaceRoot: () => this.workspaceRoot,
+        isStoreModel: (m) => this.modelKeyForModel(m) !== undefined,
+        languageIdForPath: (path) => monacoLanguageIdForPath(monacoApi, path),
+        onNavigateToWorkspaceFile: (p) => {
+          if (p.absolutePath) {
+            this.readOnlyKeys.add(editorModelKeyForAbsolutePath(p.absolutePath));
+          }
+          this.navigateWorkspaceFile$.next(p);
+        },
         semanticLegendsByServer: this.semanticLegendsByServer,
       }),
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // File renames
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Fixes references to a file about to move (``load``/``preload`` paths). Best effort: a missing
+   * or slow language server must never block the rename itself.
+   */
+  async applyFileRenameEdits(workspaceRoot: string, oldRelativePath: string, newRelativePath: string): Promise<void> {
+    const sid = this.lspSessionId();
+    const api = this.monaco;
+    if (!sid || !api || !FILE_RENAME_LSP_PATH.test(oldRelativePath)) {
+      return;
+    }
+    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), FILE_RENAME_EDITS_TIMEOUT_MS));
+    try {
+      const res = await Promise.race([
+        this.electron.lspWillRenameFiles(sid, [{ oldRelativePath, newRelativePath }]),
+        timeout,
+      ]);
+      if (!res?.ok) {
+        return;
+      }
+      const { openChanges, error } = await writeEditsForClosedFiles(api, this.electron, workspaceRoot, res.changes);
+      if (error) {
+        console.warn('[workspace-monaco] file rename edits incomplete:', error);
+      }
+      applyEditsToOpenModels(api, openChanges);
+    } catch (err) {
+      console.warn('[workspace-monaco] file rename edits failed:', err);
+    }
+  }
+
+  /** Tells a running language server that a file moved. */
+  notifyFileRenamed(oldRelativePath: string, newRelativePath: string): void {
+    const sid = this.lspSessionId();
+    if (sid && FILE_RENAME_LSP_PATH.test(oldRelativePath)) {
+      void this.electron.lspDidRenameFiles(sid, [{ oldRelativePath, newRelativePath }]);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -326,6 +385,10 @@ export class WorkspaceMonacoModelStore {
 
   fileRefForKey(modelKey: string): OpenEditorFileRef | undefined {
     return this.fileRefByKey.get(modelKey);
+  }
+
+  isReadOnlyKey(modelKey: string): boolean {
+    return this.readOnlyKeys.has(modelKey);
   }
 
   isDetachedKey(modelKey: string): boolean {

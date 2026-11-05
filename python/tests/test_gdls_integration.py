@@ -239,11 +239,13 @@ def test_inlay_hint_resolve(godot: SessionWorkspaceLspManager) -> None:
 
     hints = serialize_inlay_hints_payload(godot.inlay_hints(DOG, 1, 1, 20, 1))
     assert hints, 'the := declarations carry inferred type hints'
-    resolvable = next((h for h in hints if h.get('lspHint')), None)
-    if resolvable is not None:
-        resolved = run_editor_feature(godot, DOG, 'inlayHintResolve', {'hint': resolvable['lspHint']})['hint']
-        assert resolved is not None
-        assert resolved['label'] == resolvable['label']
+    # We advertise ``inlayHint.resolveSupport``, so gdls leaves the tooltip for resolve.
+    resolvable = next(h for h in hints if h.get('lspHint'))
+    assert 'tooltip' not in resolvable
+    resolved = run_editor_feature(godot, DOG, 'inlayHintResolve', {'hint': resolvable['lspHint']})['hint']
+    assert resolved is not None
+    assert resolved['label'] == resolvable['label']
+    assert resolved['tooltip']
 
 
 def test_prepare_rename_and_multi_file_rename(godot: SessionWorkspaceLspManager) -> None:
@@ -365,13 +367,16 @@ def test_engine_pages_land_where_the_read_guard_expects(godot: SessionWorkspaceL
 
 
 def test_completion_resolve_fills_documentation(godot: SessionWorkspaceLspManager) -> None:
-    godot.sync_workspace_document(DOG)
+    godot.sync_workspace_document(ANIMAL)
     from clara_coder_backend.lsp.editor_monaco import serialize_completion_result
 
-    line, character = _position_of(godot, DOG, 'move(0.5)', offset=1)
-    result = serialize_completion_result(godot, godot.completion(DOG, line, character))
+    line, character = _position_of(godot, ANIMAL, 'spoke.emit', offset=1)
+    result = serialize_completion_result(godot, godot.completion(ANIMAL, line, character))
     assert result['items'], 'identifiers in scope should complete'
-    move = next((item for item in result['items'] if item['label'].startswith('move')), None)
-    assert move is not None, [item['label'] for item in result['items'][:20]]
-    resolved = godot.completion_resolve({'label': move['label'], 'kind': move['kind'], 'data': move.get('data')})
-    assert resolved.get('label') == move['label']
+    # ``speak`` carries a ``##`` comment in this file.
+    speak = next((item for item in result['items'] if item['label'].startswith('speak')), None)
+    assert speak is not None, [item['label'] for item in result['items'][:20]]
+    assert not speak.get('documentation'), 'documentation is left for resolve'
+    resolved = godot.completion_resolve({'label': speak['label'], 'kind': speak['kind'], 'data': speak.get('data')})
+    assert resolved.get('label') == speak['label']
+    assert 'what this animal says' in str(resolved.get('documentation'))

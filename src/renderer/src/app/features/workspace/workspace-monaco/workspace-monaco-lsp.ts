@@ -11,7 +11,7 @@ import {
 import { invalidateMonacoModelLspDocumentSync, markMonacoModelLspDocumentSynced, monacoModelNeedsLspDocumentSync } from './workspace-monaco-lsp-sync-state';
 import { registerJavaShowLocationCommands } from './workspace-monaco-java-code-lens';
 import { lspErrorMessage, lspLocationToMonaco, registerExtendedLspFeatures } from './workspace-monaco-lsp-features';
-import { writeEditsForClosedFiles } from './workspace-monaco-workspace-edit';
+import { workspaceFileUri, writeEditsForClosedFiles } from './workspace-monaco-workspace-edit';
 
 const GDSCRIPT_COMPLETION_TRIGGERS = ['.', '$', '%', '"', '@'];
 
@@ -216,10 +216,15 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
 
   disposables.push(
     api.editor.registerEditorOpener({
-      openCodeEditor: (_source, resource, selectionOrPosition) => {
+      openCodeEditor: (source, resource, selectionOrPosition) => {
         const external = resource.scheme === 'clara-external';
         if (resource.scheme !== 'clara-workspace' && !external) {
           return false;
+        }
+        // Monaco's peek command first "opens" the file it starts from, with no position. Treating
+        // that as a navigation would send the caret to line 1 underneath the peek.
+        if (!selectionOrPosition && source.getModel()?.uri.toString() === resource.toString()) {
+          return true;
         }
         // Only the URI's own separator goes: a POSIX absolute path keeps its leading slash.
         const rel = external ? decodeURI(resource.path.slice(1)) : decodeURI(resource.path.replace(/^\/+/, ''));
@@ -560,7 +565,10 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
           }
           // Monaco can only edit open models; a multi-file rename also touches closed files.
           const { openChanges, error } = await writeEditsForClosedFiles(
-            api,
+            (relativePath) => {
+              const open = api.editor.getModel(workspaceFileUri(api, relativePath));
+              return !!open && isStoreModel(open);
+            },
             electron,
             getWorkspaceRoot(),
             res.workspaceEdit.changes,
@@ -598,7 +606,10 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
                 if (!res.ok) {
                   return { ...fallback, rejectReason: lspErrorMessage(res.error) };
                 }
-                const { range, placeholder } = res.result;
+                const { range, placeholder, defaultBehavior } = res.result;
+                if (defaultBehavior) {
+                  return fallback;
+                }
                 if (!range) {
                   return { ...fallback, rejectReason: 'This element cannot be renamed.' };
                 }

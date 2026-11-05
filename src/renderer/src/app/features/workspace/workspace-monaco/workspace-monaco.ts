@@ -461,8 +461,14 @@ export class WorkspaceMonacoComponent {
               return;
             }
             requestAnimationFrame(() => {
-              ed.setPosition({ lineNumber: pending.line, column: pending.column });
-              ed.revealLineInCenter(pending.line);
+              if (this.destroyed) {
+                return;
+              }
+              // The wait ran out or the user moved on: this position belongs to another file.
+              if (ed.getModel() === this.store.getModel(key)) {
+                ed.setPosition({ lineNumber: pending.line, column: pending.column });
+                ed.revealLineInCenter(pending.line);
+              }
               this.zone.run(() => this.emitOutputVoid(this.pendingEditorRevealHandled));
             });
           });

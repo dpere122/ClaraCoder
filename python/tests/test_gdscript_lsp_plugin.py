@@ -328,7 +328,49 @@ def test_prepare_rename_shapes(tmp_path: Path, manager_for) -> None:  # noqa: AN
     assert bare['range']['startColumn'] == 2
     assert bare['placeholder'] is None
     results['textDocument/prepareRename'] = None
-    assert run_editor_feature(manager, 'a.gd', 'prepareRename', params)['range'] is None
+    refused = run_editor_feature(manager, 'a.gd', 'prepareRename', params)
+    assert refused['range'] is None
+    assert not refused.get('defaultBehavior')
+    results['textDocument/prepareRename'] = {'defaultBehavior': True}
+    assert run_editor_feature(manager, 'a.gd', 'prepareRename', params)['defaultBehavior'] is True
+
+
+def test_stopping_one_server_everywhere_leaves_the_others_running(tmp_path, manager_for) -> None:  # noqa: ANN001
+    """What the gdls install relies on: every session's server stops, nothing else does."""
+
+    from clara_coder_backend.lsp.manager import _MANAGERS_LOCK, _SESSION_MANAGERS, shutdown_lsp_server_for_all_sessions
+
+    godot_a = manager_for(_FakeClient({}))
+    godot_b = manager_for(_FakeClient({}))
+    python = manager_for(_FakeClient({}))
+    python.server_kind = 'python'
+    with _MANAGERS_LOCK:
+        _SESSION_MANAGERS[('a', 'gdscript', 'workspace')] = godot_a
+        _SESSION_MANAGERS[('a', 'gdscript', 'staging')] = godot_b
+        _SESSION_MANAGERS[('b', 'python', 'workspace')] = python
+    godot_a.ensure_started()
+    godot_b.ensure_started()
+    python.ensure_started()
+
+    shutdown_lsp_server_for_all_sessions('gdscript')
+
+    assert not godot_a.is_client_running()
+    assert not godot_b.is_client_running()
+    assert python.is_client_running()
+    with _MANAGERS_LOCK:
+        assert ('a', 'gdscript', 'workspace') not in _SESSION_MANAGERS
+        assert ('a', 'gdscript', 'staging') not in _SESSION_MANAGERS
+        assert ('b', 'python', 'workspace') in _SESSION_MANAGERS
+
+
+def test_prepare_rename_is_not_sent_to_a_server_without_it(manager_for) -> None:  # noqa: ANN001
+    """Otherwise the method-not-found error would reject every rename on such a server."""
+
+    client = _FakeClient({'renameProvider': True})
+    manager = manager_for(client)
+    result = run_editor_feature(manager, 'a.gd', 'prepareRename', {'line': 1, 'character': 2})
+    assert result['defaultBehavior'] is True
+    assert 'textDocument/prepareRename' not in client.requests
 
 
 def test_selection_ranges_flatten_parent_chain(manager_for) -> None:  # noqa: ANN001

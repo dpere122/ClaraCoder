@@ -330,7 +330,7 @@ declare global {
     ) => Promise<{ ok: boolean; path?: string; error?: string }>;
     readAbsoluteFile?: (
       absolutePath: string,
-    ) => Promise<{ ok: boolean; content?: string; path?: string; error?: string }>;
+    ) => Promise<{ ok: boolean; content?: string; path?: string; error?: string; readOnly?: boolean }>;
     setAlwaysOnTop: (pinned: boolean) => Promise<void>;
     getConversations: (workspaceId?: string | null) => Promise<ConversationMeta[]>;
     readConversationFromDisk: (id: string, workspaceId?: string | null) => Promise<Conversation>;

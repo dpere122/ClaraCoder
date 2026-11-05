@@ -1156,7 +1156,7 @@ export class ElectronService {
 
   readAbsoluteFile(
     absolutePath: string,
-  ): Promise<{ ok: boolean; content?: string; path?: string; error?: string }> {
+  ): Promise<{ ok: boolean; content?: string; path?: string; error?: string; readOnly?: boolean }> {
     return (
       this.api?.readAbsoluteFile?.(absolutePath) ??
       Promise.resolve({ ok: false, error: 'API not available' })

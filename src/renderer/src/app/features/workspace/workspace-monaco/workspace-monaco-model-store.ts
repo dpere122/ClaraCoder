@@ -15,7 +15,6 @@ import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
 import {
   absolutePathFromModelKey,
   displayPathForModelKey,
-  editorModelKeyForAbsolutePath,
   editorModelKeyForRelativePath,
   isExternalModelKey,
   type OpenEditorFileRef,
@@ -28,7 +27,12 @@ import {
   monacoModelNeedsLspDocumentSync,
 } from './workspace-monaco-lsp-sync-state';
 import { GODOT_EXTENSION_TO_LANGUAGE } from './workspace-monaco-godot-languages';
-import { applyEditsToOpenModels, writeEditsForClosedFiles } from './workspace-monaco-workspace-edit';
+import {
+  applyEditsToOpenModels,
+  editsAfterMove,
+  writeEditsForClosedFiles,
+  type LspWorkspaceChanges,
+} from './workspace-monaco-workspace-edit';
 
 const EXT_TO_LANG: Record<string, string> = {
   ts: 'typescript',
@@ -166,7 +170,7 @@ export class WorkspaceMonacoModelStore {
   private readonly dirtyDisposables = new Map<string, Monaco.IDisposable>();
   private readonly fileRefByKey = new Map<string, OpenEditorFileRef>();
   private readonly detachedByKey = new Map<string, DetachedModelInfo>();
-  /** Server-generated pages opened from go-to-definition; they must not look editable. */
+  /** Pages main reports as read-only, however the tab was opened (a restored tab has no click). */
   private readonly readOnlyKeys = new Set<string>();
   private readonly ownersByKey = new Map<string, Set<string>>();
   private readonly keysByOwner = new Map<string, Set<string>>();
@@ -304,12 +308,7 @@ export class WorkspaceMonacoModelStore {
         getWorkspaceRoot: () => this.workspaceRoot,
         isStoreModel: (m) => this.modelKeyForModel(m) !== undefined,
         languageIdForPath: (path) => monacoLanguageIdForPath(monacoApi, path),
-        onNavigateToWorkspaceFile: (p) => {
-          if (p.absolutePath) {
-            this.readOnlyKeys.add(editorModelKeyForAbsolutePath(p.absolutePath));
-          }
-          this.navigateWorkspaceFile$.next(p);
-        },
+        onNavigateToWorkspaceFile: (p) => this.navigateWorkspaceFile$.next(p),
         semanticLegendsByServer: this.semanticLegendsByServer,
       }),
     );
@@ -320,14 +319,19 @@ export class WorkspaceMonacoModelStore {
   // ---------------------------------------------------------------------------
 
   /**
-   * Fixes references to a file about to move (``load``/``preload`` paths). Best effort: a missing
-   * or slow language server must never block the rename itself.
+   * Asks the language server which references a move would break (``load``/``preload`` paths). The
+   * server must see the file at its old path, so this runs first; nothing changes until the move
+   * has succeeded (see {@link applyFileRenameEdits}). Best effort: a missing or slow language server
+   * must never block the rename itself. Works with no editor open: the tree can rename at any time.
    */
-  async applyFileRenameEdits(workspaceRoot: string, oldRelativePath: string, newRelativePath: string): Promise<void> {
-    const sid = this.lspSessionId();
-    const api = this.monaco;
-    if (!sid || !api || !FILE_RENAME_LSP_PATH.test(oldRelativePath)) {
-      return;
+  async fetchFileRenameEdits(
+    sessionId: string | null | undefined,
+    oldRelativePath: string,
+    newRelativePath: string,
+  ): Promise<LspWorkspaceChanges | null> {
+    const sid = sessionId?.trim();
+    if (!sid || !FILE_RENAME_LSP_PATH.test(oldRelativePath)) {
+      return null;
     }
     const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), FILE_RENAME_EDITS_TIMEOUT_MS));
     try {
@@ -335,22 +339,42 @@ export class WorkspaceMonacoModelStore {
         this.electron.lspWillRenameFiles(sid, [{ oldRelativePath, newRelativePath }]),
         timeout,
       ]);
-      if (!res?.ok) {
-        return;
-      }
-      const { openChanges, error } = await writeEditsForClosedFiles(api, this.electron, workspaceRoot, res.changes);
+      return res?.ok ? res.changes : null;
+    } catch (err) {
+      console.warn('[workspace-monaco] file rename edits failed:', err);
+      return null;
+    }
+  }
+
+  /** Applies {@link fetchFileRenameEdits}' result once the move has happened. */
+  async applyFileRenameEdits(
+    workspaceRoot: string,
+    oldRelativePath: string,
+    newRelativePath: string,
+    changes: LspWorkspaceChanges,
+  ): Promise<void> {
+    const modelFor = (relativePath: string) => this.getModel(editorModelKeyForRelativePath(relativePath));
+    try {
+      const { openChanges, error } = await writeEditsForClosedFiles(
+        (relativePath) => modelFor(relativePath) !== undefined,
+        this.electron,
+        workspaceRoot,
+        editsAfterMove(changes, oldRelativePath, newRelativePath),
+      );
       if (error) {
         console.warn('[workspace-monaco] file rename edits incomplete:', error);
       }
-      applyEditsToOpenModels(api, openChanges);
+      if (this.monaco) {
+        applyEditsToOpenModels(this.monaco, openChanges, modelFor);
+      }
     } catch (err) {
       console.warn('[workspace-monaco] file rename edits failed:', err);
     }
   }
 
   /** Tells a running language server that a file moved. */
-  notifyFileRenamed(oldRelativePath: string, newRelativePath: string): void {
-    const sid = this.lspSessionId();
+  notifyFileRenamed(sessionId: string | null | undefined, oldRelativePath: string, newRelativePath: string): void {
+    const sid = sessionId?.trim();
     if (sid && FILE_RENAME_LSP_PATH.test(oldRelativePath)) {
       void this.electron.lspDidRenameFiles(sid, [{ oldRelativePath, newRelativePath }]);
     }
@@ -543,6 +567,9 @@ export class WorkspaceMonacoModelStore {
           return { model: null, error: res.error ?? 'Failed to read file.' };
         }
         content = res.content;
+        if (res.readOnly) {
+          this.readOnlyKeys.add(modelKey);
+        }
       } else if (this.detachedByKey.has(modelKey)) {
         const d = this.detachedByKey.get(modelKey)!;
         const res = await this.electron.readAbsoluteFile(d.tempAbsolutePath);

@@ -1499,6 +1499,14 @@ class SessionWorkspaceLspManager:
             return None
         return self._require_client().request(method, params, timeout_s=timeout_s)
 
+    def ensure_document_ready(self, relative_path: str) -> None:
+        """Start the server and open the document, so its capabilities can be read."""
+
+        self._ensure_workspace_synced(relative_path)
+
+    def server_capability(self, capability_name: str) -> Any:
+        return self._server_capabilities.get(capability_name)
+
     @property
     def completion_item_limit(self) -> int:
         return self._plugin.completion_item_limit

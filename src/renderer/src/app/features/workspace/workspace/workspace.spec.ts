@@ -6,6 +6,7 @@ import { lucideAppProviders } from '../../../lucide-setup';
 import { ElectronService } from '../../../core/electron.service';
 import { WorkspaceFileChangeStatusService } from '../../../core/workspace-file-change-status.service';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
+import { WorkspaceMonacoModelStore } from '../workspace-monaco/workspace-monaco-model-store';
 import {
   WORKSPACE_TREE_DRAG_IS_DIRECTORY_MIME,
   WORKSPACE_TREE_INTERNAL_MOVE_MIME,
@@ -58,6 +59,116 @@ type CreateSignals = {
 function createSignals(component: WorkspaceComponent): CreateSignals {
   return component as unknown as CreateSignals;
 }
+
+describe('WorkspaceComponent.commitInlineRename', () => {
+  const EDITS = { 'src/bar.gd': [] };
+  let fixture: ComponentFixture<WorkspaceComponent>;
+  let component: WorkspaceComponent;
+  let order: string[];
+  let store: {
+    fetchFileRenameEdits: ReturnType<typeof vi.fn>;
+    applyFileRenameEdits: ReturnType<typeof vi.fn>;
+    notifyFileRenamed: ReturnType<typeof vi.fn>;
+  };
+  let renameWorkspaceEntry: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    order = [];
+    store = {
+      fetchFileRenameEdits: vi.fn(async () => {
+        order.push('fetch');
+        return EDITS;
+      }),
+      applyFileRenameEdits: vi.fn(async () => {
+        order.push('apply');
+      }),
+      notifyFileRenamed: vi.fn(() => {
+        order.push('notify');
+      }),
+    };
+    renameWorkspaceEntry = vi.fn(async () => {
+      order.push('rename');
+      return { ok: true };
+    });
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [WorkspaceComponent],
+      providers: [
+        { provide: ThemedConfirmDialogService, useValue: { open: vi.fn() } },
+        { provide: WorkspaceFileChangeStatusService, useValue: { showFileName: vi.fn(), clear: vi.fn() } },
+        { provide: WorkspaceMonacoModelStore, useValue: store },
+        {
+          provide: ElectronService,
+          useValue: {
+            isElectron: false,
+            workspaceChanged$: new Subject<string | null>().asObservable(),
+            workspaceFilesChanged$: new Subject<never>().asObservable(),
+            llamaServerLifecycle$: new Subject<never>().asObservable(),
+            llamaServerProcessExit$: new Subject<never>().asObservable(),
+            readDirectory: vi.fn().mockResolvedValue([]),
+            renameWorkspaceEntry,
+          },
+        },
+      ],
+    })
+      .overrideComponent(WorkspaceComponent, { set: { template: '', imports: [] } })
+      .compileComponents();
+
+    fixture = TestBed.createComponent(WorkspaceComponent);
+    component = fixture.componentInstance;
+    fixture.componentRef.setInput('workspaces', [sampleWorkspace()]);
+    fixture.componentRef.setInput('currentWorkspaceId', 'ws-1');
+    fixture.componentRef.setInput('activeConversationId', 'conv-1');
+    const signals = component as unknown as {
+      inlineRenamePath: { set: (v: string | null) => void };
+      inlineRenameOriginalName: { set: (v: string) => void };
+      inlineRenameDraft: { set: (v: string) => void };
+    };
+    signals.inlineRenamePath.set(FOO_FILE);
+    signals.inlineRenameOriginalName.set('foo.ts');
+    signals.inlineRenameDraft.set('renamed.ts');
+    vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fixture.destroy();
+  });
+
+  it('asks for edits before the move and applies them after it', async () => {
+    await component.commitInlineRename();
+    expect(order).toEqual(['fetch', 'rename', 'apply', 'notify']);
+    expect(store.fetchFileRenameEdits).toHaveBeenCalledExactlyOnceWith('conv-1', 'src/foo.ts', 'src/renamed.ts');
+    expect(store.applyFileRenameEdits).toHaveBeenCalledExactlyOnceWith(WS_PATH, 'src/foo.ts', 'src/renamed.ts', EDITS);
+  });
+
+  it('leaves references alone when the move fails', async () => {
+    renameWorkspaceEntry.mockResolvedValue({ ok: false, error: 'locked' });
+    await component.commitInlineRename();
+    expect(store.applyFileRenameEdits).not.toHaveBeenCalled();
+    expect(store.notifyFileRenamed).not.toHaveBeenCalled();
+    expect(window.alert).toHaveBeenCalledWith('locked');
+  });
+
+  it('renames once when blur commits while Enter is still waiting on the server', async () => {
+    const first = component.commitInlineRename();
+    const second = component.commitInlineRename();
+    await Promise.all([first, second]);
+    expect(renameWorkspaceEntry).toHaveBeenCalledTimes(1);
+    expect(store.fetchFileRenameEdits).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not rename when Escape arrives while waiting on the server', async () => {
+    let answer!: (value: unknown) => void;
+    store.fetchFileRenameEdits.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    const commit = component.commitInlineRename();
+    component.cancelInlineRename();
+    answer(EDITS);
+    await commit;
+    expect(renameWorkspaceEntry).not.toHaveBeenCalled();
+    expect(store.applyFileRenameEdits).not.toHaveBeenCalled();
+  });
+});
 
 describe('WorkspaceComponent.beginCreateFromMenu', () => {
   let fixture: ComponentFixture<WorkspaceComponent>;

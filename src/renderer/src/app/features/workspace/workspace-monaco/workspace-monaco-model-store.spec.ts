@@ -59,6 +59,7 @@ function fakeMonaco(): { api: typeof Monaco; models: Map<string, FakeModel> } {
   const models = new Map<string, FakeModel>();
   const api = {
     Uri: { parse: (s: string) => ({ toString: () => s }) },
+    Range: class {},
     languages: { getLanguages: () => [] },
     editor: {
       getModel: (uri: { toString(): string }) => {
@@ -80,10 +81,18 @@ describe('WorkspaceMonacoModelStore', () => {
   let models: Map<string, FakeModel>;
   let files: Record<string, string>;
   let lspEditorDidClose: ReturnType<typeof vi.fn>;
+  let readAbsoluteFile: ReturnType<typeof vi.fn>;
+  let writeWorkspaceFile: ReturnType<typeof vi.fn>;
+  let lspWillRenameFiles: ReturnType<typeof vi.fn>;
+  let lspDidRenameFiles: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     files = { 'src/a.ts': 'const a = 1;', 'src/b.ts': 'const b = 2;' };
     lspEditorDidClose = vi.fn(async () => ({ ok: true }));
+    readAbsoluteFile = vi.fn(async () => ({ ok: false, error: 'unused' }));
+    writeWorkspaceFile = vi.fn(async () => ({ ok: true }));
+    lspWillRenameFiles = vi.fn();
+    lspDidRenameFiles = vi.fn(async () => ({ ok: true }));
     TestBed.configureTestingModule({
       providers: [
         {
@@ -93,7 +102,10 @@ describe('WorkspaceMonacoModelStore', () => {
             readWorkspaceFile: vi.fn(async (_root: string, rel: string) =>
               rel in files ? { ok: true, content: files[rel] } : { ok: false, error: 'ENOENT' },
             ),
-            readAbsoluteFile: vi.fn(async () => ({ ok: false, error: 'unused' })),
+            readAbsoluteFile,
+            writeWorkspaceFile,
+            lspWillRenameFiles,
+            lspDidRenameFiles,
             workspaceFileExists: vi.fn(async (_root: string, rel: string) => ({
               ok: true,
               exists: rel in files,
@@ -112,6 +124,115 @@ describe('WorkspaceMonacoModelStore', () => {
     models = fake.models;
     store.setMonaco(fake.api);
     store.setWorkspaceRoot('C:/ws');
+  });
+
+  describe('file rename edits', () => {
+    const edit = (newText: string) => ({
+      range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 6 },
+      newText,
+    });
+
+    it('asks the server with no editor ever opened', async () => {
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          {
+            provide: ElectronService,
+            useValue: {
+              workspaceFilesChanged$: new Subject(),
+              lspWillRenameFiles: vi.fn(async () => ({ ok: true, changes: { 'b.gd': [edit('x')] } })),
+            },
+          },
+        ],
+      });
+      const fresh = TestBed.inject(WorkspaceMonacoModelStore);
+      expect(await fresh.fetchFileRenameEdits('conv-1', 'a.gd', 'c.gd')).toEqual({ 'b.gd': [edit('x')] });
+    });
+
+    it('applies with no editor ever opened, writing every file to disk', async () => {
+      TestBed.resetTestingModule();
+      const write = vi.fn(async () => ({ ok: true }));
+      TestBed.configureTestingModule({
+        providers: [
+          {
+            provide: ElectronService,
+            useValue: {
+              workspaceFilesChanged$: new Subject(),
+              readWorkspaceFile: vi.fn(async () => ({ ok: true, content: 'hello world' })),
+              writeWorkspaceFile: write,
+            },
+          },
+        ],
+      });
+      const fresh = TestBed.inject(WorkspaceMonacoModelStore);
+      await fresh.applyFileRenameEdits('C:/ws', 'a.gd', 'c.gd', { 'b.gd': [edit('bye')] });
+      expect(write).toHaveBeenCalledExactlyOnceWith('C:/ws', 'b.gd', 'bye world');
+    });
+
+    it('asks nothing for a path the server has no interest in', async () => {
+      expect(await store.fetchFileRenameEdits('conv-1', 'src/a.ts', 'src/z.ts')).toBeNull();
+      expect(await store.fetchFileRenameEdits(null, 'a.gd', 'c.gd')).toBeNull();
+      expect(lspWillRenameFiles).not.toHaveBeenCalled();
+    });
+
+    it('gives up when the server is unavailable', async () => {
+      lspWillRenameFiles.mockResolvedValue({ ok: false, error: 'not installed' });
+      expect(await store.fetchFileRenameEdits('conv-1', 'a.gd', 'c.gd')).toBeNull();
+    });
+
+    it('edits an open model and writes a moved closed file at its new path', async () => {
+      files['src/open.gd'] = 'hello world';
+      files['src/new.gd'] = 'hello moved';
+      const ref = openEditorFileRefFromRelativePath('src/open.gd');
+      store.syncOwner('slot-1', [ref]);
+      const { model } = await store.getOrCreateModel(ref.modelKey);
+      const pushed: unknown[] = [];
+      (model as unknown as { pushEditOperations: (...args: unknown[]) => void }).pushEditOperations = (...args) =>
+        pushed.push(args);
+
+      await store.applyFileRenameEdits('C:/ws', 'src/old.gd', 'src/new.gd', {
+        'src/open.gd': [edit('bye')],
+        'src/old.gd': [edit('bye')],
+      });
+      expect(pushed).toHaveLength(1);
+      expect(writeWorkspaceFile).toHaveBeenCalledExactlyOnceWith('C:/ws', 'src/new.gd', 'bye moved');
+    });
+
+    it('takes a preview model left by a peek for what it is: not an open file', async () => {
+      files['src/peeked.gd'] = 'hello world';
+      const fake = fakeMonaco();
+      store.setMonaco(fake.api);
+      // A peek made this model; no tab owns it, so an edit here would vanish with the next peek.
+      fake.api.editor.createModel('stale', 'gdscript', fake.api.Uri.parse('clara-workspace:///src/peeked.gd'));
+
+      await store.applyFileRenameEdits('C:/ws', 'a.gd', 'c.gd', { 'src/peeked.gd': [edit('bye')] });
+      expect(writeWorkspaceFile).toHaveBeenCalledExactlyOnceWith('C:/ws', 'src/peeked.gd', 'bye world');
+    });
+
+    it('tells the server after the move, using the session it was given', () => {
+      store.notifyFileRenamed('conv-1', 'a.gd', 'c.gd');
+      expect(lspDidRenameFiles).toHaveBeenCalledExactlyOnceWith('conv-1', [
+        { oldRelativePath: 'a.gd', newRelativePath: 'c.gd' },
+      ]);
+    });
+  });
+
+  describe('read-only pages', () => {
+    const PAGE = 'abs:C:/rt/gdls/stubs/v1/Node2D.gd';
+
+    it('takes read-only from main, so a tab restored after a restart stays read-only', async () => {
+      readAbsoluteFile.mockResolvedValue({ ok: true, content: 'class_name Node2D', readOnly: true });
+      expect(store.isReadOnlyKey(PAGE)).toBe(false);
+      await store.getOrCreateModel(PAGE);
+      expect(store.isReadOnlyKey(PAGE)).toBe(true);
+    });
+
+    it('leaves other files outside the workspace editable', async () => {
+      const other = 'abs:C:/elsewhere/notes.txt';
+      readAbsoluteFile.mockResolvedValue({ ok: true, content: 'notes', readOnly: false });
+      await store.getOrCreateModel(other);
+      expect(store.isReadOnlyKey(other)).toBe(false);
+    });
   });
 
   it('creates a model once per key and shares it between owners', async () => {

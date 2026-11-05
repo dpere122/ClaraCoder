@@ -84,17 +84,24 @@ export const GDSCRIPT_MONARCH: Monaco.languages.IMonarchLanguage = {
       [/'''/, { token: 'string', next: '@pop' }],
       [/./, 'string'],
     ],
+    // A plain string ends with its line (a trailing backslash continues it). Monarch runs no rule once a
+    // line is consumed, so a ``$`` rule alone would only fire on an empty line: the ending has to be
+    // matched along with the last characters, or one open quote colours everything below it.
     double: [
+      [/\\.$/, { token: 'string.escape', next: '@pop' }],
       [/\\./, 'string.escape'],
       [/"/, { token: 'string', next: '@pop' }],
-      [/$/, { token: 'string', next: '@pop' }],
+      [/[^\\"]+$/, { token: 'string', next: '@pop' }],
       [/[^\\"]+/, 'string'],
+      [/$/, { token: 'string', next: '@pop' }],
     ],
     single: [
+      [/\\.$/, { token: 'string.escape', next: '@pop' }],
       [/\\./, 'string.escape'],
       [/'/, { token: 'string', next: '@pop' }],
-      [/$/, { token: 'string', next: '@pop' }],
+      [/[^\\']+$/, { token: 'string', next: '@pop' }],
       [/[^\\']+/, 'string'],
+      [/$/, { token: 'string', next: '@pop' }],
     ],
   },
 };

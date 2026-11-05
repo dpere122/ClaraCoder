@@ -47,12 +47,21 @@ def _navigation(method: str, provider: str) -> Callable[[Any, str, dict[str, Any
 
 
 def _prepare_rename(manager: Any, rel: str, params: dict[str, Any]) -> dict[str, Any]:
+    """``defaultBehavior`` means the editor picks the range itself; a null ``range`` alone refuses."""
+
+    manager.ensure_document_ready(rel)
+    rename = manager.server_capability('renameProvider')
+    if rename is True or (isinstance(rename, dict) and not rename.get('prepareProvider')):
+        # Renames, but has no ``prepareRename``: the request would fail and block every rename.
+        return {'range': None, 'placeholder': None, 'defaultBehavior': True}
     raw = manager.document_request(
         rel, 'textDocument/prepareRename', provider='renameProvider', params=_position_params(params)
     )
     if not isinstance(raw, dict):
         return {'range': None, 'placeholder': None}
-    # ``Range`` | ``{range, placeholder}`` | ``{defaultBehavior}``.
+    if raw.get('defaultBehavior'):
+        return {'range': None, 'placeholder': None, 'defaultBehavior': True}
+    # ``Range`` | ``{range, placeholder}``.
     rng = raw.get('range') if 'range' in raw else (raw if 'start' in raw else None)
     return {
         'range': _lsp_range_to_monaco_irange(rng) if rng else None,

@@ -21,19 +21,31 @@ function lineStartOffsets(text: string): number[] {
   return starts;
 }
 
-function offsetOf(starts: readonly number[], textLength: number, line: number, column: number): number {
+/** Offset of a position. A column past the end of its line means the line's end, as in LSP. */
+function offsetOf(starts: readonly number[], text: string, line: number, column: number): number {
   if (line > starts.length) {
-    return textLength;
+    return text.length;
   }
-  return Math.min(textLength, starts[Math.max(0, line - 1)]! + Math.max(0, column - 1));
+  const index = Math.max(0, line - 1);
+  let lineEnd = text.length;
+  if (index + 1 < starts.length) {
+    lineEnd = starts[index + 1]!;
+    if (text.charCodeAt(lineEnd - 1) === 10 /* \n */) {
+      lineEnd--;
+    }
+    if (text.charCodeAt(lineEnd - 1) === 13 /* \r */) {
+      lineEnd--;
+    }
+  }
+  return Math.min(lineEnd, starts[index]! + Math.max(0, column - 1));
 }
 
 /** Applies edits (1-based Monaco ranges, UTF-16 columns) to ``text``. */
 export function applyTextEditsToString(text: string, edits: readonly LspWireTextEdit[]): string {
   const starts = lineStartOffsets(text);
   const spans = edits.map((edit) => ({
-    start: offsetOf(starts, text.length, edit.range.startLineNumber, edit.range.startColumn),
-    end: offsetOf(starts, text.length, edit.range.endLineNumber, edit.range.endColumn),
+    start: offsetOf(starts, text, edit.range.startLineNumber, edit.range.startColumn),
+    end: offsetOf(starts, text, edit.range.endLineNumber, edit.range.endColumn),
     newText: edit.newText,
   }));
   // Back to front so earlier offsets stay valid. The sort is stable, so same-position inserts
@@ -55,15 +67,36 @@ function wireToMonacoRange(api: typeof Monaco, r: LspWireRange): Monaco.Range {
   return new api.Range(r.startLineNumber, r.startColumn, r.endLineNumber, r.endColumn);
 }
 
+/** What Node's UTF-8 decoder puts in place of bytes that aren't UTF-8; writing it back loses them. */
+const UTF8_REPLACEMENT_CHAR = '\uFFFD';
+
 /**
- * Writes the edits for files with no open model to disk and returns the rest.
+ * Edits for files that moved: keyed by where each file is now, not where the server saw it.
+ * Covers the moved file itself and, for a folder, everything below it.
+ */
+export function editsAfterMove(
+  changes: LspWorkspaceChanges,
+  oldRelativePath: string,
+  newRelativePath: string,
+): LspWorkspaceChanges {
+  const moved: LspWorkspaceChanges = {};
+  for (const [relativePath, edits] of Object.entries(changes)) {
+    const inside = relativePath === oldRelativePath || relativePath.startsWith(`${oldRelativePath}/`);
+    moved[inside ? newRelativePath + relativePath.slice(oldRelativePath.length) : relativePath] = edits;
+  }
+  return moved;
+}
+
+/**
+ * Writes the edits for files with no tab to disk and returns the rest.
  *
- * Monaco's bulk edit throws ``bad edit - model not found`` for a file that isn't open, and a model
- * created just for the edit would hold changes no tab can show or save. Every closed file is read
- * and computed before the first write, so a read failure changes nothing.
+ * ``isOpen`` must mean "a tab can show and save this file". Monaco's bulk edit throws ``bad edit -
+ * model not found`` for a file with no model, and a preview model made for a peek widget would
+ * silently drop the edit when it is replaced. Every closed file is read and computed before the
+ * first write, so a read failure changes nothing.
  */
 export async function writeEditsForClosedFiles(
-  api: typeof Monaco,
+  isOpen: (relativePath: string) => boolean,
   electron: Pick<ElectronService, 'readWorkspaceFile' | 'writeWorkspaceFile'>,
   workspaceRoot: string,
   changes: LspWorkspaceChanges,
@@ -71,13 +104,21 @@ export async function writeEditsForClosedFiles(
   const openChanges: LspWorkspaceChanges = {};
   const pending: Array<{ relativePath: string; content: string }> = [];
   for (const [relativePath, edits] of Object.entries(changes)) {
-    if (api.editor.getModel(workspaceFileUri(api, relativePath))) {
+    if (isOpen(relativePath)) {
       openChanges[relativePath] = edits;
       continue;
     }
     const read = await electron.readWorkspaceFile(workspaceRoot, relativePath);
     if (!read.ok || read.content === undefined) {
       return { openChanges: {}, error: `Could not read ${relativePath}: ${read.error ?? 'unknown error'}` };
+    }
+    if (read.content.includes(UTF8_REPLACEMENT_CHAR)) {
+      return { openChanges: {}, error: `Could not edit ${relativePath}: it is not valid UTF-8.` };
+    }
+    // vtsls leaves a byte order mark out of its first-line columns and gdls counts it, so there is
+    // no offset that is right for both; a guess shifts every edit on that line by one.
+    if (read.content.charCodeAt(0) === 0xfeff && edits.some((edit) => edit.range.startLineNumber <= 1)) {
+      return { openChanges: {}, error: `Could not edit ${relativePath}: it starts with a byte order mark.` };
     }
     pending.push({ relativePath, content: applyTextEditsToString(read.content, edits) });
   }
@@ -91,10 +132,13 @@ export async function writeEditsForClosedFiles(
 }
 
 /** Applies edits to open models; each stays unsaved until the user saves it. */
-export function applyEditsToOpenModels(api: typeof Monaco, changes: LspWorkspaceChanges): void {
+export function applyEditsToOpenModels(
+  api: typeof Monaco,
+  changes: LspWorkspaceChanges,
+  modelFor: (relativePath: string) => Monaco.editor.ITextModel | undefined,
+): void {
   for (const [relativePath, edits] of Object.entries(changes)) {
-    const model = api.editor.getModel(workspaceFileUri(api, relativePath));
-    model?.pushEditOperations(
+    modelFor(relativePath)?.pushEditOperations(
       [],
       edits.map((edit) => ({ range: wireToMonacoRange(api, edit.range), text: edit.newText })),
       () => null,

@@ -52,7 +52,7 @@ export interface LspEditorFeatureResults {
   declaration: { locations: LspWireLocation[] };
   callHierarchy: { locations: LspWireLocation[] };
   typeHierarchy: { locations: LspWireLocation[] };
-  prepareRename: { range: LspWireRange | null; placeholder: string | null };
+  prepareRename: { range: LspWireRange | null; placeholder: string | null; defaultBehavior?: boolean };
   foldingRanges: { ranges: Array<{ start: number; end: number; kind?: string | null }> };
   selectionRanges: { selections: LspWireRange[][] };
   documentColors: { colors: Array<{ range: LspWireRange; color: LspWireColor }> };

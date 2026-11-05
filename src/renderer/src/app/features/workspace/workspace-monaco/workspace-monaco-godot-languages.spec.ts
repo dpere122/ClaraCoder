@@ -92,6 +92,33 @@ describe('grammars', () => {
     }
   });
 
+  /** Whether a line opened inside ``state`` leaves it, running rules the way Monarch does. */
+  function leavesState(language: Monaco.languages.IMonarchLanguage, state: string, line: string): boolean {
+    const rules = language.tokenizer[state]! as unknown as Array<[RegExp, string | { next?: string }]>;
+    let rest = line;
+    while (rest.length > 0) {
+      const hit = rules
+        .map(([regex, action]) => ({ match: new RegExp(`^(?:${regex.source})`).exec(rest), action }))
+        .find(({ match }) => match && match[0].length > 0);
+      if (!hit?.match) {
+        return false;
+      }
+      if (typeof hit.action === 'object' && hit.action.next === '@pop') {
+        return true;
+      }
+      rest = rest.slice(hit.match[0].length);
+    }
+    return false;
+  }
+
+  it.each(['double', 'single'])('a %s-quoted string ends with its line', (state) => {
+    const quote = state === 'double' ? '"' : "'";
+    expect(leavesState(GDSCRIPT_MONARCH, state, 'never closed')).toBe(true);
+    expect(leavesState(GDSCRIPT_MONARCH, state, 'ends in an escape \\n')).toBe(true);
+    expect(leavesState(GDSCRIPT_MONARCH, state, `closed${quote} var b = 1`)).toBe(true);
+    expect(leavesState(GDSCRIPT_MONARCH, state, 'continues on the next line \\')).toBe(false);
+  });
+
   it('every state a rule moves to exists', () => {
     for (const language of [GDSCRIPT_MONARCH, GODOT_RESOURCE_MONARCH, GDSHADER_MONARCH]) {
       const states = new Set(Object.keys(language.tokenizer));

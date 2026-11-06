@@ -26,6 +26,14 @@ export const LSP_MONACO_LANGUAGE_IDS: readonly string[] = [
 ];
 
 /**
+ * Monaco languages that also get the extended features (implementation, type definition,
+ * declaration, folding, selection ranges, colors, links, hierarchies, workspace symbols, semantic
+ * token deltas). Add a language here once its server has been checked against them; Monaco's own
+ * fallbacks (indentation folding, word-based selection) stay in charge for the others.
+ */
+export const LSP_EXTENDED_FEATURE_MONACO_LANGUAGE_IDS: readonly string[] = ['gdscript'];
+
+/**
  * Server ids used for ``/lsp/semantic-tokens-legend`` prefetch (order matches backend registration).
  */
 export const LSP_SEMANTIC_LEGEND_SERVER_IDS: readonly string[] = [

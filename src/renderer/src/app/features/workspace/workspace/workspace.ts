@@ -22,7 +22,8 @@ import { WorkspaceFileChangeStatusService } from '../../../core/workspace-file-c
 import { Subscription } from 'rxjs';
 import type { EditorOutlineSymbol } from '../editor-outline/editor-outline';
 import { WorkspaceOutlineDockComponent } from '../workspace-outline-dock/workspace-outline-dock';
-import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
+import { normalizePathSlashes, workspaceRelativePathIfUnderRoot } from '../../../utils/workspace-relative-path';
+import { WorkspaceMonacoModelStore } from '../workspace-monaco/workspace-monaco-model-store';
 import {
   absolutePathsFromWorkspaceChangeEvent,
   collectExpandedPaths,
@@ -71,6 +72,7 @@ import {
 export class WorkspaceComponent implements OnDestroy {
   private readonly workspaceFileChangeStatus = inject(WorkspaceFileChangeStatusService);
   private readonly themedConfirm = inject(ThemedConfirmDialogService);
+  private readonly monacoStore = inject(WorkspaceMonacoModelStore);
 
   readonly workspaces = input<Workspace[]>([]);
   readonly currentWorkspaceId = input<string | null>(null);
@@ -217,6 +219,7 @@ export class WorkspaceComponent implements OnDestroy {
   private treeInteractionSuppressUntil = 0;
   /** Skip one blur-driven commit while programmatically focusing the rename field. */
   private renameSkipBlurCommit = false;
+  private renameCommitInFlight = false;
   private renameBlurTimer: ReturnType<typeof setTimeout> | null = null;
   private renameFocusTimer: ReturnType<typeof setTimeout> | null = null;
   /** Skip one blur-driven commit while programmatically focusing the create field. */
@@ -1167,7 +1170,8 @@ export class WorkspaceComponent implements OnDestroy {
 
   async commitInlineRename(): Promise<void> {
     const targetPath = this.inlineRenamePath();
-    if (!targetPath) {
+    // Enter then blur both commit; the second must not rename a file that already moved.
+    if (!targetPath || this.renameCommitInFlight) {
       return;
     }
     const ws = this.workspaces().find((w) => w.id === this.currentWorkspaceId());
@@ -1191,14 +1195,36 @@ export class WorkspaceComponent implements OnDestroy {
 
     const newAbsPath = joinTreeAbsolutePath(parentDirectoryPath(targetPath), trimmed);
     this.markDiskOpPending(targetPath, newAbsPath);
-    const res = await this.electron.renameWorkspaceEntry(ws.path, targetPath, trimmed);
-    if (!res.ok) {
-      this.clearDiskOpPending(targetPath, newAbsPath);
-      window.alert(res.error ?? 'Failed to rename.');
-      this.refocusRenameInput();
-      return;
+    this.renameCommitInFlight = true;
+    try {
+      const oldRel = workspaceRelativePathIfUnderRoot(ws.path, targetPath);
+      const newRel = workspaceRelativePathIfUnderRoot(ws.path, newAbsPath);
+      const sessionId = this.activeConversationId();
+      const edits =
+        oldRel && newRel ? await this.monacoStore.fetchFileRenameEdits(sessionId, oldRel, newRel) : null;
+      // That can take seconds on a cold language server; Escape in the meantime still cancels.
+      if (this.inlineRenamePath() !== targetPath) {
+        this.clearDiskOpPending(targetPath, newAbsPath);
+        return;
+      }
+      const res = await this.electron.renameWorkspaceEntry(ws.path, targetPath, trimmed);
+      if (!res.ok) {
+        // References are only rewritten after this point: a failed move leaves them correct.
+        this.clearDiskOpPending(targetPath, newAbsPath);
+        window.alert(res.error ?? 'Failed to rename.');
+        this.refocusRenameInput();
+        return;
+      }
+      if (oldRel && newRel) {
+        if (edits) {
+          await this.monacoStore.applyFileRenameEdits(ws.path, oldRel, newRel, edits);
+        }
+        this.monacoStore.notifyFileRenamed(sessionId, oldRel, newRel);
+      }
+      this.cancelInlineRename();
+    } finally {
+      this.renameCommitInFlight = false;
     }
-    this.cancelInlineRename();
   }
 
   private scheduleRenameInputFocus(): void {

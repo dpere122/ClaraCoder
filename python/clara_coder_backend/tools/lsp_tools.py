@@ -11,6 +11,7 @@ from clara_coder_backend.lsp.diagnostics import (
     diagnostics_session_aggregate_preamble,
     format_diagnostics_summary,
 )
+from clara_coder_backend.lsp.editor_features import run_editor_feature, workspace_symbols
 from clara_coder_backend.lsp.file_policy import lsp_server_for_path, normalize_relative_posix_path
 from clara_coder_backend.lsp.manager import (
     LspServerKind,
@@ -28,6 +29,10 @@ LSP_HOVER_NAME = 'lsp_hover'
 LSP_DEFINITION_NAME = 'lsp_find_definition'
 LSP_REFERENCES_NAME = 'lsp_find_references'
 LSP_DOCUMENT_SYMBOLS_NAME = 'lsp_get_document_symbols'
+LSP_IMPLEMENTATIONS_NAME = 'lsp_find_implementations'
+LSP_WORKSPACE_SYMBOLS_NAME = 'lsp_workspace_symbols'
+LSP_CALL_HIERARCHY_NAME = 'lsp_call_hierarchy'
+LSP_TYPE_HIERARCHY_NAME = 'lsp_type_hierarchy'
 
 __all__ = [
     'LSP_GET_DIAGNOSTICS_NAME',
@@ -35,6 +40,10 @@ __all__ = [
     'LSP_DEFINITION_NAME',
     'LSP_REFERENCES_NAME',
     'LSP_DOCUMENT_SYMBOLS_NAME',
+    'LSP_IMPLEMENTATIONS_NAME',
+    'LSP_WORKSPACE_SYMBOLS_NAME',
+    'LSP_CALL_HIERARCHY_NAME',
+    'LSP_TYPE_HIERARCHY_NAME',
     'LSP_READ_TOOLS',
 ]
 
@@ -226,6 +235,7 @@ def _aggregate_cached_diagnostics(session_id: str, encoding: str = 'utf-8') -> s
 
 _LSP_EXTENSIONS = '`.py`, `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`, `.gd`, `.java`'
 _POSITION = f'1-based `line`/`character`; {_LSP_EXTENSIONS}'
+_NAMED_LOCATION_LIMIT = 50
 
 
 @tool(LSP_GET_DIAGNOSTICS_NAME, description=describe(
@@ -349,10 +359,158 @@ def lsp_get_document_symbols(relative_path: Annotated[str, RELATIVE_PATH]) -> st
         return _format_lsp_tool_error('document symbol lookup', exc, relative_path=relative_path, server=srv)
 
 
+def _format_named_locations(rows: list[dict[str, Any]]) -> str:
+    lines: list[str] = []
+    for row in rows[:_NAMED_LOCATION_LIMIT]:
+        rng = row.get('range') or {}
+        where = f"`{row.get('relativePath')}` {rng.get('startLineNumber')}:{rng.get('startColumn')}"
+        name = str(row.get('name') or '')
+        container = str(row.get('containerName') or row.get('detail') or '')
+        label = f'{name} ({container})' if name and container else name
+        lines.append(f'- {label}: {where}' if label else f'- {where}')
+    if len(rows) > _NAMED_LOCATION_LIMIT:
+        lines.append(f'... {len(rows) - _NAMED_LOCATION_LIMIT} more omitted.')
+    return '\n'.join(lines)
+
+
+def _feature_lookup(
+    relative_path: str,
+    line: int,
+    character: int,
+    *,
+    feature: str,
+    provider: str,
+    title: str,
+    params: dict[str, Any] | None = None,
+) -> str:
+    rel, server = _require_lsp_read_path(relative_path)
+    manager = _agent_manager(server)
+    manager.sync_for_agent(rel, encoding=_default_encoding())
+    payload = run_editor_feature(manager, rel, feature, {'line': line, 'character': character, **(params or {})})
+    rows = payload.get('locations') or []
+    if rows:
+        return f'{title} for `{rel}` at {line}:{character}:\n{_format_named_locations(rows)}'
+    if not manager.has_provider(provider):
+        return f'The {server} language server does not support this lookup.'
+    return f'{title}: nothing found for `{rel}` at {line}:{character}.'
+
+
+@tool(LSP_IMPLEMENTATIONS_NAME, description=describe(
+    'Find implementations or overrides of the symbol at a line/character position.',
+    when='finding which subclasses override a method or implement an interface.',
+    not_='plain usages (use `lsp_find_references`).',
+    shape=_POSITION,
+))
+def lsp_find_implementations(
+    relative_path: Annotated[str, RELATIVE_PATH],
+    line: Annotated[int, '1-based line'],
+    character: Annotated[int, '1-based column'],
+) -> str:
+
+    try:
+        return _feature_lookup(
+            relative_path,
+            int(line),
+            int(character),
+            feature='implementation',
+            provider='implementationProvider',
+            title='Implementations',
+        )
+    except Exception as exc:
+        srv = lsp_server_for_path(normalize_relative_posix_path(relative_path))
+        return _format_lsp_tool_error('implementation lookup', exc, relative_path=relative_path, server=srv)
+
+
+@tool(LSP_CALL_HIERARCHY_NAME, description=describe(
+    'List the direct callers or callees of the function at a line/character position.',
+    when='tracing who calls a function or what it calls, one level at a time.',
+    not_='every textual usage (use `lsp_find_references`).',
+    shape=f'{_POSITION}; `direction` is `incoming` (callers) or `outgoing` (callees)',
+))
+def lsp_call_hierarchy(
+    relative_path: Annotated[str, RELATIVE_PATH],
+    line: Annotated[int, '1-based line'],
+    character: Annotated[int, '1-based column'],
+    direction: Annotated[str, '`incoming` = callers, `outgoing` = callees'] = 'incoming',
+) -> str:
+
+    try:
+        outgoing = (direction or '').strip().lower() == 'outgoing'
+        return _feature_lookup(
+            relative_path,
+            int(line),
+            int(character),
+            feature='callHierarchy',
+            provider='callHierarchyProvider',
+            title='Callees' if outgoing else 'Callers',
+            params={'direction': 'outgoing' if outgoing else 'incoming'},
+        )
+    except Exception as exc:
+        srv = lsp_server_for_path(normalize_relative_posix_path(relative_path))
+        return _format_lsp_tool_error('call hierarchy lookup', exc, relative_path=relative_path, server=srv)
+
+
+@tool(LSP_TYPE_HIERARCHY_NAME, description=describe(
+    'List the direct supertypes or subtypes of the class at a line/character position.',
+    when='walking a class inheritance tree.',
+    shape=f'{_POSITION}; `direction` is `supertypes` or `subtypes`',
+))
+def lsp_type_hierarchy(
+    relative_path: Annotated[str, RELATIVE_PATH],
+    line: Annotated[int, '1-based line'],
+    character: Annotated[int, '1-based column'],
+    direction: Annotated[str, '`supertypes` or `subtypes`'] = 'supertypes',
+) -> str:
+
+    try:
+        subtypes = (direction or '').strip().lower() == 'subtypes'
+        return _feature_lookup(
+            relative_path,
+            int(line),
+            int(character),
+            feature='typeHierarchy',
+            provider='typeHierarchyProvider',
+            title='Subtypes' if subtypes else 'Supertypes',
+            params={'direction': 'subtypes' if subtypes else 'supertypes'},
+        )
+    except Exception as exc:
+        srv = lsp_server_for_path(normalize_relative_posix_path(relative_path))
+        return _format_lsp_tool_error('type hierarchy lookup', exc, relative_path=relative_path, server=srv)
+
+
+@tool(LSP_WORKSPACE_SYMBOLS_NAME, description=describe(
+    'Find classes, functions and other symbols by name across the workspace.',
+    when='you know a symbol name but not which file declares it.',
+    not_='free-text search (use `search_workspace`).',
+    shape='`relative_path` is any file in the target language and picks the language server',
+))
+def lsp_workspace_symbols(
+    relative_path: Annotated[str, f'{RELATIVE_PATH}; any file in the target language'],
+    query: Annotated[str, 'symbol name or part of it'],
+) -> str:
+
+    try:
+        _rel, server = _require_lsp_read_path(relative_path)
+        manager = _agent_manager(server)
+        rows = workspace_symbols(manager, str(query or ''))
+        if rows:
+            return f'Workspace symbols matching `{query}`:\n{_format_named_locations(rows)}'
+        if not manager.has_provider('workspaceSymbolProvider'):
+            return f'The {server} language server does not support workspace symbols.'
+        return f'No workspace symbols match `{query}`.'
+    except Exception as exc:
+        srv = lsp_server_for_path(normalize_relative_posix_path(relative_path))
+        return _format_lsp_tool_error('workspace symbol lookup', exc, relative_path=relative_path, server=srv)
+
+
 LSP_READ_TOOLS: list[Any] = [
     lsp_get_diagnostics,
     lsp_hover,
     lsp_find_definition,
     lsp_find_references,
     lsp_get_document_symbols,
+    lsp_find_implementations,
+    lsp_call_hierarchy,
+    lsp_type_hierarchy,
+    lsp_workspace_symbols,
 ]

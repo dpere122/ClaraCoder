@@ -1,0 +1,22 @@
+/* Tab-specific styles for settings-lsp; shared form chrome lives in settings/settings.css */
+.settings-lsp-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.settings-lsp-status__path {
+  overflow-wrap: anywhere;
+}
+
+.settings-lsp-path-row {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-lsp-path-row input {
+  flex: 1;
+  min-width: 0;
+}

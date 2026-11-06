@@ -642,6 +642,22 @@ class McpOAuthTokensUpdateRequest(BaseModel):
     oauth: McpOAuthTokensRequest
 
 
+class RuntimeGdscriptLspRequest(BaseModel):
+    """Settings → LSP → Godot."""
+
+    godotBinaryPath: str = ''
+    allowEngineApiDump: bool = False
+    diagnosticsProfile: Literal['godot', 'strict', 'off'] = 'godot'
+    inlayTypeHints: bool = True
+    inlayParameterHints: bool = True
+    formatterCommand: str = ''
+    formatterArgs: str = ''
+
+
+class RuntimeLspRequest(BaseModel):
+    gdscript: RuntimeGdscriptLspRequest = Field(default_factory=RuntimeGdscriptLspRequest)
+
+
 class RuntimeConfigRequest(BaseModel):
     """Full settings payload from the UI; replaces in-memory runtime_config."""
 
@@ -651,6 +667,7 @@ class RuntimeConfigRequest(BaseModel):
     host: RuntimeHostRequest | None = None
     tools: RuntimeToolsRequest | None = None
     contextCompression: RuntimeContextCompressionRequest | None = None
+    lsp: RuntimeLspRequest | None = None
     huggingFaceToken: str = ''
     mcpServers: list[McpServerRequest] = Field(default_factory=list)
     activeWorkspacePath: str = ''

@@ -10,6 +10,13 @@ import type {
   LspEditorSignatureHelpIpc,
   LspEditorTextEditIpc,
 } from '../../../preload/lsp-types';
+import type {
+  LspEditorFeature,
+  LspEditorFeatureResults,
+  LspFileRenameIpc,
+  LspWireLocation,
+  LspWireTextEdit,
+} from '../../../shared/lsp-editor-features';
 import { pythonControlFetch, pythonLspFetch } from '../../python/http-client';
 
 async function postLspEditorJson<T>(
@@ -56,7 +63,123 @@ function docSyncBody(
   return body;
 }
 
+function fileRenamesBody(files: unknown): { files: Array<{ old_relative_path: string; new_relative_path: string }> } {
+  const rows = Array.isArray(files) ? (files as Partial<LspFileRenameIpc>[]) : [];
+  return {
+    files: rows
+      .filter((f) => typeof f?.oldRelativePath === 'string' && typeof f?.newRelativePath === 'string')
+      .map((f) => ({ old_relative_path: f.oldRelativePath!, new_relative_path: f.newRelativePath! })),
+  };
+}
+
 export function registerLspEditorExtendedIpc(): void {
+  ipcMain.handle(
+    'lsp-editor-feature',
+    async (
+      event,
+      sessionId: unknown,
+      relativePath: unknown,
+      feature: unknown,
+      params: unknown,
+      documentText: unknown,
+      skipDocumentSync: unknown,
+    ): Promise<
+      | { ok: true; result: LspEditorFeatureResults[LspEditorFeature]; syncedFromDisk: boolean }
+      | { ok: false; error: string }
+    > => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
+      const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
+      const rel = typeof relativePath === 'string' ? relativePath.trim().replace(/\\/g, '/') : '';
+      if (!sid || !rel || typeof feature !== 'string' || !feature) {
+        return { ok: false, error: 'Missing session, path, or feature.' };
+      }
+      const out = await postLspEditorJson<LspEditorFeatureResults[LspEditorFeature] & { synced_from_disk?: boolean }>(
+        '/lsp/editor/feature',
+        sid,
+        {
+          ...docSyncBody(rel, documentText, skipDocumentSync),
+          feature,
+          params: params && typeof params === 'object' ? params : {},
+        },
+      );
+      if (!out.ok) {
+        return out;
+      }
+      return { ok: true, result: out.data, syncedFromDisk: out.data.synced_from_disk === true };
+    },
+  );
+
+  ipcMain.handle(
+    'lsp-workspace-symbols',
+    async (
+      event,
+      sessionId: unknown,
+      server: unknown,
+      query: unknown,
+    ): Promise<{ ok: true; symbols: LspWireLocation[] } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
+      const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
+      if (!sid || typeof server !== 'string' || !server) {
+        return { ok: false, error: 'Missing session or server.' };
+      }
+      const out = await postLspEditorJson<{ symbols: LspWireLocation[] }>('/lsp/workspace-symbols', sid, {
+        server,
+        query: typeof query === 'string' ? query : '',
+      });
+      return out.ok ? { ok: true, symbols: out.data.symbols ?? [] } : out;
+    },
+  );
+
+  ipcMain.handle(
+    'lsp-will-rename-files',
+    async (
+      event,
+      sessionId: unknown,
+      files: unknown,
+    ): Promise<{ ok: true; changes: Record<string, LspWireTextEdit[]> } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
+      const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
+      if (!sid) {
+        return { ok: false, error: 'Missing session.' };
+      }
+      const out = await postLspEditorJson<{ changes: Record<string, LspWireTextEdit[]> }>(
+        '/lsp/will-rename-files',
+        sid,
+        fileRenamesBody(files),
+      );
+      return out.ok ? { ok: true, changes: out.data.changes ?? {} } : out;
+    },
+  );
+
+  ipcMain.handle(
+    'lsp-did-rename-files',
+    async (event, sessionId: unknown, files: unknown): Promise<{ ok: true } | { ok: false; error: string }> => {
+      try {
+        assertTrustedMainRendererOrThrow(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
+      const sid = typeof sessionId === 'string' ? sessionId.trim() : '';
+      if (!sid) {
+        return { ok: false, error: 'Missing session.' };
+      }
+      const out = await postLspEditorJson<{ ok: boolean }>('/lsp/did-rename-files', sid, fileRenamesBody(files));
+      return out.ok ? { ok: true } : out;
+    },
+  );
+
   ipcMain.handle(
     'lsp-editor-diagnostics',
     async (
@@ -536,6 +659,7 @@ export function registerLspEditorExtendedIpc(): void {
         legend: { tokenTypes: string[]; tokenModifiers: string[] };
         resultId: string | null;
         edits: unknown[];
+        data?: number[];
       }>('/lsp/semantic-tokens/full/delta', sid, {
         ...docSyncBody(rel, documentText, skipDocumentSync),
         previous_result_id: prev,

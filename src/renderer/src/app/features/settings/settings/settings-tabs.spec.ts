@@ -17,6 +17,7 @@ describe('isSettingsTab', () => {
     expect(isSettingsTab('modelManager')).toBe(true);
     expect(isSettingsTab('monaco')).toBe(true);
     expect(isSettingsTab('mcp')).toBe(true);
+    expect(isSettingsTab('lsp')).toBe(true);
   });
 
   it('rejects unknown values', () => {

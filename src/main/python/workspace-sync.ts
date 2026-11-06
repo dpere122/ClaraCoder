@@ -12,6 +12,7 @@ import {
   lmStudioOpenAiBaseUrlToRestOrigin,
   normalizeWebSearchEngines,
 } from '../../shared';
+import { normalizeLspServersSettings } from '../../shared/lsp-settings';
 import { unwrapSecret } from '../../shared/types/app-config';
 import { ensurePythonReady } from './server';
 import { pythonControlFetch } from './http-client';
@@ -412,6 +413,7 @@ async function postRuntimeConfigToPython(
           triggerRatio: config.contextCompression.triggerRatio,
           targetRatio: config.contextCompression.targetRatio,
         },
+        lsp: normalizeLspServersSettings(config.lspServers),
         huggingFaceToken: unwrapSecret(config.modelManager?.huggingFaceToken ?? ''),
         mcpServers: wireMcpServers(config),
         activeWorkspacePath: activeWorkspacePath(config),

@@ -14,6 +14,7 @@ logger = logging.getLogger('clara.runtime.deps.registry')
 DEPENDENCY_IDS = (
     'llama-server',
     'java-lsp',
+    'gdls',
     'kokoro',
     'whisper',
 )
@@ -21,6 +22,7 @@ DEPENDENCY_IDS = (
 
 def _providers():
     from clara_coder_backend.runtime.deps.providers import (
+        gdls,
         java_lsp,
         kokoro,
         llama_server,
@@ -30,6 +32,7 @@ def _providers():
     return {
         'llama-server': llama_server,
         'java-lsp': java_lsp,
+        'gdls': gdls,
         'kokoro': kokoro,
         'whisper': whisper,
     }

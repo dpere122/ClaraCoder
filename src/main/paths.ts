@@ -119,6 +119,11 @@ export function getRuntimeDir(): string {
   return path.join(getAppDataDir(), 'runtime');
 }
 
+/** Read-only engine API pages gdls generates (Python ``gdls_stub_cache_dir``). */
+export function getGdlsStubCacheDir(): string {
+  return path.join(getRuntimeDir(), 'gdls', 'stubs');
+}
+
 /** App-managed Python venv under the runtime dir. */
 export function getRuntimePythonDir(): string {
   return path.join(getRuntimeDir(), 'python-venv');

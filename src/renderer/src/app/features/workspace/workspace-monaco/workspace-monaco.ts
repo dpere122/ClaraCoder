@@ -40,6 +40,8 @@ import {
   relativePathFromModelKey,
 } from '../open-editor-file-ref';
 import { monacoWorkspaceSettingsToEditorOptions } from './workspace-monaco-editor-options';
+import { registerGodotLanguages } from './workspace-monaco-godot-languages';
+import type { WorkspaceMonacoLspNavigatePayload } from './workspace-monaco-lsp';
 import { renderMarkdownDoc } from './markdown-doc-renderer';
 import type { EditorSelectionPayload } from '../../chat/chat-context-bar/chat-context-file';
 import { invalidateMonacoModelLspDocumentSync, markMonacoModelLspDocumentSynced, monacoModelNeedsLspDocumentSync } from './workspace-monaco-lsp-sync-state';
@@ -75,6 +77,10 @@ let nextOwnerSeq = 0;
  * {@link WorkspaceMonacoModelStore}; this component owns only its editor instance, view
  * state, markdown preview and diff surface.
  */
+
+/** How long a pending reveal waits for its tab's model: about a second at 60 fps. */
+const MAX_REVEAL_WAIT_FRAMES = 60;
+
 @Component({
   selector: 'app-workspace-monaco',
   standalone: true,
@@ -135,7 +141,7 @@ export class WorkspaceMonacoComponent {
     return new Set(raw);
   });
   /** Cross-file definition navigation (shell opens/focuses tab; optional reveal via {@link pendingEditorReveal}). */
-  readonly navigateWorkspaceFile = output<{ relativePath: string; line: number; column: number }>();
+  readonly navigateWorkspaceFile = output<WorkspaceMonacoLspNavigatePayload>();
   readonly pendingEditorRevealHandled = output<void>();
   /** Non-empty editor text selection in a workspace file (null when cleared or unavailable). */
   readonly editorSelectionChange = output<EditorSelectionPayload | null>();
@@ -433,22 +439,41 @@ export class WorkspaceMonacoComponent {
     effect(() => {
       const pending = this.pendingEditorReveal();
       const key = this.activeModelKey()?.trim();
-      const rel = key ? relativePathFromModelKey(key) : null;
       const ready = this.editorReady();
       const ed = this.editor;
       const diffOn = this.monacoDiffActive();
-      if (!pending || !rel?.trim() || !key || !ready || !ed || diffOn) {
+      if (!pending || !key || !ready || !ed || diffOn) {
         return;
       }
-      if (normalizePathSlashes(rel) !== normalizePathSlashes(pending.relativePath)) {
+      if (normalizePathSlashes(displayPathForModelKey(key)) !== normalizePathSlashes(pending.relativePath)) {
         return;
       }
       untracked(() => {
-        requestAnimationFrame(() => {
-          ed.setPosition({ lineNumber: pending.line, column: pending.column });
-          ed.revealLineInCenter(pending.line);
-          this.zone.run(() => this.emitOutputVoid(this.pendingEditorRevealHandled));
-        });
+        // The tab's model attaches asynchronously and restores its saved view state a frame later;
+        // revealing any earlier lands on the wrong model or gets overwritten by that restore.
+        const reveal = (framesLeft: number): void => {
+          requestAnimationFrame(() => {
+            if (this.destroyed) {
+              return;
+            }
+            if (ed.getModel() !== this.store.getModel(key) && framesLeft > 0) {
+              reveal(framesLeft - 1);
+              return;
+            }
+            requestAnimationFrame(() => {
+              if (this.destroyed) {
+                return;
+              }
+              // The wait ran out or the user moved on: this position belongs to another file.
+              if (ed.getModel() === this.store.getModel(key)) {
+                ed.setPosition({ lineNumber: pending.line, column: pending.column });
+                ed.revealLineInCenter(pending.line);
+              }
+              this.zone.run(() => this.emitOutputVoid(this.pendingEditorRevealHandled));
+            });
+          });
+        };
+        reveal(MAX_REVEAL_WAIT_FRAMES);
       });
     });
 
@@ -807,6 +832,7 @@ export class WorkspaceMonacoComponent {
       return;
     }
     this.monaco = monacoApi;
+    registerGodotLanguages(monacoApi);
     this.store.setMonaco(monacoApi);
     // Monaco's in-worker TS/JS service has no workspace fs/tsconfig; semantic rules
     // clash with the real project. TS/JS IntelliSense and checks come from the LSP bridge.
@@ -1331,6 +1357,7 @@ export class WorkspaceMonacoComponent {
     }
     ed.updateOptions({
       'semanticHighlighting.enabled': true,
+      readOnly: this.store.isReadOnlyKey(modelKey),
     } as Monaco.editor.IEditorOptions & { 'semanticHighlighting.enabled'?: boolean });
     void this.store.prefetchSemanticLegendForModel(model);
     const forcePreview = this.isForcePreviewKey(modelKey);

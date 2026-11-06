@@ -1,3 +1,4 @@
+import { defaultLspServersSettings } from '../../shared/lsp-settings';
 import { randomUUID } from 'crypto';
 import { DEFAULT_SCREENSHOT_RETENTION } from '../../shared/screenshot-retention';
 import { homedir } from 'os';
@@ -303,6 +304,7 @@ export function createDefaultConfig(): AppConfig {
     uiFontFamily: '',
     codeFontFamily: '',
     monacoWorkspaceEditor: defaultMonacoWorkspaceEditorSettings(),
+    lspServers: defaultLspServersSettings(),
   };
 }
 

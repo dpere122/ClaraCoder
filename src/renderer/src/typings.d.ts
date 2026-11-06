@@ -78,7 +78,12 @@ import type {
   LspEditorDiagnosticPayload,
   LspEditorDocumentSymbolPayload,
   LspEditorFlatSymbolPayload,
+  LspEditorFeature,
+  LspEditorFeatureResponse,
   LspEditorIRangePayload,
+  LspFileRenameIpc,
+  LspWireLocation,
+  LspWireTextEdit,
   LspEditorLocationPayload,
   LspEditorTextEditPayload,
   LspSemanticTokensFullPayload,
@@ -325,7 +330,7 @@ declare global {
     ) => Promise<{ ok: boolean; path?: string; error?: string }>;
     readAbsoluteFile?: (
       absolutePath: string,
-    ) => Promise<{ ok: boolean; content?: string; path?: string; error?: string }>;
+    ) => Promise<{ ok: boolean; content?: string; path?: string; error?: string; readOnly?: boolean }>;
     setAlwaysOnTop: (pinned: boolean) => Promise<void>;
     getConversations: (workspaceId?: string | null) => Promise<ConversationMeta[]>;
     readConversationFromDisk: (id: string, workspaceId?: string | null) => Promise<Conversation>;
@@ -838,6 +843,27 @@ declare global {
         }
       | { ok: false; error: string }
     >;
+    lspEditorFeature?: <F extends LspEditorFeature>(
+      sessionId: string,
+      relativePath: string,
+      feature: F,
+      params: Record<string, unknown>,
+      documentText: string,
+      skipDocumentSync?: boolean,
+    ) => Promise<LspEditorFeatureResponse<F>>;
+    lspWorkspaceSymbols?: (
+      sessionId: string,
+      server: string,
+      query: string,
+    ) => Promise<{ ok: true; symbols: LspWireLocation[] } | { ok: false; error: string }>;
+    lspWillRenameFiles?: (
+      sessionId: string,
+      files: LspFileRenameIpc[],
+    ) => Promise<{ ok: true; changes: Record<string, LspWireTextEdit[]> } | { ok: false; error: string }>;
+    lspDidRenameFiles?: (
+      sessionId: string,
+      files: LspFileRenameIpc[],
+    ) => Promise<{ ok: true } | { ok: false; error: string }>;
     lspEditorCodeLensResolve?: (
       sessionId: string,
       relativePath: string,
@@ -859,6 +885,7 @@ declare global {
             legend: { tokenTypes: string[]; tokenModifiers: string[] };
             resultId: string | null;
             edits: unknown[];
+            data?: number[];
           };
         }
       | { ok: false; error: string }

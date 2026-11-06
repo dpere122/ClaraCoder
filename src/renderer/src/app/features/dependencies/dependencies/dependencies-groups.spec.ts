@@ -18,10 +18,10 @@ function dep(id: string, extra: Partial<DependencyInfo> = {}): DependencyInfo {
 
 describe('groupDependencies', () => {
   it('orders rows into Required, Language servers, and Voice', () => {
-    const groups = groupDependencies([dep('whisper'), dep('java-lsp'), dep('llama-server'), dep('kokoro')]);
+    const groups = groupDependencies([dep('whisper'), dep('gdls'), dep('java-lsp'), dep('llama-server'), dep('kokoro')]);
     expect(groups.map((g) => [g.label, g.deps.map((d) => d.id)])).toEqual([
       ['Required', ['llama-server']],
-      ['Language servers', ['java-lsp']],
+      ['Language servers', ['java-lsp', 'gdls']],
       ['Voice', ['kokoro', 'whisper']],
     ]);
     expect(groups.find((g) => g.id === 'voice')?.comingSoon).toBe(true);

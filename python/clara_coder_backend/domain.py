@@ -450,6 +450,25 @@ class RuntimeMcpServer:
 
 
 @dataclass
+class RuntimeGdscriptLspConfig:
+    """Settings → LSP → Godot."""
+
+    godot_binary_path: str = ''
+    #: Lets gdls run Godot on a project, which can load the project's native code. Off until opted in.
+    allow_engine_api_dump: bool = False
+    diagnostics_profile: str = 'godot'
+    inlay_type_hints: bool = True
+    inlay_parameter_hints: bool = True
+    formatter_command: str = ''
+    formatter_args: str = ''
+
+
+@dataclass
+class RuntimeLspConfig:
+    gdscript: RuntimeGdscriptLspConfig = field(default_factory=RuntimeGdscriptLspConfig)
+
+
+@dataclass
 class RuntimeConfig:
     """Full runtime settings chosen in the desktop UI and POSTed to /runtime-config."""
 
@@ -459,6 +478,7 @@ class RuntimeConfig:
     host: RuntimeHostConfig = field(default_factory=RuntimeHostConfig)
     tools: RuntimeToolsConfig = field(default_factory=RuntimeToolsConfig)
     context_compression: RuntimeContextCompressionConfig = field(default_factory=RuntimeContextCompressionConfig)
+    lsp: RuntimeLspConfig = field(default_factory=RuntimeLspConfig)
     mcp_servers: list[RuntimeMcpServer] = field(default_factory=list)
     #: Active workspace directory. MCP stdio cwd and the advertised root follow this path.
     active_workspace_path: str = ''

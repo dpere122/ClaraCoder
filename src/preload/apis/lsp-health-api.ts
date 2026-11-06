@@ -5,6 +5,11 @@ import type {
   LspDashboardStatus,
   RuntimeHealthSnapshot,
   CudaGpuDevice,
+  LspEditorFeature,
+  LspEditorFeatureResponse,
+  LspFileRenameIpc,
+  LspWireLocation,
+  LspWireTextEdit,
 } from '../../shared';
 import type {
   LspEditorCodeActionIpc,
@@ -372,6 +377,35 @@ export const createLspHealthApi = (ipcRenderer: PreloadIpc) => ({
       | { ok: true; lens: LspEditorCodeLensIpc | null }
       | { ok: false; error: string }
     >,
+  lspEditorFeature: <F extends LspEditorFeature>(
+    sessionId: string,
+    relativePath: string,
+    feature: F,
+    params: Record<string, unknown>,
+    documentText: string,
+    skipDocumentSync?: boolean,
+  ) =>
+    ipcRenderer.invoke(
+      'lsp-editor-feature',
+      sessionId,
+      relativePath,
+      feature,
+      params,
+      documentText,
+      skipDocumentSync === true,
+    ) as Promise<LspEditorFeatureResponse<F>>,
+  lspWorkspaceSymbols: (sessionId: string, server: string, query: string) =>
+    ipcRenderer.invoke('lsp-workspace-symbols', sessionId, server, query) as Promise<
+      { ok: true; symbols: LspWireLocation[] } | { ok: false; error: string }
+    >,
+  lspWillRenameFiles: (sessionId: string, files: LspFileRenameIpc[]) =>
+    ipcRenderer.invoke('lsp-will-rename-files', sessionId, files) as Promise<
+      { ok: true; changes: Record<string, LspWireTextEdit[]> } | { ok: false; error: string }
+    >,
+  lspDidRenameFiles: (sessionId: string, files: LspFileRenameIpc[]) =>
+    ipcRenderer.invoke('lsp-did-rename-files', sessionId, files) as Promise<
+      { ok: true } | { ok: false; error: string }
+    >,
   lspEditorSemanticTokensDelta: (
     sessionId: string,
     relativePath: string,
@@ -393,6 +427,7 @@ export const createLspHealthApi = (ipcRenderer: PreloadIpc) => ({
             legend: { tokenTypes: string[]; tokenModifiers: string[] };
             resultId: string | null;
             edits: unknown[];
+            data?: number[];
           };
         }
       | { ok: false; error: string }

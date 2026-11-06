@@ -1,3 +1,4 @@
+import type { LspServersSettings } from '../lsp-settings';
 import type { LmStudioSettings } from '../lm-studio-ipc';
 import type { OpenAiCompatSettings } from '../openai-compat';
 import type { Workspace } from './workspace';
@@ -1621,6 +1622,8 @@ export interface AppConfig {
   confirmMove?: boolean;
   /** Workspace Monaco editor options (client-only). */
   monacoWorkspaceEditor?: MonacoWorkspaceEditorSettings;
+  /** Options for the integrated language servers (Settings → LSP; synced to the Python backend). */
+  lspServers?: LspServersSettings;
   /** Per-workspace Monaco scroll positions for open file tabs (client-only). */
   workspaceMonacoScrollByWorkspaceId?: WorkspaceMonacoScrollByWorkspaceId;
   /** Per-workspace open editor tabs restored when switching workspaces (client-only). */

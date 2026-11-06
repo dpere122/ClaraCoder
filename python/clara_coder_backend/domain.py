@@ -464,8 +464,24 @@ class RuntimeGdscriptLspConfig:
 
 
 @dataclass
+class RuntimePythonLspConfig:
+    """Settings → LSP → Python (basedpyright)."""
+
+    #: A project ``pyrightconfig.json`` or ``[tool.basedpyright]`` / ``[tool.pyright]`` table wins over this.
+    type_checking_mode: str = 'standard'
+    diagnostic_mode: str = 'openFilesOnly'
+    inlay_variable_types: bool = True
+    inlay_call_argument_names: bool = True
+    inlay_function_return_types: bool = True
+    inlay_generic_types: bool = False
+    auto_import_completions: bool = True
+    extra_paths: list[str] = field(default_factory=list)
+
+
+@dataclass
 class RuntimeLspConfig:
     gdscript: RuntimeGdscriptLspConfig = field(default_factory=RuntimeGdscriptLspConfig)
+    python: RuntimePythonLspConfig = field(default_factory=RuntimePythonLspConfig)
 
 
 @dataclass

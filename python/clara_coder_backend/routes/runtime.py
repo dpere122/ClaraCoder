@@ -17,6 +17,7 @@ from clara_coder_backend.domain import (
     RuntimeHostConfig,
     RuntimeLspConfig,
     RuntimeMcpServer,
+    RuntimePythonLspConfig,
     RuntimeToolsConfig,
 )
 from clara_coder_backend.runtime.http_url_normalize import normalize_bind_all_host_url
@@ -35,6 +36,7 @@ router = APIRouter()
 
 def _runtime_lsp_config(request: RuntimeLspRequest) -> RuntimeLspConfig:
     g = request.gdscript
+    p = request.python
     return RuntimeLspConfig(
         gdscript=RuntimeGdscriptLspConfig(
             godot_binary_path=g.godotBinaryPath.strip(),
@@ -44,7 +46,17 @@ def _runtime_lsp_config(request: RuntimeLspRequest) -> RuntimeLspConfig:
             inlay_parameter_hints=g.inlayParameterHints,
             formatter_command=g.formatterCommand.strip(),
             formatter_args=g.formatterArgs.strip(),
-        )
+        ),
+        python=RuntimePythonLspConfig(
+            type_checking_mode=p.typeCheckingMode,
+            diagnostic_mode=p.diagnosticMode,
+            inlay_variable_types=p.inlayVariableTypes,
+            inlay_call_argument_names=p.inlayCallArgumentNames,
+            inlay_function_return_types=p.inlayFunctionReturnTypes,
+            inlay_generic_types=p.inlayGenericTypes,
+            auto_import_completions=p.autoImportCompletions,
+            extra_paths=list(dict.fromkeys(path.strip() for path in p.extraPaths if path.strip())),
+        ),
     )
 
 
@@ -268,6 +280,12 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
         from clara_coder_backend.lsp.manager import shutdown_lsp_server_for_all_sessions
 
         await asyncio.to_thread(shutdown_lsp_server_for_all_sessions, 'gdscript')
+    if lsp_cfg.python != prev_lsp.python:
+        # Some basedpyright settings (diagnostic scope, type checking mode) only take full effect on a
+        # fresh start, so restart it; the next request for a ``.py`` file starts it again.
+        from clara_coder_backend.lsp.manager import shutdown_lsp_server_for_all_sessions
+
+        await asyncio.to_thread(shutdown_lsp_server_for_all_sessions, 'python')
     try:
         from clara_coder_backend.mcp.manager import schedule_mcp_reconcile
 

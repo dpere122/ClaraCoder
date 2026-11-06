@@ -24,6 +24,7 @@ import { registerLspDiagnosticsWatchIpc } from './handlers/lsp-diagnostics-watch
 import { registerModelManagerIpc } from './handlers/model-manager';
 import { registerListSystemFontsIpc } from './handlers/list-system-fonts';
 import { registerDependenciesIpc } from './handlers/dependencies';
+import { registerLspSettingsIpc } from './handlers/lsp-settings';
 import { registerThemesIpc } from './handlers/themes';
 import { registerMcpIpc } from './handlers/mcp';
 import { registerUpdaterIpc } from './handlers/updater';
@@ -41,6 +42,7 @@ export function registerAllIpc(): void {
   registerModelManagerIpc();
   registerDependenciesIpc();
   registerLspStatusIpc();
+  registerLspSettingsIpc();
   registerLspEditorExtendedIpc();
   registerLspDiagnosticsWatchIpc();
   registerWindowChromeIpc();

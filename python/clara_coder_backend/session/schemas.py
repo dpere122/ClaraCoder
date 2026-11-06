@@ -654,8 +654,22 @@ class RuntimeGdscriptLspRequest(BaseModel):
     formatterArgs: str = ''
 
 
+class RuntimePythonLspRequest(BaseModel):
+    """Settings → LSP → Python."""
+
+    typeCheckingMode: Literal['off', 'basic', 'standard', 'strict', 'recommended', 'all'] = 'standard'
+    diagnosticMode: Literal['openFilesOnly', 'workspace'] = 'openFilesOnly'
+    inlayVariableTypes: bool = True
+    inlayCallArgumentNames: bool = True
+    inlayFunctionReturnTypes: bool = True
+    inlayGenericTypes: bool = False
+    autoImportCompletions: bool = True
+    extraPaths: list[str] = Field(default_factory=list)
+
+
 class RuntimeLspRequest(BaseModel):
     gdscript: RuntimeGdscriptLspRequest = Field(default_factory=RuntimeGdscriptLspRequest)
+    python: RuntimePythonLspRequest = Field(default_factory=RuntimePythonLspRequest)
 
 
 class RuntimeConfigRequest(BaseModel):

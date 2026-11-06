@@ -1,3 +1,4 @@
+import type { PythonProjectConfigInfo } from '@shared/lsp-settings';
 import type { ScreenshotAssetStatus, ScreenshotStorageStats } from '@shared/screenshot-retention';
 import type {
   TutorialClaimResult,
@@ -902,6 +903,12 @@ declare global {
     onHealthLogRecord: (callback: (event: unknown, record: HealthLogRecord) => void) => void;
     openHealthWindow: () => void;
     closeHealthWindow: () => void;
+    lspPythonProjectConfig: () => Promise<{
+      ok: boolean;
+      error?: string;
+      workspacePath: string;
+      config: PythonProjectConfigInfo | null;
+    }>;
     depsList: () => Promise<{
       ok: boolean;
       dependencies: import('@shared/index').DependencyInfo[];

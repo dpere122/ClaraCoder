@@ -1,5 +1,5 @@
 <div class='settings-pane settings-pane--sectioned'>
-  @if (server().editable) {
+  @if (server().id === 'gdscript') {
     <div class='form-section'>
       <h4>Language server</h4>
       <div class='settings-lsp-status'>
@@ -116,6 +116,130 @@
       <p class='settings-field-hint'>
         Gets the document on stdin and must print the formatted result. With no formatter, Format Document
         does nothing for GDScript.
+      </p>
+    </div>
+  } @else if (server().id === 'python') {
+    <div class='form-section'>
+      <h4>Language server</h4>
+      <p class='panel__copy'>basedpyright · ships with Clara</p>
+      <p class='settings-field-hint'>
+        Finds installed packages through the workspace's Python interpreter or virtual environment. Changing
+        a setting here restarts the server.
+      </p>
+      @if (pythonProjectConfig(); as cfg) {
+        <div class='settings-lsp-notice' role='note'>
+          <p class='panel__copy'>
+            This workspace has its own basedpyright config in <code>{{ cfg.file }}</code>
+            @if (cfg.section) {
+              (<code>[{{ cfg.section }}]</code>)
+            }
+          </p>
+          <p class='settings-field-hint'>
+            basedpyright takes the type checking mode from that file, and its <code>extraPaths</code> when it
+            sets them. The scope, inlay hint and auto-import settings below still apply.
+          </p>
+        </div>
+      }
+    </div>
+
+    <div class='form-section'>
+      <h4>Diagnostics</h4>
+      <div class='form-grid'>
+        <label class='field'>
+          <span>Type checking mode</span>
+          <app-pill-select
+            [options]='typeCheckingOptions'
+            [value]='python().typeCheckingMode'
+            (valueChange)='patchPython({ typeCheckingMode: $any($event) })'
+          />
+        </label>
+        <label class='field'>
+          <span>Check</span>
+          <app-pill-select
+            [options]='diagnosticModeOptions'
+            [value]='python().diagnosticMode'
+            (valueChange)='patchPython({ diagnosticMode: $any($event) })'
+          />
+        </label>
+      </div>
+      <p class='settings-field-hint'>
+        Recommended and All rules are basedpyright's stricter sets, beyond Strict. Checking the whole
+        workspace lists problems in files you haven't opened, but is slower on large projects.
+      </p>
+    </div>
+
+    <div class='form-section'>
+      <h4>Inlay hints</h4>
+      <div class='form-grid'>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='python().inlayVariableTypes'
+              (ngModelChange)='patchPython({ inlayVariableTypes: $event })'
+            />
+            <span>Show inferred variable types</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='python().inlayCallArgumentNames'
+              (ngModelChange)='patchPython({ inlayCallArgumentNames: $event })'
+            />
+            <span>Show parameter names at call sites</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='python().inlayFunctionReturnTypes'
+              (ngModelChange)='patchPython({ inlayFunctionReturnTypes: $event })'
+            />
+            <span>Show inferred return types on functions</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='python().inlayGenericTypes'
+              (ngModelChange)='patchPython({ inlayGenericTypes: $event })'
+            />
+            <span>Show inferred type arguments, e.g. <code>[int]</code> after <code>list</code></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Completions</h4>
+      <div class='form-grid'>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='python().autoImportCompletions'
+              (ngModelChange)='patchPython({ autoImportCompletions: $event })'
+            />
+            <span>Suggest names from modules that aren't imported yet, and add the import</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Import paths</h4>
+      <div class='form-grid'>
+        <label class='field field--full'>
+          <span>Extra paths</span>
+          <textarea
+            rows='3'
+            [ngModel]='extraPathsText()'
+            (ngModelChange)='setExtraPaths($event)'
+            placeholder='src&#10;libs/vendored'
+          ></textarea>
+        </label>
+      </div>
+      <p class='settings-field-hint'>
+        One folder per line. Imports resolve from these as well as the environment's packages. Relative
+        paths start at the workspace folder.
       </p>
     </div>
   } @else {

@@ -1,6 +1,14 @@
-import { Component, DestroyRef, ViewEncapsulation, computed, inject } from '@angular/core';
+import { Component, DestroyRef, ViewEncapsulation, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { LSP_SERVER_CATALOG, type GdscriptDiagnosticsProfile, type GdscriptLspSettings } from '@shared/lsp-settings';
+import {
+  LSP_SERVER_CATALOG,
+  type GdscriptDiagnosticsProfile,
+  type GdscriptLspSettings,
+  type PythonDiagnosticMode,
+  type PythonLspSettings,
+  type PythonProjectConfigInfo,
+  type PythonTypeCheckingMode,
+} from '@shared/lsp-settings';
 import { ElectronService } from '../../../core/electron.service';
 import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 import { SettingsStore } from '../settings/settings-store';
@@ -29,16 +37,64 @@ export class SettingsLsp {
     { id: 'off', label: 'Off' },
   ];
 
+  protected readonly python = computed(() => this.s.lspServers().python);
+  /** The open workspace's own basedpyright config, which wins over some of the settings here. */
+  protected readonly pythonProjectConfig = signal<PythonProjectConfigInfo | null>(null);
+  protected readonly extraPathsText = computed(() => this.python().extraPaths.join('\n'));
+
+  protected readonly typeCheckingOptions: ReadonlyArray<{ id: PythonTypeCheckingMode; label: string }> = [
+    { id: 'off', label: 'Off' },
+    { id: 'basic', label: 'Basic' },
+    { id: 'standard', label: 'Standard' },
+    { id: 'strict', label: 'Strict' },
+    { id: 'recommended', label: 'Recommended (basedpyright)' },
+    { id: 'all', label: 'All rules' },
+  ];
+
+  protected readonly diagnosticModeOptions: ReadonlyArray<{ id: PythonDiagnosticMode; label: string }> = [
+    { id: 'openFilesOnly', label: 'Open files only' },
+    { id: 'workspace', label: 'Whole workspace' },
+  ];
+
   constructor() {
     void this.s.refreshLspDependencies();
-    // Dependencies is its own window: pick up an install when the user comes back from it.
-    const refresh = (): void => void this.s.refreshLspDependencies();
+    // Dependencies is its own window, and a project's config files can change while Settings is
+    // open: check again when the user comes back.
+    const refresh = (): void => {
+      void this.s.refreshLspDependencies();
+      if (this.server().id === 'python') {
+        void this.refreshPythonProjectConfig();
+      }
+    };
     window.addEventListener('focus', refresh);
     inject(DestroyRef).onDestroy(() => window.removeEventListener('focus', refresh));
+    effect(() => {
+      if (this.server().id === 'python') {
+        void this.refreshPythonProjectConfig();
+      }
+    });
   }
 
   protected patch(patch: Partial<GdscriptLspSettings>): void {
     this.s.patchGdscriptLsp(patch);
+  }
+
+  protected patchPython(patch: Partial<PythonLspSettings>): void {
+    this.s.patchPythonLsp(patch);
+  }
+
+  /** One path per line; blank and repeated lines are dropped. */
+  protected setExtraPaths(text: string): void {
+    const extraPaths = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line, index, lines) => line.length > 0 && lines.indexOf(line) === index);
+    this.patchPython({ extraPaths });
+  }
+
+  private async refreshPythonProjectConfig(): Promise<void> {
+    const res = await this.electron.lspPythonProjectConfig();
+    this.pythonProjectConfig.set(res.ok ? res.config : null);
   }
 
   protected async browseForGodot(): Promise<void> {

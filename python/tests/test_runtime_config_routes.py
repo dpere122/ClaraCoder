@@ -264,6 +264,56 @@ def test_runtime_config_applies_hugging_face_token() -> None:
         state.runtime_config.tools = orig.tools
 
 
+def test_runtime_config_applies_python_lsp_settings_and_restarts_basedpyright_only_when_they_change(
+    monkeypatch,
+) -> None:
+    from clara_coder_backend.main import app
+    from clara_coder_backend.session import state
+    from clara_coder_backend.lsp import manager as lsp_manager
+
+    stopped: list[str] = []
+    monkeypatch.setattr(lsp_manager, 'shutdown_lsp_server_for_all_sessions', stopped.append)
+    orig = deepcopy(state.runtime_config)
+    settings = {
+        'typeCheckingMode': 'recommended',
+        'diagnosticMode': 'workspace',
+        'inlayVariableTypes': False,
+        'inlayCallArgumentNames': True,
+        'inlayFunctionReturnTypes': False,
+        'inlayGenericTypes': True,
+        'autoImportCompletions': False,
+        'extraPaths': [' src ', '', 'src', 'libs'],
+    }
+    try:
+        with TestClient(app) as client:
+            assert client.post('/runtime-config', json=_payload()).status_code == 200
+            stopped.clear()
+
+            body = {**_payload(), 'lsp': {'python': settings}}
+            assert client.post('/runtime-config', json=body).status_code == 200
+            applied = state.runtime_config.lsp.python
+            assert applied.type_checking_mode == 'recommended'
+            assert applied.diagnostic_mode == 'workspace'
+            assert applied.inlay_variable_types is False
+            assert applied.inlay_generic_types is True
+            assert applied.auto_import_completions is False
+            assert applied.extra_paths == ['src', 'libs'], 'trimmed, blanks and repeats dropped'
+            assert stopped == ['python']
+
+            assert client.post('/runtime-config', json=body).status_code == 200
+            assert stopped == ['python'], 'saving unchanged settings must not restart basedpyright'
+
+            bad = {**_payload(), 'lsp': {'python': {**settings, 'typeCheckingMode': 'loud'}}}
+            assert client.post('/runtime-config', json=bad).status_code == 422
+    finally:
+        state.runtime_config.lsp = orig.lsp
+        state.runtime_config.tools = orig.tools
+        state.runtime_config.connections = orig.connections
+        state.runtime_config.active_connection_id = orig.active_connection_id
+        state.runtime_config.audio = orig.audio
+        state.runtime_config.host = orig.host
+
+
 def test_runtime_config_applies_lsp_settings_and_restarts_gdls_only_when_they_change(monkeypatch) -> None:
     import os
 

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from clara_coder_backend.domain import SessionState
+from clara_coder_backend.domain import RuntimePythonLspConfig, SessionState
 from clara_coder_backend.lsp.python_init_options import (
     build_python_initialization_options,
     deduce_venv_root_from_interpreter,
@@ -78,3 +78,52 @@ def test_build_python_initialization_options_python_path_when_interpreter_set(tm
     session.python_workspace_python_executable = str(exe)
     opts = build_python_initialization_options(session, tmp_path)
     assert opts.get('python') == {'pythonPath': str(exe.resolve())}
+
+
+def test_build_python_initialization_options_defaults_match_basedpyright_inlay_defaults(tmp_path: Path) -> None:
+    analysis = build_python_initialization_options(SessionState(), tmp_path, RuntimePythonLspConfig())['basedpyright'][
+        'analysis'
+    ]
+    assert analysis['autoImportCompletions'] is True
+    assert analysis['inlayHints'] == {
+        'variableTypes': True,
+        'callArgumentNames': True,
+        'functionReturnTypes': True,
+        'genericTypes': False,
+    }
+    assert 'extraPaths' not in analysis, 'no extraPaths key, so a project config can still set them'
+
+
+def test_build_python_initialization_options_applies_settings(tmp_path: Path) -> None:
+    settings = RuntimePythonLspConfig(
+        type_checking_mode='strict',
+        diagnostic_mode='workspace',
+        inlay_variable_types=False,
+        inlay_call_argument_names=False,
+        inlay_function_return_types=False,
+        inlay_generic_types=True,
+        auto_import_completions=False,
+        extra_paths=['src', 'libs/vendored'],
+    )
+    analysis = build_python_initialization_options(SessionState(), tmp_path, settings)['basedpyright']['analysis']
+    assert analysis['typeCheckingMode'] == 'strict'
+    assert analysis['diagnosticMode'] == 'workspace'
+    assert analysis['autoImportCompletions'] is False
+    assert analysis['inlayHints'] == {
+        'variableTypes': False,
+        'callArgumentNames': False,
+        'functionReturnTypes': False,
+        'genericTypes': True,
+    }
+    assert analysis['extraPaths'] == ['src', 'libs/vendored']
+    assert analysis['extraPaths'] is not settings.extra_paths
+
+
+def test_build_python_initialization_options_reads_runtime_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from clara_coder_backend.session.state import runtime_config
+
+    monkeypatch.setattr(runtime_config.lsp, 'python', RuntimePythonLspConfig(type_checking_mode='all'))
+    analysis = build_python_initialization_options(SessionState(), tmp_path)['basedpyright']['analysis']
+    assert analysis['typeCheckingMode'] == 'all'

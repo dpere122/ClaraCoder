@@ -119,7 +119,7 @@ export const SETTINGS_SUB_TAB_CATALOG: Partial<Record<SettingsTab, SettingsSubTa
       id: 'webTools',
       label: 'Web tools',
       description:
-        'Screenshot retention: automatic cleanup, downsampling, and storage limits for webpage screenshots.',
+        'Web search provider and engines, plus automatic cleanup, downsampling, and storage limits for webpage screenshots.',
     },
   ],
   lsp: LSP_SERVER_CATALOG.map((server) => ({

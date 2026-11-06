@@ -155,6 +155,24 @@ def test_wait_times_out_while_the_scan_runs_and_reports_progress(workspace) -> N
     assert manager.lifecycle_phase() == 'indexing'
 
 
+def test_wait_returns_at_once_when_the_server_dies_mid_scan(workspace) -> None:
+    _, sid = workspace
+    clients: list[_ScanningClient] = []
+    manager = _manager(sid, clients, finish=False)
+    manager.ensure_started()
+
+    def crash() -> None:
+        time.sleep(0.2)
+        clients[0].closed = True
+        manager._handle_notification('$/progress', {'token': 'scan-1', 'value': {'kind': 'report', 'message': ''}})
+
+    threading.Thread(target=crash, daemon=True).start()
+    started = time.monotonic()
+    assert manager.wait_for_workspace_analysis(timeout_s=10, quiet_s=0.1) is False
+    assert time.monotonic() - started < 2, 'did not wait out the timeout on a dead server'
+    assert not manager.is_client_running()
+
+
 def test_wait_without_progress_settles_after_the_startup_grace(workspace) -> None:
     _, sid = workspace
     manager = _manager(sid, [], progress=False)

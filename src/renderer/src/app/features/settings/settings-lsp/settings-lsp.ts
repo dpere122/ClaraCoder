@@ -1,7 +1,8 @@
-import { Component, DestroyRef, ViewEncapsulation, computed, effect, inject, signal } from '@angular/core';
+import { Component, DestroyRef, ViewEncapsulation, computed, effect, inject, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
   LSP_SERVER_CATALOG,
+  normalizePathList,
   type GdscriptDiagnosticsProfile,
   type GdscriptLspSettings,
   type PythonDiagnosticMode,
@@ -40,7 +41,12 @@ export class SettingsLsp {
   protected readonly python = computed(() => this.s.lspServers().python);
   /** The open workspace's own basedpyright config, which wins over some of the settings here. */
   protected readonly pythonProjectConfig = signal<PythonProjectConfigInfo | null>(null);
-  protected readonly extraPathsText = computed(() => this.python().extraPaths.join('\n'));
+  /**
+   * The Extra paths box as typed. The saved list is normalized (trimmed, no blank or repeated
+   * lines), so the box can't show it directly: a space or a line that repeats an earlier one
+   * would vanish mid-typing.
+   */
+  protected readonly extraPathsDraft = signal('');
 
   protected readonly typeCheckingOptions: ReadonlyArray<{ id: PythonTypeCheckingMode; label: string }> = [
     { id: 'off', label: 'Off' },
@@ -73,6 +79,15 @@ export class SettingsLsp {
         void this.refreshPythonProjectConfig();
       }
     });
+    // Show the saved list when it changes from outside the box (settings loaded or discarded).
+    effect(() => {
+      const saved = this.python().extraPaths;
+      untracked(() => {
+        if (!samePaths(parseExtraPaths(this.extraPathsDraft()), saved)) {
+          this.extraPathsDraft.set(saved.join('\n'));
+        }
+      });
+    });
   }
 
   protected patch(patch: Partial<GdscriptLspSettings>): void {
@@ -85,11 +100,11 @@ export class SettingsLsp {
 
   /** One path per line; blank and repeated lines are dropped. */
   protected setExtraPaths(text: string): void {
-    const extraPaths = text
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line, index, lines) => line.length > 0 && lines.indexOf(line) === index);
-    this.patchPython({ extraPaths });
+    this.extraPathsDraft.set(text);
+    const extraPaths = parseExtraPaths(text);
+    if (!samePaths(extraPaths, this.python().extraPaths)) {
+      this.patchPython({ extraPaths });
+    }
   }
 
   private async refreshPythonProjectConfig(): Promise<void> {
@@ -107,4 +122,12 @@ export class SettingsLsp {
   protected openDependencies(): void {
     this.electron.openDependenciesWindow();
   }
+}
+
+function parseExtraPaths(text: string): string[] {
+  return normalizePathList(text.split(/\r?\n/));
+}
+
+function samePaths(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((path, index) => path === b[index]);
 }

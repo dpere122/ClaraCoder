@@ -1664,7 +1664,9 @@ class SessionWorkspaceLspManager:
         deadline = waited_from + max(0.0, timeout_s)
         with self._lock:
             while True:
-                if self._client is None:
+                # A crashed server stays as ``_client`` until something restarts it; don't wait out
+                # the timeout on it.
+                if self._client is None or not self._client_process_alive(self._client):
                     return False
                 now = time.monotonic()
                 if not self._active_progress:

@@ -243,6 +243,11 @@ def _python_workspace_coverage(session_id: str) -> str:
         return f'Python coverage: basedpyright could not start ({exc}); Python files are not included.'
     if settled:
         return 'Python coverage: basedpyright analyzed the whole workspace, including files never opened.'
+    if not manager.is_client_running():
+        return (
+            'Python coverage: basedpyright stopped before it finished analyzing the workspace, so the '
+            'Python results are partial. Call again to restart it.'
+        )
     progress = manager.analysis_progress_report()
     detail = f' ({progress})' if progress else ''
     return (

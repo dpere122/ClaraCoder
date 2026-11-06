@@ -68,6 +68,10 @@ _DIAG_WAIT_TIMEOUT_SLOW_S = 2.5
 _DIAG_FIRST_OPEN_TIMEOUT_S = 5.0
 _DIAG_FIRST_OPEN_TIMEOUT_SLOW_S = 8.0
 _DIAG_QUIET_S = 0.05
+#: ``wait_for_workspace_analysis``: silence that counts as settled, and how long a fresh client may
+#: take to begin its first analysis (basedpyright starts in about two seconds).
+_WORKSPACE_ANALYSIS_QUIET_S = 1.0
+_WORKSPACE_ANALYSIS_STARTUP_GRACE_S = 5.0
 
 # Who last supplied a document's text: the Monaco editor (may be unsaved) or the file on disk.
 DOC_ORIGIN_EDITOR = 'editor'
@@ -373,6 +377,14 @@ class SessionWorkspaceLspManager:
         self._language_status_message: str = ''
         # ``$/progress`` tokens between ``begin`` and ``end``: the server is still indexing.
         self._active_progress: dict[str, str] = {}
+        # Latest ``$/progress`` report text, e.g. basedpyright's "12 files to analyze".
+        self._progress_report: str = ''
+        # Monotonic time of the last publish or progress message, and of the current client's start;
+        # ``wait_for_workspace_analysis`` settles on these.
+        self._last_server_activity_at: float = 0.0
+        self._client_started_at: float = 0.0
+        # A progress run went from ``begin`` to ``end`` on this client: its first analysis finished.
+        self._analysis_progress_ended: bool = False
         self._lifecycle_phase: str = 'idle'
         self._lifecycle_error: str = ''
 
@@ -539,6 +551,11 @@ class SessionWorkspaceLspManager:
                     raise
                 self._inflight_client = client
                 self._lifecycle_phase = 'initializing'
+                # Before ``initialize``: the server may start (and even finish) analyzing as soon as
+                # it gets it, before this thread marks the client running.
+                self._client_started_at = time.monotonic()
+                self._analysis_progress_ended = False
+                self._progress_report = ''
                 self._diag_cond.notify_all()
             break
 
@@ -1625,6 +1642,46 @@ class SessionWorkspaceLspManager:
                     continue
                 self._diag_cond.wait(timeout=wait_for)
 
+    def wait_for_workspace_analysis(
+        self,
+        *,
+        timeout_s: float,
+        quiet_s: float = _WORKSPACE_ANALYSIS_QUIET_S,
+        startup_grace_s: float = _WORKSPACE_ANALYSIS_STARTUP_GRACE_S,
+    ) -> bool:
+        """Start the server if needed, then wait until its background analysis settles.
+
+        For a server that checks the whole workspace (basedpyright with ``diagnosticMode:
+        workspace``): settled means no ``$/progress`` is running and nothing was published or
+        reported for ``quiet_s``, counted from this call so a re-scan the caller just triggered
+        gets time to begin. A small project can finish in one pass without any progress, so a
+        client that never ran one counts as settled once ``startup_grace_s`` has passed since it
+        started. Returns False on timeout or when the server is gone.
+        """
+
+        self.ensure_started()
+        waited_from = time.monotonic()
+        deadline = waited_from + max(0.0, timeout_s)
+        with self._lock:
+            while True:
+                if self._client is None:
+                    return False
+                now = time.monotonic()
+                if not self._active_progress:
+                    quiet_for = now - max(self._last_server_activity_at, waited_from)
+                    warmed_up = self._analysis_progress_ended or now - self._client_started_at >= startup_grace_s
+                    if quiet_for >= quiet_s and warmed_up:
+                        return True
+                if now >= deadline:
+                    return False
+                self._diag_cond.wait(timeout=max(0.01, min(0.2, deadline - now)))
+
+    def analysis_progress_report(self) -> str:
+        """Latest progress text while the server is analyzing, else ''."""
+
+        with self._lock:
+            return self._progress_report if self._active_progress else ''
+
     def _handle_progress(self, params: dict[str, Any]) -> None:
         """``$/progress``: show the server's indexing work as the ``indexing`` phase."""
 
@@ -1634,10 +1691,20 @@ class SessionWorkspaceLspManager:
             return
         kind = value.get('kind')
         with self._lock:
+            self._last_server_activity_at = time.monotonic()
             if kind == 'begin':
                 self._active_progress[token] = str(value.get('title') or '')
             elif kind == 'end':
                 self._active_progress.pop(token, None)
+                if not self._active_progress:
+                    self._analysis_progress_ended = True
+                    self._progress_report = ''
+            elif kind == 'report':
+                message = str(value.get('message') or '').strip()
+                if message:
+                    self._progress_report = message
+                self._diag_cond.notify_all()
+                return
             else:
                 return
             if self.server_kind == 'java':
@@ -1712,6 +1779,7 @@ class SessionWorkspaceLspManager:
                 )
                 return
             self._seen_publish = True
+            self._last_server_activity_at = time.monotonic()
             self._diag_cache()[rel] = normalized
             self._diag_generation[rel] = self._diag_generation.get(rel, 0) + 1
             if current is not None and (

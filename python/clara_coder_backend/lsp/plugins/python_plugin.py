@@ -42,6 +42,12 @@ class PythonLspPlugin(LspServerPlugin):
             init_options=build_python_initialization_options(session, workspace_root),
         )
 
+    def client_capability_overrides(self) -> dict[str, Any]:
+        # basedpyright then reports its analysis as ``$/progress`` ("N files to analyze"). That shows
+        # as ``indexing`` and tells ``wait_for_workspace_analysis`` when a scan has finished; without
+        # it, basedpyright sends its own ``pyright/*Progress`` notifications, which nothing reads.
+        return {'window': {'workDoneProgress': True}}
+
     def should_defer_semantic_tokens_legend_without_document_seed(self, state: Any) -> bool:
         st = state if isinstance(state, PythonPluginState) else PythonPluginState()
         return not (st.last_seed or '').strip()

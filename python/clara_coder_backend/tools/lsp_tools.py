@@ -20,6 +20,7 @@ from clara_coder_backend.lsp.manager import (
     notify_session_lsp_disk_changes,
 )
 from clara_coder_backend.lsp.registry import display_label_for_server
+from clara_coder_backend.runtime.python_env import resolve_python_workspace_root
 from clara_coder_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
 from clara_coder_backend.workspace.workspace_text_io import validate_workspace_encoding
@@ -212,14 +213,54 @@ def _file_diagnostics(
     return text
 
 
+#: How long one all-files call waits for basedpyright's whole-workspace scan before answering with
+#: what it has so far. A later call waits again.
+_PYTHON_WORKSPACE_ANALYSIS_TIMEOUT_S = 60.0
+
+
+def _python_workspace_coverage(session_id: str) -> str:
+    """Say how much of a Python workspace the cached diagnostics cover; '' for non-Python workspaces.
+
+    With Settings → LSP → Python set to check the whole workspace, basedpyright is started here
+    (an all-files call must not depend on a ``.py`` file having been opened first) and its scan
+    awaited, so files nobody opened are included.
+    """
+
+    try:
+        manager = get_session_lsp_manager(session_id, server='python', scope='workspace', set_active=False)
+        if resolve_python_workspace_root(manager.workspace_root)[0] is None:
+            return ''
+    except Exception:
+        return ''
+    if runtime_config.lsp.python.diagnostic_mode != 'workspace':
+        return (
+            'Python coverage: only files opened in this session are analyzed; Python files that were '
+            'never opened are not listed.'
+        )
+    try:
+        settled = manager.wait_for_workspace_analysis(timeout_s=_PYTHON_WORKSPACE_ANALYSIS_TIMEOUT_S)
+    except Exception as exc:
+        return f'Python coverage: basedpyright could not start ({exc}); Python files are not included.'
+    if settled:
+        return 'Python coverage: basedpyright analyzed the whole workspace, including files never opened.'
+    progress = manager.analysis_progress_report()
+    detail = f' ({progress})' if progress else ''
+    return (
+        f'Python coverage: basedpyright is still analyzing the workspace{detail}, so the Python results '
+        'are partial. Call again to wait for the rest.'
+    )
+
+
 def _aggregate_cached_diagnostics(session_id: str, encoding: str = 'utf-8') -> str:
     notify_session_lsp_disk_changes(session_id, ['.'], ['unknown'], encoding=encoding)
+    python_coverage = _python_workspace_coverage(session_id)
     cache = diagnostics_cache_for_scope(get_session(session_id), 'workspace')
     all_rows: list[dict[str, Any]] = []
     for path in sorted(cache):
         all_rows.extend(cache[path])
     if not all_rows:
-        return 'No cached LSP diagnostics are available.'
+        empty = 'No cached LSP diagnostics are available.'
+        return f'{empty}\n\n{python_coverage}' if python_coverage else empty
     lines = [
         diagnostics_session_aggregate_preamble('workspace'),
         f'Cached LSP diagnostics ({len(all_rows)} issue(s)):',
@@ -230,6 +271,8 @@ def _aggregate_cached_diagnostics(session_id: str, encoding: str = 'utf-8') -> s
         )
     if len(all_rows) > 100:
         lines.append(f'... {len(all_rows) - 100} more diagnostic(s) omitted.')
+    if python_coverage:
+        lines.extend(['', python_coverage])
     return '\n'.join(lines)
 
 
@@ -239,7 +282,8 @@ _NAMED_LOCATION_LIMIT = 50
 
 
 @tool(LSP_GET_DIAGNOSTICS_NAME, description=describe(
-    'Return LSP diagnostics for one file, or every cached diagnostic when `relative_path` is empty',
+    'Return LSP diagnostics for one file, or every cached diagnostic when `relative_path` is empty '
+    '(the result says whether Python files never opened are included)',
     when='checking errors after edits or auditing workspace health',
     shape=f'{_LSP_EXTENSIONS}; always checked against the file on disk; `refresh_active_document=true` forces a new analysis pass',
 ))

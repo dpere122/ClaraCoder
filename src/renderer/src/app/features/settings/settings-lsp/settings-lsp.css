@@ -20,3 +20,20 @@
   flex: 1;
   min-width: 0;
 }
+
+.settings-lsp-notice {
+  margin-top: 10px;
+  padding: 8px 12px;
+  max-width: 46rem;
+  border-left: 3px solid var(--t-warn, #e8b931);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--t-warn, #e8b931) 8%, transparent);
+}
+
+.settings-lsp-notice p {
+  margin: 0;
+}
+
+.settings-lsp-notice p + p {
+  margin-top: 4px;
+}

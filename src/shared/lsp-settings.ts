@@ -21,8 +21,28 @@ export interface GdscriptLspSettings {
   formatterArgs: string;
 }
 
+/** basedpyright's ``typeCheckingMode`` values, loosest first. */
+export const PYTHON_TYPE_CHECKING_MODES = ['off', 'basic', 'standard', 'strict', 'recommended', 'all'] as const;
+export type PythonTypeCheckingMode = (typeof PYTHON_TYPE_CHECKING_MODES)[number];
+
+export type PythonDiagnosticMode = 'openFilesOnly' | 'workspace';
+
+export interface PythonLspSettings {
+  /** A project ``pyrightconfig.json`` or ``[tool.basedpyright]`` / ``[tool.pyright]`` section wins over this. */
+  typeCheckingMode: PythonTypeCheckingMode;
+  diagnosticMode: PythonDiagnosticMode;
+  inlayVariableTypes: boolean;
+  inlayCallArgumentNames: boolean;
+  inlayFunctionReturnTypes: boolean;
+  inlayGenericTypes: boolean;
+  autoImportCompletions: boolean;
+  /** Extra import roots; relative ones resolve against the workspace folder. */
+  extraPaths: string[];
+}
+
 export interface LspServersSettings {
   gdscript: GdscriptLspSettings;
+  python: PythonLspSettings;
 }
 
 export function defaultLspServersSettings(): LspServersSettings {
@@ -36,6 +56,17 @@ export function defaultLspServersSettings(): LspServersSettings {
       formatterCommand: '',
       formatterArgs: '',
     },
+    python: {
+      typeCheckingMode: 'standard',
+      diagnosticMode: 'openFilesOnly',
+      // basedpyright's own inlay hint defaults.
+      inlayVariableTypes: true,
+      inlayCallArgumentNames: true,
+      inlayFunctionReturnTypes: true,
+      inlayGenericTypes: false,
+      autoImportCompletions: true,
+      extraPaths: [],
+    },
   };
 }
 
@@ -47,13 +78,51 @@ function booleanOr(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
+function objectOr(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+/** Trimmed, non-empty, de-duplicated path strings; anything else is dropped. */
+export function normalizePathList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const out: string[] = [];
+  for (const item of value) {
+    const path = typeof item === 'string' ? item.trim() : '';
+    if (path && !out.includes(path)) {
+      out.push(path);
+    }
+  }
+  return out;
+}
+
+function normalizePythonLspSettings(raw: unknown): PythonLspSettings {
+  const defaults = defaultLspServersSettings().python;
+  const p = objectOr(raw) as Partial<Record<keyof PythonLspSettings, unknown>>;
+  const mode = p.typeCheckingMode;
+  return {
+    typeCheckingMode: PYTHON_TYPE_CHECKING_MODES.includes(mode as PythonTypeCheckingMode)
+      ? (mode as PythonTypeCheckingMode)
+      : defaults.typeCheckingMode,
+    diagnosticMode:
+      p.diagnosticMode === 'openFilesOnly' || p.diagnosticMode === 'workspace'
+        ? p.diagnosticMode
+        : defaults.diagnosticMode,
+    inlayVariableTypes: booleanOr(p.inlayVariableTypes, defaults.inlayVariableTypes),
+    inlayCallArgumentNames: booleanOr(p.inlayCallArgumentNames, defaults.inlayCallArgumentNames),
+    inlayFunctionReturnTypes: booleanOr(p.inlayFunctionReturnTypes, defaults.inlayFunctionReturnTypes),
+    inlayGenericTypes: booleanOr(p.inlayGenericTypes, defaults.inlayGenericTypes),
+    autoImportCompletions: booleanOr(p.autoImportCompletions, defaults.autoImportCompletions),
+    extraPaths: normalizePathList(p.extraPaths),
+  };
+}
+
 /** Fills missing or malformed fields with defaults, so a hand-edited config can't break the tab. */
 export function normalizeLspServersSettings(raw: unknown): LspServersSettings {
   const defaults = defaultLspServersSettings().gdscript;
-  const root = raw && typeof raw === 'object' ? (raw as { gdscript?: unknown }) : {};
-  const g = (root.gdscript && typeof root.gdscript === 'object' ? root.gdscript : {}) as Partial<
-    Record<keyof GdscriptLspSettings, unknown>
-  >;
+  const root = objectOr(raw);
+  const g = objectOr(root['gdscript']) as Partial<Record<keyof GdscriptLspSettings, unknown>>;
   const profile = g.diagnosticsProfile;
   return {
     gdscript: {
@@ -67,6 +136,7 @@ export function normalizeLspServersSettings(raw: unknown): LspServersSettings {
       formatterCommand: stringOr(g.formatterCommand, defaults.formatterCommand),
       formatterArgs: stringOr(g.formatterArgs, defaults.formatterArgs),
     },
+    python: normalizePythonLspSettings(root['python']),
   };
 }
 
@@ -99,7 +169,7 @@ export const LSP_SERVER_CATALOG: readonly LspServerCatalogEntry[] = [
     server: 'basedpyright',
     languages: 'Python (.py)',
     dependencyId: null,
-    editable: false,
+    editable: true,
   },
   {
     id: 'typescript',
@@ -118,3 +188,20 @@ export const LSP_SERVER_CATALOG: readonly LspServerCatalogEntry[] = [
     editable: false,
   },
 ];
+
+/** Where a workspace's own basedpyright config lives, if it has one. */
+export interface PythonProjectConfigInfo {
+  /** Workspace-relative file, e.g. ``pyrightconfig.json`` or ``pyproject.toml``. */
+  file: string;
+  /** The ``pyproject.toml`` table that holds it; empty for ``pyrightconfig.json``. */
+  section: string;
+}
+
+/**
+ * Finds the ``[tool.basedpyright]`` or ``[tool.pyright]`` table basedpyright reads from a
+ * ``pyproject.toml``. Its own sub-tables (``[tool.pyright.foo]``) count too. Returns '' when there is none.
+ */
+export function pyprojectPyrightSection(text: string): string {
+  const match = /^[ 	]*\[[ 	]*tool\.(basedpyright|pyright)[ 	]*[\].]/m.exec(text);
+  return match ? `tool.${match[1]}` : '';
+}

@@ -27,6 +27,7 @@ import type {
   LspSemanticTokensLegendIpc,
   LspWorkspaceEditIpc,
 } from '../lsp-types';
+import type { PythonProjectConfigInfo } from '../../shared/lsp-settings';
 
 /** LSP dashboard, editor features, and health metrics IPC. */
 export const createLspHealthApi = (ipcRenderer: PreloadIpc) => ({
@@ -446,4 +447,11 @@ export const createLspHealthApi = (ipcRenderer: PreloadIpc) => ({
     ipcRenderer.on('health-log-record', callback),
   openHealthWindow: () => ipcRenderer.send('open-health-window'),
   closeHealthWindow: () => ipcRenderer.send('close-health-window'),
+  lspPythonProjectConfig: () =>
+    ipcRenderer.invoke('lsp:python-project-config') as Promise<{
+      ok: boolean;
+      error?: string;
+      workspacePath: string;
+      config: PythonProjectConfigInfo | null;
+    }>,
 });

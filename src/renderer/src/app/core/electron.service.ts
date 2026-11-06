@@ -2474,6 +2474,19 @@ export class ElectronService {
     this.api?.closeHealthWindow();
   }
 
+  /** The active workspace's own basedpyright config (``pyrightconfig.json`` or a pyproject table), if any. */
+  lspPythonProjectConfig(): Promise<{
+    ok: boolean;
+    error?: string;
+    workspacePath: string;
+    config: import('@shared/lsp-settings').PythonProjectConfigInfo | null;
+  }> {
+    return (
+      this.api?.lspPythonProjectConfig() ??
+      Promise.resolve({ ok: false, error: 'No Electron API', workspacePath: '', config: null })
+    );
+  }
+
   depsList(): Promise<{
     ok: boolean;
     dependencies: import('@shared/index').DependencyInfo[];

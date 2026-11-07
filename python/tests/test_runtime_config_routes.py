@@ -314,6 +314,64 @@ def test_runtime_config_applies_python_lsp_settings_and_restarts_basedpyright_on
         state.runtime_config.host = orig.host
 
 
+def test_runtime_config_applies_typescript_lsp_settings_and_restarts_vtsls_only_when_they_change(
+    monkeypatch,
+) -> None:
+    from clara_coder_backend.main import app
+    from clara_coder_backend.session import state
+    from clara_coder_backend.lsp import manager as lsp_manager
+
+    stopped: list[str] = []
+    monkeypatch.setattr(lsp_manager, 'shutdown_lsp_server_for_all_sessions', stopped.append)
+    orig = deepcopy(state.runtime_config)
+    settings = {
+        'useWorkspaceTsdk': True,
+        'validateJavaScript': False,
+        'checkJs': True,
+        'inlayParameterNames': 'literals',
+        'inlayParameterTypes': True,
+        'inlayVariableTypes': True,
+        'inlayPropertyDeclarationTypes': False,
+        'inlayFunctionReturnTypes': True,
+        'inlayEnumMemberValues': True,
+        'autoImportCompletions': False,
+        'importModuleSpecifier': 'project-relative',
+        'quoteStyle': 'double',
+    }
+    try:
+        with TestClient(app) as client:
+            assert client.post('/runtime-config', json=_payload()).status_code == 200
+            stopped.clear()
+
+            body = {**_payload(), 'lsp': {'typescript': settings}}
+            assert client.post('/runtime-config', json=body).status_code == 200
+            applied = state.runtime_config.lsp.typescript
+            assert applied.use_workspace_tsdk is True
+            assert applied.validate_javascript is False
+            assert applied.check_js is True
+            assert applied.inlay_parameter_names == 'literals'
+            assert applied.inlay_property_declaration_types is False
+            assert applied.inlay_enum_member_values is True
+            assert applied.auto_import_completions is False
+            assert applied.import_module_specifier == 'project-relative'
+            assert applied.quote_style == 'double'
+            assert stopped == ['typescript']
+
+            assert client.post('/runtime-config', json=body).status_code == 200
+            assert stopped == ['typescript'], 'saving unchanged settings must not restart vtsls'
+
+            for field, value in (('inlayParameterNames', 'some'), ('quoteStyle', 'backtick')):
+                bad = {**_payload(), 'lsp': {'typescript': {**settings, field: value}}}
+                assert client.post('/runtime-config', json=bad).status_code == 422
+    finally:
+        state.runtime_config.lsp = orig.lsp
+        state.runtime_config.tools = orig.tools
+        state.runtime_config.connections = orig.connections
+        state.runtime_config.active_connection_id = orig.active_connection_id
+        state.runtime_config.audio = orig.audio
+        state.runtime_config.host = orig.host
+
+
 def test_runtime_config_applies_lsp_settings_and_restarts_gdls_only_when_they_change(monkeypatch) -> None:
     import os
 

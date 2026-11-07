@@ -9,6 +9,10 @@ import {
   type PythonLspSettings,
   type PythonProjectConfigInfo,
   type PythonTypeCheckingMode,
+  type TypescriptImportModuleSpecifier,
+  type TypescriptLspSettings,
+  type TypescriptParameterNameHints,
+  type TypescriptQuoteStyle,
 } from '@shared/lsp-settings';
 import { ElectronService } from '../../../core/electron.service';
 import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
@@ -62,6 +66,27 @@ export class SettingsLsp {
     { id: 'workspace', label: 'Whole workspace' },
   ];
 
+  protected readonly typescript = computed(() => this.s.lspServers().typescript);
+
+  protected readonly parameterNameHintOptions: ReadonlyArray<{ id: TypescriptParameterNameHints; label: string }> = [
+    { id: 'none', label: 'Off' },
+    { id: 'literals', label: 'Literal arguments only' },
+    { id: 'all', label: 'All arguments' },
+  ];
+
+  protected readonly importSpecifierOptions: ReadonlyArray<{ id: TypescriptImportModuleSpecifier; label: string }> = [
+    { id: 'shortest', label: 'Shortest' },
+    { id: 'relative', label: 'Relative (./utils)' },
+    { id: 'non-relative', label: 'Non-relative (paths / baseUrl)' },
+    { id: 'project-relative', label: 'Relative within a project' },
+  ];
+
+  protected readonly quoteStyleOptions: ReadonlyArray<{ id: TypescriptQuoteStyle; label: string }> = [
+    { id: 'auto', label: 'Match the file' },
+    { id: 'single', label: 'Single' },
+    { id: 'double', label: 'Double' },
+  ];
+
   constructor() {
     void this.s.refreshLspDependencies();
     // Dependencies is its own window, and a project's config files can change while Settings is
@@ -96,6 +121,10 @@ export class SettingsLsp {
 
   protected patchPython(patch: Partial<PythonLspSettings>): void {
     this.s.patchPythonLsp(patch);
+  }
+
+  protected patchTypescript(patch: Partial<TypescriptLspSettings>): void {
+    this.s.patchTypescriptLsp(patch);
   }
 
   /** One path per line; blank and repeated lines are dropped. */

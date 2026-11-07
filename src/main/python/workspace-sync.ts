@@ -12,7 +12,8 @@ import {
   lmStudioOpenAiBaseUrlToRestOrigin,
   normalizeWebSearchEngines,
 } from '../../shared';
-import { normalizeLspServersSettings } from '../../shared/lsp-settings';
+import { normalizeLspServersSettings, type LspServersSettings } from '../../shared/lsp-settings';
+import { mainState } from '../state';
 import { unwrapSecret } from '../../shared/types/app-config';
 import { ensurePythonReady } from './server';
 import { pythonControlFetch } from './http-client';
@@ -355,6 +356,35 @@ async function refreshLmStudioLiveNctx(config: AppConfig): Promise<void> {
   );
 }
 
+/** LSP settings the sidecar last accepted; ``null`` before the first sync, when it runs no servers yet. */
+let lastAppliedLspSettings: LspServersSettings | null = null;
+
+/** Servers whose settings changed: ``/runtime-config`` restarts exactly these before it replies. */
+export function changedLspServerIds(previous: LspServersSettings | null, next: LspServersSettings): string[] {
+  if (!previous) {
+    return [];
+  }
+  return (Object.keys(next) as Array<keyof LspServersSettings>).filter(
+    (id) => JSON.stringify(previous[id]) !== JSON.stringify(next[id]),
+  );
+}
+
+/**
+ * Tell the editor which servers restarted with new settings. Open editors otherwise keep the
+ * restarted server's old inlay hints until the text changes, since nothing asks for them again.
+ */
+function notifyLspSettingsApplied(servers: string[]): void {
+  const win = mainState.mainWindow;
+  if (servers.length === 0 || !win || win.isDestroyed()) {
+    return;
+  }
+  try {
+    win.webContents.send('lsp-settings-applied', { servers });
+  } catch {
+    // The window can close between the check and the send.
+  }
+}
+
 async function postRuntimeConfigToPython(
   config: AppConfig,
   llamaManagedEndpoints?: Record<string, LlamaManagedRuntimeEndpoints>,
@@ -379,6 +409,7 @@ async function postRuntimeConfigToPython(
       );
       return c.provider === 'anthropic' ? { ...wire, apiKey: anthropicKey } : wire;
     });
+    const lsp = normalizeLspServersSettings(config.lspServers);
     const response = await pythonControlFetch('/runtime-config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -413,7 +444,7 @@ async function postRuntimeConfigToPython(
           triggerRatio: config.contextCompression.triggerRatio,
           targetRatio: config.contextCompression.targetRatio,
         },
-        lsp: normalizeLspServersSettings(config.lspServers),
+        lsp,
         huggingFaceToken: unwrapSecret(config.modelManager?.huggingFaceToken ?? ''),
         mcpServers: wireMcpServers(config),
         activeWorkspacePath: activeWorkspacePath(config),
@@ -424,6 +455,9 @@ async function postRuntimeConfigToPython(
       const detail = await response.text();
       throw new Error(`Runtime config sync failed (${response.status}): ${detail}`);
     }
+    const restarted = changedLspServerIds(lastAppliedLspSettings, lsp);
+    lastAppliedLspSettings = lsp;
+    notifyLspSettingsApplied(restarted);
   } catch (err) {
     console.error('Failed to sync runtime config to Python:', err);
   }

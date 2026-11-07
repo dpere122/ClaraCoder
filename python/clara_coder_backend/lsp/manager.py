@@ -791,10 +791,12 @@ class SessionWorkspaceLspManager:
     ) -> list[dict[str, Any]]:
         path = normalize_relative_path(self.workspace_root, rel)
         uri = _path_to_uri(path)
+        # The server is set to report nothing for this file, so no publish is coming to wait for.
+        reports_diagnostics = not self._plugin.diagnostics_off_reason(rel)
         with self._lock:
             cache = self._diag_cache()
             same_digest = rel in self._doc_versions and self._last_synced_digest.get(rel) == digest
-            ready = self._diag_ready_digest.get(rel) == digest
+            ready = self._diag_ready_digest.get(rel) == digest or not reports_diagnostics
             if same_digest:
                 # Identical text: the editor confirming its buffer takes ownership back; a disk
                 # read leaves an editor-owned (clean) buffer with the editor.
@@ -884,7 +886,9 @@ class SessionWorkspaceLspManager:
                 # prompt a missing publish, changes nothing for them.)
                 if not same_digest:
                     self._expect_republish_except([rel])
-            if wait_for_diagnostics:
+            if not reports_diagnostics:
+                self._diag_ready_digest[rel] = digest
+            elif wait_for_diagnostics:
                 published = self._wait_for_diagnostics(rel, prev_fresh_generation, first_open=version == 1)
                 if self._wait_settled(published):
                     self._diag_ready_digest[rel] = digest
@@ -1072,6 +1076,11 @@ class SessionWorkspaceLspManager:
         with self._lock:
             digest = self._last_synced_digest.get(rel)
             return digest is not None and self._diag_ready_digest.get(rel) == digest
+
+    def diagnostics_off_reason(self, relative_path: str) -> str:
+        """Why the server is set to report nothing for this file, or ``''`` when it reports diagnostics."""
+
+        return self._plugin.diagnostics_off_reason(normalize_relative_posix_path(relative_path))
 
     def mark_diagnostics_stale(self, relative_path: str) -> None:
         """Make the next waiting sync re-send the document and wait for a new publish."""

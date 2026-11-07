@@ -40,9 +40,38 @@ export interface PythonLspSettings {
   extraPaths: string[];
 }
 
+export const TYPESCRIPT_PARAMETER_NAME_HINTS = ['none', 'literals', 'all'] as const;
+export type TypescriptParameterNameHints = (typeof TYPESCRIPT_PARAMETER_NAME_HINTS)[number];
+
+export const TYPESCRIPT_IMPORT_MODULE_SPECIFIERS = ['shortest', 'relative', 'non-relative', 'project-relative'] as const;
+export type TypescriptImportModuleSpecifier = (typeof TYPESCRIPT_IMPORT_MODULE_SPECIFIERS)[number];
+
+export const TYPESCRIPT_QUOTE_STYLES = ['auto', 'single', 'double'] as const;
+export type TypescriptQuoteStyle = (typeof TYPESCRIPT_QUOTE_STYLES)[number];
+
+/** vtsls, for TypeScript and JavaScript alike. Defaults are vtsls' (VS Code's) own. */
+export interface TypescriptLspSettings {
+  /** Use the workspace's ``node_modules/typescript`` instead of the TypeScript vtsls ships with. */
+  useWorkspaceTsdk: boolean;
+  /** Report errors in JavaScript files (``javascript.validate.enable``). */
+  validateJavaScript: boolean;
+  /** Type-check JavaScript files that no ``jsconfig.json`` / ``tsconfig.json`` covers. */
+  checkJs: boolean;
+  inlayParameterNames: TypescriptParameterNameHints;
+  inlayParameterTypes: boolean;
+  inlayVariableTypes: boolean;
+  inlayPropertyDeclarationTypes: boolean;
+  inlayFunctionReturnTypes: boolean;
+  inlayEnumMemberValues: boolean;
+  autoImportCompletions: boolean;
+  importModuleSpecifier: TypescriptImportModuleSpecifier;
+  quoteStyle: TypescriptQuoteStyle;
+}
+
 export interface LspServersSettings {
   gdscript: GdscriptLspSettings;
   python: PythonLspSettings;
+  typescript: TypescriptLspSettings;
 }
 
 export function defaultLspServersSettings(): LspServersSettings {
@@ -67,6 +96,20 @@ export function defaultLspServersSettings(): LspServersSettings {
       autoImportCompletions: true,
       extraPaths: [],
     },
+    typescript: {
+      useWorkspaceTsdk: false,
+      validateJavaScript: true,
+      checkJs: false,
+      inlayParameterNames: 'none',
+      inlayParameterTypes: false,
+      inlayVariableTypes: false,
+      inlayPropertyDeclarationTypes: false,
+      inlayFunctionReturnTypes: false,
+      inlayEnumMemberValues: false,
+      autoImportCompletions: true,
+      importModuleSpecifier: 'shortest',
+      quoteStyle: 'auto',
+    },
   };
 }
 
@@ -76,6 +119,10 @@ function stringOr(value: unknown, fallback: string): string {
 
 function booleanOr(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
+}
+
+function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  return allowed.includes(value as T) ? (value as T) : fallback;
 }
 
 function objectOr(value: unknown): Record<string, unknown> {
@@ -118,6 +165,29 @@ function normalizePythonLspSettings(raw: unknown): PythonLspSettings {
   };
 }
 
+function normalizeTypescriptLspSettings(raw: unknown): TypescriptLspSettings {
+  const defaults = defaultLspServersSettings().typescript;
+  const t = objectOr(raw) as Partial<Record<keyof TypescriptLspSettings, unknown>>;
+  return {
+    useWorkspaceTsdk: booleanOr(t.useWorkspaceTsdk, defaults.useWorkspaceTsdk),
+    validateJavaScript: booleanOr(t.validateJavaScript, defaults.validateJavaScript),
+    checkJs: booleanOr(t.checkJs, defaults.checkJs),
+    inlayParameterNames: oneOf(t.inlayParameterNames, TYPESCRIPT_PARAMETER_NAME_HINTS, defaults.inlayParameterNames),
+    inlayParameterTypes: booleanOr(t.inlayParameterTypes, defaults.inlayParameterTypes),
+    inlayVariableTypes: booleanOr(t.inlayVariableTypes, defaults.inlayVariableTypes),
+    inlayPropertyDeclarationTypes: booleanOr(t.inlayPropertyDeclarationTypes, defaults.inlayPropertyDeclarationTypes),
+    inlayFunctionReturnTypes: booleanOr(t.inlayFunctionReturnTypes, defaults.inlayFunctionReturnTypes),
+    inlayEnumMemberValues: booleanOr(t.inlayEnumMemberValues, defaults.inlayEnumMemberValues),
+    autoImportCompletions: booleanOr(t.autoImportCompletions, defaults.autoImportCompletions),
+    importModuleSpecifier: oneOf(
+      t.importModuleSpecifier,
+      TYPESCRIPT_IMPORT_MODULE_SPECIFIERS,
+      defaults.importModuleSpecifier,
+    ),
+    quoteStyle: oneOf(t.quoteStyle, TYPESCRIPT_QUOTE_STYLES, defaults.quoteStyle),
+  };
+}
+
 /** Fills missing or malformed fields with defaults, so a hand-edited config can't break the tab. */
 export function normalizeLspServersSettings(raw: unknown): LspServersSettings {
   const defaults = defaultLspServersSettings().gdscript;
@@ -137,6 +207,7 @@ export function normalizeLspServersSettings(raw: unknown): LspServersSettings {
       formatterArgs: stringOr(g.formatterArgs, defaults.formatterArgs),
     },
     python: normalizePythonLspSettings(root['python']),
+    typescript: normalizeTypescriptLspSettings(root['typescript']),
   };
 }
 
@@ -177,7 +248,7 @@ export const LSP_SERVER_CATALOG: readonly LspServerCatalogEntry[] = [
     server: 'vtsls',
     languages: 'TypeScript and JavaScript (.ts, .tsx, .js, .jsx, .mjs, .cjs)',
     dependencyId: null,
-    editable: false,
+    editable: true,
   },
   {
     id: 'java',

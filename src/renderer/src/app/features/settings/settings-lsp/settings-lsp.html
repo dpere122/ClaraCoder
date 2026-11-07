@@ -242,6 +242,153 @@
         paths start at the workspace folder.
       </p>
     </div>
+  } @else if (server().id === 'typescript') {
+    <div class='form-section'>
+      <h4>Language server</h4>
+      <p class='panel__copy'>vtsls · ships with Clara</p>
+      <p class='settings-field-hint'>
+        One server handles TypeScript and JavaScript, and these settings apply to both. A project's
+        <code>tsconfig.json</code> or <code>jsconfig.json</code> still sets its own compiler options. Changing a
+        setting here restarts the server.
+      </p>
+      <div class='form-grid'>
+        <div class='field field--full field--hint'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='typescript().useWorkspaceTsdk'
+              (ngModelChange)='patchTypescript({ useWorkspaceTsdk: $event })'
+            />
+            <span>Use the workspace's TypeScript version when it has one</span>
+          </label>
+          <p class='settings-field-hint'>
+            Uses the project's <code>node_modules/typescript</code>, so errors match its own <code>tsc</code>.
+            Otherwise vtsls uses the TypeScript it ships with.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>JavaScript diagnostics</h4>
+      <div class='form-grid'>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='typescript().validateJavaScript'
+              (ngModelChange)='patchTypescript({ validateJavaScript: $event })'
+            />
+            <span>Report errors in JavaScript files</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='typescript().checkJs'
+              [disabled]='!typescript().validateJavaScript'
+              (ngModelChange)='patchTypescript({ checkJs: $event })'
+            />
+            <span>Type-check JavaScript files outside a <code>jsconfig.json</code> or <code>tsconfig.json</code> project</span>
+          </label>
+        </div>
+      </div>
+      <p class='settings-field-hint'>
+        Files inside such a project follow its <code>checkJs</code> option instead. One file can opt in with a
+        <code>// &#64;ts-check</code> comment. With errors off, JavaScript files report nothing, type-checked or
+        not.
+      </p>
+    </div>
+
+    <div class='form-section'>
+      <h4>Inlay hints</h4>
+      <div class='form-grid'>
+        <label class='field'>
+          <span>Parameter names at call sites</span>
+          <app-pill-select
+            [options]='parameterNameHintOptions'
+            [value]='typescript().inlayParameterNames'
+            (valueChange)='patchTypescript({ inlayParameterNames: $any($event) })'
+          />
+        </label>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='typescript().inlayVariableTypes'
+              (ngModelChange)='patchTypescript({ inlayVariableTypes: $event })'
+            />
+            <span>Show inferred variable types</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='typescript().inlayParameterTypes'
+              (ngModelChange)='patchTypescript({ inlayParameterTypes: $event })'
+            />
+            <span>Show inferred parameter types, e.g. on callbacks</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='typescript().inlayFunctionReturnTypes'
+              (ngModelChange)='patchTypescript({ inlayFunctionReturnTypes: $event })'
+            />
+            <span>Show inferred return types on functions</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='typescript().inlayPropertyDeclarationTypes'
+              (ngModelChange)='patchTypescript({ inlayPropertyDeclarationTypes: $event })'
+            />
+            <span>Show property types inferred from the constructor</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='typescript().inlayEnumMemberValues'
+              (ngModelChange)='patchTypescript({ inlayEnumMemberValues: $event })'
+            />
+            <span>Show enum member values</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Completions and imports</h4>
+      <div class='form-grid'>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='typescript().autoImportCompletions'
+              (ngModelChange)='patchTypescript({ autoImportCompletions: $event })'
+            />
+            <span>Suggest exports from modules that aren't imported yet, and add the import</span>
+          </label>
+        </div>
+        <label class='field'>
+          <span>Import paths</span>
+          <app-pill-select
+            [options]='importSpecifierOptions'
+            [value]='typescript().importModuleSpecifier'
+            (valueChange)='patchTypescript({ importModuleSpecifier: $any($event) })'
+          />
+        </label>
+        <label class='field'>
+          <span>Quote style</span>
+          <app-pill-select
+            [options]='quoteStyleOptions'
+            [value]='typescript().quoteStyle'
+            (valueChange)='patchTypescript({ quoteStyle: $any($event) })'
+          />
+        </label>
+      </div>
+      <p class='settings-field-hint'>
+        Import paths and quote style apply to the imports that completions and quick fixes add.
+      </p>
+    </div>
   } @else {
     <div class='form-section'>
       <h4>{{ server().label }}</h4>

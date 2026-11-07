@@ -667,9 +667,27 @@ class RuntimePythonLspRequest(BaseModel):
     extraPaths: list[str] = Field(default_factory=list)
 
 
+class RuntimeTypescriptLspRequest(BaseModel):
+    """Settings → LSP → TypeScript / JavaScript."""
+
+    useWorkspaceTsdk: bool = False
+    validateJavaScript: bool = True
+    checkJs: bool = False
+    inlayParameterNames: Literal['none', 'literals', 'all'] = 'none'
+    inlayParameterTypes: bool = False
+    inlayVariableTypes: bool = False
+    inlayPropertyDeclarationTypes: bool = False
+    inlayFunctionReturnTypes: bool = False
+    inlayEnumMemberValues: bool = False
+    autoImportCompletions: bool = True
+    importModuleSpecifier: Literal['shortest', 'relative', 'non-relative', 'project-relative'] = 'shortest'
+    quoteStyle: Literal['auto', 'single', 'double'] = 'auto'
+
+
 class RuntimeLspRequest(BaseModel):
     gdscript: RuntimeGdscriptLspRequest = Field(default_factory=RuntimeGdscriptLspRequest)
     python: RuntimePythonLspRequest = Field(default_factory=RuntimePythonLspRequest)
+    typescript: RuntimeTypescriptLspRequest = Field(default_factory=RuntimeTypescriptLspRequest)
 
 
 class RuntimeConfigRequest(BaseModel):

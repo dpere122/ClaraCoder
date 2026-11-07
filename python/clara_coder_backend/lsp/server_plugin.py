@@ -115,6 +115,14 @@ class LspServerPlugin(ABC):
 
         return False
 
+    def diagnostics_off_reason(self, relative_posix_path: str) -> str:
+        """Why the server is set to report no diagnostics for this file, or ``''`` when it reports them.
+
+        Such a file never gets a publish, so a diagnostics wait for it would only run out the clock.
+        """
+
+        return ''
+
     def take_pending_initialization_options(self, state: Any) -> dict[str, Any] | None:
         """Options to push via ``workspace/didChangeConfiguration`` without a restart (consumed once)."""
 

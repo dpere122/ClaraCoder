@@ -176,6 +176,24 @@ function lspCancelled(token: Monaco.CancellationToken | undefined): boolean {
  * Registers workspace-scoped LSP providers on the standalone editor.
  * Models must use the ``clara-workspace`` URI scheme (see ``WorkspaceMonacoComponent``).
  */
+/** A Monaco ``IEvent<void>`` source; ``monaco.Emitter`` would tie this to the loaded editor module. */
+function createVoidEvent(): { event: Monaco.IEvent<void>; fire: () => void; dispose: () => void } {
+  const listeners = new Set<() => void>();
+  return {
+    event: (listener, thisArgs?: unknown) => {
+      const bound = () => listener.call(thisArgs, undefined);
+      listeners.add(bound);
+      return { dispose: () => listeners.delete(bound) };
+    },
+    fire: () => {
+      for (const listener of [...listeners]) {
+        listener();
+      }
+    },
+    dispose: () => listeners.clear(),
+  };
+}
+
 export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptions): Monaco.IDisposable {
   const {
     monacoApi: api,
@@ -205,6 +223,27 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
     onNavigate: onNavigateToWorkspaceFile,
   });
   disposables.push(extended.disposable);
+
+  // Settings → Apply restarts a server whose settings changed. Monaco only asks for inlay hints
+  // again when the text changes, so open editors would keep the old hints; ask now instead.
+  const inlayHintsChanged = createVoidEvent();
+  disposables.push(inlayHintsChanged);
+  const stopSettingsWatch =
+    electron.onLspSettingsApplied?.((servers) => {
+      const restarted = new Set(servers);
+      for (const model of api.editor.getModels()) {
+        const rel = getWorkspaceRelativePathForModel(model);
+        const server = rel ? lspServerKindForWorkspaceRelativePath(rel) : null;
+        if (server && restarted.has(server)) {
+          // The new server has never seen this buffer, which may hold unsaved edits.
+          invalidateMonacoModelLspDocumentSync(model);
+        }
+      }
+      if (servers.length > 0) {
+        inlayHintsChanged.fire();
+      }
+    }) ?? (() => {});
+  disposables.push({ dispose: stopSettingsWatch });
 
   disposables.push(
     registerJavaShowLocationCommands({
@@ -963,6 +1002,7 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
 
     disposables.push(
       api.languages.registerInlayHintsProvider(lang, {
+        onDidChangeInlayHints: inlayHintsChanged.event,
         provideInlayHints: async (model, range, token) => {
           if (!canRun(model)) {
             return null;

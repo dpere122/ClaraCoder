@@ -2454,6 +2454,11 @@ export class ElectronService {
     };
   }
 
+  /** Language servers that restarted with new settings after Settings → Apply. */
+  onLspSettingsApplied(callback: (servers: string[]) => void): () => void {
+    return this.api?.onLspSettingsApplied?.((payload) => this.zone.run(() => callback(payload.servers ?? []))) ?? (() => {});
+  }
+
   healthLogsRecent(limit: number): Promise<HealthLogRecord[]> {
     return this.api?.healthLogsRecent(limit).then((r) => r.records) ?? Promise.resolve([]);
   }

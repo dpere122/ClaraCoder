@@ -479,9 +479,29 @@ class RuntimePythonLspConfig:
 
 
 @dataclass
+class RuntimeTypescriptLspConfig:
+    """Settings → LSP → TypeScript / JavaScript (vtsls). Defaults are vtsls' own."""
+
+    use_workspace_tsdk: bool = False
+    validate_javascript: bool = True
+    #: Only for JavaScript files no ``jsconfig.json`` / ``tsconfig.json`` covers.
+    check_js: bool = False
+    inlay_parameter_names: str = 'none'
+    inlay_parameter_types: bool = False
+    inlay_variable_types: bool = False
+    inlay_property_declaration_types: bool = False
+    inlay_function_return_types: bool = False
+    inlay_enum_member_values: bool = False
+    auto_import_completions: bool = True
+    import_module_specifier: str = 'shortest'
+    quote_style: str = 'auto'
+
+
+@dataclass
 class RuntimeLspConfig:
     gdscript: RuntimeGdscriptLspConfig = field(default_factory=RuntimeGdscriptLspConfig)
     python: RuntimePythonLspConfig = field(default_factory=RuntimePythonLspConfig)
+    typescript: RuntimeTypescriptLspConfig = field(default_factory=RuntimeTypescriptLspConfig)
 
 
 @dataclass

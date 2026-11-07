@@ -146,13 +146,15 @@ The `llama-server` installer probes the host and picks a GPU-accelerated build w
 
 | Host | Build selected |
 | ---- | -------------- |
-| Windows x64 + NVIDIA + CUDA 13.x driver | Prebuilt CUDA 13.3 binary (+ bundled cudart DLLs) |
+| Windows x64 + NVIDIA + CUDA 13.x driver | Prebuilt CUDA 13.5 binary (+ bundled cudart DLLs) |
 | Windows x64 + NVIDIA + CUDA 12.x driver | Prebuilt CUDA 12.4 binary (+ bundled cudart DLLs) |
 | Windows x64 + NVIDIA + unknown/no CUDA driver | CPU build |
-| Linux x64 + NVIDIA | Prebuilt **Vulkan** binary (uses the Vulkan driver shipped with the NVIDIA driver; no CUDA toolkit needed) |
+| Linux x64 + NVIDIA + CUDA 13.x driver | Prebuilt CUDA 13.5 binary (+ bundled CUDA runtime libs) |
+| Linux x64 + NVIDIA + CUDA 12.x driver | Prebuilt CUDA 12.8 binary (+ bundled CUDA runtime libs) |
+| Linux x64 + NVIDIA + unknown/older CUDA driver | Prebuilt **Vulkan** binary (uses the Vulkan driver shipped with the NVIDIA driver) |
 | macOS / Linux arm64 / no NVIDIA | CPU build |
 
-Detection uses `nvidia-smi` plus the NVIDIA driver library (`nvcuda.dll` / `libcuda.so.1`) to read the CUDA driver-API version. The installed variant shows in the Dependencies window as the version label, e.g. `b10867 (cuda-12.4)` or `b10867 (vulkan)`.
+Detection uses `nvidia-smi` plus the NVIDIA driver library (`nvcuda.dll` / `libcuda.so.1`) to read the CUDA driver-API version. The installed variant shows in the Dependencies window as the version label, e.g. `b12182 (cuda-12.4)`, `b12182 (cuda-13.5)` or `b12182 (vulkan)`.
 
 Force a specific build with `CLARA_LLAMA_SERVER_CUDA`:
 
@@ -160,14 +162,14 @@ Force a specific build with `CLARA_LLAMA_SERVER_CUDA`:
 | ----- | ------ |
 | `auto` (default) | Use the auto-detected build from the table above |
 | `cpu` | Always install the CPU build |
-| `cuda-12` | Force the Windows CUDA 12.4 prebuilt (Windows x64 only) |
-| `cuda-13` | Force the Windows CUDA 13.3 prebuilt (Windows x64 only) |
+| `cuda-12` | Force the CUDA 12 prebuilt (12.4 on Windows x64, 12.8 on Linux x64) |
+| `cuda-13` | Force the CUDA 13.5 prebuilt (Windows x64, Linux x64) |
 | `vulkan` | Force the Vulkan prebuilt (Linux/Windows x64) |
 | `compile` | Compile from source with `-DGGML_CUDA=ON` (Linux). Requires `cmake`, `gcc`, and the NVIDIA CUDA toolkit; the installer errors with a clear message listing what's missing before attempting the build |
 
-> **Note:** ggml-org does **not** publish Linux CUDA prebuilts, so true CUDA on Linux is opt-in via `compile` and needs the CUDA toolkit. For most Linux + NVIDIA users the Vulkan default gives GPU acceleration without any extra setup.
+> **Note:** The Linux CUDA prebuilts bundle `libcudart`/`libcublas`, so no CUDA toolkit is needed, only the NVIDIA driver. `b10867` and older don't have them; if you pin an older release with `CLARA_LLAMA_SERVER_VERSION`, force `vulkan` too. `compile` is still available if you want a build tuned to your own GPU.
 
-Pin a different llama.cpp release with `CLARA_LLAMA_SERVER_VERSION` (e.g. `b10867`).
+Pin a different llama.cpp release with `CLARA_LLAMA_SERVER_VERSION` (e.g. `b12182`).
 
 Managed chat servers keep llama-server's default 8 GiB host-RAM prompt cache, which restores a conversation quickly after its prompt changes. On a machine with under 24 GiB of RAM they start with `--cache-ram 2048` instead. A `--cache-ram <MiB>` in the run command always wins (`0` turns the cache off).
 
@@ -201,7 +203,7 @@ Managed chat servers keep llama-server's default 8 GiB host-RAM prompt cache, wh
 | `CLARA_PYTORCH_CPU=1` | Same as `setup:python:cpu` — CPU-only PyTorch |
 | `PYTHON`             | Base interpreter for creating `.venv` if it does not exist yet |
 | `DEV_SERVER_URL`     | Set automatically by `npm run dev` |
-| `CLARA_LLAMA_SERVER_VERSION` | Pin a llama.cpp release tag for the managed `llama-server` dep (e.g. `b10867`) |
+| `CLARA_LLAMA_SERVER_VERSION` | Pin a llama.cpp release tag for the managed `llama-server` dep (e.g. `b12182`) |
 | `CLARA_LLAMA_SERVER_CUDA` | Force the `llama-server` build variant: `auto` (default) \| `cpu` \| `cuda-12` \| `cuda-13` \| `vulkan` \| `compile` |
 | `CLARA_FASTEMBED_THREADS` | ONNX Runtime CPU threads for the in-process workspace embedder (`0` = auto, `min(4, cores)`). Lower it if background indexing competes with a CPU-offloaded `llama-server` |
 

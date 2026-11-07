@@ -165,7 +165,8 @@ def test_llama_cleanup_partial_removes_download_artifacts(monkeypatch, tmp_path:
     downloads = tmp_path / 'downloads'
     (downloads / 'llama-extract-b1-vulkan').mkdir(parents=True)
     (downloads / 'llama-b1-bin-win-vulkan-x64.zip').write_text('zip', encoding='utf-8')
-    (downloads / 'cudart-llama-bin-win-cuda-13.3-x64.zip.partial').write_text('p', encoding='utf-8')
+    (downloads / 'cudart-llama-bin-win-cuda-13.5-x64.zip.partial').write_text('p', encoding='utf-8')
+    (downloads / 'cudart-llama-b1-bin-ubuntu-cuda-12.8-x64.tar.gz').write_text('linux', encoding='utf-8')
     (downloads / 'jdtls.tar.gz').write_text('other dep', encoding='utf-8')
     monkeypatch.setattr(llama_server, 'get_runtime_downloads_dir', lambda: downloads)
     llama_server.cleanup_partial()

@@ -891,6 +891,8 @@ declare global {
         }
       | { ok: false; error: string }
     >;
+    /** Servers ``/runtime-config`` restarted because their settings changed. */
+    onLspSettingsApplied?: (callback: (payload: { servers: string[] }) => void) => () => void;
     lspDiagnosticsWatchStart?: (sessionId: string, relativePath: string) => void;
     lspDiagnosticsWatchStop?: () => void;
     onLspDiagnosticsUpdated?: (

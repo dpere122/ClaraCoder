@@ -2,6 +2,7 @@ import type * as Monaco from 'monaco-editor';
 import { describe, expect, it, vi } from 'vitest';
 import type { ElectronService } from '../../../core/electron.service';
 import { registerWorkspaceMonacoLsp } from './workspace-monaco-lsp';
+import { markMonacoModelLspDocumentSynced, monacoModelNeedsLspDocumentSync } from './workspace-monaco-lsp-sync-state';
 
 type Opener = {
   openCodeEditor: (source: unknown, resource: unknown, selectionOrPosition?: unknown) => boolean;
@@ -26,6 +27,9 @@ function setup() {
   const models = new Map<string, { uri: { value: string }; getAlternativeVersionId: () => number; getValue: () => string }>();
   const storeModels = new Set<unknown>();
   const register = vi.fn(() => ({ dispose: vi.fn() }));
+  const inlayHintEvents = new Map<string, Monaco.IEvent<void>>();
+  let applySettings: (servers: string[]) => void = () => {};
+  const stopSettingsWatch = vi.fn();
   const api = {
     Uri: { parse: uri },
     Range: class {},
@@ -39,6 +43,7 @@ function setup() {
         return { dispose: vi.fn() };
       },
       getModel: (u: { value: string }) => models.get(u.value) ?? null,
+      getModels: () => [...models.values()],
       createModel: vi.fn(),
     },
     languages: new Proxy(
@@ -46,6 +51,10 @@ function setup() {
         FoldingRangeKind: {},
         registerRenameProvider: (language: string, provider: RenameProvider) => {
           renameProviders.set(language, provider);
+          return { dispose: vi.fn() };
+        },
+        registerInlayHintsProvider: (language: string, provider: { onDidChangeInlayHints: Monaco.IEvent<void> }) => {
+          inlayHintEvents.set(language, provider.onDidChangeInlayHints);
           return { dispose: vi.fn() };
         },
       } as Record<string, unknown>,
@@ -57,9 +66,13 @@ function setup() {
     lspEditorRename: vi.fn(),
     readWorkspaceFile: vi.fn().mockResolvedValue({ ok: true, content: 'old text' }),
     writeWorkspaceFile: vi.fn().mockResolvedValue({ ok: true }),
+    onLspSettingsApplied: (callback: (servers: string[]) => void) => {
+      applySettings = callback;
+      return stopSettingsWatch;
+    },
   };
   const onNavigate = vi.fn();
-  registerWorkspaceMonacoLsp({
+  const registration = registerWorkspaceMonacoLsp({
     monacoApi: api,
     electron: electron as unknown as ElectronService,
     getLspSessionId: () => 'session',
@@ -82,7 +95,17 @@ function setup() {
     }
     return model;
   };
-  return { opener: openers[0]!, renameProviders, electron, onNavigate, addModel };
+  return {
+    opener: openers[0]!,
+    renameProviders,
+    electron,
+    onNavigate,
+    addModel,
+    inlayHintEvents,
+    applySettings: (servers: string[]) => applySettings(servers),
+    stopSettingsWatch,
+    registration,
+  };
 }
 
 describe('the workspace editor opener', () => {
@@ -162,5 +185,41 @@ describe('a multi-file rename', () => {
 
     expect(result).toMatchObject({ edits: [], rejectReason: expect.stringContaining('too large') });
     expect(electron.writeWorkspaceFile).not.toHaveBeenCalled();
+  });
+});
+
+describe('inlay hints after Settings → Apply', () => {
+  it('asks every language again and re-sends the buffers of the restarted servers', () => {
+    const { addModel, inlayHintEvents, applySettings } = setup();
+    const ts = addModel('clara-workspace:///src/app.ts', true);
+    const js = addModel('clara-workspace:///src/util.js', true);
+    const py = addModel('clara-workspace:///tool.py', true);
+    for (const model of [ts, js, py]) {
+      markMonacoModelLspDocumentSynced(model as unknown as Monaco.editor.ITextModel);
+    }
+    const asked: string[] = [];
+    for (const [language, event] of inlayHintEvents) {
+      event(() => asked.push(language));
+    }
+
+    applySettings(['typescript']);
+
+    expect(asked.sort()).toEqual([...inlayHintEvents.keys()].sort());
+    expect(asked).toContain('typescript');
+    expect(monacoModelNeedsLspDocumentSync(ts as unknown as Monaco.editor.ITextModel)).toBe(true);
+    expect(monacoModelNeedsLspDocumentSync(js as unknown as Monaco.editor.ITextModel)).toBe(true);
+    expect(monacoModelNeedsLspDocumentSync(py as unknown as Monaco.editor.ITextModel)).toBe(false);
+  });
+
+  it('does nothing when no server restarted, and stops listening when disposed', () => {
+    const { inlayHintEvents, applySettings, stopSettingsWatch, registration } = setup();
+    const listener = vi.fn();
+    inlayHintEvents.get('typescript')!(listener);
+
+    applySettings([]);
+    expect(listener).not.toHaveBeenCalled();
+
+    registration.dispose();
+    expect(stopSettingsWatch).toHaveBeenCalledOnce();
   });
 });

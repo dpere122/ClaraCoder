@@ -1,21 +1,29 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { defaultLspServersSettings, type LspServersSettings, type PythonLspSettings } from '@shared/lsp-settings';
+import {
+  defaultLspServersSettings,
+  type LspServersSettings,
+  type PythonLspSettings,
+  type TypescriptLspSettings,
+} from '@shared/lsp-settings';
 import { ElectronService } from '../../../core/electron.service';
 import { SettingsStore } from '../settings/settings-store';
 import { SettingsLsp } from './settings-lsp';
 
-function setup() {
+function setup(subTab = 'python') {
   const lspServers = signal<LspServersSettings>(defaultLspServersSettings());
   const store = {
     lspServers,
     lspDependencies: () => [],
-    activeSubTabId: () => 'python',
+    activeSubTabId: () => subTab,
     refreshLspDependencies: vi.fn().mockResolvedValue(undefined),
     patchGdscriptLsp: vi.fn(),
     patchPythonLsp: vi.fn((patch: Partial<PythonLspSettings>) => {
       lspServers.update((servers) => ({ ...servers, python: { ...servers.python, ...patch } }));
+    }),
+    patchTypescriptLsp: vi.fn((patch: Partial<TypescriptLspSettings>) => {
+      lspServers.update((servers) => ({ ...servers, typescript: { ...servers.typescript, ...patch } }));
     }),
   };
   const electron = {
@@ -87,5 +95,41 @@ describe('Python Extra paths box', () => {
     await settle(fixture);
 
     expect(textarea(fixture).value).toBe('src\nlibs');
+  });
+});
+
+describe('TypeScript / JavaScript settings', () => {
+  function checkbox(fixture: ReturnType<typeof setup>['fixture'], label: string): HTMLInputElement {
+    const rows = [...(fixture.nativeElement as HTMLElement).querySelectorAll('label.toggle-row')];
+    const row = rows.find((el) => el.textContent?.includes(label));
+    expect(row, label).toBeTruthy();
+    return row!.querySelector('input')!;
+  }
+
+  it('shows the saved values and saves a toggle', async () => {
+    const { fixture, store, lspServers } = setup('typescript');
+    lspServers.update((servers) => ({ ...servers, typescript: { ...servers.typescript, checkJs: true } }));
+    await settle(fixture);
+
+    expect(checkbox(fixture, 'Type-check JavaScript files').checked).toBe(true);
+    expect(checkbox(fixture, 'Report errors in JavaScript files').checked).toBe(true);
+    expect(checkbox(fixture, 'Show inferred variable types').checked).toBe(false);
+
+    const variableTypes = checkbox(fixture, 'Show inferred variable types');
+    variableTypes.click();
+    await settle(fixture);
+
+    expect(store.patchTypescriptLsp).toHaveBeenCalledWith({ inlayVariableTypes: true });
+    expect(lspServers().typescript.inlayVariableTypes).toBe(true);
+    expect(store.patchPythonLsp).not.toHaveBeenCalled();
+  });
+
+  it("doesn't show the Python form", async () => {
+    const { fixture } = setup('typescript');
+    await settle(fixture);
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('vtsls');
+    expect(text).not.toContain('basedpyright');
+    expect((fixture.nativeElement as HTMLElement).querySelector('textarea')).toBeNull();
   });
 });

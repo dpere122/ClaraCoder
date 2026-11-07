@@ -3,6 +3,9 @@ import { LSP_MONACO_LANGUAGE_IDS, LSP_SEMANTIC_LEGEND_SERVER_IDS } from './lsp-r
 import {
   LSP_SERVER_CATALOG,
   PYTHON_TYPE_CHECKING_MODES,
+  TYPESCRIPT_IMPORT_MODULE_SPECIFIERS,
+  TYPESCRIPT_PARAMETER_NAME_HINTS,
+  TYPESCRIPT_QUOTE_STYLES,
   defaultLspServersSettings,
   normalizeLspServersSettings,
   normalizePathList,
@@ -26,7 +29,12 @@ describe('normalizeLspServersSettings', () => {
         formatterArgs: '--stdin',
       },
     };
-    expect(normalizeLspServersSettings(saved)).toEqual({ ...saved, python: defaultLspServersSettings().python });
+    const defaults = defaultLspServersSettings();
+    expect(normalizeLspServersSettings(saved)).toEqual({
+      ...saved,
+      python: defaults.python,
+      typescript: defaults.typescript,
+    });
   });
 
   it('replaces a bad field and keeps the rest', () => {
@@ -55,10 +63,11 @@ describe('LSP_SERVER_CATALOG', () => {
     expect(LSP_MONACO_LANGUAGE_IDS.length).toBeGreaterThan(0);
   });
 
-  it('makes Godot and Python editable', () => {
+  it('makes Godot, Python and TypeScript editable', () => {
     expect(LSP_SERVER_CATALOG.filter((server) => server.editable).map((server) => server.id)).toEqual([
       'gdscript',
       'python',
+      'typescript',
     ]);
   });
 });
@@ -129,5 +138,66 @@ describe('pyprojectPyrightSection', () => {
     expect(pyprojectPyrightSection('# see [tool.pyright] docs\n')).toBe('');
     expect(pyprojectPyrightSection('description = "uses [tool.pyright]"\n')).toBe('');
     expect(pyprojectPyrightSection('[[tool.pyright]]\n')).toBe('');
+  });
+});
+
+describe('normalizeLspServersSettings (typescript)', () => {
+  it('keeps valid values', () => {
+    const typescript = {
+      useWorkspaceTsdk: true,
+      validateJavaScript: false,
+      checkJs: true,
+      inlayParameterNames: 'literals',
+      inlayParameterTypes: true,
+      inlayVariableTypes: true,
+      inlayPropertyDeclarationTypes: true,
+      inlayFunctionReturnTypes: true,
+      inlayEnumMemberValues: true,
+      autoImportCompletions: false,
+      importModuleSpecifier: 'non-relative',
+      quoteStyle: 'single',
+    };
+    expect(normalizeLspServersSettings({ typescript }).typescript).toEqual(typescript);
+  });
+
+  it('replaces a bad field and keeps the rest', () => {
+    const { typescript } = normalizeLspServersSettings({
+      typescript: { inlayParameterNames: 'some', importModuleSpecifier: 'absolute', quoteStyle: 'backtick', checkJs: 'yes', inlayVariableTypes: true },
+    });
+    const defaults = defaultLspServersSettings().typescript;
+    expect(typescript.inlayParameterNames).toBe(defaults.inlayParameterNames);
+    expect(typescript.importModuleSpecifier).toBe(defaults.importModuleSpecifier);
+    expect(typescript.quoteStyle).toBe(defaults.quoteStyle);
+    expect(typescript.checkJs).toBe(false);
+    expect(typescript.inlayVariableTypes).toBe(true);
+  });
+
+  it('accepts every option value', () => {
+    for (const value of TYPESCRIPT_PARAMETER_NAME_HINTS) {
+      expect(normalizeLspServersSettings({ typescript: { inlayParameterNames: value } }).typescript.inlayParameterNames).toBe(value);
+    }
+    for (const value of TYPESCRIPT_IMPORT_MODULE_SPECIFIERS) {
+      expect(normalizeLspServersSettings({ typescript: { importModuleSpecifier: value } }).typescript.importModuleSpecifier).toBe(value);
+    }
+    for (const value of TYPESCRIPT_QUOTE_STYLES) {
+      expect(normalizeLspServersSettings({ typescript: { quoteStyle: value } }).typescript.quoteStyle).toBe(value);
+    }
+  });
+
+  it("defaults to vtsls' own settings, so nothing changes until someone edits them", () => {
+    expect(defaultLspServersSettings().typescript).toEqual({
+      useWorkspaceTsdk: false,
+      validateJavaScript: true,
+      checkJs: false,
+      inlayParameterNames: 'none',
+      inlayParameterTypes: false,
+      inlayVariableTypes: false,
+      inlayPropertyDeclarationTypes: false,
+      inlayFunctionReturnTypes: false,
+      inlayEnumMemberValues: false,
+      autoImportCompletions: true,
+      importModuleSpecifier: 'shortest',
+      quoteStyle: 'auto',
+    });
   });
 });

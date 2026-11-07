@@ -1,4 +1,4 @@
-import { LSP_SERVER_CATALOG, defaultLspServersSettings, normalizeLspServersSettings, type GdscriptLspSettings, type LspServersSettings, type PythonLspSettings } from '@shared/lsp-settings';
+import { LSP_SERVER_CATALOG, defaultLspServersSettings, normalizeLspServersSettings, type GdscriptLspSettings, type LspServersSettings, type PythonLspSettings, type TypescriptLspSettings } from '@shared/lsp-settings';
 import type { DependencyInfo } from '@shared/types/dependencies';
 import { Injectable, afterNextRender, effect, inject, Injector, computed, signal, untracked } from '@angular/core';
 import { NgxSpinnerService } from 'ngx-spinner';
@@ -3369,6 +3369,11 @@ export class SettingsStore {
 
   patchPythonLsp(patch: Partial<PythonLspSettings>): void {
     this.lspServers.update((servers) => ({ ...servers, python: { ...servers.python, ...patch } }));
+    this.markSettingsDirty();
+  }
+
+  patchTypescriptLsp(patch: Partial<TypescriptLspSettings>): void {
+    this.lspServers.update((servers) => ({ ...servers, typescript: { ...servers.typescript, ...patch } }));
     this.markSettingsDirty();
   }
 

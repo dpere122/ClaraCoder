@@ -19,6 +19,7 @@ from clara_coder_backend.domain import (
     RuntimeMcpServer,
     RuntimePythonLspConfig,
     RuntimeToolsConfig,
+    RuntimeTypescriptLspConfig,
 )
 from clara_coder_backend.runtime.http_url_normalize import normalize_bind_all_host_url
 from clara_coder_backend.runtime.python_env import apply_extra_user_path
@@ -37,6 +38,7 @@ router = APIRouter()
 def _runtime_lsp_config(request: RuntimeLspRequest) -> RuntimeLspConfig:
     g = request.gdscript
     p = request.python
+    t = request.typescript
     return RuntimeLspConfig(
         gdscript=RuntimeGdscriptLspConfig(
             godot_binary_path=g.godotBinaryPath.strip(),
@@ -56,6 +58,20 @@ def _runtime_lsp_config(request: RuntimeLspRequest) -> RuntimeLspConfig:
             inlay_generic_types=p.inlayGenericTypes,
             auto_import_completions=p.autoImportCompletions,
             extra_paths=list(dict.fromkeys(path.strip() for path in p.extraPaths if path.strip())),
+        ),
+        typescript=RuntimeTypescriptLspConfig(
+            use_workspace_tsdk=t.useWorkspaceTsdk,
+            validate_javascript=t.validateJavaScript,
+            check_js=t.checkJs,
+            inlay_parameter_names=t.inlayParameterNames,
+            inlay_parameter_types=t.inlayParameterTypes,
+            inlay_variable_types=t.inlayVariableTypes,
+            inlay_property_declaration_types=t.inlayPropertyDeclarationTypes,
+            inlay_function_return_types=t.inlayFunctionReturnTypes,
+            inlay_enum_member_values=t.inlayEnumMemberValues,
+            auto_import_completions=t.autoImportCompletions,
+            import_module_specifier=t.importModuleSpecifier,
+            quote_style=t.quoteStyle,
         ),
     )
 
@@ -286,6 +302,13 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
         from clara_coder_backend.lsp.manager import shutdown_lsp_server_for_all_sessions
 
         await asyncio.to_thread(shutdown_lsp_server_for_all_sessions, 'python')
+    if lsp_cfg.typescript != prev_lsp.typescript:
+        # vtsls takes most of these live, but it only republishes diagnostics that change, and a
+        # tsserver change (workspace TypeScript, checkJs) is cleaner on a fresh start. The next
+        # request for a TS/JS file starts it again.
+        from clara_coder_backend.lsp.manager import shutdown_lsp_server_for_all_sessions
+
+        await asyncio.to_thread(shutdown_lsp_server_for_all_sessions, 'typescript')
     try:
         from clara_coder_backend.mcp.manager import schedule_mcp_reconcile
 

@@ -521,8 +521,8 @@ export class Dependencies implements OnInit, OnDestroy {
   }
 
   /**
-   * Short size label for the row pill, e.g. "~40–400 MB" from
-   * "~40–400 MB (CPU ~40 MB; CUDA build …)". The full hint goes in the tooltip.
+   * Short size label for the row pill, e.g. "~40–750 MB" from
+   * "~40–750 MB (CPU ~40 MB; CUDA build …)". The full hint goes in the tooltip.
    */
   protected sizeShort(hint: string): string {
     const idx = hint.indexOf(' (');

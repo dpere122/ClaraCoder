@@ -208,7 +208,10 @@ def _file_diagnostics(
         analyzed_source=analyzed_source,
         server_kind=server,
     )
-    if not manager.diagnostics_fresh(relative_path):
+    off_reason = manager.diagnostics_off_reason(relative_path)
+    if off_reason:
+        text += f'\n\nNote: {off_reason}'
+    elif not manager.diagnostics_fresh(relative_path):
         text += '\n\n' + diagnostics_pending_note(server)
     return text
 

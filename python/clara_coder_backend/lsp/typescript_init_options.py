@@ -5,8 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from clara_coder_backend.domain import RuntimeTypescriptLspConfig
+from clara_coder_backend.lsp.file_policy import get_lsp_file_policy
 
-__all__ = ['build_typescript_initialization_options']
+__all__ = ['build_typescript_initialization_options', 'javascript_diagnostics_off_reason']
+
+#: ``javascript.validate.enable`` covers both; vtsls reads ``typescript.*`` for ``.ts`` / ``.tsx``.
+_JAVASCRIPT_LANGUAGE_IDS = frozenset({'javascript', 'javascriptreact'})
 
 
 def _typescript_lsp_settings() -> RuntimeTypescriptLspConfig:
@@ -57,3 +61,25 @@ def build_typescript_initialization_options(
         'js/ts': {'implicitProjectConfig': {'checkJs': s.check_js}},
         'vtsls': {'autoUseWorkspaceTsdk': s.use_workspace_tsdk},
     }
+
+
+def javascript_diagnostics_off_reason(
+    relative_posix_path: str,
+    settings: RuntimeTypescriptLspConfig | None = None,
+) -> str:
+    """Why vtsls reports nothing for this file, or ``''``.
+
+    With ``javascript.validate.enable`` off vtsls never asks tsserver for a JavaScript file's errors,
+    so it never publishes for one (not even an empty list).
+    """
+
+    policy = get_lsp_file_policy(relative_posix_path)
+    if policy is None or policy.language_id not in _JAVASCRIPT_LANGUAGE_IDS:
+        return ''
+    s = settings if settings is not None else _typescript_lsp_settings()
+    if s.validate_javascript:
+        return ''
+    return (
+        'JavaScript error checking is off (Settings → LSP → TypeScript / JavaScript → '
+        '"Report errors in JavaScript files"), so the language server reports no problems for this file.'
+    )

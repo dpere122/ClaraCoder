@@ -124,6 +124,16 @@ describe('TypeScript / JavaScript settings', () => {
     expect(store.patchPythonLsp).not.toHaveBeenCalled();
   });
 
+  it('disables JavaScript type-checking while JavaScript errors are off', async () => {
+    const { fixture, lspServers } = setup('typescript');
+    await settle(fixture);
+    expect(checkbox(fixture, 'Type-check JavaScript files').disabled).toBe(false);
+
+    lspServers.update((servers) => ({ ...servers, typescript: { ...servers.typescript, validateJavaScript: false } }));
+    await settle(fixture);
+    expect(checkbox(fixture, 'Type-check JavaScript files').disabled).toBe(true);
+  });
+
   it("doesn't show the Python form", async () => {
     const { fixture } = setup('typescript');
     await settle(fixture);

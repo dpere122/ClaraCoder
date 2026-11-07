@@ -285,6 +285,7 @@
             <input
               type='checkbox'
               [ngModel]='typescript().checkJs'
+              [disabled]='!typescript().validateJavaScript'
               (ngModelChange)='patchTypescript({ checkJs: $event })'
             />
             <span>Type-check JavaScript files outside a <code>jsconfig.json</code> or <code>tsconfig.json</code> project</span>
@@ -293,7 +294,8 @@
       </div>
       <p class='settings-field-hint'>
         Files inside such a project follow its <code>checkJs</code> option instead. One file can opt in with a
-        <code>// &#64;ts-check</code> comment.
+        <code>// &#64;ts-check</code> comment. With errors off, JavaScript files report nothing, type-checked or
+        not.
       </p>
     </div>
 

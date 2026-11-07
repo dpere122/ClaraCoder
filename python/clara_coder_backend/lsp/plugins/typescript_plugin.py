@@ -8,7 +8,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from clara_coder_backend.lsp.server_plugin import LspServerPlugin, LspStartParams
-from clara_coder_backend.lsp.typescript_init_options import build_typescript_initialization_options
+from clara_coder_backend.lsp.typescript_init_options import (
+    build_typescript_initialization_options,
+    javascript_diagnostics_off_reason,
+)
 from clara_coder_backend.lsp.typescript_project_root import resolve_typescript_project_root
 from clara_coder_backend.lsp.typescript_server import resolve_typescript_lsp_spawn
 
@@ -83,6 +86,9 @@ class TypescriptLspPlugin(LspServerPlugin):
             init_options=build_typescript_initialization_options(),
             env=spawn.env,
         )
+
+    def diagnostics_off_reason(self, relative_posix_path: str) -> str:
+        return javascript_diagnostics_off_reason(relative_posix_path)
 
     def should_defer_semantic_tokens_legend_without_document_seed(self, state: Any) -> bool:
         st = state if isinstance(state, TypescriptPluginState) else TypescriptPluginState()

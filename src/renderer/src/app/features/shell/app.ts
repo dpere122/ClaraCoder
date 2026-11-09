@@ -853,6 +853,34 @@ export class App implements OnInit, OnDestroy {
       });
     });
 
+    // With a workspace open but no editor tab, the main stage would be empty:
+    // move the sidebar chat into the expanded view. Only on the change into
+    // that state, so un-expanding by hand still sticks; and when tabs come
+    // back (closing the last one is undone, a workspace with tabs restores),
+    // drop the overlay so they're visible.
+    let prevNoTabOpen: boolean | null = null;
+    effect(() => {
+      const hasWorkspace = this.hasOpenWorkspace();
+      const noTabOpen = hasWorkspace && this.allFileTabs().length === 0;
+      untracked(() => {
+        if (!this.chatLayoutHydrated) {
+          return;
+        }
+        const prev = prevNoTabOpen;
+        prevNoTabOpen = noTabOpen;
+        if (prev === noTabOpen) {
+          return;
+        }
+        if (noTabOpen) {
+          if (!this.chatCollapsed() && this.chatHubView() === 'activeChat') {
+            this.chatExpanded.set(true);
+          }
+        } else if (prev && hasWorkspace) {
+          this.chatExpanded.set(false);
+        }
+      });
+    });
+
     this.conversationSession.bindHooks({
       getCurrentWorkspaceId: () => this.currentWorkspaceId(),
       getSpeechSettings: () => ({

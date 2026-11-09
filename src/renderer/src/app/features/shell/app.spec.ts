@@ -312,6 +312,82 @@ describe('App', () => {
     expect(saved.chatExpandedToMainPanel).toBe(true);
   });
 
+  describe('default expanded chat with no editor tab', () => {
+    const workspaces = [
+      { id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'ws-b', name: 'B', path: 'C:/tmp/b', createdAt: '2026-01-01T00:00:00.000Z' },
+    ];
+    const tabsForA = {
+      'ws-a': {
+        tabs: [{ relativePath: 'src/foo.ts', outsideWorkspace: false }],
+        activeTabId: 'file:rel:src/foo.ts',
+      },
+    };
+    type ChatApp = {
+      chatExpanded: { (): boolean; set: (value: boolean) => void };
+      currentWorkspaceId: { (): string | null; set: (id: string | null) => void };
+    };
+
+    it('expands the sidebar chat when the workspace opens with no tab', async () => {
+      refs = stubElectronApi(undefined, { currentWorkspaceId: 'ws-b', workspaces });
+      const fixture = TestBed.createComponent(App);
+      await fixture.whenStable();
+      expect((fixture.componentInstance as unknown as ChatApp).chatExpanded()).toBe(true);
+    });
+
+    it('leaves a collapsed chat collapsed', async () => {
+      refs = stubElectronApi(undefined, {
+        currentWorkspaceId: 'ws-b',
+        workspaces,
+        chatSidebarCollapsed: true,
+      });
+      const fixture = TestBed.createComponent(App);
+      await fixture.whenStable();
+      expect((fixture.componentInstance as unknown as ChatApp).chatExpanded()).toBe(false);
+    });
+
+    it('keeps the chat in the sidebar when tabs are restored', async () => {
+      refs = stubElectronApi(undefined, {
+        currentWorkspaceId: 'ws-a',
+        workspaces,
+        workspaceOpenTabsByWorkspaceId: tabsForA,
+      });
+      const fixture = TestBed.createComponent(App);
+      await fixture.whenStable();
+      expect((fixture.componentInstance as unknown as ChatApp).chatExpanded()).toBe(false);
+    });
+
+    it('follows workspace switches and respects a manual un-expand', async () => {
+      refs = stubElectronApi(undefined, {
+        currentWorkspaceId: 'ws-a',
+        workspaces,
+        workspaceOpenTabsByWorkspaceId: tabsForA,
+      });
+      const fixture = TestBed.createComponent(App);
+      await fixture.whenStable();
+      const app = fixture.componentInstance as unknown as ChatApp;
+
+      app.currentWorkspaceId.set('ws-b');
+      await fixture.whenStable();
+      expect(app.chatExpanded()).toBe(true);
+
+      app.chatExpanded.set(false);
+      await fixture.whenStable();
+      expect(app.chatExpanded()).toBe(false);
+
+      app.currentWorkspaceId.set('ws-a');
+      await fixture.whenStable();
+      expect(app.chatExpanded()).toBe(false);
+
+      app.currentWorkspaceId.set('ws-b');
+      await fixture.whenStable();
+      app.currentWorkspaceId.set('ws-a');
+      await fixture.whenStable();
+      // Restored tabs drop the overlay so the file is visible.
+      expect(app.chatExpanded()).toBe(false);
+    });
+  });
+
   it('stays on the home screen when defaultHomePageOnStart is set', async () => {
     refs = stubElectronApi(undefined, {
       currentWorkspaceId: 'ws-a',

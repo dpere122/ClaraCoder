@@ -857,7 +857,8 @@ export class App implements OnInit, OnDestroy {
     // move the sidebar chat into the expanded view. Only on the change into
     // that state, so un-expanding by hand still sticks; and when tabs come
     // back (closing the last one is undone, a workspace with tabs restores),
-    // drop the overlay so they're visible.
+    // drop the overlay so they're visible. Closing the workspace drops it too,
+    // or it would cover the tabs of the next workspace opened from home.
     let prevNoTabOpen: boolean | null = null;
     effect(() => {
       const hasWorkspace = this.hasOpenWorkspace();
@@ -875,7 +876,7 @@ export class App implements OnInit, OnDestroy {
           if (!this.chatCollapsed() && this.chatHubView() === 'activeChat') {
             this.chatExpanded.set(true);
           }
-        } else if (prev && hasWorkspace) {
+        } else if (prev) {
           this.chatExpanded.set(false);
         }
       });

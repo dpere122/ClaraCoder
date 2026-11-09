@@ -386,6 +386,26 @@ describe('App', () => {
       // Restored tabs drop the overlay so the file is visible.
       expect(app.chatExpanded()).toBe(false);
     });
+
+    it('drops the overlay when the workspace closes, so tabs opened from home are visible', async () => {
+      refs = stubElectronApi(undefined, {
+        currentWorkspaceId: 'ws-b',
+        workspaces,
+        workspaceOpenTabsByWorkspaceId: tabsForA,
+      });
+      const fixture = TestBed.createComponent(App);
+      await fixture.whenStable();
+      const app = fixture.componentInstance as unknown as ChatApp;
+      expect(app.chatExpanded()).toBe(true);
+
+      app.currentWorkspaceId.set(null);
+      await fixture.whenStable();
+      expect(app.chatExpanded()).toBe(false);
+
+      app.currentWorkspaceId.set('ws-a');
+      await fixture.whenStable();
+      expect(app.chatExpanded()).toBe(false);
+    });
   });
 
   it('stays on the home screen when defaultHomePageOnStart is set', async () => {

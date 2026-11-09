@@ -77,13 +77,18 @@ jobs:
             python/requirements-dev.txt
             python/requirements.lock
 
+      # A virtual environment, so the runner's own Python tools (pipx) are not part of the install:
+      # the lock would downgrade packages they need, and `pip check` would then fail on them.
+      - name: Create virtual environment
+        run: python -m venv .venv
+
       # The lock pins the runtime packages to the versions the bundled interpreter ships.
       - name: Install dependencies
-        run: python -m pip install -r python/requirements-dev.txt -c python/requirements.lock
+        run: .venv/Scripts/python -m pip install -r python/requirements-dev.txt -c python/requirements.lock
 
       - name: Installed packages are consistent
-        run: python -m pip check
+        run: .venv/Scripts/python -m pip check
 
       - name: Tests
         working-directory: python
-        run: python -m pytest -q
+        run: ../.venv/Scripts/python -m pytest -q

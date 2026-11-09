@@ -120,9 +120,11 @@ describe('managedLlamaCommandToSpawnArgv (tokenizer + allowlist)', () => {
     rmSync(tempBinDir, { recursive: true, force: true });
   });
 
+  // The binary is quoted, as in real commands: the temp dir can hold a character the tokenizer
+  // rejects in an unquoted token (CI runners use the 8.3 name `C:\Users\RUNNER~1\...`).
   it('accepts a valid command and resolves the allowlisted binary', () => {
     const bin = path.join(tempBinDir, 'llama-server');
-    const r = managedLlamaCommandToSpawnArgv(`${bin} -m model.gguf -c 2048`);
+    const r = managedLlamaCommandToSpawnArgv(`"${bin}" -m model.gguf -c 2048`);
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(path.basename(r.bin)).toBe('llama-server');
@@ -135,7 +137,7 @@ describe('managedLlamaCommandToSpawnArgv (tokenizer + allowlist)', () => {
     const outside = path.join(os.tmpdir(), 'evil-bin');
     writeFileSync(outside, '#!/bin/sh\n');
     try {
-      const r = managedLlamaCommandToSpawnArgv(`${outside} http://x.evil`);
+      const r = managedLlamaCommandToSpawnArgv(`"${outside}" http://x.evil`);
       expect(r.ok).toBe(false);
     } finally {
       rmSync(outside, { force: true });

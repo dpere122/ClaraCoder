@@ -372,6 +372,87 @@ def test_runtime_config_applies_typescript_lsp_settings_and_restarts_vtsls_only_
         state.runtime_config.host = orig.host
 
 
+def test_runtime_config_applies_java_lsp_settings_and_restarts_jdt_ls_only_when_they_change(monkeypatch) -> None:
+    from clara_coder_backend.main import app
+    from clara_coder_backend.session import state
+    from clara_coder_backend.lsp import manager as lsp_manager
+
+    stopped: list[str] = []
+    monkeypatch.setattr(lsp_manager, 'shutdown_lsp_server_for_all_sessions', stopped.append)
+    orig = deepcopy(state.runtime_config)
+    settings = {
+        'jdkHome': ' C:/jdk-21 ',
+        'maxHeap': '4G',
+        'runtimes': [
+            {'name': ' JavaSE-17 ', 'path': ' C:/jdk-17 '},
+            {'name': 'JavaSE-11', 'path': ' '},
+        ],
+        'importMaven': False,
+        'importGradle': True,
+        'projectMetadataAtRoot': False,
+        'mavenUserSettings': ' C:/m2/settings.xml ',
+        'updateBuildConfiguration': 'disabled',
+        'autobuild': False,
+        'inlayParameterNames': 'all',
+        'inlayVariableTypes': True,
+        'inlayParameterTypes': False,
+        'inlayFormatParameters': True,
+        'referencesCodeLens': False,
+        'implementationCodeLens': 'methods',
+        'signatureHelp': False,
+        'guessMethodArguments': 'insertBestGuessedArguments',
+        'formatEnabled': True,
+        'formatOnType': True,
+        'formatComments': False,
+        'formatterSettingsPath': ' C:/style.xml ',
+        'formatterProfile': ' Team ',
+    }
+    try:
+        with TestClient(app) as client:
+            assert client.post('/runtime-config', json=_payload()).status_code == 200
+            stopped.clear()
+
+            body = {**_payload(), 'lsp': {'java': settings}}
+            assert client.post('/runtime-config', json=body).status_code == 200
+            applied = state.runtime_config.lsp.java
+            assert applied.jdk_home == 'C:/jdk-21'
+            assert applied.max_heap == '4G'
+            assert applied.runtimes == [('JavaSE-17', 'C:/jdk-17')], 'trimmed, incomplete entries dropped'
+            assert applied.import_maven is False
+            assert applied.project_metadata_at_root is False
+            assert applied.maven_user_settings == 'C:/m2/settings.xml'
+            assert applied.update_build_configuration == 'disabled'
+            assert applied.autobuild is False
+            assert applied.inlay_parameter_names == 'all'
+            assert applied.implementation_code_lens == 'methods'
+            assert applied.signature_help is False
+            assert applied.guess_method_arguments == 'insertBestGuessedArguments'
+            assert applied.format_on_type is True
+            assert applied.formatter_settings_path == 'C:/style.xml'
+            assert applied.formatter_profile == 'Team'
+            assert stopped == ['java']
+
+            assert client.post('/runtime-config', json=body).status_code == 200
+            assert stopped == ['java'], 'saving unchanged settings must not restart JDT LS'
+
+            for field, value in (
+                ('maxHeap', '1T'),
+                ('updateBuildConfiguration', 'interactive'),
+                ('inlayParameterNames', 'some'),
+                ('implementationCodeLens', 'everything'),
+                ('guessMethodArguments', 'auto'),
+            ):
+                bad = {**_payload(), 'lsp': {'java': {**settings, field: value}}}
+                assert client.post('/runtime-config', json=bad).status_code == 422
+    finally:
+        state.runtime_config.lsp = orig.lsp
+        state.runtime_config.tools = orig.tools
+        state.runtime_config.connections = orig.connections
+        state.runtime_config.active_connection_id = orig.active_connection_id
+        state.runtime_config.audio = orig.audio
+        state.runtime_config.host = orig.host
+
+
 def test_runtime_config_applies_lsp_settings_and_restarts_gdls_only_when_they_change(monkeypatch) -> None:
     import os
 

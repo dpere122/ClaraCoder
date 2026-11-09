@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   defaultLspServersSettings,
+  type JavaLspSettings,
   type LspServersSettings,
   type PythonLspSettings,
   type TypescriptLspSettings,
@@ -25,10 +26,14 @@ function setup(subTab = 'python') {
     patchTypescriptLsp: vi.fn((patch: Partial<TypescriptLspSettings>) => {
       lspServers.update((servers) => ({ ...servers, typescript: { ...servers.typescript, ...patch } }));
     }),
+    patchJavaLsp: vi.fn((patch: Partial<JavaLspSettings>) => {
+      lspServers.update((servers) => ({ ...servers, java: { ...servers.java, ...patch } }));
+    }),
   };
   const electron = {
     lspPythonProjectConfig: vi.fn().mockResolvedValue({ ok: true, workspacePath: '', config: null }),
     openFileDialog: vi.fn(),
+    openDirectoryDialog: vi.fn(),
     openDependenciesWindow: vi.fn(),
   };
   TestBed.configureTestingModule({
@@ -39,7 +44,7 @@ function setup(subTab = 'python') {
     ],
   });
   const fixture = TestBed.createComponent(SettingsLsp);
-  return { fixture, store, lspServers };
+  return { fixture, store, electron, lspServers };
 }
 
 async function settle(fixture: ReturnType<typeof setup>['fixture']): Promise<void> {
@@ -141,5 +146,115 @@ describe('TypeScript / JavaScript settings', () => {
     expect(text).toContain('vtsls');
     expect(text).not.toContain('basedpyright');
     expect((fixture.nativeElement as HTMLElement).querySelector('textarea')).toBeNull();
+  });
+});
+
+describe('Java settings', () => {
+  function checkbox(fixture: ReturnType<typeof setup>['fixture'], label: string): HTMLInputElement {
+    const rows = [...(fixture.nativeElement as HTMLElement).querySelectorAll('label.toggle-row')];
+    const row = rows.find((el) => el.textContent?.includes(label));
+    expect(row, label).toBeTruthy();
+    return row!.querySelector('input')!;
+  }
+
+  it('shows the form instead of the placeholder, and saves a toggle', async () => {
+    const { fixture, store, lspServers } = setup('java');
+    await settle(fixture);
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Eclipse JDT LS');
+    expect(text).not.toContain("aren't available yet");
+    expect(checkbox(fixture, 'Import Maven projects').checked).toBe(true);
+    expect(checkbox(fixture, 'Show the method signature').checked).toBe(true);
+
+    checkbox(fixture, 'Show the method signature').click();
+    await settle(fixture);
+
+    expect(store.patchJavaLsp).toHaveBeenCalledWith({ signatureHelp: false });
+    expect(lspServers().java.signatureHelp).toBe(false);
+    expect(store.patchTypescriptLsp).not.toHaveBeenCalled();
+  });
+
+  it('saves where imported projects keep their project files', async () => {
+    const { fixture, store, lspServers } = setup('java');
+    await settle(fixture);
+    const toggle = checkbox(fixture, 'Keep project files in the project folder');
+    expect(toggle.checked).toBe(true);
+
+    toggle.click();
+    await settle(fixture);
+
+    expect(store.patchJavaLsp).toHaveBeenCalledWith({ projectMetadataAtRoot: false });
+    expect(lspServers().java.projectMetadataAtRoot).toBe(false);
+  });
+
+  it('disables the comment and on-type options while formatting is off', async () => {
+    const { fixture, lspServers } = setup('java');
+    await settle(fixture);
+    expect(checkbox(fixture, 'Format comments too').disabled).toBe(false);
+
+    lspServers.update((servers) => ({ ...servers, java: { ...servers.java, formatEnabled: false } }));
+    await settle(fixture);
+    expect(checkbox(fixture, 'Format comments too').disabled).toBe(true);
+    expect(checkbox(fixture, 'Allow formatting while typing').disabled).toBe(true);
+  });
+
+  it('keeps a half-typed Project JDKs line while saving the complete ones', async () => {
+    const { fixture, store, lspServers } = setup('java');
+    await settle(fixture);
+
+    for (const value of ['JavaSE', 'JavaSE-17=', 'JavaSE-17=C:\\my jdk', 'JavaSE-17=C:\\my jdk\nJavaSE-2']) {
+      await type(fixture, value);
+      expect(textarea(fixture).value).toBe(value);
+    }
+    expect(lspServers().java.runtimes).toEqual([{ name: 'JavaSE-17', path: 'C:\\my jdk' }]);
+
+    store.patchJavaLsp.mockClear();
+    await type(fixture, 'JavaSE-17=C:\\my jdk\nJavaSE-21');
+    expect(store.patchJavaLsp).not.toHaveBeenCalled();
+  });
+
+  it('shows the saved Project JDKs when they change from outside the box', async () => {
+    const { fixture, lspServers } = setup('java');
+    await settle(fixture);
+    await type(fixture, 'draft');
+
+    lspServers.update((servers) => ({
+      ...servers,
+      java: { ...servers.java, runtimes: [{ name: 'JavaSE-17', path: 'C:/jdk-17' }] },
+    }));
+    await settle(fixture);
+
+    expect(textarea(fixture).value).toBe('JavaSE-17=C:/jdk-17');
+  });
+
+  it('browses for a JDK folder and for XML files, and ignores a cancelled picker', async () => {
+    const { fixture, electron, lspServers } = setup('java');
+    await settle(fixture);
+    const browse = [...(fixture.nativeElement as HTMLElement).querySelectorAll('button')].filter(
+      (button) => button.textContent?.trim() === 'Browse…',
+    );
+    expect(browse).toHaveLength(3);
+
+    electron.openDirectoryDialog.mockResolvedValueOnce(null);
+    browse[0]!.click();
+    await settle(fixture);
+    expect(lspServers().java.jdkHome).toBe('');
+
+    electron.openDirectoryDialog.mockResolvedValueOnce('C:\\jdk-21');
+    browse[0]!.click();
+    await settle(fixture);
+    expect(lspServers().java.jdkHome).toBe('C:\\jdk-21');
+
+    electron.openFileDialog.mockResolvedValueOnce('C:\\m2\\settings.xml');
+    browse[1]!.click();
+    await settle(fixture);
+    expect(lspServers().java.mavenUserSettings).toBe('C:\\m2\\settings.xml');
+
+    electron.openFileDialog.mockResolvedValueOnce('C:\\style.xml');
+    browse[2]!.click();
+    await settle(fixture);
+    expect(lspServers().java.formatterSettingsPath).toBe('C:\\style.xml');
+    expect(electron.openFileDialog).toHaveBeenCalledWith({ filters: [{ name: 'XML files', extensions: ['xml'] }] });
   });
 });

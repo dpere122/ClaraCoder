@@ -125,9 +125,7 @@ export const SETTINGS_SUB_TAB_CATALOG: Partial<Record<SettingsTab, SettingsSubTa
   lsp: LSP_SERVER_CATALOG.map((server) => ({
     id: server.id,
     label: server.label,
-    description: server.editable
-      ? `${server.server}: how it runs and what it checks.`
-      : `${server.server}. Settings for this server aren't available yet.`,
+    description: `${server.server}: how it runs and what it checks.`,
   })),
   monaco: [
     {

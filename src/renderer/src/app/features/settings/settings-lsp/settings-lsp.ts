@@ -2,9 +2,17 @@ import { Component, DestroyRef, ViewEncapsulation, computed, effect, inject, sig
 import { FormsModule } from '@angular/forms';
 import {
   LSP_SERVER_CATALOG,
+  formatJavaRuntimes,
   normalizePathList,
+  parseJavaRuntimes,
   type GdscriptDiagnosticsProfile,
   type GdscriptLspSettings,
+  type JavaGuessMethodArguments,
+  type JavaImplementationCodeLens,
+  type JavaLspSettings,
+  type JavaMaxHeapSize,
+  type JavaRuntime,
+  type JavaUpdateBuildConfiguration,
   type PythonDiagnosticMode,
   type PythonLspSettings,
   type PythonProjectConfigInfo,
@@ -87,6 +95,38 @@ export class SettingsLsp {
     { id: 'double', label: 'Double' },
   ];
 
+  protected readonly java = computed(() => this.s.lspServers().java);
+  /** The Dependencies row behind the Java server, once the list has loaded. */
+  protected readonly jdtls = computed(() => this.s.lspDependencies().find((dep) => dep.id === 'java-lsp') ?? null);
+  /** The Project JDKs box as typed, kept apart from the saved list for the same reason as Extra paths. */
+  protected readonly javaRuntimesDraft = signal('');
+
+  protected readonly maxHeapOptions: ReadonlyArray<{ id: JavaMaxHeapSize; label: string }> = [
+    { id: '512M', label: '512 MB' },
+    { id: '1G', label: '1 GB' },
+    { id: '2G', label: '2 GB' },
+    { id: '4G', label: '4 GB' },
+    { id: '8G', label: '8 GB' },
+  ];
+
+  protected readonly updateBuildOptions: ReadonlyArray<{ id: JavaUpdateBuildConfiguration; label: string }> = [
+    { id: 'automatic', label: 'Automatically' },
+    { id: 'disabled', label: 'Never' },
+  ];
+
+  protected readonly implementationLensOptions: ReadonlyArray<{ id: JavaImplementationCodeLens; label: string }> = [
+    { id: 'none', label: 'Off' },
+    { id: 'types', label: 'Types' },
+    { id: 'methods', label: 'Methods' },
+    { id: 'all', label: 'Types and methods' },
+  ];
+
+  protected readonly guessArgumentOptions: ReadonlyArray<{ id: JavaGuessMethodArguments; label: string }> = [
+    { id: 'off', label: 'Leave empty' },
+    { id: 'insertParameterNames', label: 'Parameter names' },
+    { id: 'insertBestGuessedArguments', label: 'Best guess from variables in scope' },
+  ];
+
   constructor() {
     void this.s.refreshLspDependencies();
     // Dependencies is its own window, and a project's config files can change while Settings is
@@ -113,6 +153,14 @@ export class SettingsLsp {
         }
       });
     });
+    effect(() => {
+      const saved = this.java().runtimes;
+      untracked(() => {
+        if (!sameRuntimes(parseJavaRuntimes(this.javaRuntimesDraft()), saved)) {
+          this.javaRuntimesDraft.set(formatJavaRuntimes(saved));
+        }
+      });
+    });
   }
 
   protected patch(patch: Partial<GdscriptLspSettings>): void {
@@ -125,6 +173,33 @@ export class SettingsLsp {
 
   protected patchTypescript(patch: Partial<TypescriptLspSettings>): void {
     this.s.patchTypescriptLsp(patch);
+  }
+
+  protected patchJava(patch: Partial<JavaLspSettings>): void {
+    this.s.patchJavaLsp(patch);
+  }
+
+  /** One ``name=folder`` per line; lines that aren't complete yet are left out of the saved list. */
+  protected setJavaRuntimes(text: string): void {
+    this.javaRuntimesDraft.set(text);
+    const runtimes = parseJavaRuntimes(text);
+    if (!sameRuntimes(runtimes, this.java().runtimes)) {
+      this.patchJava({ runtimes });
+    }
+  }
+
+  protected async browseForJdk(): Promise<void> {
+    const picked = await this.electron.openDirectoryDialog();
+    if (picked) {
+      this.patchJava({ jdkHome: picked });
+    }
+  }
+
+  protected async browseForXml(field: 'mavenUserSettings' | 'formatterSettingsPath'): Promise<void> {
+    const picked = await this.electron.openFileDialog({ filters: [{ name: 'XML files', extensions: ['xml'] }] });
+    if (picked) {
+      this.patchJava({ [field]: picked });
+    }
   }
 
   /** One path per line; blank and repeated lines are dropped. */
@@ -159,4 +234,8 @@ function parseExtraPaths(text: string): string[] {
 
 function samePaths(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((path, index) => path === b[index]);
+}
+
+function sameRuntimes(a: readonly JavaRuntime[], b: readonly JavaRuntime[]): boolean {
+  return a.length === b.length && a.every((runtime, index) => runtime.name === b[index]?.name && runtime.path === b[index]?.path);
 }

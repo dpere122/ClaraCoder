@@ -684,10 +684,45 @@ class RuntimeTypescriptLspRequest(BaseModel):
     quoteStyle: Literal['auto', 'single', 'double'] = 'auto'
 
 
+class RuntimeJavaRuntimeRequest(BaseModel):
+    """One JDK projects can compile against, e.g. ``JavaSE-17``."""
+
+    name: str
+    path: str
+
+
+class RuntimeJavaLspRequest(BaseModel):
+    """Settings → LSP → Java."""
+
+    jdkHome: str = ''
+    maxHeap: Literal['512M', '1G', '2G', '4G', '8G'] = '1G'
+    runtimes: list[RuntimeJavaRuntimeRequest] = Field(default_factory=list)
+    importMaven: bool = True
+    importGradle: bool = True
+    projectMetadataAtRoot: bool = True
+    mavenUserSettings: str = ''
+    updateBuildConfiguration: Literal['automatic', 'disabled'] = 'automatic'
+    autobuild: bool = True
+    inlayParameterNames: Literal['none', 'literals', 'all'] = 'literals'
+    inlayVariableTypes: bool = False
+    inlayParameterTypes: bool = False
+    inlayFormatParameters: bool = False
+    referencesCodeLens: bool = True
+    implementationCodeLens: Literal['none', 'types', 'methods', 'all'] = 'none'
+    signatureHelp: bool = True
+    guessMethodArguments: Literal['off', 'insertParameterNames', 'insertBestGuessedArguments'] = 'insertParameterNames'
+    formatEnabled: bool = True
+    formatOnType: bool = False
+    formatComments: bool = True
+    formatterSettingsPath: str = ''
+    formatterProfile: str = ''
+
+
 class RuntimeLspRequest(BaseModel):
     gdscript: RuntimeGdscriptLspRequest = Field(default_factory=RuntimeGdscriptLspRequest)
     python: RuntimePythonLspRequest = Field(default_factory=RuntimePythonLspRequest)
     typescript: RuntimeTypescriptLspRequest = Field(default_factory=RuntimeTypescriptLspRequest)
+    java: RuntimeJavaLspRequest = Field(default_factory=RuntimeJavaLspRequest)
 
 
 class RuntimeConfigRequest(BaseModel):

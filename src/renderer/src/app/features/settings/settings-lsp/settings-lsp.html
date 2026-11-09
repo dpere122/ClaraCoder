@@ -391,10 +391,291 @@
     </div>
   } @else {
     <div class='form-section'>
-      <h4>{{ server().label }}</h4>
-      <p class='panel__copy'>Runs {{ server().server }} for {{ server().languages }}.</p>
+      <h4>Language server</h4>
+      <div class='settings-lsp-status'>
+        <div>
+          @if (jdtls(); as dep) {
+            <p class='panel__copy'>
+              Eclipse JDT LS · {{ dep.state === 'installed' ? 'Installed' + (dep.version ? ', ' + dep.version : '') : 'Not installed' }}
+            </p>
+            @if (dep.path) {
+              <p class='settings-field-hint settings-lsp-status__path'>{{ dep.path }}</p>
+            }
+          } @else {
+            <p class='panel__copy'>Eclipse JDT LS</p>
+          }
+        </div>
+        <button type='button' class='action-button' (click)='openDependencies()'>Open Dependencies</button>
+      </div>
       <p class='settings-field-hint'>
-        Status: {{ s.settingsSubTabSummary('lsp', server().id) }}. Settings for this server aren't available yet.
+        Changing a setting here restarts the server, and a large project can take a while to load again.
+      </p>
+    </div>
+
+    <div class='form-section'>
+      <h4>Java runtime</h4>
+      <div class='form-grid'>
+        <div class='field field--full'>
+          <label for='settings-lsp-java-home'>JDK folder</label>
+          <div class='settings-lsp-path-row'>
+            <input
+              id='settings-lsp-java-home'
+              type='text'
+              [ngModel]='java().jdkHome'
+              (ngModelChange)='patchJava({ jdkHome: $event })'
+              placeholder='JAVA_HOME, then java on PATH'
+            />
+            <button type='button' class='action-button' (click)='browseForJdk()'>Browse…</button>
+          </div>
+          <p class='settings-field-hint'>The JDK that runs the language server. It needs Java 21 or newer.</p>
+        </div>
+        <label class='field'>
+          <span>Maximum memory</span>
+          <app-pill-select
+            [options]='maxHeapOptions'
+            [value]='java().maxHeap'
+            (valueChange)='patchJava({ maxHeap: $any($event) })'
+          />
+        </label>
+        <label class='field field--full'>
+          <span>Project JDKs</span>
+          <textarea
+            rows='3'
+            [ngModel]='javaRuntimesDraft()'
+            (ngModelChange)='setJavaRuntimes($event)'
+            placeholder='JavaSE-17=C:\jdks\jdk-17&#10;JavaSE-1.8=C:\jdks\jdk8'
+          ></textarea>
+        </label>
+      </div>
+      <p class='settings-field-hint'>
+        One per line, as execution environment=JDK folder. A Maven or Gradle project compiles against the one
+        matching its Java version. The first is the default for folders with no build file, unless a folder's
+        <code>.clara/java.json</code> lists its own runtimes.
+      </p>
+    </div>
+
+    <div class='form-section'>
+      <h4>Build tools</h4>
+      <div class='form-grid'>
+        <div class='field field--full field--hint'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().importMaven'
+              (ngModelChange)='patchJava({ importMaven: $event })'
+            />
+            <span>Import Maven projects</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().importGradle'
+              (ngModelChange)='patchJava({ importGradle: $event })'
+            />
+            <span>Import Gradle projects</span>
+          </label>
+          <p class='settings-field-hint'>
+            Importing runs the project's build setup, which can run its code. With import off, a project gets limited
+            code intelligence. A project with <code>.project</code>, <code>.classpath</code> and
+            <code>.settings</code> files stays imported until you delete them.
+          </p>
+        </div>
+        <div class='field field--full field--hint'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().projectMetadataAtRoot'
+              (ngModelChange)='patchJava({ projectMetadataAtRoot: $event })'
+            />
+            <span>Keep project files in the project folder</span>
+          </label>
+          <p class='settings-field-hint'>
+            Importing creates <code>.project</code>, <code>.classpath</code> and <code>.settings</code>. With this off
+            they stay in Clara's own data, out of your project and source control. Files already in the project stay
+            until you delete them, and the project keeps working if you do. Build output, such as Maven's
+            <code>target</code> folder, still goes in the project.
+          </p>
+        </div>
+        <label class='field'>
+          <span>Update the project when a build file changes</span>
+          <app-pill-select
+            [options]='updateBuildOptions'
+            [value]='java().updateBuildConfiguration'
+            (valueChange)='patchJava({ updateBuildConfiguration: $any($event) })'
+          />
+        </label>
+        <div class='field field--full'>
+          <label for='settings-lsp-java-maven-settings'>Maven settings file</label>
+          <div class='settings-lsp-path-row'>
+            <input
+              id='settings-lsp-java-maven-settings'
+              type='text'
+              [ngModel]='java().mavenUserSettings'
+              (ngModelChange)='patchJava({ mavenUserSettings: $event })'
+              placeholder='~/.m2/settings.xml, if it exists'
+            />
+            <button type='button' class='action-button' (click)='browseForXml("mavenUserSettings")'>Browse…</button>
+          </div>
+        </div>
+        <div class='field field--full field--hint'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().autobuild'
+              (ngModelChange)='patchJava({ autobuild: $event })'
+            />
+            <span>Build the project in the background</span>
+          </label>
+          <p class='settings-field-hint'>With this off, only files you have open report problems.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Inlay hints</h4>
+      <div class='form-grid'>
+        <label class='field'>
+          <span>Parameter names at call sites</span>
+          <app-pill-select
+            [options]='parameterNameHintOptions'
+            [value]='java().inlayParameterNames'
+            (valueChange)='patchJava({ inlayParameterNames: $any($event) })'
+          />
+        </label>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().inlayVariableTypes'
+              (ngModelChange)='patchJava({ inlayVariableTypes: $event })'
+            />
+            <span>Show inferred types on <code>var</code> declarations</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().inlayParameterTypes'
+              (ngModelChange)='patchJava({ inlayParameterTypes: $event })'
+            />
+            <span>Show inferred parameter types on lambdas</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().inlayFormatParameters'
+              (ngModelChange)='patchJava({ inlayFormatParameters: $event })'
+            />
+            <span>Show which argument fills each specifier in a format string</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Code lenses</h4>
+      <div class='form-grid'>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().referencesCodeLens'
+              (ngModelChange)='patchJava({ referencesCodeLens: $event })'
+            />
+            <span>Show reference counts</span>
+          </label>
+        </div>
+        <label class='field'>
+          <span>Show implementation counts on</span>
+          <app-pill-select
+            [options]='implementationLensOptions'
+            [value]='java().implementationCodeLens'
+            (valueChange)='patchJava({ implementationCodeLens: $any($event) })'
+          />
+        </label>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Completions</h4>
+      <div class='form-grid'>
+        <label class='field'>
+          <span>Fill in method arguments with</span>
+          <app-pill-select
+            [options]='guessArgumentOptions'
+            [value]='java().guessMethodArguments'
+            (valueChange)='patchJava({ guessMethodArguments: $any($event) })'
+          />
+        </label>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().signatureHelp'
+              (ngModelChange)='patchJava({ signatureHelp: $event })'
+            />
+            <span>Show the method signature while typing arguments</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Formatting</h4>
+      <div class='form-grid'>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().formatEnabled'
+              (ngModelChange)='patchJava({ formatEnabled: $event })'
+            />
+            <span>Format Java files with the language server</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().formatComments'
+              [disabled]='!java().formatEnabled'
+              (ngModelChange)='patchJava({ formatComments: $event })'
+            />
+            <span>Format comments too</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().formatOnType'
+              [disabled]='!java().formatEnabled'
+              (ngModelChange)='patchJava({ formatOnType: $event })'
+            />
+            <span>Allow formatting while typing</span>
+          </label>
+        </div>
+        <div class='field field--full'>
+          <label for='settings-lsp-java-formatter'>Eclipse formatter file</label>
+          <div class='settings-lsp-path-row'>
+            <input
+              id='settings-lsp-java-formatter'
+              type='text'
+              [ngModel]='java().formatterSettingsPath'
+              (ngModelChange)='patchJava({ formatterSettingsPath: $event })'
+              placeholder='The built-in Eclipse style'
+            />
+            <button type='button' class='action-button' (click)='browseForXml("formatterSettingsPath")'>Browse…</button>
+          </div>
+        </div>
+        <label class='field'>
+          <span>Formatter profile</span>
+          <input
+            type='text'
+            [ngModel]='java().formatterProfile'
+            (ngModelChange)='patchJava({ formatterProfile: $event })'
+            placeholder='The first in the file'
+          />
+        </label>
+      </div>
+      <p class='settings-field-hint'>
+        Formatting while typing also needs Format on type turned on under Settings → Editor. Indent size follows
+        the editor, not the formatter file.
       </p>
     </div>
   }

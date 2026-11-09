@@ -15,6 +15,7 @@ from clara_coder_backend.domain import (
     RuntimeContextCompressionConfig,
     RuntimeGdscriptLspConfig,
     RuntimeHostConfig,
+    RuntimeJavaLspConfig,
     RuntimeLspConfig,
     RuntimeMcpServer,
     RuntimePythonLspConfig,
@@ -39,6 +40,7 @@ def _runtime_lsp_config(request: RuntimeLspRequest) -> RuntimeLspConfig:
     g = request.gdscript
     p = request.python
     t = request.typescript
+    j = request.java
     return RuntimeLspConfig(
         gdscript=RuntimeGdscriptLspConfig(
             godot_binary_path=g.godotBinaryPath.strip(),
@@ -72,6 +74,34 @@ def _runtime_lsp_config(request: RuntimeLspRequest) -> RuntimeLspConfig:
             auto_import_completions=t.autoImportCompletions,
             import_module_specifier=t.importModuleSpecifier,
             quote_style=t.quoteStyle,
+        ),
+        java=RuntimeJavaLspConfig(
+            jdk_home=j.jdkHome.strip(),
+            max_heap=j.maxHeap,
+            runtimes=[
+                (runtime.name.strip(), runtime.path.strip())
+                for runtime in j.runtimes
+                if runtime.name.strip() and runtime.path.strip()
+            ],
+            import_maven=j.importMaven,
+            import_gradle=j.importGradle,
+            project_metadata_at_root=j.projectMetadataAtRoot,
+            maven_user_settings=j.mavenUserSettings.strip(),
+            update_build_configuration=j.updateBuildConfiguration,
+            autobuild=j.autobuild,
+            inlay_parameter_names=j.inlayParameterNames,
+            inlay_variable_types=j.inlayVariableTypes,
+            inlay_parameter_types=j.inlayParameterTypes,
+            inlay_format_parameters=j.inlayFormatParameters,
+            references_code_lens=j.referencesCodeLens,
+            implementation_code_lens=j.implementationCodeLens,
+            signature_help=j.signatureHelp,
+            guess_method_arguments=j.guessMethodArguments,
+            format_enabled=j.formatEnabled,
+            format_on_type=j.formatOnType,
+            format_comments=j.formatComments,
+            formatter_settings_path=j.formatterSettingsPath.strip(),
+            formatter_profile=j.formatterProfile.strip(),
         ),
     )
 
@@ -309,6 +339,12 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
         from clara_coder_backend.lsp.manager import shutdown_lsp_server_for_all_sessions
 
         await asyncio.to_thread(shutdown_lsp_server_for_all_sessions, 'typescript')
+    if lsp_cfg.java != prev_lsp.java:
+        # The JDK and heap are launch arguments, and import settings only apply when JDT LS opens the
+        # project, so restart it; the next request for a ``.java`` file starts it again.
+        from clara_coder_backend.lsp.manager import shutdown_lsp_server_for_all_sessions
+
+        await asyncio.to_thread(shutdown_lsp_server_for_all_sessions, 'java')
     try:
         from clara_coder_backend.mcp.manager import schedule_mcp_reconcile
 

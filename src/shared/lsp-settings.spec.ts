@@ -13,6 +13,7 @@ import {
   TYPESCRIPT_QUOTE_STYLES,
   defaultLspServersSettings,
   formatJavaRuntimes,
+  javaRuntimeLineProblems,
   normalizeJavaRuntimes,
   normalizeLspServersSettings,
   normalizePathList,
@@ -320,5 +321,20 @@ describe('Java project JDKs', () => {
       { name: 'JavaSE-21', path: 'C:/jdk-21' },
     ];
     expect(parseJavaRuntimes(formatJavaRuntimes(runtimes))).toEqual(runtimes);
+  });
+
+  it('points out only the lines that do nothing', () => {
+    expect(javaRuntimeLineProblems('')).toEqual([]);
+    expect(javaRuntimeLineProblems('JavaSE-17=C:\\a\r\n\nJavaSE-1.8 = C:\\b=c\nJ2SE-1.5=C:\\d\nJavaSE-25=C:\\e')).toEqual([]);
+
+    const problems = javaRuntimeLineProblems('JavaSE-17\nJavaSE-21=\n=C:\\a\njavase-17=C:\\b\n17=C:\\c\nJavaSE-8=C:\\d\nJavaSE-8=C:\\e');
+    expect(problems).toEqual([
+      "Line 1 isn't saved. Use execution environment=JDK folder.",
+      "Line 2 isn't saved. Use execution environment=JDK folder.",
+      "Line 3 isn't saved. Use execution environment=JDK folder.",
+      "Line 4: javase-17 isn't an execution environment. Use a name like JavaSE-17 or JavaSE-1.8.",
+      "Line 5: 17 isn't an execution environment. Use a name like JavaSE-17 or JavaSE-1.8.",
+      "Line 7 isn't saved. JavaSE-8 is already listed.",
+    ]);
   });
 });

@@ -28,6 +28,14 @@ def _sidecar_auth_optional(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _runtime_config_already_synced():
+    """The app syncs Settings at startup; tests that start a server without a sync would wait for one."""
+    from clara_coder_backend.session.state import runtime_config_received
+
+    runtime_config_received.set()
+
+
+@pytest.fixture(autouse=True)
 def _reset_turns_and_subagents():
     """Per-session turn locks bind to the loop that first waited on them; tests each get a new loop.
 

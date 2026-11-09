@@ -53,7 +53,10 @@ def _java_binary_in(home: Path) -> Path:
 def _configured_java_executable(jdk_home: str) -> Path:
     """The JDK chosen in Settings. A wrong folder is an error: quietly running another JDK would hide it."""
 
-    java_bin = _java_binary_in(Path(jdk_home).expanduser())
+    try:
+        java_bin = _java_binary_in(Path(jdk_home).expanduser())
+    except RuntimeError as exc:  # ``~name`` for a user who doesn't exist
+        raise JavaLspSetupError(f'Could not find JDK folder {jdk_home}. Check JDK folder in Settings → LSP → Java.') from exc
     if not java_bin.is_file():
         raise JavaLspSetupError(f'No Java executable at {java_bin}. Check JDK folder in Settings → LSP → Java.')
     major = _java_major_version(java_bin)
@@ -140,11 +143,15 @@ def _project_hash(project_root: Path, instance_key: str = '') -> str:
     return hashlib.sha256(raw.encode('utf-8')).hexdigest()[:24]
 
 
-def _key_with_import_settings(instance_key: str, s: RuntimeJavaLspConfig) -> str:
-    """JDT LS keeps a project it has in ``-data`` even with import off, so import-off gets its own ``-data``."""
+def _key_with_data_settings(instance_key: str, s: RuntimeJavaLspConfig, *, loose_folder: bool) -> str:
+    """Settings JDT LS can't undo in an existing ``-data``, so each value gets its own.
+
+    It keeps a project it has even with import off, and a default JDK even after it's gone from the list.
+    """
 
     off = [f'no-{tool}' for tool, on in (('maven', s.import_maven), ('gradle', s.import_gradle)) if not on]
-    return ':'.join([instance_key, *off])
+    default_jdk = [f'default-jdk={s.runtimes[0][1]}'] if loose_folder and s.runtimes else []
+    return ':'.join([instance_key, *off, *default_jdk])
 
 
 def _instance_config_dir(project_root: Path, instance_key: str = '') -> Path:
@@ -164,19 +171,33 @@ def _workspace_data_dir(project_root: Path, instance_key: str = '') -> Path:
 def _formatter_settings_url(path: str) -> str:
     """``java.format.settings.url`` takes a URI or a path relative to the project, not a Windows path."""
 
-    candidate = Path(path).expanduser()
+    try:
+        candidate = Path(path).expanduser()
+    except RuntimeError:  # ``~name`` for a user who doesn't exist: an optional setting mustn't stop the server.
+        return path
     return candidate.as_uri() if candidate.is_absolute() else path
 
 
-def _user_java_settings(s: RuntimeJavaLspConfig) -> dict:
+def _check_project_jdks(runtimes: list[tuple[str, str]]) -> None:
+    """JDT LS skips a Project JDK it can't use and compiles against another without saying so."""
+
+    for name, path in runtimes:
+        java_bin = _java_binary_in(Path(path))
+        if not java_bin.is_file():
+            raise JavaLspSetupError(f'No Java executable at {java_bin} for {name}. Check Project JDKs in Settings → LSP → Java.')
+
+
+def _user_java_settings(s: RuntimeJavaLspConfig, *, loose_folder: bool) -> dict:
     """``settings.java`` from Settings → LSP → Java. Optional paths are left out while they're empty."""
 
     configuration: dict = {'updateBuildConfiguration': s.update_build_configuration}
     if s.maven_user_settings:
         configuration['maven'] = {'userSettings': s.maven_user_settings}
     if s.runtimes:
+        # Only a loose folder gets a default: with one, a Gradle project without a Java version
+        # compiles against it, and Gradle itself runs on it.
         configuration['runtimes'] = [
-            {'name': name, 'path': path, **({'default': True} if index == 0 else {})}
+            {'name': name, 'path': path, **({'default': True} if loose_folder and index == 0 else {})}
             for index, (name, path) in enumerate(s.runtimes)
         ]
     formatter: dict = {
@@ -215,17 +236,18 @@ def build_java_initialization_options(
     java_settings: dict | None = None,
     *,
     settings: RuntimeJavaLspConfig | None = None,
+    loose_folder: bool = False,
 ) -> dict:
     """JDT LS ``initializationOptions`` from Settings → LSP → Java (``settings`` overrides them).
 
     ``java_settings`` (loose folders only, see ``java_loose_folder.java_loose_settings``)
     adds ``java.project.*`` and ``java.configuration.runtimes``, and a project's own
     ``.clara/java.json`` wins over Settings. Build-tool projects pass nothing so their
-    classpath stays owned by Maven/Gradle.
+    classpath stays owned by Maven/Gradle; they pick from Settings' Project JDKs by Java version.
     """
 
     java: dict = {
-        **_user_java_settings(settings if settings is not None else _java_lsp_settings()),
+        **_user_java_settings(settings if settings is not None else _java_lsp_settings(), loose_folder=loose_folder),
         'server': {
             'launchMode': 'Standard',
         },
@@ -247,7 +269,7 @@ def build_java_initialization_options(
     }
 
 
-def build_java_lsp_command(project_root: Path, *, instance_key: str = '') -> list[str]:
+def build_java_lsp_command(project_root: Path, *, instance_key: str = '', loose_folder: bool = False) -> list[str]:
     """Return argv to run Eclipse JDT LS over stdio for ``project_root``.
 
     ``CLARA_JAVA_LSP_COMMAND`` may override the default. When unset, uses a JDT LS
@@ -280,7 +302,8 @@ def build_java_lsp_command(project_root: Path, *, instance_key: str = '') -> lis
         raise JavaLspSetupError(f'No Equinox launcher jar under {product_dir / "plugins"}')
     shared_config = _resolve_platform_config_dir(product_dir)
     settings = _java_lsp_settings()
-    instance_key = _key_with_import_settings(instance_key, settings)
+    _check_project_jdks(settings.runtimes)
+    instance_key = _key_with_data_settings(instance_key, settings, loose_folder=loose_folder)
     config_dir = _instance_config_dir(root, instance_key)
     data_dir = _workspace_data_dir(root, instance_key)
 

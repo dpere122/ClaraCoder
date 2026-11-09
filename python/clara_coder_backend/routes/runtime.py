@@ -318,6 +318,7 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
     cfg.tools = tools_cfg
     cfg.context_compression = context_compression_cfg
     cfg.lsp = lsp_cfg
+    state.runtime_config_received.set()
     cfg.mcp_servers = [_runtime_mcp_server(item) for item in request.mcpServers]
     cfg.active_workspace_path = (request.activeWorkspacePath or '').strip()
     apply_extra_user_path(tools_cfg.extra_user_path)

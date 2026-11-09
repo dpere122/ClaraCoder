@@ -195,6 +195,7 @@ def test_java_options_default_to_what_clara_sent_before_with_signature_help_on()
 def test_java_options_carry_settings_at_the_keys_jdt_ls_reads(tmp_path: Path) -> None:
     formatter = tmp_path / 'my style.xml'
     java = build_java_initialization_options(
+        loose_folder=True,
         settings=RuntimeJavaLspConfig(
             runtimes=[('JavaSE-17', 'C:/jdk-17'), ('JavaSE-21', 'C:/jdk-21')],
             import_maven=False,
@@ -271,6 +272,38 @@ def test_loose_folder_config_wins_over_settings_and_keeps_the_rest() -> None:
     }
 
 
+def test_only_a_loose_folder_gets_a_default_project_jdk() -> None:
+    settings = RuntimeJavaLspConfig(runtimes=[('JavaSE-17', 'C:/jdk-17'), ('JavaSE-21', 'C:/jdk-21')])
+
+    def runtimes(**kwargs: bool) -> list[dict]:
+        options = build_java_initialization_options(settings=settings, **kwargs)
+        return options['settings']['java']['configuration']['runtimes']
+
+    # With a default, a Gradle project without a Java version compiles against it and Gradle runs on it.
+    assert runtimes() == [{'name': 'JavaSE-17', 'path': 'C:/jdk-17'}, {'name': 'JavaSE-21', 'path': 'C:/jdk-21'}]
+    assert runtimes(loose_folder=True) == [
+        {'name': 'JavaSE-17', 'path': 'C:/jdk-17', 'default': True},
+        {'name': 'JavaSE-21', 'path': 'C:/jdk-21'},
+    ]
+
+
+def _home_lookup_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``~name`` for an unknown user raises on Linux and macOS; Windows guesses a sibling of the home folder."""
+
+    def fail(_self: Path) -> Path:
+        raise RuntimeError('Could not determine home directory.')
+
+    monkeypatch.setattr(Path, 'expanduser', fail)
+
+
+def test_java_formatter_setting_keeps_an_unknown_home_as_written(monkeypatch: pytest.MonkeyPatch) -> None:
+    _home_lookup_fails(monkeypatch)
+    java = build_java_initialization_options(
+        settings=RuntimeJavaLspConfig(formatter_settings_path='~no-such-user-here/style.xml'),
+    )['settings']['java']
+    assert java['format']['settings'] == {'url': '~no-such-user-here/style.xml'}
+
+
 def _installed_product(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv('CLARA_JAVA_LSP_COMMAND', raising=False)
     monkeypatch.setenv('CLARA_JAVA_LSP_CACHE_DIR', str(tmp_path / 'cache'))
@@ -344,6 +377,52 @@ def test_import_off_gets_its_own_data_dir_so_a_kept_project_cannot_linger(
 
     _use_java_settings(monkeypatch)
     assert data_dir() == default, 'turning import back on returns to the imported project'
+
+
+def test_a_loose_folder_returns_to_its_own_data_dir_when_the_default_jdk_is_removed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """JDT LS keeps a default JDK in ``-data`` after it leaves the list, so emptying the list wouldn't undo it."""
+
+    _installed_product(tmp_path, monkeypatch)
+    monkeypatch.setattr(java_server, 'resolve_java_executable', lambda: tmp_path / 'java')
+    jdk_17, jdk_21 = _fake_jdk(tmp_path / 'jdk-17').parent.parent, _fake_jdk(tmp_path / 'jdk-21').parent.parent
+
+    def data_dir(*, loose_folder: bool) -> str:
+        cmd = build_java_lsp_command(tmp_path, instance_key='sess:workspace:x', loose_folder=loose_folder)
+        return cmd[cmd.index('-data') + 1]
+
+    _use_java_settings(monkeypatch)
+    without = data_dir(loose_folder=True)
+
+    _use_java_settings(monkeypatch, runtimes=[('JavaSE-17', str(jdk_17)), ('JavaSE-21', str(jdk_21))])
+    first_17 = data_dir(loose_folder=True)
+    assert data_dir(loose_folder=False) == without, 'a build-tool project gets no default, so its import is kept'
+    _use_java_settings(monkeypatch, runtimes=[('JavaSE-17', str(jdk_17))])
+    assert data_dir(loose_folder=True) == first_17, 'only the first entry is the default'
+    _use_java_settings(monkeypatch, runtimes=[('JavaSE-21', str(jdk_21)), ('JavaSE-17', str(jdk_17))])
+    assert data_dir(loose_folder=True) not in {without, first_17}
+
+    _use_java_settings(monkeypatch)
+    assert data_dir(loose_folder=True) == without
+
+
+def test_a_project_jdk_that_is_not_a_jdk_is_an_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _installed_product(tmp_path, monkeypatch)
+    monkeypatch.setattr(java_server, 'resolve_java_executable', lambda: tmp_path / 'java')
+    _use_java_settings(monkeypatch, runtimes=[('JavaSE-17', str(tmp_path / 'missing'))])
+
+    with pytest.raises(JavaLspSetupError, match='Project JDKs'):
+        build_java_lsp_command(tmp_path)
+
+
+def test_jdk_folder_setting_with_an_unknown_home_is_a_setup_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    _home_lookup_fails(monkeypatch)
+    _use_java_settings(monkeypatch, jdk_home='~no-such-user-here/jdk')
+
+    with pytest.raises(JavaLspSetupError, match='Could not find JDK folder'):
+        java_server.resolve_java_executable()
 
 
 def _fake_jdk(root: Path) -> Path:

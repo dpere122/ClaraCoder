@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import {
   LSP_SERVER_CATALOG,
   formatJavaRuntimes,
+  javaRuntimeLineProblems,
   normalizePathList,
   parseJavaRuntimes,
   type GdscriptDiagnosticsProfile,
@@ -22,6 +23,7 @@ import {
   type TypescriptParameterNameHints,
   type TypescriptQuoteStyle,
 } from '@shared/lsp-settings';
+import type { DependencyInfo } from '@shared/types/dependencies';
 import { ElectronService } from '../../../core/electron.service';
 import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 import { SettingsStore } from '../settings/settings-store';
@@ -100,6 +102,7 @@ export class SettingsLsp {
   protected readonly jdtls = computed(() => this.s.lspDependencies().find((dep) => dep.id === 'java-lsp') ?? null);
   /** The Project JDKs box as typed, kept apart from the saved list for the same reason as Extra paths. */
   protected readonly javaRuntimesDraft = signal('');
+  protected readonly javaRuntimeProblems = computed(() => javaRuntimeLineProblems(this.javaRuntimesDraft()));
 
   protected readonly maxHeapOptions: ReadonlyArray<{ id: JavaMaxHeapSize; label: string }> = [
     { id: '512M', label: '512 MB' },
@@ -173,6 +176,20 @@ export class SettingsLsp {
 
   protected patchTypescript(patch: Partial<TypescriptLspSettings>): void {
     this.s.patchTypescriptLsp(patch);
+  }
+
+  /** A Dependencies row's state in a sentence; an install that's updating or failed isn't "not installed". */
+  protected dependencyStatus(dep: DependencyInfo): string {
+    switch (dep.state) {
+      case 'installed':
+        return dep.version ? `Installed, ${dep.version}` : 'Installed';
+      case 'updating':
+        return 'Updating';
+      case 'error':
+        return 'Install problem, see Dependencies';
+      default:
+        return 'Not installed';
+    }
   }
 
   protected patchJava(patch: Partial<JavaLspSettings>): void {

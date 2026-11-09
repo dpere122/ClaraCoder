@@ -6,7 +6,7 @@
         <div>
           @if (gdls(); as dep) {
             <p class='panel__copy'>
-              gdls · {{ dep.state === 'installed' ? 'Installed, ' + dep.version : 'Not installed' }}
+              gdls · {{ dependencyStatus(dep) }}
             </p>
             @if (dep.path) {
               <p class='settings-field-hint settings-lsp-status__path'>{{ dep.path }}</p>
@@ -396,7 +396,7 @@
         <div>
           @if (jdtls(); as dep) {
             <p class='panel__copy'>
-              Eclipse JDT LS · {{ dep.state === 'installed' ? 'Installed' + (dep.version ? ', ' + dep.version : '') : 'Not installed' }}
+              Eclipse JDT LS · {{ dependencyStatus(dep) }}
             </p>
             @if (dep.path) {
               <p class='settings-field-hint settings-lsp-status__path'>{{ dep.path }}</p>
@@ -450,8 +450,11 @@
       <p class='settings-field-hint'>
         One per line, as execution environment=JDK folder. A Maven or Gradle project compiles against the one
         matching its Java version. The first is the default for folders with no build file, unless a folder's
-        <code>.clara/java.json</code> lists its own runtimes.
+        <code>.clara/java.json</code> lists its own runtimes. A folder that isn't a JDK stops the server from starting.
       </p>
+      @for (problem of javaRuntimeProblems(); track problem) {
+        <p class='settings-field-hint settings-field-hint--warning'>{{ problem }}</p>
+      }
     </div>
 
     <div class='form-section'>
@@ -529,6 +532,9 @@
           <p class='settings-field-hint'>With this off, only files you have open report problems.</p>
         </div>
       </div>
+      <p class='settings-field-hint'>
+        Never holds back changes such as a new Java version. Changed Maven dependencies are still picked up.
+      </p>
     </div>
 
     <div class='form-section'>
@@ -669,7 +675,7 @@
             type='text'
             [ngModel]='java().formatterProfile'
             (ngModelChange)='patchJava({ formatterProfile: $event })'
-            placeholder='The first in the file'
+            placeholder='The last in the file'
           />
         </label>
       </div>

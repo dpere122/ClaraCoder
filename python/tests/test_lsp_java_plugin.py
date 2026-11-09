@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import pytest
 
 from clara_coder_backend.domain import SessionState
+from clara_coder_backend.lsp.java_server import JavaLspSetupError
+from clara_coder_backend.lsp.manager import SessionWorkspaceLspManager
 from clara_coder_backend.lsp.plugins import java_plugin as java_plugin_mod
 from clara_coder_backend.lsp.plugins.java_plugin import JavaLspPlugin, JavaPluginState
+from clara_coder_backend.lsp.server_plugin import LspServerNotInstalledError
+from clara_coder_backend.session.state import runtime_config_received
 
 
 @pytest.fixture(autouse=True)
@@ -17,7 +22,7 @@ def _stub_java_spawn(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         java_plugin_mod,
         'build_java_lsp_command',
-        lambda root, instance_key='': ['jdtls', str(root), instance_key],
+        lambda root, instance_key='', loose_folder=False: ['jdtls', str(root), instance_key],
     )
 
 
@@ -215,3 +220,77 @@ def test_new_unsaved_file_adds_source_root(tmp_path: Path) -> None:
     pending = plugin.take_pending_initialization_options(state)
     assert pending is not None
     assert pending['settings']['java']['project']['sourcePaths'] == ['src', 'test']
+
+
+def _java_manager(tmp_path: Path, *, client_factory) -> SessionWorkspaceLspManager:  # noqa: ANN001
+    return SessionWorkspaceLspManager(
+        session_id='java-start',
+        session=SessionState(),
+        workspace_root=tmp_path,
+        scope='workspace',
+        server_kind='java',
+        client_factory=client_factory,
+    )
+
+
+def _never_spawn(**_kwargs: object) -> None:
+    raise AssertionError('should not spawn')
+
+
+def test_setup_error_message_reaches_the_dashboard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def wrong_jdk(*_args: object, **_kwargs: object) -> list[str]:
+        raise JavaLspSetupError('No Java executable at C:/nope. Check JDK folder in Settings → LSP → Java.')
+
+    monkeypatch.setattr(java_plugin_mod, 'build_java_lsp_command', wrong_jdk)
+    manager = _java_manager(tmp_path, client_factory=_never_spawn)
+
+    with pytest.raises(LspServerNotInstalledError):
+        manager.ensure_started()
+
+    entry = manager.dashboard_entry()
+    assert entry['phase'] == 'crashed'
+    assert 'Check JDK folder in Settings' in entry['lastError']
+
+
+def test_jdt_ls_never_starts_on_defaults_before_settings_arrive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Defaults have import on, so a project whose import is turned off in Settings would still be imported."""
+
+    monkeypatch.setattr(java_plugin_mod, '_RUNTIME_CONFIG_WAIT_S', 0.01)
+    runtime_config_received.clear()
+    manager = _java_manager(tmp_path, client_factory=_never_spawn)
+
+    with pytest.raises(LspServerNotInstalledError):
+        manager.ensure_started()
+
+    entry = manager.dashboard_entry()
+    assert entry['phase'] == 'crashed'
+    assert "haven't reached" in entry['lastError']
+
+
+def test_jdt_ls_start_waits_for_settings_then_uses_them(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime_config_received.clear()
+    started = threading.Event()
+
+    def command(*_args: object, **_kwargs: object) -> list[str]:
+        started.set()
+        raise JavaLspSetupError('stop here')
+
+    monkeypatch.setattr(java_plugin_mod, 'build_java_lsp_command', command)
+    manager = _java_manager(tmp_path, client_factory=_never_spawn)
+    errors: list[BaseException] = []
+
+    def start() -> None:
+        try:
+            manager.ensure_started()
+        except LspServerNotInstalledError as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=start, daemon=True)
+    thread.start()
+    assert not started.wait(0.2), 'must not resolve its command before Settings arrive'
+    assert manager.dashboard_entry()['phase'] == 'idle', 'the status stays readable while it waits'
+
+    runtime_config_received.set()
+    thread.join(5)
+    assert started.is_set()
+    assert len(errors) == 1

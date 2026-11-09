@@ -372,6 +372,32 @@ def test_runtime_config_applies_typescript_lsp_settings_and_restarts_vtsls_only_
         state.runtime_config.host = orig.host
 
 
+def test_runtime_config_marks_settings_as_received_only_once_they_are_applied() -> None:
+    from clara_coder_backend.main import app
+    from clara_coder_backend.session import state
+
+    orig = deepcopy(state.runtime_config)
+    state.runtime_config_received.clear()
+    try:
+        with TestClient(app) as client:
+            bad = {**_payload(), 'lsp': {'java': {'maxHeap': '1T'}}}
+            assert client.post('/runtime-config', json=bad).status_code == 422
+            assert not state.runtime_config_received.is_set()
+
+            body = {**_payload(), 'lsp': {'java': {'importMaven': False}}}
+            assert client.post('/runtime-config', json=body).status_code == 200
+            assert state.runtime_config_received.is_set()
+            assert state.runtime_config.lsp.java.import_maven is False
+    finally:
+        state.runtime_config_received.set()
+        state.runtime_config.lsp = orig.lsp
+        state.runtime_config.tools = orig.tools
+        state.runtime_config.connections = orig.connections
+        state.runtime_config.active_connection_id = orig.active_connection_id
+        state.runtime_config.audio = orig.audio
+        state.runtime_config.host = orig.host
+
+
 def test_runtime_config_applies_java_lsp_settings_and_restarts_jdt_ls_only_when_they_change(monkeypatch) -> None:
     from clara_coder_backend.main import app
     from clara_coder_backend.session import state

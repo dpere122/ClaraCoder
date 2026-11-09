@@ -120,7 +120,7 @@ export interface JavaLspSettings {
   formatComments: boolean;
   /** Eclipse formatter profile XML; empty uses JDT LS's built-in style. */
   formatterSettingsPath: string;
-  /** Profile to use from that file; empty uses its first. */
+  /** Profile to use from that file; empty uses its last, as JDT LS does. */
   formatterProfile: string;
 }
 
@@ -295,6 +295,33 @@ export function parseJavaRuntimes(text: string): JavaRuntime[] {
       return separator < 0 ? {} : { name: line.slice(0, separator), path: line.slice(separator + 1) };
     }),
   );
+}
+
+const JAVA_EXECUTION_ENVIRONMENT = /^(?:JavaSE-(?:1\.\d+|\d+)|J2SE-1\.[2-5]|JRE-1\.1)$/;
+
+/** Lines of the Project JDKs box that do nothing: JDT LS ignores a bad name, and incomplete lines aren't saved. */
+export function javaRuntimeLineProblems(text: string): string[] {
+  const problems: string[] = [];
+  const seen = new Set<string>();
+  text.split(/\r?\n/).forEach((line, index) => {
+    if (!line.trim()) {
+      return;
+    }
+    const separator = line.indexOf('=');
+    const name = separator < 0 ? '' : line.slice(0, separator).trim();
+    const path = separator < 0 ? '' : line.slice(separator + 1).trim();
+    if (!name || !path) {
+      problems.push(`Line ${index + 1} isn't saved. Use execution environment=JDK folder.`);
+    } else if (seen.has(name)) {
+      problems.push(`Line ${index + 1} isn't saved. ${name} is already listed.`);
+    } else {
+      seen.add(name);
+      if (!JAVA_EXECUTION_ENVIRONMENT.test(name)) {
+        problems.push(`Line ${index + 1}: ${name} isn't an execution environment. Use a name like JavaSE-17 or JavaSE-1.8.`);
+      }
+    }
+  });
+  return problems;
 }
 
 export function formatJavaRuntimes(runtimes: readonly JavaRuntime[]): string {

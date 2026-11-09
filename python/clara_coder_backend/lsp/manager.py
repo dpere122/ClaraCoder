@@ -492,6 +492,15 @@ class SessionWorkspaceLspManager:
         client: Any | None = None
         lsp_cwd: Path | None = None
         init_opts: dict[str, Any] = {}
+        try:
+            self._plugin.wait_until_ready_to_start()
+        except LspServerNotInstalledError as exc:
+            with self._lock:
+                if self._client is None:
+                    self._lifecycle_phase = 'crashed'
+                    self._lifecycle_error = str(exc)
+                    self._diag_cond.notify_all()
+            raise
         while True:
             with self._lock:
                 if self._client is not None and not self._client_process_alive(self._client):

@@ -8,15 +8,17 @@ import {
   type PythonLspSettings,
   type TypescriptLspSettings,
 } from '@shared/lsp-settings';
+import type { DependencyInfo } from '@shared/types/dependencies';
 import { ElectronService } from '../../../core/electron.service';
 import { SettingsStore } from '../settings/settings-store';
 import { SettingsLsp } from './settings-lsp';
 
 function setup(subTab = 'python') {
   const lspServers = signal<LspServersSettings>(defaultLspServersSettings());
+  const deps = signal<DependencyInfo[]>([]);
   const store = {
     lspServers,
-    lspDependencies: () => [],
+    lspDependencies: deps,
     activeSubTabId: () => subTab,
     refreshLspDependencies: vi.fn().mockResolvedValue(undefined),
     patchGdscriptLsp: vi.fn(),
@@ -44,7 +46,7 @@ function setup(subTab = 'python') {
     ],
   });
   const fixture = TestBed.createComponent(SettingsLsp);
-  return { fixture, store, electron, lspServers };
+  return { fixture, store, electron, lspServers, deps };
 }
 
 async function settle(fixture: ReturnType<typeof setup>['fixture']): Promise<void> {
@@ -212,6 +214,39 @@ describe('Java settings', () => {
     store.patchJavaLsp.mockClear();
     await type(fixture, 'JavaSE-17=C:\\my jdk\nJavaSE-21');
     expect(store.patchJavaLsp).not.toHaveBeenCalled();
+  });
+
+  it('points out Project JDKs lines that do nothing, and only those', async () => {
+    const { fixture } = setup('java');
+    await settle(fixture);
+    const warnings = (): string[] =>
+      [...(fixture.nativeElement as HTMLElement).querySelectorAll('.settings-field-hint--warning')].map(
+        (hint) => hint.textContent ?? '',
+      );
+    expect(warnings()).toEqual([]);
+
+    await type(fixture, 'JavaSE-17=C:\\jdk-17');
+    expect(warnings()).toEqual([]);
+
+    await type(fixture, 'JavaSE-17=C:\\jdk-17\n17=C:\\jdk-17\nJavaSE-21');
+    expect(warnings()).toHaveLength(2);
+    expect(warnings()[0]).toContain('Line 2: 17');
+    expect(warnings()[1]).toContain("Line 3 isn't saved");
+  });
+
+  it('says what a dependency is doing rather than calling every other state not installed', async () => {
+    const { fixture, deps } = setup('java');
+    const status = async (dep: Partial<DependencyInfo>): Promise<string> => {
+      deps.set([{ id: 'java-lsp', version: null, path: null, ...dep } as DependencyInfo]);
+      await settle(fixture);
+      return (fixture.nativeElement as HTMLElement).querySelector('.settings-lsp-status .panel__copy')?.textContent?.trim() ?? '';
+    };
+
+    expect(await status({ state: 'installed', version: '1.60.0' })).toBe('Eclipse JDT LS · Installed, 1.60.0');
+    expect(await status({ state: 'installed' })).toBe('Eclipse JDT LS · Installed');
+    expect(await status({ state: 'updating' })).toBe('Eclipse JDT LS · Updating');
+    expect(await status({ state: 'error' })).toBe('Eclipse JDT LS · Install problem, see Dependencies');
+    expect(await status({ state: 'missing' })).toBe('Eclipse JDT LS · Not installed');
   });
 
   it('shows the saved Project JDKs when they change from outside the box', async () => {

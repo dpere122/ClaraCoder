@@ -387,6 +387,47 @@ describe('App', () => {
       expect(app.chatExpanded()).toBe(false);
     });
 
+    it('does not save the automatic expand, but saves a later manual one', async () => {
+      refs = stubElectronApi(undefined, { currentWorkspaceId: 'ws-b', workspaces });
+      const fixture = TestBed.createComponent(App);
+      await fixture.whenStable();
+      const app = fixture.componentInstance as unknown as ChatApp;
+      expect(app.chatExpanded()).toBe(true);
+      const savedExpanded = () =>
+        refs.saveConfig.mock.calls.map(
+          (call) => (call[0] as { chatExpandedToMainPanel?: boolean }).chatExpandedToMainPanel,
+        );
+      expect(savedExpanded()).not.toContain(true);
+
+      app.chatExpanded.set(false);
+      await fixture.whenStable();
+      app.chatExpanded.set(true);
+      await fixture.whenStable();
+      expect(savedExpanded().at(-1)).toBe(true);
+    });
+
+    it('keeps a saved manual expand when the last tab closes', async () => {
+      refs = stubElectronApi(undefined, {
+        currentWorkspaceId: 'ws-a',
+        workspaces,
+        workspaceOpenTabsByWorkspaceId: tabsForA,
+        chatExpandedToMainPanel: true,
+      });
+      const fixture = TestBed.createComponent(App);
+      await fixture.whenStable();
+      const app = fixture.componentInstance as unknown as ChatApp;
+      expect(app.chatExpanded()).toBe(true);
+
+      refs.saveConfig.mockClear();
+      app.currentWorkspaceId.set('ws-b');
+      await fixture.whenStable();
+      expect(app.chatExpanded()).toBe(true);
+      const saved = refs.saveConfig.mock.calls.map(
+        (call) => (call[0] as { chatExpandedToMainPanel?: boolean }).chatExpandedToMainPanel,
+      );
+      expect(saved).not.toContain(false);
+    });
+
     it('drops the overlay when the workspace closes, so tabs opened from home are visible', async () => {
       refs = stubElectronApi(undefined, {
         currentWorkspaceId: 'ws-b',

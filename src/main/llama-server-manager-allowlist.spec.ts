@@ -34,6 +34,24 @@ import {
   buildManagedLlamaSpawnEnv,
 } from './llama-server-manager';
 
+/**
+ * Windows only lets admins or Developer Mode users create file symlinks (and a junction cannot
+ * point at a file), so the symlink test is skipped where the OS refuses. CI runners can make them.
+ */
+function canCreateFileSymlinks(): boolean {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'clara-symlink-probe-'));
+  try {
+    const target = path.join(dir, 'target');
+    writeFileSync(target, '');
+    symlinkSync(target, path.join(dir, 'link'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 describe('resolveAllowedManagedLlamaServerBinary', () => {
   beforeEach(() => {
     tempBinDir = mkdtempSync(path.join(os.tmpdir(), 'clara-bin-'));
@@ -71,7 +89,7 @@ describe('resolveAllowedManagedLlamaServerBinary', () => {
     expect(r.ok).toBe(false);
   });
 
-  it('rejects a symlink inside runtime/bin that points outside', () => {
+  it.skipIf(!canCreateFileSymlinks())('rejects a symlink inside runtime/bin that points outside', () => {
     const target = path.join(os.tmpdir(), 'outside-evil');
     writeFileSync(target, '#!/bin/sh\n');
     const link = path.join(tempBinDir, 'llama-server');

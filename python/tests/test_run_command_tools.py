@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import tempfile
 from pathlib import Path
 
@@ -46,6 +47,16 @@ async def _cleanup(session_id: str) -> None:
     await kill_session_background_commands(session_id)
 
 
+def _python_command(code: str) -> str:
+    """Shell command running ``code`` in this interpreter.
+
+    Long-running test commands go through Python because the tool uses the platform shell: ``cmd.exe`` on
+    Windows has neither ``sleep`` nor ``;`` chaining. ``code`` must not contain double quotes.
+    """
+    py = sys.executable.replace('\\', '/')
+    return f'"{py}" -c "{code}"'
+
+
 def test_run_command_in_accept_command_pause_registry() -> None:
     assert RUN_COMMAND_NAME in DEFERRED_HITL_TOOL_NAMES
     assert RUN_COMMAND_NAME in hitl_accept_command_pause_tools()
@@ -74,12 +85,11 @@ async def test_run_command_reports_nonzero_exit(command_session) -> None:
 @pytest.mark.asyncio(loop_scope='function')
 async def test_long_command_backgrounds_then_waits_then_kills(command_session) -> None:
     try:
-        out = await run_command_tool.ainvoke(
-            {'command': 'echo started; sleep 60', 'wait_seconds': 1}
-        )
+        command = _python_command("import time; print('started', flush=True); time.sleep(60)")
+        out = await run_command_tool.ainvoke({'command': command, 'wait_seconds': 2})
         assert 'still running' in out
-        assert 'started' in out
-        jobs = [j for j in background_command_jobs().values() if j.session_id == 'run-command-test-session']
+        assert 'started' in out.split('New output:')[1]
+        jobs =[j for j in background_command_jobs().values() if j.session_id == 'run-command-test-session']
         assert len(jobs) == 1
         job = jobs[0]
         assert job.status == STATUS_RUNNING
@@ -100,12 +110,13 @@ async def test_long_command_backgrounds_then_waits_then_kills(command_session) -
 @pytest.mark.asyncio(loop_scope='function')
 async def test_wait_for_command_collects_incremental_output(command_session) -> None:
     try:
-        await run_command_tool.ainvoke(
-            {'command': 'echo first; sleep 2; echo second; sleep 60', 'wait_seconds': 1}
+        command = _python_command(
+            "import time; print('first', flush=True); time.sleep(4); print('second', flush=True); time.sleep(60)"
         )
+        await run_command_tool.ainvoke({'command': command, 'wait_seconds': 2})
         jobs = [j for j in background_command_jobs().values() if j.session_id == 'run-command-test-session']
         job = jobs[0]
-        waited = await wait_for_command_tool.ainvoke({'command_id': job.job_id, 'wait_seconds': 3})
+        waited = await wait_for_command_tool.ainvoke({'command_id': job.job_id, 'wait_seconds': 5})
         assert 'second' in waited
         assert 'first' not in waited.split('New output:')[1]
     finally:

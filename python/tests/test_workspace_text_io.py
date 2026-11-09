@@ -101,7 +101,8 @@ def test_encode_strict_rejects_surrogate() -> None:
 
 def test_read_file_for_search_tools_reads_small_file(tmp_path: Path) -> None:
     p = tmp_path / 'ok.py'
-    p.write_text('alpha\r\nbeta\n', encoding='utf-8')
+    # Bytes, not write_text: text mode on Windows would turn each \n into \r\n (so \r\n becomes \r\r\n).
+    p.write_bytes(b'alpha\r\nbeta\n')
     text = read_file_for_search_tools(p, 'utf-8')
     assert text == 'alpha\nbeta\n'
 

@@ -37,6 +37,10 @@ function setup(subTab = 'python') {
     openFileDialog: vi.fn(),
     openDirectoryDialog: vi.fn(),
     openDependenciesWindow: vi.fn(),
+    lspJavaCheckJdks: vi.fn(async (_jdkHome: string, runtimes: string[]) => ({
+      ok: true as const,
+      check: { jdkHome: null as string | null, runtimes: runtimes.map((): string | null => null) },
+    })),
   };
   TestBed.configureTestingModule({
     imports: [SettingsLsp],
@@ -232,6 +236,48 @@ describe('Java settings', () => {
     expect(warnings()).toHaveLength(2);
     expect(warnings()[0]).toContain('Line 2: 17');
     expect(warnings()[1]).toContain("Line 3 isn't saved");
+  });
+
+  it('warns when a JDK folder or Project JDK has no Java executable, and clears once it does', async () => {
+    const { fixture, electron, lspServers } = setup('java');
+    const missing = new Set(['C:\\nope', 'C:\\old-jdk']);
+    electron.lspJavaCheckJdks.mockImplementation(async (jdkHome: string, runtimes: string[]) => ({
+      ok: true as const,
+      check: {
+        jdkHome: missing.has(jdkHome) ? `${jdkHome}\\bin\\java.exe` : null,
+        runtimes: runtimes.map((path) => (missing.has(path) ? `${path}\\bin\\java.exe` : null)),
+      },
+    }));
+    const warnings = async (): Promise<string[]> => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      await settle(fixture);
+      return [...(fixture.nativeElement as HTMLElement).querySelectorAll('[role=alert]')].map(
+        (hint) => hint.textContent?.trim() ?? '',
+      );
+    };
+    await settle(fixture);
+    expect(await warnings()).toEqual([]);
+
+    lspServers.update((servers) => ({
+      ...servers,
+      java: {
+        ...servers.java,
+        jdkHome: 'C:\\nope',
+        runtimes: [
+          { name: 'JavaSE-17', path: 'C:\\jdk-17' },
+          { name: 'JavaSE-1.8', path: 'C:\\old-jdk' },
+        ],
+      },
+    }));
+    expect(await warnings()).toEqual([
+      "No Java executable at C:\\nope\\bin\\java.exe. The Java server won't start until this is fixed.",
+      "JavaSE-1.8: no Java executable at C:\\old-jdk\\bin\\java.exe. The Java server won't start until this is fixed.",
+    ]);
+    expect(electron.lspJavaCheckJdks).toHaveBeenLastCalledWith('C:\\nope', ['C:\\jdk-17', 'C:\\old-jdk']);
+
+    missing.clear();
+    window.dispatchEvent(new Event('focus'));
+    expect(await warnings()).toEqual([]);
   });
 
   it('says what a dependency is doing rather than calling every other state not installed', async () => {

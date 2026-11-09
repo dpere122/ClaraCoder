@@ -2492,6 +2492,16 @@ export class ElectronService {
     );
   }
 
+  /** Which of these Java folders have no Java executable, so the Java server would refuse to start. */
+  lspJavaCheckJdks(
+    jdkHome: string,
+    runtimes: string[],
+  ): Promise<{ ok: true; check: import('@shared/lsp-settings').JavaJdkCheck } | { ok: false; error: string }> {
+    return (
+      this.api?.lspJavaCheckJdks(jdkHome, runtimes) ?? Promise.resolve({ ok: false, error: 'No Electron API' })
+    );
+  }
+
   depsList(): Promise<{
     ok: boolean;
     dependencies: import('@shared/index').DependencyInfo[];

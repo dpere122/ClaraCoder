@@ -428,6 +428,9 @@
             <button type='button' class='action-button' (click)='browseForJdk()'>Browse…</button>
           </div>
           <p class='settings-field-hint'>The JDK that runs the language server. It needs Java 21 or newer.</p>
+          @if (jdkHomeProblem(); as problem) {
+            <p class='settings-field-hint settings-field-hint--warning' role='alert'>{{ problem }}</p>
+          }
         </div>
         <label class='field'>
           <span>Maximum memory</span>
@@ -454,6 +457,9 @@
       </p>
       @for (problem of javaRuntimeProblems(); track problem) {
         <p class='settings-field-hint settings-field-hint--warning'>{{ problem }}</p>
+      }
+      @for (problem of projectJdkProblems(); track $index) {
+        <p class='settings-field-hint settings-field-hint--warning' role='alert'>{{ problem }}</p>
       }
     </div>
 

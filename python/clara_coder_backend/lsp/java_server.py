@@ -58,7 +58,7 @@ def _configured_java_executable(jdk_home: str) -> Path:
     except RuntimeError as exc:  # ``~name`` for a user who doesn't exist
         raise JavaLspSetupError(f'Could not find JDK folder {jdk_home}. Check JDK folder in Settings → LSP → Java.') from exc
     if not java_bin.is_file():
-        raise JavaLspSetupError(f'No Java executable at {java_bin}. Check JDK folder in Settings → LSP → Java.')
+        raise JavaLspSetupError(f'JDK folder has no Java executable at {java_bin}. Check JDK folder in Settings → LSP → Java.')
     major = _java_major_version(java_bin)
     if major is None:
         raise JavaLspSetupError(f'Could not read the Java version of {java_bin}. Check JDK folder in Settings → LSP → Java.')
@@ -184,7 +184,7 @@ def _check_project_jdks(runtimes: list[tuple[str, str]]) -> None:
     for name, path in runtimes:
         java_bin = _java_binary_in(Path(path))
         if not java_bin.is_file():
-            raise JavaLspSetupError(f'No Java executable at {java_bin} for {name}. Check Project JDKs in Settings → LSP → Java.')
+            raise JavaLspSetupError(f'Project JDK {name} has no Java executable at {java_bin}. Check Project JDKs in Settings → LSP → Java.')
 
 
 def _user_java_settings(s: RuntimeJavaLspConfig, *, loose_folder: bool) -> dict:

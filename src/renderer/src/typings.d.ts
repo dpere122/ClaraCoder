@@ -1,4 +1,4 @@
-import type { PythonProjectConfigInfo } from '@shared/lsp-settings';
+import type { JavaJdkCheck, PythonProjectConfigInfo } from '@shared/lsp-settings';
 import type { ScreenshotAssetStatus, ScreenshotStorageStats } from '@shared/screenshot-retention';
 import type {
   TutorialClaimResult,
@@ -911,6 +911,10 @@ declare global {
       workspacePath: string;
       config: PythonProjectConfigInfo | null;
     }>;
+    lspJavaCheckJdks: (
+      jdkHome: string,
+      runtimes: string[],
+    ) => Promise<{ ok: true; check: JavaJdkCheck } | { ok: false; error: string }>;
     depsList: () => Promise<{
       ok: boolean;
       dependencies: import('@shared/index').DependencyInfo[];

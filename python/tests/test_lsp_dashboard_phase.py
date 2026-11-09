@@ -143,6 +143,24 @@ def test_dashboard_treats_dead_client_as_crashed(tmp_path: Path) -> None:
         assert st['servers']['python']['phase'] == 'crashed'
         assert st['servers']['python']['initialized'] is False
         assert st['servers']['python']['lastError']
+        assert 'setupError' not in st['servers']['python']
+    finally:
+        current_session_id.reset(token)
+        shutdown_all_lsp_managers()
+
+
+def test_dashboard_says_a_setting_kept_the_server_from_starting(tmp_path: Path) -> None:
+    shutdown_all_lsp_managers()
+    mgr, token = _manager(tmp_path, 'dash-setup', server_kind='java')
+    try:
+        mgr._lifecycle_phase = 'crashed'
+        mgr._lifecycle_error = 'JDK folder has no Java executable at C:/nope. Check JDK folder in Settings → LSP → Java.'
+        mgr._lifecycle_error_is_setup = True
+        lsp_manager._SESSION_MANAGERS[(mgr.session_id, 'java', 'workspace')] = mgr
+        java = get_lsp_dashboard_status(mgr.session_id)['servers']['java']
+        assert java['phase'] == 'crashed'
+        assert java['lastError'].startswith('JDK folder has no Java executable')
+        assert java['setupError'] is True
     finally:
         current_session_id.reset(token)
         shutdown_all_lsp_managers()

@@ -432,6 +432,16 @@ export const LSP_SERVER_CATALOG: readonly LspServerCatalogEntry[] = [
   },
 ];
 
+/**
+ * Which Java folders in Settings aren't JDKs: each value is the Java executable that's missing,
+ * or ``null`` when the folder has one (or is empty). The backend refuses to start JDT LS on these.
+ */
+export interface JavaJdkCheck {
+  jdkHome: string | null;
+  /** In the order of the paths asked about. */
+  runtimes: Array<string | null>;
+}
+
 /** Where a workspace's own basedpyright config lives, if it has one. */
 export interface PythonProjectConfigInfo {
   /** Workspace-relative file, e.g. ``pyrightconfig.json`` or ``pyproject.toml``. */

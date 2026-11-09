@@ -239,7 +239,7 @@ def _never_spawn(**_kwargs: object) -> None:
 
 def test_setup_error_message_reaches_the_dashboard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def wrong_jdk(*_args: object, **_kwargs: object) -> list[str]:
-        raise JavaLspSetupError('No Java executable at C:/nope. Check JDK folder in Settings → LSP → Java.')
+        raise JavaLspSetupError('JDK folder has no Java executable at C:/nope. Check JDK folder in Settings → LSP → Java.')
 
     monkeypatch.setattr(java_plugin_mod, 'build_java_lsp_command', wrong_jdk)
     manager = _java_manager(tmp_path, client_factory=_never_spawn)
@@ -250,6 +250,33 @@ def test_setup_error_message_reaches_the_dashboard(tmp_path: Path, monkeypatch: 
     entry = manager.dashboard_entry()
     assert entry['phase'] == 'crashed'
     assert 'Check JDK folder in Settings' in entry['lastError']
+    assert entry['setupError'] is True, 'the status bar shows the reason, not just "crashed"'
+
+
+def test_a_crash_after_a_fixed_setting_is_not_a_setup_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fixed = False
+
+    def command(*_args: object, **_kwargs: object) -> list[str]:
+        if not fixed:
+            raise JavaLspSetupError('JDK folder has no Java executable at C:/nope.')
+        return ['java']
+
+    def spawn_fails(**_kwargs: object) -> None:
+        raise OSError('spawn failed')
+
+    monkeypatch.setattr(java_plugin_mod, 'build_java_lsp_command', command)
+    manager = _java_manager(tmp_path, client_factory=spawn_fails)
+    with pytest.raises(LspServerNotInstalledError):
+        manager.ensure_started()
+
+    fixed = True
+    with pytest.raises(OSError):
+        manager.ensure_started()
+
+    entry = manager.dashboard_entry()
+    assert entry['phase'] == 'crashed'
+    assert entry['lastError'] == 'Failed to spawn language-server subprocess.'
+    assert 'setupError' not in entry
 
 
 def test_jdt_ls_never_starts_on_defaults_before_settings_arrive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

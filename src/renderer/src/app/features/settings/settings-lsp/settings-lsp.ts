@@ -103,6 +103,28 @@ export class SettingsLsp {
   /** The Project JDKs box as typed, kept apart from the saved list for the same reason as Extra paths. */
   protected readonly javaRuntimesDraft = signal('');
   protected readonly javaRuntimeProblems = computed(() => javaRuntimeLineProblems(this.javaRuntimesDraft()));
+  /** The last folder check, keyed by the folders checked so a stale answer is never shown. */
+  private readonly jdkCheck = signal<{ jdkHome: string; jdkHomeMissing: string | null; runtimes: Map<string, string | null> } | null>(
+    null,
+  );
+  private jdkCheckSeq = 0;
+  /** JDK folder isn't a JDK: the backend refuses to start the server on it. */
+  protected readonly jdkHomeProblem = computed(() => {
+    const check = this.jdkCheck();
+    const missing = check && check.jdkHome === this.java().jdkHome ? check.jdkHomeMissing : null;
+    return missing ? `No Java executable at ${missing}. The Java server won't start until this is fixed.` : '';
+  });
+  /** Project JDKs that aren't JDKs, which also stop the server from starting. */
+  protected readonly projectJdkProblems = computed(() => {
+    const check = this.jdkCheck();
+    if (!check) {
+      return [];
+    }
+    return this.java().runtimes.flatMap((runtime) => {
+      const missing = check.runtimes.get(runtime.path);
+      return missing ? [`${runtime.name}: no Java executable at ${missing}. The Java server won't start until this is fixed.`] : [];
+    });
+  });
 
   protected readonly maxHeapOptions: ReadonlyArray<{ id: JavaMaxHeapSize; label: string }> = [
     { id: '512M', label: '512 MB' },
@@ -139,6 +161,9 @@ export class SettingsLsp {
       if (this.server().id === 'python') {
         void this.refreshPythonProjectConfig();
       }
+      if (this.server().id === 'java') {
+        void this.checkJdks();
+      }
     };
     window.addEventListener('focus', refresh);
     inject(DestroyRef).onDestroy(() => window.removeEventListener('focus', refresh));
@@ -155,6 +180,15 @@ export class SettingsLsp {
           this.extraPathsDraft.set(saved.join('\n'));
         }
       });
+    });
+    // Check the folders a moment after typing stops, not on every keystroke.
+    effect((onCleanup) => {
+      if (this.server().id !== 'java') {
+        return;
+      }
+      const { jdkHome, runtimes } = this.java();
+      const timer = setTimeout(() => void this.checkJdks(jdkHome, runtimes), JDK_CHECK_DELAY_MS);
+      onCleanup(() => clearTimeout(timer));
     });
     effect(() => {
       const saved = this.java().runtimes;
@@ -228,6 +262,20 @@ export class SettingsLsp {
     }
   }
 
+  private async checkJdks(jdkHome = this.java().jdkHome, runtimes = this.java().runtimes): Promise<void> {
+    const seq = ++this.jdkCheckSeq;
+    const paths = runtimes.map((runtime) => runtime.path);
+    const res = await this.electron.lspJavaCheckJdks(jdkHome, paths);
+    if (seq !== this.jdkCheckSeq || !res.ok) {
+      return;
+    }
+    this.jdkCheck.set({
+      jdkHome,
+      jdkHomeMissing: res.check.jdkHome,
+      runtimes: new Map(paths.map((path, index) => [path, res.check.runtimes[index] ?? null])),
+    });
+  }
+
   private async refreshPythonProjectConfig(): Promise<void> {
     const res = await this.electron.lspPythonProjectConfig();
     this.pythonProjectConfig.set(res.ok ? res.config : null);
@@ -244,6 +292,8 @@ export class SettingsLsp {
     this.electron.openDependenciesWindow();
   }
 }
+
+const JDK_CHECK_DELAY_MS = 300;
 
 function parseExtraPaths(text: string): string[] {
   return normalizePathList(text.split(/\r?\n/));

@@ -3,19 +3,22 @@ import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   defaultLspServersSettings,
+  type JavaLspSettings,
   type LspServersSettings,
   type PythonLspSettings,
   type TypescriptLspSettings,
 } from '@shared/lsp-settings';
+import type { DependencyInfo } from '@shared/types/dependencies';
 import { ElectronService } from '../../../core/electron.service';
 import { SettingsStore } from '../settings/settings-store';
 import { SettingsLsp } from './settings-lsp';
 
 function setup(subTab = 'python') {
   const lspServers = signal<LspServersSettings>(defaultLspServersSettings());
+  const deps = signal<DependencyInfo[]>([]);
   const store = {
     lspServers,
-    lspDependencies: () => [],
+    lspDependencies: deps,
     activeSubTabId: () => subTab,
     refreshLspDependencies: vi.fn().mockResolvedValue(undefined),
     patchGdscriptLsp: vi.fn(),
@@ -25,11 +28,19 @@ function setup(subTab = 'python') {
     patchTypescriptLsp: vi.fn((patch: Partial<TypescriptLspSettings>) => {
       lspServers.update((servers) => ({ ...servers, typescript: { ...servers.typescript, ...patch } }));
     }),
+    patchJavaLsp: vi.fn((patch: Partial<JavaLspSettings>) => {
+      lspServers.update((servers) => ({ ...servers, java: { ...servers.java, ...patch } }));
+    }),
   };
   const electron = {
     lspPythonProjectConfig: vi.fn().mockResolvedValue({ ok: true, workspacePath: '', config: null }),
     openFileDialog: vi.fn(),
+    openDirectoryDialog: vi.fn(),
     openDependenciesWindow: vi.fn(),
+    lspJavaCheckJdks: vi.fn(async (_jdkHome: string, runtimes: string[]) => ({
+      ok: true as const,
+      check: { jdkHome: null as string | null, runtimes: runtimes.map((): string | null => null) },
+    })),
   };
   TestBed.configureTestingModule({
     imports: [SettingsLsp],
@@ -39,7 +50,7 @@ function setup(subTab = 'python') {
     ],
   });
   const fixture = TestBed.createComponent(SettingsLsp);
-  return { fixture, store, lspServers };
+  return { fixture, store, electron, lspServers, deps };
 }
 
 async function settle(fixture: ReturnType<typeof setup>['fixture']): Promise<void> {
@@ -141,5 +152,190 @@ describe('TypeScript / JavaScript settings', () => {
     expect(text).toContain('vtsls');
     expect(text).not.toContain('basedpyright');
     expect((fixture.nativeElement as HTMLElement).querySelector('textarea')).toBeNull();
+  });
+});
+
+describe('Java settings', () => {
+  function checkbox(fixture: ReturnType<typeof setup>['fixture'], label: string): HTMLInputElement {
+    const rows = [...(fixture.nativeElement as HTMLElement).querySelectorAll('label.toggle-row')];
+    const row = rows.find((el) => el.textContent?.includes(label));
+    expect(row, label).toBeTruthy();
+    return row!.querySelector('input')!;
+  }
+
+  it('shows the form instead of the placeholder, and saves a toggle', async () => {
+    const { fixture, store, lspServers } = setup('java');
+    await settle(fixture);
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Eclipse JDT LS');
+    expect(text).not.toContain("aren't available yet");
+    expect(checkbox(fixture, 'Import Maven projects').checked).toBe(true);
+    expect(checkbox(fixture, 'Show the method signature').checked).toBe(true);
+
+    checkbox(fixture, 'Show the method signature').click();
+    await settle(fixture);
+
+    expect(store.patchJavaLsp).toHaveBeenCalledWith({ signatureHelp: false });
+    expect(lspServers().java.signatureHelp).toBe(false);
+    expect(store.patchTypescriptLsp).not.toHaveBeenCalled();
+  });
+
+  it('saves where imported projects keep their project files', async () => {
+    const { fixture, store, lspServers } = setup('java');
+    await settle(fixture);
+    const toggle = checkbox(fixture, 'Keep project files in the project folder');
+    expect(toggle.checked).toBe(true);
+
+    toggle.click();
+    await settle(fixture);
+
+    expect(store.patchJavaLsp).toHaveBeenCalledWith({ projectMetadataAtRoot: false });
+    expect(lspServers().java.projectMetadataAtRoot).toBe(false);
+  });
+
+  it('disables the comment and on-type options while formatting is off', async () => {
+    const { fixture, lspServers } = setup('java');
+    await settle(fixture);
+    expect(checkbox(fixture, 'Format comments too').disabled).toBe(false);
+
+    lspServers.update((servers) => ({ ...servers, java: { ...servers.java, formatEnabled: false } }));
+    await settle(fixture);
+    expect(checkbox(fixture, 'Format comments too').disabled).toBe(true);
+    expect(checkbox(fixture, 'Allow formatting while typing').disabled).toBe(true);
+  });
+
+  it('keeps a half-typed Project JDKs line while saving the complete ones', async () => {
+    const { fixture, store, lspServers } = setup('java');
+    await settle(fixture);
+
+    for (const value of ['JavaSE', 'JavaSE-17=', 'JavaSE-17=C:\\my jdk', 'JavaSE-17=C:\\my jdk\nJavaSE-2']) {
+      await type(fixture, value);
+      expect(textarea(fixture).value).toBe(value);
+    }
+    expect(lspServers().java.runtimes).toEqual([{ name: 'JavaSE-17', path: 'C:\\my jdk' }]);
+
+    store.patchJavaLsp.mockClear();
+    await type(fixture, 'JavaSE-17=C:\\my jdk\nJavaSE-21');
+    expect(store.patchJavaLsp).not.toHaveBeenCalled();
+  });
+
+  it('points out Project JDKs lines that do nothing, and only those', async () => {
+    const { fixture } = setup('java');
+    await settle(fixture);
+    const warnings = (): string[] =>
+      [...(fixture.nativeElement as HTMLElement).querySelectorAll('.settings-field-hint--warning')].map(
+        (hint) => hint.textContent ?? '',
+      );
+    expect(warnings()).toEqual([]);
+
+    await type(fixture, 'JavaSE-17=C:\\jdk-17');
+    expect(warnings()).toEqual([]);
+
+    await type(fixture, 'JavaSE-17=C:\\jdk-17\n17=C:\\jdk-17\nJavaSE-21');
+    expect(warnings()).toHaveLength(2);
+    expect(warnings()[0]).toContain('Line 2: 17');
+    expect(warnings()[1]).toContain("Line 3 isn't saved");
+  });
+
+  it('warns when a JDK folder or Project JDK has no Java executable, and clears once it does', async () => {
+    const { fixture, electron, lspServers } = setup('java');
+    const missing = new Set(['C:\\nope', 'C:\\old-jdk']);
+    electron.lspJavaCheckJdks.mockImplementation(async (jdkHome: string, runtimes: string[]) => ({
+      ok: true as const,
+      check: {
+        jdkHome: missing.has(jdkHome) ? `${jdkHome}\\bin\\java.exe` : null,
+        runtimes: runtimes.map((path) => (missing.has(path) ? `${path}\\bin\\java.exe` : null)),
+      },
+    }));
+    const warnings = async (): Promise<string[]> => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      await settle(fixture);
+      return [...(fixture.nativeElement as HTMLElement).querySelectorAll('[role=alert]')].map(
+        (hint) => hint.textContent?.trim() ?? '',
+      );
+    };
+    await settle(fixture);
+    expect(await warnings()).toEqual([]);
+
+    lspServers.update((servers) => ({
+      ...servers,
+      java: {
+        ...servers.java,
+        jdkHome: 'C:\\nope',
+        runtimes: [
+          { name: 'JavaSE-17', path: 'C:\\jdk-17' },
+          { name: 'JavaSE-1.8', path: 'C:\\old-jdk' },
+        ],
+      },
+    }));
+    expect(await warnings()).toEqual([
+      "No Java executable at C:\\nope\\bin\\java.exe. The Java server won't start until this is fixed.",
+      "JavaSE-1.8: no Java executable at C:\\old-jdk\\bin\\java.exe. The Java server won't start until this is fixed.",
+    ]);
+    expect(electron.lspJavaCheckJdks).toHaveBeenLastCalledWith('C:\\nope', ['C:\\jdk-17', 'C:\\old-jdk']);
+
+    missing.clear();
+    window.dispatchEvent(new Event('focus'));
+    expect(await warnings()).toEqual([]);
+  });
+
+  it('says what a dependency is doing rather than calling every other state not installed', async () => {
+    const { fixture, deps } = setup('java');
+    const status = async (dep: Partial<DependencyInfo>): Promise<string> => {
+      deps.set([{ id: 'java-lsp', version: null, path: null, ...dep } as DependencyInfo]);
+      await settle(fixture);
+      return (fixture.nativeElement as HTMLElement).querySelector('.settings-lsp-status .panel__copy')?.textContent?.trim() ?? '';
+    };
+
+    expect(await status({ state: 'installed', version: '1.60.0' })).toBe('Eclipse JDT LS · Installed, 1.60.0');
+    expect(await status({ state: 'installed' })).toBe('Eclipse JDT LS · Installed');
+    expect(await status({ state: 'updating' })).toBe('Eclipse JDT LS · Updating');
+    expect(await status({ state: 'error' })).toBe('Eclipse JDT LS · Install problem, see Dependencies');
+    expect(await status({ state: 'missing' })).toBe('Eclipse JDT LS · Not installed');
+  });
+
+  it('shows the saved Project JDKs when they change from outside the box', async () => {
+    const { fixture, lspServers } = setup('java');
+    await settle(fixture);
+    await type(fixture, 'draft');
+
+    lspServers.update((servers) => ({
+      ...servers,
+      java: { ...servers.java, runtimes: [{ name: 'JavaSE-17', path: 'C:/jdk-17' }] },
+    }));
+    await settle(fixture);
+
+    expect(textarea(fixture).value).toBe('JavaSE-17=C:/jdk-17');
+  });
+
+  it('browses for a JDK folder and for XML files, and ignores a cancelled picker', async () => {
+    const { fixture, electron, lspServers } = setup('java');
+    await settle(fixture);
+    const browse = [...(fixture.nativeElement as HTMLElement).querySelectorAll('button')].filter(
+      (button) => button.textContent?.trim() === 'Browse…',
+    );
+    expect(browse).toHaveLength(3);
+
+    electron.openDirectoryDialog.mockResolvedValueOnce(null);
+    browse[0]!.click();
+    await settle(fixture);
+    expect(lspServers().java.jdkHome).toBe('');
+
+    electron.openDirectoryDialog.mockResolvedValueOnce('C:\\jdk-21');
+    browse[0]!.click();
+    await settle(fixture);
+    expect(lspServers().java.jdkHome).toBe('C:\\jdk-21');
+
+    electron.openFileDialog.mockResolvedValueOnce('C:\\m2\\settings.xml');
+    browse[1]!.click();
+    await settle(fixture);
+    expect(lspServers().java.mavenUserSettings).toBe('C:\\m2\\settings.xml');
+
+    electron.openFileDialog.mockResolvedValueOnce('C:\\style.xml');
+    browse[2]!.click();
+    await settle(fixture);
+    expect(lspServers().java.formatterSettingsPath).toBe('C:\\style.xml');
+    expect(electron.openFileDialog).toHaveBeenCalledWith({ filters: [{ name: 'XML files', extensions: ['xml'] }] });
   });
 });

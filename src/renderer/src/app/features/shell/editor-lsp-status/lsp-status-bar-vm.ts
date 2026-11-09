@@ -64,6 +64,12 @@ function truncate(s: string, max: number): string {
   return `${t.slice(0, Math.max(0, max - 1))}…`;
 }
 
+/** Up to the first ". ", so a path with dots in it stays whole. */
+function firstSentence(s: string): string {
+  const end = s.indexOf('. ');
+  return end < 0 ? s.replace(/\.$/, '') : s.slice(0, end);
+}
+
 function serverDisplayName(kind: string): string {
   return SERVER_DISPLAY[kind] ?? kind;
 }
@@ -170,9 +176,11 @@ export function buildLspStatusBarVm(
       titleParts.push(lastErr);
     }
     const hints = dependencyDocHints(dashboard);
+    // A server held back by a setting says why on the chip itself; the tooltip has the rest.
+    const setupProblem = phase === 'crashed' && ent.setupError && lastErr ? firstSentence(lastErr) : '';
     chips.push({
       id,
-      text: `${name} · ${phaseLabel}`,
+      text: `${name} · ${setupProblem || phaseLabel}`,
       title: hints ? `${titleParts.join(' · ')}\n\n${hints}` : titleParts.join(' · '),
       tone: chipToneForPhase(phase),
     });

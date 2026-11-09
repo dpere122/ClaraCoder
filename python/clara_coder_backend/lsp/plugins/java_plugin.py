@@ -19,13 +19,20 @@ from clara_coder_backend.lsp.java_project_root import (
     detect_java_project_layout,
     java_layout_for_dir,
 )
-from clara_coder_backend.lsp.java_server import build_java_initialization_options, build_java_lsp_command
-from clara_coder_backend.lsp.server_plugin import LspServerPlugin, LspStartParams
+from clara_coder_backend.lsp.java_server import (
+    JavaLspSetupError,
+    build_java_initialization_options,
+    build_java_lsp_command,
+)
+from clara_coder_backend.lsp.server_plugin import LspServerNotInstalledError, LspServerPlugin, LspStartParams
 
 if TYPE_CHECKING:
     from clara_coder_backend.domain import SessionState
 
 logger = logging.getLogger('clara.lsp.plugins.java')
+
+#: The first sync waits on network refreshes in the app, which can take tens of seconds.
+_RUNTIME_CONFIG_WAIT_S = 60.0
 
 
 def _path_under_workspace(path: Path, workspace_root: Path) -> Path | None:
@@ -148,17 +155,33 @@ class JavaLspPlugin(LspServerPlugin):
                 layout.config_path if layout.config_path and layout.config_path.is_file() else None,
                 java_settings,
             )
-        return LspStartParams(
-            lsp_cwd=layout.root,
+        try:
             # The layout kind is part of the key so JDT LS gets a fresh ``-data`` workspace when
             # a folder gains or loses a build file; a stale invisible project would linger otherwise.
-            command=build_java_lsp_command(
+            command = build_java_lsp_command(
                 layout.root,
                 instance_key=f'{session_id}:{scope}:{layout.kind}',
-            ),
-            init_options=build_java_initialization_options(java_settings),
+                loose_folder=layout.is_loose,
+            )
+        except JavaLspSetupError as exc:
+            # The manager keeps this type's message for the status bar: it says which setting to fix.
+            raise LspServerNotInstalledError(str(exc)) from exc
+        return LspStartParams(
+            lsp_cwd=layout.root,
+            command=command,
+            init_options=build_java_initialization_options(java_settings, loose_folder=layout.is_loose),
             startup_timeout_s=180.0,
         )
+
+    def wait_until_ready_to_start(self) -> None:
+        # Starting on the backend's default settings would import a project with import turned off, which
+        # can run its build code, and write the project files that setting keeps out of the project.
+        from clara_coder_backend.session.state import runtime_config_received
+
+        if not runtime_config_received.wait(timeout=_RUNTIME_CONFIG_WAIT_S):
+            raise LspServerNotInstalledError(
+                "Clara's Java settings haven't reached the language server yet, so it hasn't started. Try again shortly."
+            )
 
     def should_defer_semantic_tokens_legend_without_document_seed(self, state: Any) -> bool:
         st = state if isinstance(state, JavaPluginState) else JavaPluginState()
@@ -235,7 +258,7 @@ class JavaLspPlugin(LspServerPlugin):
                         java_settings,
                     )
                     st.applied_java_settings = java_settings
-                    st.pending_options = build_java_initialization_options(java_settings)
+                    st.pending_options = build_java_initialization_options(java_settings, loose_folder=True)
         return False
 
     def take_pending_initialization_options(self, state: Any) -> dict[str, Any] | None:

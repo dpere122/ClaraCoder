@@ -68,10 +68,67 @@ export interface TypescriptLspSettings {
   quoteStyle: TypescriptQuoteStyle;
 }
 
+export const JAVA_MAX_HEAP_SIZES = ['512M', '1G', '2G', '4G', '8G'] as const;
+export type JavaMaxHeapSize = (typeof JAVA_MAX_HEAP_SIZES)[number];
+
+/** ``interactive`` is left out: it asks through a prompt that only the VS Code extension shows. */
+export const JAVA_UPDATE_BUILD_CONFIGURATIONS = ['automatic', 'disabled'] as const;
+export type JavaUpdateBuildConfiguration = (typeof JAVA_UPDATE_BUILD_CONFIGURATIONS)[number];
+
+export const JAVA_PARAMETER_NAME_HINTS = ['none', 'literals', 'all'] as const;
+export type JavaParameterNameHints = (typeof JAVA_PARAMETER_NAME_HINTS)[number];
+
+export const JAVA_IMPLEMENTATION_CODE_LENS = ['none', 'types', 'methods', 'all'] as const;
+export type JavaImplementationCodeLens = (typeof JAVA_IMPLEMENTATION_CODE_LENS)[number];
+
+export const JAVA_GUESS_METHOD_ARGUMENTS = ['off', 'insertParameterNames', 'insertBestGuessedArguments'] as const;
+export type JavaGuessMethodArguments = (typeof JAVA_GUESS_METHOD_ARGUMENTS)[number];
+
+/** A JDK projects can compile against. */
+export interface JavaRuntime {
+  /** Execution environment, e.g. ``JavaSE-17`` or ``JavaSE-1.8``. */
+  name: string;
+  /** JDK folder. */
+  path: string;
+}
+
+/** Eclipse JDT LS. Defaults keep what Clara ran before these settings existed, except signature help, which is on. */
+export interface JavaLspSettings {
+  /** JDK that runs JDT LS; empty looks at ``JAVA_HOME``, then ``java`` on ``PATH``. */
+  jdkHome: string;
+  maxHeap: JavaMaxHeapSize;
+  /** The first is the default for folders with no build file. A folder's ``.clara/java.json`` wins over these. */
+  runtimes: JavaRuntime[];
+  importMaven: boolean;
+  importGradle: boolean;
+  /** Write ``.project``, ``.classpath`` and ``.settings`` into the project; off keeps them in JDT LS's own data. */
+  projectMetadataAtRoot: boolean;
+  /** Maven ``settings.xml``; empty uses Maven's own lookup. */
+  mavenUserSettings: string;
+  updateBuildConfiguration: JavaUpdateBuildConfiguration;
+  autobuild: boolean;
+  inlayParameterNames: JavaParameterNameHints;
+  inlayVariableTypes: boolean;
+  inlayParameterTypes: boolean;
+  inlayFormatParameters: boolean;
+  referencesCodeLens: boolean;
+  implementationCodeLens: JavaImplementationCodeLens;
+  signatureHelp: boolean;
+  guessMethodArguments: JavaGuessMethodArguments;
+  formatEnabled: boolean;
+  formatOnType: boolean;
+  formatComments: boolean;
+  /** Eclipse formatter profile XML; empty uses JDT LS's built-in style. */
+  formatterSettingsPath: string;
+  /** Profile to use from that file; empty uses its last, as JDT LS does. */
+  formatterProfile: string;
+}
+
 export interface LspServersSettings {
   gdscript: GdscriptLspSettings;
   python: PythonLspSettings;
   typescript: TypescriptLspSettings;
+  java: JavaLspSettings;
 }
 
 export function defaultLspServersSettings(): LspServersSettings {
@@ -109,6 +166,31 @@ export function defaultLspServersSettings(): LspServersSettings {
       autoImportCompletions: true,
       importModuleSpecifier: 'shortest',
       quoteStyle: 'auto',
+    },
+    java: {
+      jdkHome: '',
+      maxHeap: '1G',
+      runtimes: [],
+      importMaven: true,
+      importGradle: true,
+      projectMetadataAtRoot: true,
+      mavenUserSettings: '',
+      updateBuildConfiguration: 'automatic',
+      autobuild: true,
+      // JDT LS's own defaults from here down, except signature help, which it leaves off.
+      inlayParameterNames: 'literals',
+      inlayVariableTypes: false,
+      inlayParameterTypes: false,
+      inlayFormatParameters: false,
+      referencesCodeLens: true,
+      implementationCodeLens: 'none',
+      signatureHelp: true,
+      guessMethodArguments: 'insertParameterNames',
+      formatEnabled: true,
+      formatOnType: false,
+      formatComments: true,
+      formatterSettingsPath: '',
+      formatterProfile: '',
     },
   };
 }
@@ -188,6 +270,101 @@ function normalizeTypescriptLspSettings(raw: unknown): TypescriptLspSettings {
   };
 }
 
+/** Trimmed, complete entries; a repeated execution environment keeps its first JDK. */
+export function normalizeJavaRuntimes(value: unknown): JavaRuntime[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const out: JavaRuntime[] = [];
+  for (const item of value) {
+    const entry = objectOr(item);
+    const name = stringOr(entry['name'], '').trim();
+    const path = stringOr(entry['path'], '').trim();
+    if (name && path && !out.some((runtime) => runtime.name === name)) {
+      out.push({ name, path });
+    }
+  }
+  return out;
+}
+
+/** The Project JDKs box: one ``name=folder`` per line. A folder can hold ``=``; a name can't. */
+export function parseJavaRuntimes(text: string): JavaRuntime[] {
+  return normalizeJavaRuntimes(
+    text.split(/\r?\n/).map((line) => {
+      const separator = line.indexOf('=');
+      return separator < 0 ? {} : { name: line.slice(0, separator), path: line.slice(separator + 1) };
+    }),
+  );
+}
+
+const JAVA_EXECUTION_ENVIRONMENT = /^(?:JavaSE-(?:1\.\d+|\d+)|J2SE-1\.[2-5]|JRE-1\.1)$/;
+
+/** Lines of the Project JDKs box that do nothing: JDT LS ignores a bad name, and incomplete lines aren't saved. */
+export function javaRuntimeLineProblems(text: string): string[] {
+  const problems: string[] = [];
+  const seen = new Set<string>();
+  text.split(/\r?\n/).forEach((line, index) => {
+    if (!line.trim()) {
+      return;
+    }
+    const separator = line.indexOf('=');
+    const name = separator < 0 ? '' : line.slice(0, separator).trim();
+    const path = separator < 0 ? '' : line.slice(separator + 1).trim();
+    if (!name || !path) {
+      problems.push(`Line ${index + 1} isn't saved. Use execution environment=JDK folder.`);
+    } else if (seen.has(name)) {
+      problems.push(`Line ${index + 1} isn't saved. ${name} is already listed.`);
+    } else {
+      seen.add(name);
+      if (!JAVA_EXECUTION_ENVIRONMENT.test(name)) {
+        problems.push(`Line ${index + 1}: ${name} isn't an execution environment. Use a name like JavaSE-17 or JavaSE-1.8.`);
+      }
+    }
+  });
+  return problems;
+}
+
+export function formatJavaRuntimes(runtimes: readonly JavaRuntime[]): string {
+  return runtimes.map((runtime) => `${runtime.name}=${runtime.path}`).join('\n');
+}
+
+function normalizeJavaLspSettings(raw: unknown): JavaLspSettings {
+  const defaults = defaultLspServersSettings().java;
+  const j = objectOr(raw) as Partial<Record<keyof JavaLspSettings, unknown>>;
+  return {
+    jdkHome: stringOr(j.jdkHome, defaults.jdkHome),
+    maxHeap: oneOf(j.maxHeap, JAVA_MAX_HEAP_SIZES, defaults.maxHeap),
+    runtimes: normalizeJavaRuntimes(j.runtimes),
+    importMaven: booleanOr(j.importMaven, defaults.importMaven),
+    importGradle: booleanOr(j.importGradle, defaults.importGradle),
+    projectMetadataAtRoot: booleanOr(j.projectMetadataAtRoot, defaults.projectMetadataAtRoot),
+    mavenUserSettings: stringOr(j.mavenUserSettings, defaults.mavenUserSettings),
+    updateBuildConfiguration: oneOf(
+      j.updateBuildConfiguration,
+      JAVA_UPDATE_BUILD_CONFIGURATIONS,
+      defaults.updateBuildConfiguration,
+    ),
+    autobuild: booleanOr(j.autobuild, defaults.autobuild),
+    inlayParameterNames: oneOf(j.inlayParameterNames, JAVA_PARAMETER_NAME_HINTS, defaults.inlayParameterNames),
+    inlayVariableTypes: booleanOr(j.inlayVariableTypes, defaults.inlayVariableTypes),
+    inlayParameterTypes: booleanOr(j.inlayParameterTypes, defaults.inlayParameterTypes),
+    inlayFormatParameters: booleanOr(j.inlayFormatParameters, defaults.inlayFormatParameters),
+    referencesCodeLens: booleanOr(j.referencesCodeLens, defaults.referencesCodeLens),
+    implementationCodeLens: oneOf(
+      j.implementationCodeLens,
+      JAVA_IMPLEMENTATION_CODE_LENS,
+      defaults.implementationCodeLens,
+    ),
+    signatureHelp: booleanOr(j.signatureHelp, defaults.signatureHelp),
+    guessMethodArguments: oneOf(j.guessMethodArguments, JAVA_GUESS_METHOD_ARGUMENTS, defaults.guessMethodArguments),
+    formatEnabled: booleanOr(j.formatEnabled, defaults.formatEnabled),
+    formatOnType: booleanOr(j.formatOnType, defaults.formatOnType),
+    formatComments: booleanOr(j.formatComments, defaults.formatComments),
+    formatterSettingsPath: stringOr(j.formatterSettingsPath, defaults.formatterSettingsPath),
+    formatterProfile: stringOr(j.formatterProfile, defaults.formatterProfile),
+  };
+}
+
 /** Fills missing or malformed fields with defaults, so a hand-edited config can't break the tab. */
 export function normalizeLspServersSettings(raw: unknown): LspServersSettings {
   const defaults = defaultLspServersSettings().gdscript;
@@ -208,6 +385,7 @@ export function normalizeLspServersSettings(raw: unknown): LspServersSettings {
     },
     python: normalizePythonLspSettings(root['python']),
     typescript: normalizeTypescriptLspSettings(root['typescript']),
+    java: normalizeJavaLspSettings(root['java']),
   };
 }
 
@@ -220,8 +398,6 @@ export interface LspServerCatalogEntry {
   languages: string;
   /** The Dependencies entry that installs it; null when it ships with Clara. */
   dependencyId: DependencyId | null;
-  /** Has a settings form. The others show a placeholder for now. */
-  editable: boolean;
 }
 
 /** Every integrated language server, in the order the LSP tab lists them. */
@@ -232,7 +408,6 @@ export const LSP_SERVER_CATALOG: readonly LspServerCatalogEntry[] = [
     server: 'gdls',
     languages: 'GDScript (.gd)',
     dependencyId: 'gdls',
-    editable: true,
   },
   {
     id: 'python',
@@ -240,7 +415,6 @@ export const LSP_SERVER_CATALOG: readonly LspServerCatalogEntry[] = [
     server: 'basedpyright',
     languages: 'Python (.py)',
     dependencyId: null,
-    editable: true,
   },
   {
     id: 'typescript',
@@ -248,7 +422,6 @@ export const LSP_SERVER_CATALOG: readonly LspServerCatalogEntry[] = [
     server: 'vtsls',
     languages: 'TypeScript and JavaScript (.ts, .tsx, .js, .jsx, .mjs, .cjs)',
     dependencyId: null,
-    editable: true,
   },
   {
     id: 'java',
@@ -256,9 +429,18 @@ export const LSP_SERVER_CATALOG: readonly LspServerCatalogEntry[] = [
     server: 'Eclipse JDT LS',
     languages: 'Java (.java)',
     dependencyId: 'java-lsp',
-    editable: false,
   },
 ];
+
+/**
+ * Which Java folders in Settings aren't JDKs: each value is the Java executable that's missing,
+ * or ``null`` when the folder has one (or is empty). The backend refuses to start JDT LS on these.
+ */
+export interface JavaJdkCheck {
+  jdkHome: string | null;
+  /** In the order of the paths asked about. */
+  runtimes: Array<string | null>;
+}
 
 /** Where a workspace's own basedpyright config lives, if it has one. */
 export interface PythonProjectConfigInfo {

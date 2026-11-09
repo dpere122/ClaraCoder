@@ -1,14 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { LSP_MONACO_LANGUAGE_IDS, LSP_SEMANTIC_LEGEND_SERVER_IDS } from './lsp-registry';
 import {
+  JAVA_GUESS_METHOD_ARGUMENTS,
+  JAVA_IMPLEMENTATION_CODE_LENS,
+  JAVA_MAX_HEAP_SIZES,
+  JAVA_PARAMETER_NAME_HINTS,
+  JAVA_UPDATE_BUILD_CONFIGURATIONS,
   LSP_SERVER_CATALOG,
   PYTHON_TYPE_CHECKING_MODES,
   TYPESCRIPT_IMPORT_MODULE_SPECIFIERS,
   TYPESCRIPT_PARAMETER_NAME_HINTS,
   TYPESCRIPT_QUOTE_STYLES,
   defaultLspServersSettings,
+  formatJavaRuntimes,
+  javaRuntimeLineProblems,
+  normalizeJavaRuntimes,
   normalizeLspServersSettings,
   normalizePathList,
+  parseJavaRuntimes,
   pyprojectPyrightSection,
 } from './lsp-settings';
 
@@ -34,6 +43,7 @@ describe('normalizeLspServersSettings', () => {
       ...saved,
       python: defaults.python,
       typescript: defaults.typescript,
+      java: defaults.java,
     });
   });
 
@@ -61,14 +71,6 @@ describe('LSP_SERVER_CATALOG', () => {
   it('lists every integrated server', () => {
     expect(LSP_SERVER_CATALOG.map((server) => server.id).sort()).toEqual([...LSP_SEMANTIC_LEGEND_SERVER_IDS].sort());
     expect(LSP_MONACO_LANGUAGE_IDS.length).toBeGreaterThan(0);
-  });
-
-  it('makes Godot, Python and TypeScript editable', () => {
-    expect(LSP_SERVER_CATALOG.filter((server) => server.editable).map((server) => server.id)).toEqual([
-      'gdscript',
-      'python',
-      'typescript',
-    ]);
   });
 });
 
@@ -199,5 +201,140 @@ describe('normalizeLspServersSettings (typescript)', () => {
       importModuleSpecifier: 'shortest',
       quoteStyle: 'auto',
     });
+  });
+});
+
+describe('normalizeLspServersSettings (java)', () => {
+  it('keeps valid values', () => {
+    const java = {
+      jdkHome: 'C:/jdks/jdk-21',
+      maxHeap: '4G',
+      runtimes: [{ name: 'JavaSE-17', path: 'C:/jdks/jdk-17' }],
+      importMaven: false,
+      importGradle: false,
+      projectMetadataAtRoot: false,
+      mavenUserSettings: 'C:/m2/settings.xml',
+      updateBuildConfiguration: 'disabled',
+      autobuild: false,
+      inlayParameterNames: 'all',
+      inlayVariableTypes: true,
+      inlayParameterTypes: true,
+      inlayFormatParameters: true,
+      referencesCodeLens: false,
+      implementationCodeLens: 'methods',
+      signatureHelp: false,
+      guessMethodArguments: 'insertBestGuessedArguments',
+      formatEnabled: false,
+      formatOnType: true,
+      formatComments: false,
+      formatterSettingsPath: 'C:/style.xml',
+      formatterProfile: 'Team',
+    };
+    expect(normalizeLspServersSettings({ java }).java).toEqual(java);
+  });
+
+  it('replaces a bad field and keeps the rest', () => {
+    const { java } = normalizeLspServersSettings({
+      java: { maxHeap: '1T', updateBuildConfiguration: 'interactive', autobuild: 'no', signatureHelp: false, jdkHome: 3 },
+    });
+    const defaults = defaultLspServersSettings().java;
+    expect(java.maxHeap).toBe(defaults.maxHeap);
+    expect(java.updateBuildConfiguration).toBe(defaults.updateBuildConfiguration);
+    expect(java.autobuild).toBe(true);
+    expect(java.jdkHome).toBe('');
+    expect(java.signatureHelp).toBe(false);
+  });
+
+  it('accepts every option value', () => {
+    for (const value of JAVA_MAX_HEAP_SIZES) {
+      expect(normalizeLspServersSettings({ java: { maxHeap: value } }).java.maxHeap).toBe(value);
+    }
+    for (const value of JAVA_UPDATE_BUILD_CONFIGURATIONS) {
+      expect(normalizeLspServersSettings({ java: { updateBuildConfiguration: value } }).java.updateBuildConfiguration).toBe(value);
+    }
+    for (const value of JAVA_PARAMETER_NAME_HINTS) {
+      expect(normalizeLspServersSettings({ java: { inlayParameterNames: value } }).java.inlayParameterNames).toBe(value);
+    }
+    for (const value of JAVA_IMPLEMENTATION_CODE_LENS) {
+      expect(normalizeLspServersSettings({ java: { implementationCodeLens: value } }).java.implementationCodeLens).toBe(value);
+    }
+    for (const value of JAVA_GUESS_METHOD_ARGUMENTS) {
+      expect(normalizeLspServersSettings({ java: { guessMethodArguments: value } }).java.guessMethodArguments).toBe(value);
+    }
+  });
+
+  it('defaults to what Clara ran before, with signature help on', () => {
+    expect(defaultLspServersSettings().java).toEqual({
+      jdkHome: '',
+      maxHeap: '1G',
+      runtimes: [],
+      importMaven: true,
+      importGradle: true,
+      projectMetadataAtRoot: true,
+      mavenUserSettings: '',
+      updateBuildConfiguration: 'automatic',
+      autobuild: true,
+      inlayParameterNames: 'literals',
+      inlayVariableTypes: false,
+      inlayParameterTypes: false,
+      inlayFormatParameters: false,
+      referencesCodeLens: true,
+      implementationCodeLens: 'none',
+      signatureHelp: true,
+      guessMethodArguments: 'insertParameterNames',
+      formatEnabled: true,
+      formatOnType: false,
+      formatComments: true,
+      formatterSettingsPath: '',
+      formatterProfile: '',
+    });
+  });
+});
+
+describe('Java project JDKs', () => {
+  it.each([undefined, null, 'x', {}, 3])('normalizes %j to an empty list', (value) => {
+    expect(normalizeJavaRuntimes(value)).toEqual([]);
+  });
+
+  it('trims entries, drops incomplete ones and keeps the first of a repeated name', () => {
+    expect(
+      normalizeJavaRuntimes([
+        { name: ' JavaSE-17 ', path: ' C:/jdk-17 ' },
+        { name: 'JavaSE-21' },
+        { path: 'C:/nameless' },
+        'JavaSE-8',
+        { name: 'JavaSE-17', path: 'C:/other' },
+      ]),
+    ).toEqual([{ name: 'JavaSE-17', path: 'C:/jdk-17' }]);
+  });
+
+  it('parses one name=folder per line and skips lines that are not complete', () => {
+    expect(parseJavaRuntimes('JavaSE-17=C:\\jdk-17\r\n\nJavaSE-2\nJavaSE-21=\n=C:\\x\nJavaSE-1.8 = C:\\a=b\\jdk8')).toEqual([
+      { name: 'JavaSE-17', path: 'C:\\jdk-17' },
+      { name: 'JavaSE-1.8', path: 'C:\\a=b\\jdk8' },
+    ]);
+  });
+
+  it('round-trips through the box', () => {
+    const runtimes = [
+      { name: 'JavaSE-17', path: 'C:/jdk-17' },
+      { name: 'JavaSE-21', path: 'C:/jdk-21' },
+    ];
+    expect(parseJavaRuntimes(formatJavaRuntimes(runtimes))).toEqual(runtimes);
+  });
+
+  it('points out only the lines that do nothing', () => {
+    expect(javaRuntimeLineProblems('')).toEqual([]);
+    expect(javaRuntimeLineProblems('JavaSE-17=C:\\a\r\n\nJavaSE-1.8 = C:\\b=c\nJ2SE-1.5=C:\\d\nJavaSE-25=C:\\e')).toEqual([]);
+
+    const problems = javaRuntimeLineProblems('JavaSE-17\nJavaSE-21=\n=C:\\a\njavase-17=C:\\b\n17=C:\\c\nJavaSE-8=C:\\d\nJavaSE-8=C:\\e');
+    expect(problems).toEqual([
+      "Line 1 isn't saved. Use execution environment=JDK folder.",
+      "Line 2 isn't saved. Use execution environment=JDK folder.",
+      "Line 3 isn't saved. Use execution environment=JDK folder.",
+      "Line 4: javase-17 isn't an execution environment. Use a name like JavaSE-17 or JavaSE-1.8.",
+      "Line 5: 17 isn't an execution environment. Use a name like JavaSE-17 or JavaSE-1.8.",
+      "Line 7 isn't saved. JavaSE-8 is already listed.",
+    ]);
   });
 });

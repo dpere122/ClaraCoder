@@ -126,7 +126,7 @@ def test_build_file_restart_starts_new_server(tmp_path: Path, monkeypatch: pytes
     monkeypatch.setattr(
         java_plugin_mod,
         'build_java_lsp_command',
-        lambda root, instance_key='': ['jdtls', instance_key],
+        lambda root, instance_key='', loose_folder=False: ['jdtls', instance_key],
     )
     shutdown_all_lsp_managers()
     workspace = tmp_path / 'ws'

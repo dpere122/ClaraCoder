@@ -27,7 +27,7 @@ import type {
   LspSemanticTokensLegendIpc,
   LspWorkspaceEditIpc,
 } from '../lsp-types';
-import type { PythonProjectConfigInfo } from '../../shared/lsp-settings';
+import type { JavaJdkCheck, PythonProjectConfigInfo } from '../../shared/lsp-settings';
 
 /** LSP dashboard, editor features, and health metrics IPC. */
 export const createLspHealthApi = (ipcRenderer: PreloadIpc) => ({
@@ -459,4 +459,8 @@ export const createLspHealthApi = (ipcRenderer: PreloadIpc) => ({
       workspacePath: string;
       config: PythonProjectConfigInfo | null;
     }>,
+  lspJavaCheckJdks: (jdkHome: string, runtimes: string[]) =>
+    ipcRenderer.invoke('lsp:java-check-jdks', jdkHome, runtimes) as Promise<
+      { ok: true; check: JavaJdkCheck } | { ok: false; error: string }
+    >,
 });

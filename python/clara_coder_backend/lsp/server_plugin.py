@@ -79,6 +79,9 @@ class LspServerPlugin(ABC):
     ) -> LspStartParams:
         """Return cwd + command + initializationOptions for ``initialize``."""
 
+    def wait_until_ready_to_start(self) -> None:
+        """Runs before each start without the manager's lock, so it may block. Raises to refuse the start."""
+
     def client_capability_overrides(self) -> dict[str, Any]:
         """Deep-merged over the shared ``initialize`` capabilities for this server only.
 

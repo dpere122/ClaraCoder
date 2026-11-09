@@ -1544,6 +1544,10 @@ button.linkish {
   color: var(--t-text-muted, var(--t-muted));
 }
 
+.settings-field-hint--warning {
+  color: var(--t-warn, #c9a227);
+}
+
 /* A hint under a checkbox lines up with the checkbox label. */
 .settings-pane--sectioned .field:has(> .toggle-row) > .settings-field-hint,
 .settings-pane--monaco .field:has(> .toggle-row) > .settings-field-hint {

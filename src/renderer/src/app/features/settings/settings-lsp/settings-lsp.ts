@@ -2,9 +2,18 @@ import { Component, DestroyRef, ViewEncapsulation, computed, effect, inject, sig
 import { FormsModule } from '@angular/forms';
 import {
   LSP_SERVER_CATALOG,
+  formatJavaRuntimes,
+  javaRuntimeLineProblems,
   normalizePathList,
+  parseJavaRuntimes,
   type GdscriptDiagnosticsProfile,
   type GdscriptLspSettings,
+  type JavaGuessMethodArguments,
+  type JavaImplementationCodeLens,
+  type JavaLspSettings,
+  type JavaMaxHeapSize,
+  type JavaRuntime,
+  type JavaUpdateBuildConfiguration,
   type PythonDiagnosticMode,
   type PythonLspSettings,
   type PythonProjectConfigInfo,
@@ -14,6 +23,7 @@ import {
   type TypescriptParameterNameHints,
   type TypescriptQuoteStyle,
 } from '@shared/lsp-settings';
+import type { DependencyInfo } from '@shared/types/dependencies';
 import { ElectronService } from '../../../core/electron.service';
 import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 import { SettingsStore } from '../settings/settings-store';
@@ -87,6 +97,61 @@ export class SettingsLsp {
     { id: 'double', label: 'Double' },
   ];
 
+  protected readonly java = computed(() => this.s.lspServers().java);
+  /** The Dependencies row behind the Java server, once the list has loaded. */
+  protected readonly jdtls = computed(() => this.s.lspDependencies().find((dep) => dep.id === 'java-lsp') ?? null);
+  /** The Project JDKs box as typed, kept apart from the saved list for the same reason as Extra paths. */
+  protected readonly javaRuntimesDraft = signal('');
+  protected readonly javaRuntimeProblems = computed(() => javaRuntimeLineProblems(this.javaRuntimesDraft()));
+  /** The last folder check, keyed by the folders checked so a stale answer is never shown. */
+  private readonly jdkCheck = signal<{ jdkHome: string; jdkHomeMissing: string | null; runtimes: Map<string, string | null> } | null>(
+    null,
+  );
+  private jdkCheckSeq = 0;
+  /** JDK folder isn't a JDK: the backend refuses to start the server on it. */
+  protected readonly jdkHomeProblem = computed(() => {
+    const check = this.jdkCheck();
+    const missing = check && check.jdkHome === this.java().jdkHome ? check.jdkHomeMissing : null;
+    return missing ? `No Java executable at ${missing}. The Java server won't start until this is fixed.` : '';
+  });
+  /** Project JDKs that aren't JDKs, which also stop the server from starting. */
+  protected readonly projectJdkProblems = computed(() => {
+    const check = this.jdkCheck();
+    if (!check) {
+      return [];
+    }
+    return this.java().runtimes.flatMap((runtime) => {
+      const missing = check.runtimes.get(runtime.path);
+      return missing ? [`${runtime.name}: no Java executable at ${missing}. The Java server won't start until this is fixed.`] : [];
+    });
+  });
+
+  protected readonly maxHeapOptions: ReadonlyArray<{ id: JavaMaxHeapSize; label: string }> = [
+    { id: '512M', label: '512 MB' },
+    { id: '1G', label: '1 GB' },
+    { id: '2G', label: '2 GB' },
+    { id: '4G', label: '4 GB' },
+    { id: '8G', label: '8 GB' },
+  ];
+
+  protected readonly updateBuildOptions: ReadonlyArray<{ id: JavaUpdateBuildConfiguration; label: string }> = [
+    { id: 'automatic', label: 'Automatically' },
+    { id: 'disabled', label: 'Never' },
+  ];
+
+  protected readonly implementationLensOptions: ReadonlyArray<{ id: JavaImplementationCodeLens; label: string }> = [
+    { id: 'none', label: 'Off' },
+    { id: 'types', label: 'Types' },
+    { id: 'methods', label: 'Methods' },
+    { id: 'all', label: 'Types and methods' },
+  ];
+
+  protected readonly guessArgumentOptions: ReadonlyArray<{ id: JavaGuessMethodArguments; label: string }> = [
+    { id: 'off', label: 'Leave empty' },
+    { id: 'insertParameterNames', label: 'Parameter names' },
+    { id: 'insertBestGuessedArguments', label: 'Best guess from variables in scope' },
+  ];
+
   constructor() {
     void this.s.refreshLspDependencies();
     // Dependencies is its own window, and a project's config files can change while Settings is
@@ -95,6 +160,9 @@ export class SettingsLsp {
       void this.s.refreshLspDependencies();
       if (this.server().id === 'python') {
         void this.refreshPythonProjectConfig();
+      }
+      if (this.server().id === 'java') {
+        void this.checkJdks();
       }
     };
     window.addEventListener('focus', refresh);
@@ -113,6 +181,23 @@ export class SettingsLsp {
         }
       });
     });
+    // Check the folders a moment after typing stops, not on every keystroke.
+    effect((onCleanup) => {
+      if (this.server().id !== 'java') {
+        return;
+      }
+      const { jdkHome, runtimes } = this.java();
+      const timer = setTimeout(() => void this.checkJdks(jdkHome, runtimes), JDK_CHECK_DELAY_MS);
+      onCleanup(() => clearTimeout(timer));
+    });
+    effect(() => {
+      const saved = this.java().runtimes;
+      untracked(() => {
+        if (!sameRuntimes(parseJavaRuntimes(this.javaRuntimesDraft()), saved)) {
+          this.javaRuntimesDraft.set(formatJavaRuntimes(saved));
+        }
+      });
+    });
   }
 
   protected patch(patch: Partial<GdscriptLspSettings>): void {
@@ -127,6 +212,47 @@ export class SettingsLsp {
     this.s.patchTypescriptLsp(patch);
   }
 
+  /** A Dependencies row's state in a sentence; an install that's updating or failed isn't "not installed". */
+  protected dependencyStatus(dep: DependencyInfo): string {
+    switch (dep.state) {
+      case 'installed':
+        return dep.version ? `Installed, ${dep.version}` : 'Installed';
+      case 'updating':
+        return 'Updating';
+      case 'error':
+        return 'Install problem, see Dependencies';
+      default:
+        return 'Not installed';
+    }
+  }
+
+  protected patchJava(patch: Partial<JavaLspSettings>): void {
+    this.s.patchJavaLsp(patch);
+  }
+
+  /** One ``name=folder`` per line; lines that aren't complete yet are left out of the saved list. */
+  protected setJavaRuntimes(text: string): void {
+    this.javaRuntimesDraft.set(text);
+    const runtimes = parseJavaRuntimes(text);
+    if (!sameRuntimes(runtimes, this.java().runtimes)) {
+      this.patchJava({ runtimes });
+    }
+  }
+
+  protected async browseForJdk(): Promise<void> {
+    const picked = await this.electron.openDirectoryDialog();
+    if (picked) {
+      this.patchJava({ jdkHome: picked });
+    }
+  }
+
+  protected async browseForXml(field: 'mavenUserSettings' | 'formatterSettingsPath'): Promise<void> {
+    const picked = await this.electron.openFileDialog({ filters: [{ name: 'XML files', extensions: ['xml'] }] });
+    if (picked) {
+      this.patchJava({ [field]: picked });
+    }
+  }
+
   /** One path per line; blank and repeated lines are dropped. */
   protected setExtraPaths(text: string): void {
     this.extraPathsDraft.set(text);
@@ -134,6 +260,20 @@ export class SettingsLsp {
     if (!samePaths(extraPaths, this.python().extraPaths)) {
       this.patchPython({ extraPaths });
     }
+  }
+
+  private async checkJdks(jdkHome = this.java().jdkHome, runtimes = this.java().runtimes): Promise<void> {
+    const seq = ++this.jdkCheckSeq;
+    const paths = runtimes.map((runtime) => runtime.path);
+    const res = await this.electron.lspJavaCheckJdks(jdkHome, paths);
+    if (seq !== this.jdkCheckSeq || !res.ok) {
+      return;
+    }
+    this.jdkCheck.set({
+      jdkHome,
+      jdkHomeMissing: res.check.jdkHome,
+      runtimes: new Map(paths.map((path, index) => [path, res.check.runtimes[index] ?? null])),
+    });
   }
 
   private async refreshPythonProjectConfig(): Promise<void> {
@@ -153,10 +293,16 @@ export class SettingsLsp {
   }
 }
 
+const JDK_CHECK_DELAY_MS = 300;
+
 function parseExtraPaths(text: string): string[] {
   return normalizePathList(text.split(/\r?\n/));
 }
 
 function samePaths(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((path, index) => path === b[index]);
+}
+
+function sameRuntimes(a: readonly JavaRuntime[], b: readonly JavaRuntime[]): boolean {
+  return a.length === b.length && a.every((runtime, index) => runtime.name === b[index]?.name && runtime.path === b[index]?.path);
 }

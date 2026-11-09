@@ -387,6 +387,8 @@ class SessionWorkspaceLspManager:
         self._analysis_progress_ended: bool = False
         self._lifecycle_phase: str = 'idle'
         self._lifecycle_error: str = ''
+        # ``_lifecycle_error`` is something the user has to fix (a setting, a download), not a crash.
+        self._lifecycle_error_is_setup: bool = False
 
     def should_defer_semantic_tokens_legend_without_document_seed(self) -> bool:
         """True when legend prefetch must not spawn this server before any document seed."""
@@ -421,6 +423,7 @@ class SessionWorkspaceLspManager:
         self._lifecycle_phase = 'crashed'
         if not (self._lifecycle_error or '').strip():
             self._lifecycle_error = 'Language server process exited.'
+            self._lifecycle_error_is_setup = False
         self._clear_document_state_locked()
         self._bump_sync_epoch_locked()
         cache = self._diag_cache()
@@ -492,6 +495,16 @@ class SessionWorkspaceLspManager:
         client: Any | None = None
         lsp_cwd: Path | None = None
         init_opts: dict[str, Any] = {}
+        try:
+            self._plugin.wait_until_ready_to_start()
+        except LspServerNotInstalledError as exc:
+            with self._lock:
+                if self._client is None:
+                    self._lifecycle_phase = 'crashed'
+                    self._lifecycle_error = str(exc)
+                    self._lifecycle_error_is_setup = True
+                    self._diag_cond.notify_all()
+            raise
         while True:
             with self._lock:
                 if self._client is not None and not self._client_process_alive(self._client):
@@ -505,6 +518,7 @@ class SessionWorkspaceLspManager:
                     continue
                 self._lifecycle_phase = 'starting'
                 self._lifecycle_error = ''
+                self._lifecycle_error_is_setup = False
                 try:
                     bundle = self._plugin.compute_start_params(
                         session=self.session,
@@ -516,11 +530,13 @@ class SessionWorkspaceLspManager:
                 except LspServerNotInstalledError as exc:
                     self._lifecycle_phase = 'crashed'
                     self._lifecycle_error = str(exc)
+                    self._lifecycle_error_is_setup = True
                     self._diag_cond.notify_all()
                     raise
                 except Exception:
                     self._lifecycle_phase = 'crashed'
                     self._lifecycle_error = 'Failed to resolve language-server command.'
+                    self._lifecycle_error_is_setup = False
                     self._diag_cond.notify_all()
                     raise
                 lsp_cwd = bundle.lsp_cwd
@@ -547,6 +563,7 @@ class SessionWorkspaceLspManager:
                 except Exception:
                     self._lifecycle_phase = 'crashed'
                     self._lifecycle_error = 'Failed to spawn language-server subprocess.'
+                    self._lifecycle_error_is_setup = False
                     self._diag_cond.notify_all()
                     raise
                 self._inflight_client = client
@@ -575,6 +592,7 @@ class SessionWorkspaceLspManager:
                 if not already_shutting:
                     self._lifecycle_phase = 'crashed'
                     self._lifecycle_error = str(exc).strip()[:400]
+                    self._lifecycle_error_is_setup = False
                     self._close_client_best_effort(
                         client,
                         session_id=self.session_id,
@@ -734,6 +752,7 @@ class SessionWorkspaceLspManager:
             if self._lifecycle_phase == 'shuttingDown':
                 self._lifecycle_phase = 'idle'
                 self._lifecycle_error = ''
+                self._lifecycle_error_is_setup = False
             self._diag_cond.notify_all()
         logger.info(
             '%s LSP restarting for plugin request session=%s scope=%s',
@@ -1927,6 +1946,8 @@ class SessionWorkspaceLspManager:
             err = 'Language server process exited.'
         if err and phase == 'crashed':
             entry['lastError'] = err
+            if self._lifecycle_error_is_setup:
+                entry['setupError'] = True
         return entry
 
 
@@ -2163,6 +2184,8 @@ def get_lsp_dashboard_status(session_id: str) -> dict[str, Any]:
                 last_err = str(best.get('lastError') or '').strip()
                 if last_err:
                     payload['lastError'] = last_err
+                if best.get('setupError'):
+                    payload['setupError'] = True
                 servers_payload[srv_id] = payload
     diag_count = sum(
         len(rows)

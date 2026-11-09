@@ -498,10 +498,42 @@ class RuntimeTypescriptLspConfig:
 
 
 @dataclass
+class RuntimeJavaLspConfig:
+    """Settings → LSP → Java (Eclipse JDT LS). Defaults keep what Clara ran before these settings existed."""
+
+    #: JDK that runs JDT LS; empty looks at ``JAVA_HOME``, then ``java`` on ``PATH``.
+    jdk_home: str = ''
+    max_heap: str = '1G'
+    #: ``(execution environment, JDK folder)`` projects compile against; the first is the default.
+    runtimes: list[tuple[str, str]] = field(default_factory=list)
+    import_maven: bool = True
+    import_gradle: bool = True
+    #: Write ``.project``, ``.classpath`` and ``.settings`` into the project; off keeps them in JDT LS's own data.
+    project_metadata_at_root: bool = True
+    maven_user_settings: str = ''
+    update_build_configuration: str = 'automatic'
+    autobuild: bool = True
+    inlay_parameter_names: str = 'literals'
+    inlay_variable_types: bool = False
+    inlay_parameter_types: bool = False
+    inlay_format_parameters: bool = False
+    references_code_lens: bool = True
+    implementation_code_lens: str = 'none'
+    signature_help: bool = True
+    guess_method_arguments: str = 'insertParameterNames'
+    format_enabled: bool = True
+    format_on_type: bool = False
+    format_comments: bool = True
+    formatter_settings_path: str = ''
+    formatter_profile: str = ''
+
+
+@dataclass
 class RuntimeLspConfig:
     gdscript: RuntimeGdscriptLspConfig = field(default_factory=RuntimeGdscriptLspConfig)
     python: RuntimePythonLspConfig = field(default_factory=RuntimePythonLspConfig)
     typescript: RuntimeTypescriptLspConfig = field(default_factory=RuntimeTypescriptLspConfig)
+    java: RuntimeJavaLspConfig = field(default_factory=RuntimeJavaLspConfig)
 
 
 @dataclass

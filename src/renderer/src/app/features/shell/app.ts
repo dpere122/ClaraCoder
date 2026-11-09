@@ -458,6 +458,12 @@ export class App implements OnInit, OnDestroy {
   protected readonly chatCollapsed = model(false);
   /** Skip persisting chat chrome until the first config load has hydrated the signals. */
   private chatLayoutHydrated = false;
+  /**
+   * The chat is expanded only because no editor tab was open. Not saved to config, so the
+   * next start (or a workspace opened from home) doesn't cover restored tabs with it.
+   * Cleared once the chat leaves the expanded view.
+   */
+  private chatAutoExpanded = false;
   /** Skip open-tab persist/restore until the first config load. */
   private openTabsHydrated = false;
   /** Workspace whose `fileTabs` currently belong to; used to persist before restore. */
@@ -850,6 +856,37 @@ export class App implements OnInit, OnDestroy {
       this.chatExpanded();
       untracked(() => {
         void this.persistChatWindowStateNow();
+      });
+    });
+
+    // With a workspace open but no editor tab, the main stage would be empty:
+    // move the sidebar chat into the expanded view. Only on the change into
+    // that state, so un-expanding by hand still sticks; and when tabs come
+    // back (closing the last one is undone, a workspace with tabs restores),
+    // drop the overlay so they're visible. Closing the workspace drops it too,
+    // or it would cover the tabs of the next workspace opened from home.
+    // An automatic expand isn't saved to config (see `chatAutoExpanded`).
+    let prevNoTabOpen: boolean | null = null;
+    effect(() => {
+      const hasWorkspace = this.hasOpenWorkspace();
+      const noTabOpen = hasWorkspace && this.allFileTabs().length === 0;
+      untracked(() => {
+        if (!this.chatLayoutHydrated) {
+          return;
+        }
+        const prev = prevNoTabOpen;
+        prevNoTabOpen = noTabOpen;
+        if (prev === noTabOpen) {
+          return;
+        }
+        if (noTabOpen) {
+          if (!this.chatCollapsed() && this.chatHubView() === 'activeChat' && !this.chatExpanded()) {
+            this.chatAutoExpanded = true;
+            this.chatExpanded.set(true);
+          }
+        } else if (prev) {
+          this.chatExpanded.set(false);
+        }
       });
     });
 
@@ -1338,7 +1375,10 @@ export class App implements OnInit, OnDestroy {
       return;
     }
     const collapsed = this.chatCollapsed();
-    const expanded = this.chatExpanded();
+    if (!this.chatExpanded()) {
+      this.chatAutoExpanded = false;
+    }
+    const expanded = this.chatExpanded() && !this.chatAutoExpanded;
     const current = resolveChatWindowState(config);
     if (current.collapsed === collapsed && current.expanded === expanded) {
       return;

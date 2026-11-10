@@ -159,25 +159,33 @@ describe('probeLoginShellPath', () => {
 
 describe('applyResolvedUserPath', () => {
   it('writes the merged PATH onto process.env and does not re-probe', async () => {
+    // applyResolvedUserPath always splits and joins on the platform delimiter (';' on Windows).
+    const d = path.delimiter;
     const previous = process.env.PATH;
-    process.env.PATH = '/usr/bin:/bin';
+    process.env.PATH = ['/usr/bin', '/bin'].join(d);
     resetUserPathStateForTests();
-    const probe = vi.fn(async () => '/home/me/.cargo/bin:/usr/bin');
+    const probe = vi.fn(async () => ['/home/me/.cargo/bin', '/usr/bin'].join(d));
     try {
       const first = await applyResolvedUserPath({
         extraUserPath: '/opt/extra',
         knownBins: ['/home/me/.local/bin'],
         probe,
       });
-      expect(first.startsWith('/opt/extra:/home/me/.local/bin:/home/me/.cargo/bin:')).toBe(true);
+      expect(first.split(d)).toEqual([
+        '/opt/extra',
+        '/home/me/.local/bin',
+        '/home/me/.cargo/bin',
+        '/usr/bin',
+        '/bin',
+      ]);
       expect(process.env.PATH).toBe(first);
       const second = await applyResolvedUserPath({
         extraUserPath: '/opt/other',
         knownBins: ['/home/me/.local/bin'],
         probe,
       });
-      expect(second.startsWith('/opt/other:')).toBe(true);
-      expect(second).toContain('/usr/bin');
+      expect(second.split(d)[0]).toBe('/opt/other');
+      expect(second.split(d)).toContain('/usr/bin');
       expect(probe).toHaveBeenCalledTimes(1);
     } finally {
       process.env.PATH = previous;

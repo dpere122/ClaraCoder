@@ -1,6 +1,7 @@
 -r requirements.txt
 Pillow>=11,<12
 pytest>=8,<9
+pytest-asyncio>=1,<2
 httpx>=0.28,<1
 pytest-cov>=6,<7
 deptry>=0.21,<1

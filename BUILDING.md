@@ -96,6 +96,10 @@ npm test            # renderer (Angular + Vitest)
 npm run test:node   # Electron main / preload / shared / scripts
 ```
 
+Backend tests need the dev requirements (`pip install -r python/requirements-dev.txt -c python/requirements.lock`), then run `python -m pytest -q` from `python/`.
+
+The CI workflow (`.github/workflows/ci.yml`) runs all three suites, the theme registry check, and the type-check and production build on every pull request and every push to `master`.
+
 ### Packaging
 
 ```bash

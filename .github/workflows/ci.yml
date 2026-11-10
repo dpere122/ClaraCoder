@@ -1,0 +1,94 @@
+# Verifies every pull request and every push to master: generated files are current, the app
+# type-checks and builds, and the main-process, renderer and Python backend test suites pass.
+#
+# This workflow only checks code. Installers are built by the Release workflow (release.yml).
+#
+# Runs on Windows because that is the platform the app ships on, and both the app and the
+# backend have Windows-specific paths (cmd.exe, PATH delimiter, junctions) that the tests cover.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+# A newer push to the same pull request replaces the run in progress; runs on master always finish.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  app:
+    name: App (TypeScript)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # node-gyp (the postinstall native addon rebuild) needs a system Python.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Theme registry is up to date
+        run: npm run check:theme-registry
+
+      # tsc for main/preload/shared, then the production renderer build (strict template checks).
+      - name: Type-check and build
+        run: npm run build
+
+      - name: Main-process tests
+        run: npm run test:node
+
+      - name: Renderer tests
+        run: npm run test:renderer -- --watch=false
+
+  backend:
+    name: Backend (Python)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same minor version as the portable interpreter the app bundles.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            python/requirements.txt
+            python/requirements-dev.txt
+            python/requirements.lock
+
+      # A virtual environment, so the runner's own Python tools (pipx) are not part of the install:
+      # the lock would downgrade packages they need, and `pip check` would then fail on them.
+      - name: Create virtual environment
+        run: python -m venv .venv
+
+      # The lock pins the runtime packages to the versions the bundled interpreter ships.
+      - name: Install dependencies
+        run: .venv/Scripts/python -m pip install -r python/requirements-dev.txt -c python/requirements.lock
+
+      - name: Installed packages are consistent
+        run: .venv/Scripts/python -m pip check
+
+      - name: Tests
+        working-directory: python
+        run: ../.venv/Scripts/python -m pytest -q

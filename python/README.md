@@ -163,5 +163,5 @@ Most `CLARA_*` settings (those read through `config.env_clara`) also accept the 
 
 - `requirements.txt` (runtime): FastAPI, uvicorn, OpenAI SDK, LangChain, LangGraph (+ SQLite checkpointer), langchain-openai, LlamaIndex core + OpenAI embeddings, fastembed, onnxruntime, MCP SDK, soundfile, diff-match-patch, pypdf, pillow, Black, basedpyright.
 - `requirements-kokoro-pypi.txt` / `requirements-whisper-pypi.txt`: optional Kokoro TTS and faster-whisper, installed by `setup:python` (Kokoro + PyTorch) or the Dependencies window.
-- `requirements-dev.txt`: test and lint tooling (pytest, pytest-cov, httpx, deptry).
+- `requirements-dev.txt`: test and lint tooling (pytest, pytest-asyncio, pytest-cov, httpx, deptry).
 - `requirements.lock`: pins resolved from the bundled interpreter (`npm run bundle:python -- --force --write-lock`).

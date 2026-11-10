@@ -15,6 +15,7 @@ import type {
   HuggingFaceModelSearchItem,
   HfDownloadId,
   HfDownloadProgressEvent,
+  HfDownloadStatus,
   LlamaCppManaged,
   LlmConnectionConfig,
   LlmModelProfile,
@@ -261,7 +262,18 @@ const DEFAULT_HF_FILE_TYPE = 'gguf';
 /** What the Model Manager detail panel shows. */
 export type ModelManagerSelection = { kind: 'hf'; id: string } | { kind: 'local'; path: string };
 
-export type LmStudioStatus = 'idle' | 'checking' | 'connected' | 'stale' | 'offline';
+/** A Hugging Face download that is running, or stopped with a partial file to resume from. */
+export interface HfDownloadEntry {
+  repoId: string;
+  fileName: string;
+  status: HfDownloadStatus;
+  receivedBytes: number;
+  totalBytes: number | null;
+  /** Why it stopped (only for ``error``). */
+  error?: string;
+}
+
+export type LmStudioStatus ='idle' | 'checking' | 'connected' | 'stale' | 'offline';
 
 export interface LmStudioConnection {
   /** Base URL that was checked; a different draft URL makes the connection stale. */
@@ -483,10 +495,12 @@ export class SettingsStore {
   /** Per-repo error message for the file/quant fetch. */
   readonly modelManagerHfFilesErrorByRepo = signal<Record<string, string>>({});
 
-  /** In-flight HF quant downloads keyed by ``${repoId}/${fileName}``. */
-  readonly modelManagerHfDownloads = signal<
-    Record<HfDownloadId, { repoId: string; fileName: string; receivedBytes: number; totalBytes: number | null }>
-  >({});
+  /**
+   * HF quant downloads that are running or stopped with a partial file, keyed by
+   * ``${repoId}/${fileName}``. Main owns them, so they outlive this window: the list is read from
+   * main when the window opens and kept current by its progress events.
+   */
+  readonly modelManagerHfDownloads = signal<Record<HfDownloadId, HfDownloadEntry>>({});
   /** Quants that finished downloading (value = absolute path of the local GGUF). */
   readonly modelManagerHfDownloaded = signal<Record<HfDownloadId, string>>({});
   readonly uiFontSizeRemMin = UI_FONT_SIZE_REM_MIN;
@@ -855,37 +869,78 @@ export class SettingsStore {
     void this.electron.listSystemFonts().then((fonts: SystemFontInfo[]) => this.systemFonts.set(fonts));
     void this.electron.listCudaGpus().then((gpus) => this.cudaGpus.set(gpus));
 
-    this.hfDownloadSubscription = this.electron.hfDownloadProgress$.subscribe((e: HfDownloadProgressEvent) => {
-      const id = e.downloadId;
-      if (e.phase === 'queued') {
-        this.modelManagerHfDownloads.update((m) => ({
-          ...m,
-          [id]: { repoId: e.repoId, fileName: e.fileName, receivedBytes: 0, totalBytes: null },
-        }));
-      } else if (e.phase === 'progress') {
-        this.modelManagerHfDownloads.update((m) => {
-          const cur = m[id];
-          if (!cur) return m;
-          return { ...m, [id]: { ...cur, receivedBytes: e.receivedBytes, totalBytes: e.totalBytes } };
-        });
-      } else if (e.phase === 'done') {
-        this.modelManagerHfDownloads.update((m) => {
-          const next = { ...m };
-          delete next[id];
-          return next;
-        });
+    this.hfDownloadSubscription = this.electron.hfDownloadProgress$.subscribe((e: HfDownloadProgressEvent) =>
+      this.applyHfDownloadEvent(e),
+    );
+    // Subscribed first: main sends its reply after any event it has already sent, so the reply is
+    // the newer of the two and replaces what those events built.
+    void this.electron.modelManagerListHfDownloads().then((list) => {
+      this.modelManagerHfDownloads.set(
+        Object.fromEntries(
+          list.map((d): [HfDownloadId, HfDownloadEntry] => [
+            d.downloadId,
+            {
+              repoId: d.repoId,
+              fileName: d.fileName,
+              status: d.status,
+              receivedBytes: d.receivedBytes,
+              totalBytes: d.totalBytes,
+              ...(d.error ? { error: d.error } : {}),
+            },
+          ]),
+        ),
+      );
+    });
+  }
+
+  /** Folds one progress event from main into {@link modelManagerHfDownloads}. */
+  applyHfDownloadEvent(e: HfDownloadProgressEvent): void {
+    const id = e.downloadId;
+    const keep = (status: HfDownloadStatus): void =>
+      this.modelManagerHfDownloads.update((m) => ({
+        ...m,
+        [id]: {
+          repoId: e.repoId,
+          fileName: e.fileName,
+          status,
+          receivedBytes: e.receivedBytes,
+          totalBytes: e.totalBytes,
+          ...(status === 'error' && e.error ? { error: e.error } : {}),
+        },
+      }));
+    const drop = (): void =>
+      this.modelManagerHfDownloads.update((m) => {
+        const next = { ...m };
+        delete next[id];
+        return next;
+      });
+    switch (e.phase) {
+      case 'queued':
+      case 'progress':
+        keep('downloading');
+        break;
+      case 'paused':
+        keep('paused');
+        break;
+      case 'error':
+        // A failure that left no bytes behind has nothing to resume.
+        if (e.resumable) {
+          keep('error');
+        } else {
+          drop();
+        }
+        break;
+      case 'cancelled':
+        drop();
+        break;
+      case 'done':
+        drop();
         if (e.absolutePath) {
           this.modelManagerHfDownloaded.update((m) => ({ ...m, [id]: e.absolutePath as string }));
         }
         void this.refreshCustomModelCards();
-      } else if (e.phase === 'error' || e.phase === 'cancelled') {
-        this.modelManagerHfDownloads.update((m) => {
-          const next = { ...m };
-          delete next[id];
-          return next;
-        });
-      }
-    });
+        break;
+    }
   }
 
   ngOnDestroy(): void {
@@ -2223,9 +2278,9 @@ export class SettingsStore {
     return `${repoId}/${file.fileName}`;
   }
 
-  /** Whether a quant is currently downloading (progress bar should be shown). */
-  isHfQuantDownloading(repoId: string, file: HuggingFaceModelFile): boolean {
-    return !!this.modelManagerHfDownloads()[this.hfQuantDownloadId(repoId, file)];
+  /** The running or stopped download of a quant; undefined when there is none. */
+  hfQuantDownload(repoId: string, file: HuggingFaceModelFile): HfDownloadEntry | undefined {
+    return this.modelManagerHfDownloads()[this.hfQuantDownloadId(repoId, file)];
   }
 
   /** Whether a quant finished downloading (Use in Models becomes primary action). */
@@ -2233,43 +2288,33 @@ export class SettingsStore {
     return !!this.modelManagerHfDownloaded()[this.hfQuantDownloadId(repoId, file)];
   }
 
-  /** Download progress 0..1 for a quant; 0 when total is unknown. */
-  hfQuantDownloadFraction(repoId: string, file: HuggingFaceModelFile): number {
-    const id = this.hfQuantDownloadId(repoId, file);
-    const d = this.modelManagerHfDownloads()[id];
-    if (!d || !d.totalBytes || d.totalBytes <= 0) {
-      return 0;
-    }
-    return Math.max(0, Math.min(1, d.receivedBytes / d.totalBytes));
-  }
-
-  /** Whole-number percent for the row's progress bar; null while the total size is unknown. */
-  hfQuantDownloadPercent(repoId: string, file: HuggingFaceModelFile): number | null {
-    const d = this.modelManagerHfDownloads()[this.hfQuantDownloadId(repoId, file)];
-    if (!d || !d.totalBytes || d.totalBytes <= 0) {
+  /** Percent for a download's progress bar, to one decimal; null while the total size is unknown. */
+  hfDownloadPercent(d: HfDownloadEntry): number | null {
+    if (!d.totalBytes || d.totalBytes <= 0) {
       return null;
     }
-    return Math.round(this.hfQuantDownloadFraction(repoId, file) * 1000) / 10;
+    return Math.round(Math.max(0, Math.min(1, d.receivedBytes / d.totalBytes)) * 1000) / 10;
   }
 
-  /** Human-readable progress label for a downloading quant. */
-  hfQuantDownloadLabel(repoId: string, file: HuggingFaceModelFile): string {
-    const id = this.hfQuantDownloadId(repoId, file);
-    const d = this.modelManagerHfDownloads()[id];
-    if (!d) {
-      return '';
-    }
+  /** Progress of a download in words: ``42% · 3.1 GB / 7.4 GB``, led by ``Paused`` or ``Failed`` when stopped. */
+  hfDownloadLabel(d: HfDownloadEntry): string {
     const pct = d.totalBytes && d.totalBytes > 0 ? Math.round((d.receivedBytes / d.totalBytes) * 100) : null;
     const recv = this.formatFileSize(d.receivedBytes);
     const total = d.totalBytes != null ? this.formatFileSize(d.totalBytes) : '?';
-    return pct != null ? `${pct}% · ${recv} / ${total}` : `${recv} / ${total}`;
+    const state = d.status === 'paused' ? 'Paused · ' : d.status === 'error' ? 'Failed · ' : '';
+    return `${state}${pct != null ? `${pct}% · ` : ''}${recv} / ${total}`;
   }
 
   /** Kick off a HF GGUF download into the configured custom models directory. */
-  async downloadHfQuant(repoId: string, file: HuggingFaceModelFile): Promise<void> {
+  downloadHfQuant(repoId: string, file: HuggingFaceModelFile): Promise<void> {
+    return this.startHfDownload(repoId, file?.fileName ?? '');
+  }
+
+  /** Start a download, or continue one that stopped with a partial file. */
+  async startHfDownload(repoId: string, fileName: string): Promise<void> {
     const repo = (repoId || '').trim();
-    const fileName = (file?.fileName || '').trim();
-    if (!repo || !fileName) {
+    const name = (fileName || '').trim();
+    if (!repo || !name) {
       return;
     }
     const customDir = (this.modelManagerCustomDir() || '').trim();
@@ -2277,8 +2322,7 @@ export class SettingsStore {
       this.modelManagerStatus.set('Set a custom models directory before downloading.');
       return;
     }
-    const downloadId = this.hfQuantDownloadId(repo, file);
-    if (this.modelManagerHfDownloads()[downloadId]) {
+    if (this.modelManagerHfDownloads()[`${repo}/${name}`]?.status === 'downloading') {
       return;
     }
     // The 'queued' progress event from the main process drives the bar; we do not
@@ -2287,20 +2331,24 @@ export class SettingsStore {
     // event legitimately created, hiding the bar while the download continues.
     const res = await this.electron.modelManagerDownloadHfFile({
       repoId: repo,
-      fileName,
+      fileName: name,
       customDir,
       token: this.modelManagerHfToken().trim(),
     });
-    // Progress events drive the bar; this resolves only at completion.
+    // Progress events drive the bar; this resolves only when the download ends or stops.
     if (!res.ok) {
       this.modelManagerStatus.set(res.error);
     }
   }
 
-  /** Cancel an in-flight HF quant download. */
-  cancelHfQuantDownload(repoId: string, file: HuggingFaceModelFile): void {
-    const id = this.hfQuantDownloadId(repoId, file);
-    void this.electron.modelManagerCancelHfDownload({ downloadId: id });
+  /** Stop a running download and keep what it has, to resume later. */
+  pauseHfDownload(downloadId: HfDownloadId): void {
+    void this.electron.modelManagerPauseHfDownload({ downloadId });
+  }
+
+  /** Stop a download for good, running or not; its partial file is deleted. */
+  cancelHfDownload(downloadId: HfDownloadId): void {
+    void this.electron.modelManagerCancelHfDownload({ downloadId });
   }
 
   /** Human-readable file size for the quant list. */

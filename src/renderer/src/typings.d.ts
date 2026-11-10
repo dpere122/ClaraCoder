@@ -47,6 +47,7 @@ import type {
   SecretStorageMode,
   HfDownloadId,
   HfDownloadProgressEvent,
+  HfDownloadSnapshot,
   LlmSourcePingResult,
   LmStudioListModelsResult,
   LmStudioLoadOptions,
@@ -412,7 +413,9 @@ declare global {
       customDir: string;
       token?: string;
     }) => Promise<ModelManagerDownloadHfResult>;
+    modelManagerPauseHfDownload?: (payload: { downloadId: HfDownloadId }) => Promise<{ ok: true } | { ok: false; error: string }>;
     modelManagerCancelHfDownload: (payload: { downloadId: HfDownloadId }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    modelManagerListHfDownloads?: () => Promise<HfDownloadSnapshot[]>;
     onModelManagerHfDownloadProgress?: (callback: (event: unknown, data: HfDownloadProgressEvent) => void) => void;
     loadConfig: () => Promise<AppConfig>;
     saveConfig: (config: AppConfig) => Promise<AppConfig>;

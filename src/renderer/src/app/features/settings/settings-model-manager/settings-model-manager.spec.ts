@@ -2,7 +2,7 @@ import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { NgxSpinnerService } from 'ngx-spinner';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { HuggingFaceModelFile, ModelManagerFileEntry } from '@shared/index';
+import type { HfDownloadProgressEvent, HuggingFaceModelFile, ModelManagerFileEntry } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { ThemeEngineService } from '../../../core/theme/theme-engine.service';
 import { lucideAppProviders } from '../../../lucide-setup';
@@ -22,13 +22,13 @@ const loose = (absolutePath: string): ModelManagerFileEntry => ({
   source: 'custom',
 });
 
-function setup() {
+function setup(electron: object = {}) {
   TestBed.configureTestingModule({
     imports: [SettingsModelManager],
     providers: [
       ...lucideAppProviders,
       SettingsStore,
-      { provide: ElectronService, useValue: {} },
+      { provide: ElectronService, useValue: electron },
       { provide: ThemedConfirmDialogService, useValue: {} },
       { provide: ThemedPromptDialogService, useValue: {} },
       { provide: NgxSpinnerService, useValue: { show: vi.fn(), hide: vi.fn() } },
@@ -76,6 +76,99 @@ describe('the quant rows of a repo', () => {
       { name: 'MTP head Q4_0', usable: false },
       { name: 'Vision projector Q8_0', usable: false },
     ]);
+  });
+});
+
+describe('downloads that are running or stopped', () => {
+  const FILE = 'gpt-oss-20b-MXFP4.gguf';
+  const ID = `${REPO}/${FILE}`;
+  const GB = 1024 ** 3;
+  const event = (phase: HfDownloadProgressEvent['phase'], more: Partial<HfDownloadProgressEvent> = {}): HfDownloadProgressEvent => ({
+    downloadId: ID,
+    repoId: REPO,
+    fileName: FILE,
+    phase,
+    receivedBytes: 3 * GB,
+    totalBytes: 12 * GB,
+    ...more,
+  });
+  const electron = () => ({
+    modelManagerPauseHfDownload: vi.fn(async () => ({ ok: true })),
+    modelManagerCancelHfDownload: vi.fn(async () => ({ ok: true })),
+    modelManagerDownloadHfFile: vi.fn(async () => ({ ok: false, error: 'Download paused.' })),
+    modelManagerListCustomModels: vi.fn(async () => ({ ok: true, models: [] })),
+  });
+  const downloadRow = (el: HTMLElement) => el.querySelector<HTMLElement>('.mm-download');
+  const click = (el: HTMLElement, label: string) =>
+    el.querySelector<HTMLButtonElement>(`.mm-download button[aria-label^="${label}"]`)?.click();
+
+  it('show in the Downloaded section, which opens for them, with progress and a pause button', async () => {
+    const api = electron();
+    const { store, fixture } = setup(api);
+    store.applyHfDownloadEvent(event('progress'));
+    const el = await render(fixture);
+    expect(el.querySelector<HTMLDetailsElement>('[data-tutorial="downloaded-list"]')?.open).toBe(true);
+    const row = downloadRow(el);
+    expect(row?.dataset['status']).toBe('downloading');
+    expect(row?.querySelector('.mm-row__name')?.textContent).toBe('gpt-oss-20b-MXFP4');
+    expect(row?.querySelector('.mm-row__sub')?.textContent).toBe('25% · 3.00 GB / 12.0 GB');
+    expect(row?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('25');
+    expect(el.querySelector('.mm-list__note')).toBeNull();
+    click(el, 'Pause');
+    expect(api.modelManagerPauseHfDownload).toHaveBeenCalledWith({ downloadId: ID });
+  });
+
+  it('stay listed once paused, and resume or cancel from there', async () => {
+    const api = electron();
+    const { store, fixture } = setup(api);
+    store.modelManagerCustomDir.set('/models');
+    store.applyHfDownloadEvent(event('progress'));
+    store.applyHfDownloadEvent(event('paused'));
+    const el = await render(fixture);
+    expect(downloadRow(el)?.dataset['status']).toBe('paused');
+    expect(downloadRow(el)?.querySelector('.mm-row__sub')?.textContent).toBe('Paused · 25% · 3.00 GB / 12.0 GB');
+    click(el, 'Resume');
+    expect(api.modelManagerDownloadHfFile).toHaveBeenCalledWith(
+      expect.objectContaining({ repoId: REPO, fileName: FILE, customDir: '/models' }),
+    );
+    click(el, 'Cancel');
+    expect(api.modelManagerCancelHfDownload).toHaveBeenCalledWith({ downloadId: ID });
+  });
+
+  it('keep a failure that left bytes behind, and drop one that did not', async () => {
+    const { store } = setup(electron());
+    store.applyHfDownloadEvent(event('progress'));
+    store.applyHfDownloadEvent(event('error', { error: 'socket hang up', resumable: true }));
+    expect(store.modelManagerHfDownloads()[ID]).toMatchObject({ status: 'error', error: 'socket hang up' });
+    expect(store.hfDownloadLabel(store.modelManagerHfDownloads()[ID]!)).toBe('Failed · 25% · 3.00 GB / 12.0 GB');
+    store.applyHfDownloadEvent(event('error', { error: 'not found' }));
+    expect(store.modelManagerHfDownloads()).toEqual({});
+  });
+
+  it('leave the list when done or cancelled', async () => {
+    const { store } = setup(electron());
+    store.applyHfDownloadEvent(event('progress'));
+    store.applyHfDownloadEvent(event('cancelled'));
+    expect(store.modelManagerHfDownloads()).toEqual({});
+    store.applyHfDownloadEvent(event('queued'));
+    store.applyHfDownloadEvent(event('done', { absolutePath: '/models/x.gguf' }));
+    expect(store.modelManagerHfDownloads()).toEqual({});
+    expect(store.modelManagerHfDownloaded()).toEqual({ [ID]: '/models/x.gguf' });
+  });
+
+  it('offer Pause on the quant row while running and Resume once stopped', async () => {
+    const { store, fixture } = setup(electron());
+    store.modelManagerSelection.set({ kind: 'hf', id: REPO });
+    store.modelManagerHfFilesByRepo.set({ [REPO]: [{ fileName: FILE, quant: 'MXFP4', sizeBytes: 12 * GB }] });
+    const buttons = async () => {
+      const el = await render(fixture);
+      return [...el.querySelectorAll('.model-quant-row button')].map((b) => b.textContent?.trim());
+    };
+    expect(await buttons()).toEqual(['Download']);
+    store.applyHfDownloadEvent(event('progress'));
+    expect(await buttons()).toEqual(['Pause', 'Cancel']);
+    store.applyHfDownloadEvent(event('paused'));
+    expect(await buttons()).toEqual(['Resume', 'Cancel']);
   });
 });
 

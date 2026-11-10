@@ -280,7 +280,17 @@ app-settings-model-manager {
 }
 
 .mm-accordion__count {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   margin-left: auto;
+}
+
+.mm-accordion__downloads {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--t-primary);
 }
 
 .mm-list__group {
@@ -391,6 +401,55 @@ app-settings-model-manager {
 
 .mm-row__done {
   color: var(--t-success);
+}
+
+/* A download in the Downloaded list: its own controls, and a progress bar along the bottom edge. */
+.mm-download {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 6px;
+  padding: 4px 10px 0 8px;
+  border-left: 2px solid transparent;
+  color: var(--t-text-muted, var(--t-muted));
+}
+
+.mm-download:hover {
+  background: var(--t-hover-bg);
+}
+
+.mm-download.is-selected {
+  border-left-color: var(--t-primary);
+  background: var(--t-active-bg);
+}
+
+.mm-download__main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--t-fg);
+  font: inherit;
+  line-height: 1.25;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mm-download__main:focus-visible,
+.mm-download .mm-icon-button:focus-visible {
+  outline: 1px solid var(--t-primary);
+  outline-offset: 1px;
+}
+
+.mm-download .mm-row__sub {
+  font-variant-numeric: tabular-nums;
+}
+
+.mm-download--stopped .model-quant-row__progress-fill {
+  opacity: 0.45;
 }
 
 .mm-pager {

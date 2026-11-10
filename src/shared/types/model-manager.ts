@@ -121,8 +121,11 @@ export type ModelManagerHfFilesResult =
 /** Stable id for a single HF quant download: ``${repoId}/${fileName}``. */
 export type HfDownloadId = string;
 
-/** Phase of an in-flight Hugging Face GGUF download streamed to the renderer. */
-export type HfDownloadPhase = 'queued' | 'progress' | 'done' | 'error' | 'cancelled';
+/**
+ * Phase of a Hugging Face GGUF download streamed to the renderer. ``paused`` keeps the partial file
+ * for a later resume and ``cancelled`` deletes it.
+ */
+export type HfDownloadPhase = 'queued' | 'progress' | 'paused' | 'done' | 'error' | 'cancelled';
 
 /** Progress event for a Hugging Face GGUF download, sent main → renderer. */
 export interface HfDownloadProgressEvent {
@@ -138,6 +141,23 @@ export interface HfDownloadProgressEvent {
   /** Absolute path of the finished file (only meaningful for ``done``). */
   absolutePath?: string;
   /** Human-readable error message (only meaningful for ``error``). */
+  error?: string;
+  /** On ``error``: the partial file was kept, so the download stays listed and can be resumed. */
+  resumable?: boolean;
+}
+
+/** ``downloading`` covers the wait before the first byte; the other two are stopped and resumable. */
+export type HfDownloadStatus = 'downloading' | 'paused' | 'error';
+
+/** A download main is running or holding a partial file for, as listed to a window that just opened. */
+export interface HfDownloadSnapshot {
+  downloadId: HfDownloadId;
+  repoId: string;
+  fileName: string;
+  status: HfDownloadStatus;
+  receivedBytes: number;
+  totalBytes: number | null;
+  /** Why it stopped (only for ``error``). */
   error?: string;
 }
 

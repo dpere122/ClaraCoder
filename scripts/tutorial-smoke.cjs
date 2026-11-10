@@ -212,7 +212,7 @@ async function boot() {
 
     const blocked = new Set([
       'deps:install', 'deps:reinstall', 'deps:delete', 'deps:cancel', 'deps:reveal',
-      'model-manager:download-hf-file', 'model-manager:cancel-hf-download',
+      'model-manager:download-hf-file', 'model-manager:pause-hf-download', 'model-manager:cancel-hf-download',
       'model-manager:rename-model', 'model-manager:delete-model', 'model-manager:pick-custom-dir',
       'llama-server:start', 'llama-server:stop', 'lm-studio:load-model', 'lm-studio:unload-model',
       'updater:download', 'updater:install-now', 'updater:install-on-quit',

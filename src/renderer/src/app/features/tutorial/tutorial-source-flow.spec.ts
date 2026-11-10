@@ -91,6 +91,7 @@ function setup() {
     closeSettingsWindow: vi.fn(),
     listSystemFonts: vi.fn(async () => []),
     listCudaGpus: vi.fn(async () => []),
+    modelManagerListHfDownloads: vi.fn(async () => []),
     depsList: vi.fn(async () => ({ dependencies: [] })),
     llamacppManagedListModels: vi.fn(async () => ({ ok: true as const, models: [] })),
     modelManagerListCustomModels: vi.fn(async (_payload: { customDir: string }): Promise<ModelManagerListModelsResult> => ({ ok: true, models: [] })),

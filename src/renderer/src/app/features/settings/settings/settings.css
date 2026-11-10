@@ -1059,6 +1059,11 @@ button.linkish {
   }
 }
 
+/* Paused or failed: the bar stays where it stopped, dimmed. */
+.model-quant-row--stopped .model-quant-row__progress-fill {
+  opacity: 0.45;
+}
+
 /* Completed download: subtle success tint to hint the file is cached locally. */
 .model-quant-row--done {
   background: color-mix(in srgb, var(--t-success, #2e7d52) 12%, transparent);

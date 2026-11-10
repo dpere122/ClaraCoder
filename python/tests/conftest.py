@@ -54,6 +54,25 @@ def _reset_turns_and_subagents():
     sessions.clear()
 
 
+@pytest.fixture(autouse=True)
+def _no_real_typescript_language_server(monkeypatch):
+    """Keep tests from starting a real TypeScript language server.
+
+    Outside the app there is no bundled vtsls, so the plugin falls back to ``npx``, which downloads
+    the server from npm on first use. An edit tool writing a ``.ts`` file would then wait on that
+    download, and on Windows a server killed after its startup timeout leaves a child process that
+    keeps the temp workspace open. The plugin gets a command that does not exist instead: starting
+    it fails at once, the edit tools report the LSP sync as failed and carry on, and tests that
+    inject a fake client never run the command.
+    """
+    from clara_coder_backend.lsp.typescript_server import TypescriptLspSpawn
+
+    monkeypatch.setattr(
+        'clara_coder_backend.lsp.plugins.typescript_plugin.resolve_typescript_lsp_spawn',
+        lambda _root: TypescriptLspSpawn(['clara-tests-no-typescript-language-server', '--stdio']),
+    )
+
+
 @pytest.fixture()
 def workspace_env():
     """Editor-mode session with a temp workspace for the write-through edit tools."""

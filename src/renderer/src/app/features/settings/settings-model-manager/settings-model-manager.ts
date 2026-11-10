@@ -4,12 +4,13 @@ import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
 import { isDraftSidecarGgufFileName, isMmprojGgufFileName, isMtpCompanionGgufFileName } from '@shared/index';
 import type {
+  HfDownloadId,
   HuggingFaceModelDetails,
   HuggingFaceModelSearchItem,
   ModelManagerFileEntry,
 } from '@shared/index';
 import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
-import { SettingsStore } from '../settings/settings-store';
+import { SettingsStore, type HfDownloadEntry } from '../settings/settings-store';
 import {
   compareFeaturedModels,
   FEATURED_HF_MODELS,
@@ -31,6 +32,8 @@ type LocalRow = { kind: 'local'; key: string; provider: string; name: string; re
 type FeaturedRow = { kind: 'featured'; key: string; provider: string; name: string; repoId: string; featured: FeaturedHfModel };
 type ResultRow = { kind: 'result'; key: string; provider: string; name: string; repoId: string; item: HuggingFaceModelSearchItem };
 type ModelRow = LocalRow | FeaturedRow | ResultRow;
+/** A download that is running or stopped, listed above the downloaded models. ``repoKey`` is its repo's row key. */
+type DownloadRow = { key: string; id: HfDownloadId; repoId: string; repoKey: string; name: string; download: HfDownloadEntry };
 
 /** Typing waits this long before querying the Hub; local and featured rows filter instantly. */
 const HUB_SEARCH_DEBOUNCE_MS = 450;
@@ -72,6 +75,16 @@ export class SettingsModelManager {
       const section = this.selectedSection();
       if (section) {
         untracked(() => this.revealSection(section));
+      }
+    });
+    // A download that starts, or that was already going when Settings opened, opens its section once.
+    let listed = new Set<string>();
+    effect(() => {
+      const ids = Object.keys(this.s.modelManagerHfDownloads());
+      const added = ids.some((id) => !listed.has(id));
+      listed = new Set(ids);
+      if (added) {
+        untracked(() => this.revealSection('downloaded'));
       }
     });
   }
@@ -137,6 +150,28 @@ export class SettingsModelManager {
       })
       .filter((row) => this.matches(row.provider, row.name, row.model.fileName)),
   );
+
+  /** Downloads that are running or stopped with a partial file, filtered by the search text. */
+  protected readonly downloadRows = computed<DownloadRow[]>(() =>
+    Object.entries(this.s.modelManagerHfDownloads())
+      .map(([id, download]): DownloadRow => ({
+        key: `download:${id}`,
+        id,
+        repoId: download.repoId,
+        repoKey: `hf:${download.repoId}`,
+        name: download.fileName.replace(/\.gguf$/i, ''),
+        download,
+      }))
+      .filter((row) => this.matches(row.repoId, row.name)),
+  );
+
+  /** ``2 downloading, 1 paused``: what the count beside the section title stands for. */
+  protected readonly downloadsSummary = computed(() => {
+    const rows = this.downloadRows();
+    const running = rows.filter((row) => row.download.status === 'downloading').length;
+    const stopped = rows.length - running;
+    return [running ? `${running} downloading` : '', stopped ? `${stopped} paused` : ''].filter(Boolean).join(', ');
+  });
 
   /** Hub repos already on disk, so featured and result rows can say so. */
   protected readonly localRepoIds = computed(

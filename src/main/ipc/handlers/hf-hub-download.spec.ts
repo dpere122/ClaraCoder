@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createHash } from 'crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from 'fs';
 import { promises as fs } from 'fs';
 import * as os from 'os';
@@ -26,13 +27,13 @@ const ETAG = 'abc123etag';
 const SNAPSHOT = '0123456789abcdef0123456789abcdef01234567';
 const PAYLOAD = Buffer.from('gguf-payload-bytes');
 
-function mockPathInfo(): void {
+function mockPathInfo(etag = ETAG): void {
   pathsInfo.mockResolvedValue([
     {
       path: FILE_NAME,
       type: 'file',
       size: PAYLOAD.length,
-      lfs: { oid: ETAG, size: PAYLOAD.length, pointerSize: 128 },
+      lfs: { oid: etag, size: PAYLOAD.length, pointerSize: 128 },
       lastCommit: { id: SNAPSHOT, title: 'c', date: new Date() },
     },
   ]);
@@ -114,7 +115,7 @@ describe('downloadHfGgufToHubCache', () => {
     expect(downloadFile).not.toHaveBeenCalled();
   });
 
-  it('deletes .incomplete on abort and does not leave a blob', async () => {
+  it('keeps .incomplete on abort, to resume from, and does not leave a blob', async () => {
     const hangAbort = new AbortController();
     downloadFile.mockImplementation(async () => blobFromBuffer(PAYLOAD, { abort: hangAbort }));
     const abort = new AbortController();
@@ -134,8 +135,101 @@ describe('downloadHfGgufToHubCache', () => {
     }
     expect(result.aborted).toBe(true);
     const layout = hubCacheLayout(customDir, REPO_ID, ETAG, SNAPSHOT, FILE_NAME);
-    expect(existsSync(layout.incompletePath)).toBe(false);
+    expect(readFileSync(layout.incompletePath)).toEqual(PAYLOAD);
     expect(existsSync(layout.blobPath)).toBe(false);
     await expect(fs.stat(layout.pointerPath)).rejects.toThrow();
+  });
+
+  describe('with a partial file from an earlier attempt', () => {
+    const KEPT = 7;
+
+    /** A blob that records the offset it was sliced from, as the Hub's range-request blobs are. */
+    function sliceRecordingBlob(buf: Buffer, slicedFrom: number[]): Blob {
+      const blob = new Blob([new Uint8Array(buf)]);
+      const slice = blob.slice.bind(blob);
+      blob.slice = (start?: number, end?: number) => {
+        slicedFrom.push(start ?? 0);
+        return slice(start, end);
+      };
+      return blob;
+    }
+
+    function writePartial(etag: string, bytes: Buffer): string {
+      const layout = hubCacheLayout(customDir, REPO_ID, etag, SNAPSHOT, FILE_NAME);
+      mkdirSync(path.dirname(layout.incompletePath), { recursive: true });
+      writeFileSync(layout.incompletePath, bytes);
+      return layout.incompletePath;
+    }
+
+    it('fetches only the rest and reports progress from where it stopped', async () => {
+      const incompletePath = writePartial(ETAG, PAYLOAD.subarray(0, KEPT));
+      const slicedFrom: number[] = [];
+      downloadFile.mockResolvedValue(sliceRecordingBlob(PAYLOAD, slicedFrom));
+      const progress: number[] = [];
+      const partialFiles: string[] = [];
+      const result = await downloadHfGgufToHubCache({
+        repoId: REPO_ID,
+        fileName: FILE_NAME,
+        customDir,
+        abort: new AbortController(),
+        progressMinIntervalMs: 0,
+        onPartialFile: (file) => partialFiles.push(file),
+        onProgress: (received) => progress.push(received),
+      });
+      expect(result).toMatchObject({ ok: true, receivedBytes: PAYLOAD.length, cacheHit: false });
+      expect(slicedFrom).toEqual([KEPT]);
+      expect(progress[0]).toBe(KEPT);
+      expect(progress.at(-1)).toBe(PAYLOAD.length);
+      expect(partialFiles).toEqual([incompletePath]);
+      const layout = hubCacheLayout(customDir, REPO_ID, ETAG, SNAPSHOT, FILE_NAME);
+      expect(readFileSync(layout.blobPath)).toEqual(PAYLOAD);
+      expect(existsSync(incompletePath)).toBe(false);
+    });
+
+    it('finishes without fetching when every byte is already there', async () => {
+      writePartial(ETAG, PAYLOAD);
+      const slicedFrom: number[] = [];
+      downloadFile.mockResolvedValue(sliceRecordingBlob(PAYLOAD, slicedFrom));
+      const result = await downloadHfGgufToHubCache({
+        repoId: REPO_ID,
+        fileName: FILE_NAME,
+        customDir,
+        abort: new AbortController(),
+      });
+      expect(result).toMatchObject({ ok: true, receivedBytes: PAYLOAD.length });
+      expect(slicedFrom).toEqual([]);
+    });
+
+    it('starts over when the partial file is longer than the file', async () => {
+      writePartial(ETAG, Buffer.concat([PAYLOAD, PAYLOAD]));
+      const slicedFrom: number[] = [];
+      downloadFile.mockResolvedValue(sliceRecordingBlob(PAYLOAD, slicedFrom));
+      const result = await downloadHfGgufToHubCache({
+        repoId: REPO_ID,
+        fileName: FILE_NAME,
+        customDir,
+        abort: new AbortController(),
+      });
+      expect(result.ok).toBe(true);
+      expect(slicedFrom).toEqual([]);
+      const layout = hubCacheLayout(customDir, REPO_ID, ETAG, SNAPSHOT, FILE_NAME);
+      expect(readFileSync(layout.blobPath)).toEqual(PAYLOAD);
+    });
+
+    it('rejects a resumed file whose kept bytes were damaged, and drops them', async () => {
+      const sha = createHash('sha256').update(PAYLOAD).digest('hex');
+      mockPathInfo(sha);
+      const incompletePath = writePartial(sha, Buffer.alloc(KEPT, 0x58));
+      downloadFile.mockResolvedValue(new Blob([new Uint8Array(PAYLOAD)]));
+      const result = await downloadHfGgufToHubCache({
+        repoId: REPO_ID,
+        fileName: FILE_NAME,
+        customDir,
+        abort: new AbortController(),
+      });
+      expect(result).toMatchObject({ ok: false, aborted: false, error: expect.stringContaining('SHA-256') });
+      expect(existsSync(incompletePath)).toBe(false);
+      expect(existsSync(hubCacheLayout(customDir, REPO_ID, sha, SNAPSHOT, FILE_NAME).blobPath)).toBe(false);
+    });
   });
 });

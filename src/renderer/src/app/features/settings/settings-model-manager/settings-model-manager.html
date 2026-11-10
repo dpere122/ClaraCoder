@@ -154,24 +154,72 @@
 
   <div class='mm-browser'>
     <div class='mm-list' role='listbox' aria-label='Models' (keydown)='onListKeydown($event)'>
-      @if (s.modelManagerLocalLoading() || localRows().length || !searching()) {
+      @if (s.modelManagerLocalLoading() || localRows().length || downloadRows().length || !searching()) {
         <details class='mm-accordion' data-tutorial='downloaded-list' [open]='isSectionOpen("downloaded")' (toggle)='onSectionToggle("downloaded", $event)'>
           <summary class='mm-list__section'>
             <lucide-icon class='mm-accordion__chevron' name='chevron-right' [size]='13' />
             Downloaded
-            @if (s.modelManagerLocalLoading()) {
-              <span class='mm-accordion__count model-card__mini-spinner' role='status' aria-label='Scanning folder'></span>
-            } @else {
-              <span class='mm-accordion__count'>{{ localRows().length }}</span>
-            }
+            <span class='mm-accordion__count'>
+              @if (downloadRows().length) {
+                <span class='mm-accordion__downloads' [title]='downloadsSummary()'>
+                  <lucide-icon name='download' [size]='11' />
+                  {{ downloadRows().length }}
+                </span>
+              }
+              @if (s.modelManagerLocalLoading()) {
+                <span class='model-card__mini-spinner' role='status' aria-label='Scanning folder'></span>
+              } @else {
+                {{ localRows().length }}
+              }
+            </span>
           </summary>
+          @for (row of downloadRows(); track row.key) {
+            @let pct = s.hfDownloadPercent(row.download);
+            <div
+              class='mm-download'
+              [class.is-selected]='row.repoKey === selectedKey()'
+              [class.mm-download--stopped]='row.download.status !== "downloading"'
+              [attr.data-download-id]='row.id'
+              [attr.data-status]='row.download.status'
+            >
+              <button type='button' class='mm-download__main' [title]='row.download.error || row.id' (click)='s.selectHfModel(row.repoId)'>
+                <span class='mm-row__name'>{{ row.name }}</span>
+                <span class='mm-row__sub'>{{ s.hfDownloadLabel(row.download) }}</span>
+              </button>
+              @if (row.download.status === 'downloading') {
+                <button type='button' class='mm-icon-button' title='Pause' [attr.aria-label]='"Pause the download of " + row.name' (click)='s.pauseHfDownload(row.id)'>
+                  <lucide-icon name='pause' [size]='13' />
+                </button>
+              } @else {
+                <button type='button' class='mm-icon-button' title='Resume' [attr.aria-label]='"Resume the download of " + row.name' (click)='s.startHfDownload(row.repoId, row.download.fileName)'>
+                  <lucide-icon name='play' [size]='13' />
+                </button>
+              }
+              <button type='button' class='mm-icon-button' title='Cancel and delete the partial file' [attr.aria-label]='"Cancel the download of " + row.name' (click)='s.cancelHfDownload(row.id)'>
+                <lucide-icon name='x' [size]='13' />
+              </button>
+              <div
+                class='model-quant-row__progress'
+                [class.model-quant-row__progress--indeterminate]='pct === null && row.download.status === "downloading"'
+                role='progressbar'
+                aria-valuemin='0'
+                aria-valuemax='100'
+                [attr.aria-valuenow]='pct'
+                [attr.aria-label]="'Download of ' + row.name"
+              >
+                <div class='model-quant-row__progress-fill' [style.width.%]='pct ?? (row.download.status === "downloading" ? 30 : 0)'></div>
+              </div>
+            </div>
+          }
           @if (s.modelManagerLocalLoading()) {
             <div class='mm-list__note'><span class='model-card__mini-spinner' aria-hidden='true'></span> Scanning folder…</div>
           } @else {
             @for (row of localRows(); track row.key) {
               <ng-container *ngTemplateOutlet='rowTpl; context: { $implicit: row }' />
             } @empty {
-              <div class='mm-list__note'>Nothing downloaded yet.</div>
+              @if (!downloadRows().length) {
+                <div class='mm-list__note'>Nothing downloaded yet.</div>
+              }
             }
           }
         </details>
@@ -231,7 +279,7 @@
         <div class='mm-list__note'><span class='model-card__mini-spinner' aria-hidden='true'></span> Searching…</div>
       }
 
-      @if (!s.modelManagerLocalLoading() && !s.modelManagerHfBusy() && !localRows().length && !featuredRows().length && !resultRows().length) {
+      @if (!s.modelManagerLocalLoading() && !s.modelManagerHfBusy() && !localRows().length && !downloadRows().length && !featuredRows().length && !resultRows().length) {
         <div class='mm-list__note'>No models match. Press Enter to search Hugging Face.</div>
       }
     </div>
@@ -506,17 +554,34 @@
   } @else if (s.modelManagerHfFilesByRepo()[repoId]; as files) {
     <div class='model-quant-list'>
       @for (file of files; track file.fileName) {
+        @let download = s.hfQuantDownload(repoId, file);
         <div
           class='model-quant-row'
-          [class.model-quant-row--downloading]='s.isHfQuantDownloading(repoId, file)'
+          [class.model-quant-row--downloading]='!!download'
+          [class.model-quant-row--stopped]='download && download.status !== "downloading"'
           [class.model-quant-row--done]='s.isHfQuantDownloaded(repoId, file)'
-          [title]='file.fileName'
+          [attr.data-status]='download?.status'
+          [title]='download?.error || file.fileName'
         >
           <span class='model-quant-row__name'>{{ file.role === 'mtp' ? 'MTP head ' : file.role === 'draft' ? 'Draft head ' : file.role === 'mmproj' ? 'Vision projector ' : '' }}{{ file.quant || file.fileName }}</span>
           <span class='settings-copy model-quant-row__size'>{{ s.formatFileSize(file.sizeBytes) }}</span>
-          @if (s.isHfQuantDownloading(repoId, file)) {
-            <span class='model-quant-row__progress-label'>{{ s.hfQuantDownloadLabel(repoId, file) }}</span>
-            <button type='button' class='action-button action-button--compact model-quant-row__cancel' (click)='s.cancelHfQuantDownload(repoId, file)'>
+          @if (download) {
+            <span class='model-quant-row__progress-label'>{{ s.hfDownloadLabel(download) }}</span>
+            @if (download.status === 'downloading') {
+              <button type='button' class='action-button action-button--compact' (click)='s.pauseHfDownload(repoId + "/" + file.fileName)'>
+                Pause
+              </button>
+            } @else {
+              <button type='button' class='action-button action-button--compact action-button--primary' (click)='s.downloadHfQuant(repoId, file)'>
+                Resume
+              </button>
+            }
+            <button
+              type='button'
+              class='action-button action-button--compact model-quant-row__cancel'
+              title='Cancel and delete the partial file'
+              (click)='s.cancelHfDownload(repoId + "/" + file.fileName)'
+            >
               Cancel
             </button>
           } @else if (s.isHfQuantDownloaded(repoId, file)) {
@@ -530,18 +595,18 @@
               Download
             </button>
           }
-          @if (s.isHfQuantDownloading(repoId, file)) {
-            @let pct = s.hfQuantDownloadPercent(repoId, file);
+          @if (download) {
+            @let pct = s.hfDownloadPercent(download);
             <div
               class='model-quant-row__progress'
-              [class.model-quant-row__progress--indeterminate]='pct === null'
+              [class.model-quant-row__progress--indeterminate]='pct === null && download.status === "downloading"'
               role='progressbar'
               aria-valuemin='0'
               aria-valuemax='100'
               [attr.aria-valuenow]='pct'
-              [attr.aria-label]="'Downloading ' + (file.quant || file.fileName)"
+              [attr.aria-label]="'Download of ' + (file.quant || file.fileName)"
             >
-              <div class='model-quant-row__progress-fill' [style.width.%]='pct ?? 30'></div>
+              <div class='model-quant-row__progress-fill' [style.width.%]='pct ?? (download.status === "downloading" ? 30 : 0)'></div>
             </div>
           }
         </div>

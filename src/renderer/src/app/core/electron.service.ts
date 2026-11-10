@@ -69,6 +69,7 @@ import type {
   SecretStorageMode,
   HfDownloadId,
   HfDownloadProgressEvent,
+  HfDownloadSnapshot,
   MaybeAutoTitleResult,
   PlanConfirmPayload,
   AgentQuestionPayload,
@@ -1414,6 +1415,18 @@ export class ElectronService {
     return (
       this.api?.modelManagerCancelHfDownload(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
     );
+  }
+
+  /** Stops a running download and keeps its partial file for a later resume. */
+  modelManagerPauseHfDownload(payload: { downloadId: HfDownloadId }): Promise<{ ok: true } | { ok: false; error: string }> {
+    return (
+      this.api?.modelManagerPauseHfDownload?.(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  /** Downloads main is running or holding a partial file for, whichever window started them. */
+  modelManagerListHfDownloads(): Promise<HfDownloadSnapshot[]> {
+    return this.api?.modelManagerListHfDownloads?.() ?? Promise.resolve([]);
   }
 
   async setWorkspaceContext(

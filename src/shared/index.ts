@@ -708,6 +708,8 @@ export type {
   HfDownloadId,
   HfDownloadPhase,
   HfDownloadProgressEvent,
+  HfDownloadSnapshot,
+  HfDownloadStatus,
   ModelManagerDownloadHfResult,
   SecretStorageMode,
 } from './types/model-manager';

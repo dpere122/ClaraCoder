@@ -504,7 +504,8 @@ declare global {
       apiKey?: string;
     }) => Promise<LmStudioMutationResult>;
     getWorkspaces: () => Promise<Workspace[]>;
-    addWorkspace: (name: string, path: string) => Promise<Workspace>;
+    addWorkspace: (name: string, path: string, options?: { trusted?: boolean }) => Promise<Workspace>;
+    setWorkspaceTrusted?: (id: string, trusted: boolean) => Promise<AppConfig | null>;
     removeWorkspace: (id: string) => Promise<void>;
     setCurrentWorkspace: (id: string | null) => Promise<void>;
     setWorkspaceFavorite: (id: string, favorite: boolean) => Promise<AppConfig | null>;
@@ -907,7 +908,7 @@ declare global {
     lspDiagnosticsWatchStop?: () => void;
     onLspDiagnosticsUpdated?: (
       callback: (event: unknown, payload: { sessionId: string; relativePath: string; generation: number; epoch?: number }) => void,
-    ) => void;
+    ) => (() => void) | void;
     healthLogsRecent: (limit: number) => Promise<{ records: HealthLogRecord[] }>;
     healthSetLogLevel: (level: string) => Promise<{ ok: boolean }>;
     healthLogsSubscribe: () => void;

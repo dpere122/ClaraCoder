@@ -9,7 +9,7 @@ export interface GdscriptLspSettings {
   godotBinaryPath: string;
   /**
    * Lets gdls run Godot on a project to read its native add-on classes. That can load the project's
-   * native code, so it stays off until someone turns it on.
+   * native code, so it only takes effect in a workspace the user trusts.
    */
   allowEngineApiDump: boolean;
   diagnosticsProfile: GdscriptDiagnosticsProfile;
@@ -124,18 +124,43 @@ export interface JavaLspSettings {
   formatterProfile: string;
 }
 
+export const RUST_CHECK_COMMANDS = ['check', 'clippy'] as const;
+export type RustCheckCommand = (typeof RUST_CHECK_COMMANDS)[number];
+
+/**
+ * rust-analyzer. It only runs in a trusted workspace (cargo runs code from the folder), so the
+ * options that run more of it are on by default, as they are in rust-analyzer itself.
+ */
+export interface RustLspSettings {
+  /** Run ``build.rs`` so generated code and ``cfg`` flags resolve. */
+  runBuildScripts: boolean;
+  /** Build and run procedural macros so derives and attribute macros expand. */
+  expandProcMacros: boolean;
+  /** Run the check command on save for the compiler's own errors and warnings. */
+  checkOnSave: boolean;
+  checkCommand: RustCheckCommand;
+  /** Keep rust-analyzer's cargo output in ``target/rust-analyzer`` so it doesn't hold the build lock. */
+  separateTargetDir: boolean;
+  /** Analyze with every cargo feature on (``--all-features``) instead of the default set. */
+  allFeatures: boolean;
+  inlayTypeHints: boolean;
+  inlayParameterHints: boolean;
+  inlayChainingHints: boolean;
+}
+
 export interface LspServersSettings {
   gdscript: GdscriptLspSettings;
   python: PythonLspSettings;
   typescript: TypescriptLspSettings;
   java: JavaLspSettings;
+  rust: RustLspSettings;
 }
 
 export function defaultLspServersSettings(): LspServersSettings {
   return {
     gdscript: {
       godotBinaryPath: '',
-      allowEngineApiDump: false,
+      allowEngineApiDump: true,
       diagnosticsProfile: 'godot',
       inlayTypeHints: true,
       inlayParameterHints: true,
@@ -191,6 +216,18 @@ export function defaultLspServersSettings(): LspServersSettings {
       formatComments: true,
       formatterSettingsPath: '',
       formatterProfile: '',
+    },
+    rust: {
+      // rust-analyzer's own defaults, except its own target directory.
+      runBuildScripts: true,
+      expandProcMacros: true,
+      checkOnSave: true,
+      checkCommand: 'check',
+      separateTargetDir: true,
+      allFeatures: false,
+      inlayTypeHints: true,
+      inlayParameterHints: true,
+      inlayChainingHints: true,
     },
   };
 }
@@ -365,6 +402,22 @@ function normalizeJavaLspSettings(raw: unknown): JavaLspSettings {
   };
 }
 
+function normalizeRustLspSettings(raw: unknown): RustLspSettings {
+  const defaults = defaultLspServersSettings().rust;
+  const r = objectOr(raw) as Partial<Record<keyof RustLspSettings, unknown>>;
+  return {
+    runBuildScripts: booleanOr(r.runBuildScripts, defaults.runBuildScripts),
+    expandProcMacros: booleanOr(r.expandProcMacros, defaults.expandProcMacros),
+    checkOnSave: booleanOr(r.checkOnSave, defaults.checkOnSave),
+    checkCommand: oneOf(r.checkCommand, RUST_CHECK_COMMANDS, defaults.checkCommand),
+    separateTargetDir: booleanOr(r.separateTargetDir, defaults.separateTargetDir),
+    allFeatures: booleanOr(r.allFeatures, defaults.allFeatures),
+    inlayTypeHints: booleanOr(r.inlayTypeHints, defaults.inlayTypeHints),
+    inlayParameterHints: booleanOr(r.inlayParameterHints, defaults.inlayParameterHints),
+    inlayChainingHints: booleanOr(r.inlayChainingHints, defaults.inlayChainingHints),
+  };
+}
+
 /** Fills missing or malformed fields with defaults, so a hand-edited config can't break the tab. */
 export function normalizeLspServersSettings(raw: unknown): LspServersSettings {
   const defaults = defaultLspServersSettings().gdscript;
@@ -374,8 +427,8 @@ export function normalizeLspServersSettings(raw: unknown): LspServersSettings {
   return {
     gdscript: {
       godotBinaryPath: stringOr(g.godotBinaryPath, defaults.godotBinaryPath),
-      // Only an explicit true opts in: this one lets a project's native code run.
-      allowEngineApiDump: g.allowEngineApiDump === true,
+      // On unless turned off: workspace trust is what decides whether a project's native code may run.
+      allowEngineApiDump: booleanOr(g.allowEngineApiDump, defaults.allowEngineApiDump),
       diagnosticsProfile:
         profile === 'godot' || profile === 'strict' || profile === 'off' ? profile : defaults.diagnosticsProfile,
       inlayTypeHints: booleanOr(g.inlayTypeHints, defaults.inlayTypeHints),
@@ -386,12 +439,13 @@ export function normalizeLspServersSettings(raw: unknown): LspServersSettings {
     python: normalizePythonLspSettings(root['python']),
     typescript: normalizeTypescriptLspSettings(root['typescript']),
     java: normalizeJavaLspSettings(root['java']),
+    rust: normalizeRustLspSettings(root['rust']),
   };
 }
 
 export interface LspServerCatalogEntry {
   /** Stable server id (``lsp-registry``), also the Settings sub-tab id. */
-  id: 'gdscript' | 'python' | 'typescript' | 'java';
+  id: 'gdscript' | 'python' | 'typescript' | 'java' | 'rust';
   label: string;
   /** The language server behind it. */
   server: string;
@@ -429,6 +483,13 @@ export const LSP_SERVER_CATALOG: readonly LspServerCatalogEntry[] = [
     server: 'Eclipse JDT LS',
     languages: 'Java (.java)',
     dependencyId: 'java-lsp',
+  },
+  {
+    id: 'rust',
+    label: 'Rust',
+    server: 'rust-analyzer',
+    languages: 'Rust (.rs)',
+    dependencyId: 'rust-analyzer',
   },
 ];
 

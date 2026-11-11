@@ -14,6 +14,8 @@ import { lspErrorMessage, lspLocationToMonaco, registerExtendedLspFeatures } fro
 import { workspaceFileUri, writeEditsForClosedFiles } from './workspace-monaco-workspace-edit';
 
 const GDSCRIPT_COMPLETION_TRIGGERS = ['.', '$', '%', '"', '@'];
+/** The trigger characters rust-analyzer registers: paths (``::``), members, lifetimes and call arguments. */
+const RUST_COMPLETION_TRIGGERS = ['.', ':', "'", '('];
 
 export interface WorkspaceMonacoLspNavigatePayload {
   readonly relativePath: string;
@@ -400,7 +402,9 @@ export function registerWorkspaceMonacoLsp(opts: RegisterWorkspaceMonacoLspOptio
             ? ['.', '@', '#', '*', ' ']
             : lang === 'gdscript'
               ? GDSCRIPT_COMPLETION_TRIGGERS
-              : ['.', '/', '"', "'", '`', '@', '<', '#'],
+              : lang === 'rust'
+                ? RUST_COMPLETION_TRIGGERS
+                : ['.', '/', '"', "'", '`', '@', '<', '#'],
         provideCompletionItems: async (model, position, context, token) => {
           if (!canRun(model)) {
             return { suggestions: [] };

@@ -63,6 +63,21 @@ class LspServerPlugin(ABC):
     #: by what was typed; items past the limit could otherwise never be offered.
     completion_item_limit: int = 500
 
+    #: The server runs its compiler checks when told a file was saved (rust-analyzer's cargo check),
+    #: so a sync of text that is already on disk, such as an agent's edit, says so.
+    checks_on_save: bool = False
+
+    #: ``$/progress`` token prefix of those check runs. A sync that reported a save waits for the
+    #: run to end, so its diagnostics include what the compiler found.
+    save_check_progress_prefix: str = ''
+
+    #: Reads ``workspace_is_trusted`` when it starts, so it restarts when a workspace's trust changes.
+    uses_workspace_trust: bool = False
+
+    #: For a server whose ``initializationOptions`` are the value of one ``workspace/configuration``
+    #: section (rust-analyzer's ``rust-analyzer``): that section's name.
+    configuration_section: str = ''
+
     @abstractmethod
     def create_state(self) -> Any:
         """Mutable per-manager state (e.g. TypeScript project root + last seed)."""
@@ -128,6 +143,14 @@ class LspServerPlugin(ABC):
 
     def take_pending_initialization_options(self, state: Any) -> dict[str, Any] | None:
         """Options to push via ``workspace/didChangeConfiguration`` without a restart (consumed once)."""
+
+        return None
+
+    def server_health_from_notification(self, method: str, params: dict[str, Any]) -> str | None:
+        """The problem a server reports about itself in a notification of its own, ``''`` for none.
+
+        ``None`` when ``method`` isn't that notification. The text goes in the status bar tooltip.
+        """
 
         return None
 

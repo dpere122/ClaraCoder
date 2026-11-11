@@ -97,6 +97,9 @@
               @if (workspace.favorite) {
                 <span class='pill'>Favorite</span>
               }
+              @if (workspace.trusted) {
+                <span class='pill'>Trusted</span>
+              }
             </div>
           </div>
           <div class='ws-detail__actions'>
@@ -149,6 +152,23 @@
             <dt>Workspace id</dt>
             <dd><code>{{ workspace.id }}</code></dd>
           </dl>
+        </section>
+
+        <section class='form-section'>
+          <h4>Trust</h4>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [checked]='!!workspace.trusted'
+              (change)='s.setWorkspaceTrusted(workspace.id, $any($event.target).checked)'
+            />
+            <span>Trust this folder</span>
+          </label>
+          <p class='settings-field-hint'>
+            Lets language servers run code from the folder: Rust build scripts and macros through cargo, and Godot
+            to read native add-on classes. Rust language features need this. Leave it off for code you haven't
+            looked at.
+          </p>
         </section>
 
         <p class='settings-copy ws-detail__note'>

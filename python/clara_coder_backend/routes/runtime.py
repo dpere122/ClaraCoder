@@ -19,6 +19,7 @@ from clara_coder_backend.domain import (
     RuntimeLspConfig,
     RuntimeMcpServer,
     RuntimePythonLspConfig,
+    RuntimeRustLspConfig,
     RuntimeToolsConfig,
     RuntimeTypescriptLspConfig,
 )
@@ -41,6 +42,7 @@ def _runtime_lsp_config(request: RuntimeLspRequest) -> RuntimeLspConfig:
     p = request.python
     t = request.typescript
     j = request.java
+    r = request.rust
     return RuntimeLspConfig(
         gdscript=RuntimeGdscriptLspConfig(
             godot_binary_path=g.godotBinaryPath.strip(),
@@ -102,6 +104,17 @@ def _runtime_lsp_config(request: RuntimeLspRequest) -> RuntimeLspConfig:
             format_comments=j.formatComments,
             formatter_settings_path=j.formatterSettingsPath.strip(),
             formatter_profile=j.formatterProfile.strip(),
+        ),
+        rust=RuntimeRustLspConfig(
+            run_build_scripts=r.runBuildScripts,
+            expand_proc_macros=r.expandProcMacros,
+            check_on_save=r.checkOnSave,
+            check_command=r.checkCommand,
+            separate_target_dir=r.separateTargetDir,
+            all_features=r.allFeatures,
+            inlay_type_hints=r.inlayTypeHints,
+            inlay_parameter_hints=r.inlayParameterHints,
+            inlay_chaining_hints=r.inlayChainingHints,
         ),
     )
 
@@ -318,6 +331,11 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
     cfg.tools = tools_cfg
     cfg.context_compression = context_compression_cfg
     cfg.lsp = lsp_cfg
+    prev_trusted = cfg.trusted_workspace_keys
+    if request.trustedWorkspacePaths is not None:
+        from clara_coder_backend.workspace.trust import trusted_workspace_keys
+
+        cfg.trusted_workspace_keys = trusted_workspace_keys(request.trustedWorkspacePaths)
     state.runtime_config_received.set()
     cfg.mcp_servers = [_runtime_mcp_server(item) for item in request.mcpServers]
     cfg.active_workspace_path = (request.activeWorkspacePath or '').strip()
@@ -346,6 +364,27 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
         from clara_coder_backend.lsp.manager import shutdown_lsp_server_for_all_sessions
 
         await asyncio.to_thread(shutdown_lsp_server_for_all_sessions, 'java')
+    restarted = {
+        server_id
+        for server_id in ('gdscript', 'python', 'typescript', 'java')
+        if getattr(lsp_cfg, server_id) != getattr(prev_lsp, server_id)
+    }
+    if lsp_cfg.rust != prev_lsp.rust:
+        # rust-analyzer could take these live, but a build-script or check change is cleaner on a
+        # fresh project load; the next request for a ``.rs`` file starts it again.
+        from clara_coder_backend.lsp.manager import shutdown_lsp_server_for_all_sessions
+
+        await asyncio.to_thread(shutdown_lsp_server_for_all_sessions, 'rust')
+        restarted.add('rust')
+    if cfg.trusted_workspace_keys != prev_trusted:
+        # A server that reads workspace trust reads it when it starts, so a workspace that lost
+        # trust must not keep the server it had.
+        from clara_coder_backend.lsp.manager import shutdown_lsp_server_for_all_sessions
+        from clara_coder_backend.lsp.registry import workspace_trust_lsp_server_ids
+
+        for server_id in workspace_trust_lsp_server_ids():
+            if server_id not in restarted:
+                await asyncio.to_thread(shutdown_lsp_server_for_all_sessions, server_id)
     try:
         from clara_coder_backend.mcp.manager import schedule_mcp_reconcile
 

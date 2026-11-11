@@ -11,7 +11,9 @@ import {
   flattenLlmProvidersToConnections,
   lmStudioOpenAiBaseUrlToRestOrigin,
   normalizeWebSearchEngines,
+  trustedWorkspacePaths,
 } from '../../shared';
+import { LSP_WORKSPACE_TRUST_SERVER_IDS } from '../../shared/lsp-registry';
 import { normalizeLspServersSettings, type LspServersSettings } from '../../shared/lsp-settings';
 import { mainState } from '../state';
 import { unwrapSecret } from '../../shared/types/app-config';
@@ -359,14 +361,28 @@ async function refreshLmStudioLiveNctx(config: AppConfig): Promise<void> {
 /** LSP settings the sidecar last accepted; ``null`` before the first sync, when it runs no servers yet. */
 let lastAppliedLspSettings: LspServersSettings | null = null;
 
-/** Servers whose settings changed: ``/runtime-config`` restarts exactly these before it replies. */
-export function changedLspServerIds(previous: LspServersSettings | null, next: LspServersSettings): string[] {
+/** Trusted workspace folders the sidecar last accepted, as one comparable string; ``null`` before the first sync. */
+let lastAppliedTrustedPaths: string | null = null;
+
+/**
+ * Servers ``/runtime-config`` restarts before it replies: those whose settings changed, and, when
+ * the trusted workspaces changed, those that read workspace trust.
+ */
+export function changedLspServerIds(
+  previous: LspServersSettings | null,
+  next: LspServersSettings,
+  trustChanged = false,
+): string[] {
   if (!previous) {
     return [];
   }
-  return (Object.keys(next) as Array<keyof LspServersSettings>).filter(
+  const changed: string[] = (Object.keys(next) as Array<keyof LspServersSettings>).filter(
     (id) => JSON.stringify(previous[id]) !== JSON.stringify(next[id]),
   );
+  if (trustChanged) {
+    changed.push(...LSP_WORKSPACE_TRUST_SERVER_IDS.filter((id) => !changed.includes(id)));
+  }
+  return changed;
 }
 
 /**
@@ -410,6 +426,7 @@ async function postRuntimeConfigToPython(
       return c.provider === 'anthropic' ? { ...wire, apiKey: anthropicKey } : wire;
     });
     const lsp = normalizeLspServersSettings(config.lspServers);
+    const trustedPaths = trustedWorkspacePaths(config.workspaces);
     const response = await pythonControlFetch('/runtime-config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -448,6 +465,7 @@ async function postRuntimeConfigToPython(
         huggingFaceToken: unwrapSecret(config.modelManager?.huggingFaceToken ?? ''),
         mcpServers: wireMcpServers(config),
         activeWorkspacePath: activeWorkspacePath(config),
+        trustedWorkspacePaths: trustedPaths,
       }),
     });
 
@@ -455,8 +473,14 @@ async function postRuntimeConfigToPython(
       const detail = await response.text();
       throw new Error(`Runtime config sync failed (${response.status}): ${detail}`);
     }
-    const restarted = changedLspServerIds(lastAppliedLspSettings, lsp);
+    const trustedKey = JSON.stringify([...trustedPaths].sort());
+    const restarted = changedLspServerIds(
+      lastAppliedLspSettings,
+      lsp,
+      lastAppliedTrustedPaths !== null && lastAppliedTrustedPaths !== trustedKey,
+    );
     lastAppliedLspSettings = lsp;
+    lastAppliedTrustedPaths = trustedKey;
     notifyLspSettingsApplied(restarted);
   } catch (err) {
     console.error('Failed to sync runtime config to Python:', err);

@@ -646,7 +646,7 @@ class RuntimeGdscriptLspRequest(BaseModel):
     """Settings → LSP → Godot."""
 
     godotBinaryPath: str = ''
-    allowEngineApiDump: bool = False
+    allowEngineApiDump: bool = True
     diagnosticsProfile: Literal['godot', 'strict', 'off'] = 'godot'
     inlayTypeHints: bool = True
     inlayParameterHints: bool = True
@@ -718,11 +718,26 @@ class RuntimeJavaLspRequest(BaseModel):
     formatterProfile: str = ''
 
 
+class RuntimeRustLspRequest(BaseModel):
+    """Settings → LSP → Rust."""
+
+    runBuildScripts: bool = True
+    expandProcMacros: bool = True
+    checkOnSave: bool = True
+    checkCommand: Literal['check', 'clippy'] = 'check'
+    separateTargetDir: bool = True
+    allFeatures: bool = False
+    inlayTypeHints: bool = True
+    inlayParameterHints: bool = True
+    inlayChainingHints: bool = True
+
+
 class RuntimeLspRequest(BaseModel):
     gdscript: RuntimeGdscriptLspRequest = Field(default_factory=RuntimeGdscriptLspRequest)
     python: RuntimePythonLspRequest = Field(default_factory=RuntimePythonLspRequest)
     typescript: RuntimeTypescriptLspRequest = Field(default_factory=RuntimeTypescriptLspRequest)
     java: RuntimeJavaLspRequest = Field(default_factory=RuntimeJavaLspRequest)
+    rust: RuntimeRustLspRequest = Field(default_factory=RuntimeRustLspRequest)
 
 
 class RuntimeConfigRequest(BaseModel):
@@ -738,6 +753,8 @@ class RuntimeConfigRequest(BaseModel):
     huggingFaceToken: str = ''
     mcpServers: list[McpServerRequest] = Field(default_factory=list)
     activeWorkspacePath: str = ''
+    #: Folders of the workspaces the user trusts. Omitted (``None``) keeps the current list.
+    trustedWorkspacePaths: list[str] | None = None
 
 
 class LogLevelRequest(BaseModel):

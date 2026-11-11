@@ -22,6 +22,11 @@ describe('lspServerKindForWorkspaceRelativePath', () => {
     expect(lspServerKindForWorkspaceRelativePath('src/main/java/App.java')).toBe('java');
   });
 
+  it('returns rust for .rs', () => {
+    expect(lspServerKindForWorkspaceRelativePath('crates/app/src/main.rs')).toBe('rust');
+    expect(lspServerKindForWorkspaceRelativePath('Cargo.toml')).toBeNull();
+  });
+
   it('returns null for unsupported extensions', () => {
     expect(lspServerKindForWorkspaceRelativePath('readme.md')).toBeNull();
     expect(lspServerKindForWorkspaceRelativePath('')).toBeNull();

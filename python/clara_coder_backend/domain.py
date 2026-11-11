@@ -454,8 +454,9 @@ class RuntimeGdscriptLspConfig:
     """Settings → LSP → Godot."""
 
     godot_binary_path: str = ''
-    #: Lets gdls run Godot on a project, which can load the project's native code. Off until opted in.
-    allow_engine_api_dump: bool = False
+    #: Lets gdls run Godot on a project, which can load the project's native code. Only takes
+    #: effect in a workspace the user trusts.
+    allow_engine_api_dump: bool = True
     diagnostics_profile: str = 'godot'
     inlay_type_hints: bool = True
     inlay_parameter_hints: bool = True
@@ -529,11 +530,28 @@ class RuntimeJavaLspConfig:
 
 
 @dataclass
+class RuntimeRustLspConfig:
+    """Settings → LSP → Rust (rust-analyzer). It only runs in a workspace the user trusts."""
+
+    run_build_scripts: bool = True
+    expand_proc_macros: bool = True
+    check_on_save: bool = True
+    check_command: str = 'check'
+    #: Keep rust-analyzer's cargo output in ``target/rust-analyzer`` so it doesn't hold the build lock.
+    separate_target_dir: bool = True
+    all_features: bool = False
+    inlay_type_hints: bool = True
+    inlay_parameter_hints: bool = True
+    inlay_chaining_hints: bool = True
+
+
+@dataclass
 class RuntimeLspConfig:
     gdscript: RuntimeGdscriptLspConfig = field(default_factory=RuntimeGdscriptLspConfig)
     python: RuntimePythonLspConfig = field(default_factory=RuntimePythonLspConfig)
     typescript: RuntimeTypescriptLspConfig = field(default_factory=RuntimeTypescriptLspConfig)
     java: RuntimeJavaLspConfig = field(default_factory=RuntimeJavaLspConfig)
+    rust: RuntimeRustLspConfig = field(default_factory=RuntimeRustLspConfig)
 
 
 @dataclass
@@ -550,3 +568,5 @@ class RuntimeConfig:
     mcp_servers: list[RuntimeMcpServer] = field(default_factory=list)
     #: Active workspace directory. MCP stdio cwd and the advertised root follow this path.
     active_workspace_path: str = ''
+    #: Workspace folders the user trusts, as ``workspace.trust.workspace_trust_key`` values.
+    trusted_workspace_keys: frozenset[str] = frozenset()

@@ -1271,8 +1271,13 @@ export class ElectronService {
     return this.api?.getWorkspaces() ?? Promise.resolve([]);
   }
 
-  addWorkspace(name: string, path: string): Promise<Workspace> {
-    return this.api!.addWorkspace(name, path);
+  /** ``trusted`` is the user's answer to the trust prompt; left out, the workspace is untrusted. */
+  addWorkspace(name: string, path: string, options?: { trusted?: boolean }): Promise<Workspace> {
+    return this.api!.addWorkspace(name, path, options);
+  }
+
+  setWorkspaceTrusted(id: string, trusted: boolean): Promise<AppConfig | null> {
+    return this.api?.setWorkspaceTrusted?.(id, trusted) ?? Promise.resolve(null);
   }
 
   removeWorkspace(id: string): Promise<void> {
@@ -2490,10 +2495,10 @@ export class ElectronService {
     const handler = (_event: unknown, payload: { sessionId: string; relativePath: string; generation: number; epoch?: number }) => {
       this.zone.run(() => callback(payload));
     };
-    this.api.onLspDiagnosticsUpdated(handler);
-    return () => {
-      // ipcRenderer.on has no remove in typings; watch-stop clears server-side poll
-    };
+    // A destroyed editor that kept listening would answer for a file of the same name in the next
+    // workspace and stop the live editor's diagnostics watch.
+    const stop = this.api.onLspDiagnosticsUpdated(handler);
+    return typeof stop === 'function' ? stop : () => {};
   }
 
   /** Language servers that restarted with new settings after Settings → Apply. */

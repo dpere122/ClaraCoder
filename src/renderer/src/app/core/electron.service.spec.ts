@@ -66,3 +66,34 @@ describe('ElectronService stream batching', () => {
     expect(order).toEqual(['chunk:I’ll run the build', 'accept']);
   });
 });
+
+describe('ElectronService diagnostics updates', () => {
+  const zone = { run: (fn: () => unknown) => fn() } as unknown as NgZone;
+
+  afterEach(() => {
+    delete (window as unknown as { electronAPI?: unknown }).electronAPI;
+  });
+
+  it('stops delivering updates once unsubscribed', () => {
+    const listeners = new Set<Listener>();
+    (window as unknown as { electronAPI: unknown }).electronAPI = new Proxy(
+      {
+        onLspDiagnosticsUpdated: (cb: Listener) => {
+          listeners.add(cb);
+          return () => listeners.delete(cb);
+        },
+      },
+      { get: (target, name: string) => (target as Record<string, unknown>)[name] ?? (() => undefined) },
+    );
+    const service = new ElectronService(zone);
+    const seen: number[] = [];
+
+    const stop = service.onLspDiagnosticsUpdated((payload) => seen.push(payload.generation));
+    listeners.forEach((cb) => cb({}, { sessionId: 's', relativePath: 'src/main.rs', generation: 1 }));
+    stop();
+    listeners.forEach((cb) => cb({}, { sessionId: 's', relativePath: 'src/main.rs', generation: 2 }));
+
+    expect(seen).toEqual([1]);
+    expect(listeners.size).toBe(0);
+  });
+});

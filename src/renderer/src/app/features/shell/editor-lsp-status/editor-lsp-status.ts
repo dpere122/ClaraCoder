@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import { Component, DestroyRef, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import type { LspDashboardStatus } from '@shared/index';
 import { lspServerKindForWorkspaceRelativePath } from '@shared/index';
 import { Subscription } from 'rxjs';
@@ -45,6 +45,9 @@ export class EditorLspStatusComponent {
 
   /** Dedupe ``warmLspForActiveFile`` when the same conversation + path effect re-runs. */
   private lastWarmConversationPath = '';
+
+  /** Counts settings or workspace trust changes that restarted servers; the warm effect follows it. */
+  private readonly serversRestarted = signal(0);
 
   private workspaceFilesChangedSubscription: Subscription | null = null;
   private workspaceChangedSubscription: Subscription | null = null;
@@ -111,8 +114,17 @@ export class EditorLspStatusComponent {
       void this.refreshDashboard();
     });
 
+    // A restarted server is gone until something asks for it again, so the chip would keep showing
+    // its old state, such as a workspace that has since been trusted. Warm the active file again.
+    const stopRestartWatch = this.electron.onLspSettingsApplied(() => {
+      this.lastWarmConversationPath = '';
+      this.serversRestarted.update((count) => count + 1);
+    });
+    inject(DestroyRef).onDestroy(stopRestartWatch);
+
     /** Start LSP / didOpen current file from disk so dashboard shows a live subprocess. */
     effect(() => {
+      this.serversRestarted();
       const conv = this.conversationId()?.trim();
       const path = this.activeFileRelativePath()?.trim();
       if (!this.electron.isElectron || !conv || !path || !this.hasWorkspace()) {

@@ -15,6 +15,7 @@ import {
   normalizeWorkspaceOpenTabsState,
   reorderFavoriteWorkspaces,
   setWorkspaceFavorite,
+  setWorkspaceTrusted,
 } from '../../../shared';
 import {
   type TutorialProgress,
@@ -659,12 +660,14 @@ export function registerConfigWorkspacesIpc(): void {
     return result.config.workspaces;
   });
 
-  ipcMain.handle('add-workspace', async (event, name: string, workspacePath: string) => {
+  ipcMain.handle('add-workspace', async (event, name: string, workspacePath: string, options?: unknown) => {
     try {
       assertTrustedAppRenderer(event);
     } catch {
       return null;
     }
+    // Only an explicit yes from the trust prompt: a caller that never asked gets an untrusted workspace.
+    const trusted = (options as { trusted?: unknown } | null | undefined)?.trusted === true;
     let workspace!: Workspace;
     const now = new Date().toISOString();
     const config = await updateConfig((cfg) => {
@@ -674,6 +677,7 @@ export function registerConfigWorkspacesIpc(): void {
         path: workspacePath,
         createdAt: now,
         lastOpenedAt: now,
+        ...(trusted ? { trusted: true } : {}),
       };
       cfg.workspaces.push(workspace);
     });
@@ -751,6 +755,24 @@ export function registerConfigWorkspacesIpc(): void {
     });
     broadcastConfig(config);
     buildMenu();
+    return config;
+  });
+
+  ipcMain.handle('set-workspace-trusted', async (event, id: unknown, trusted: unknown) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return null;
+    }
+    if (typeof id !== 'string' || !id.trim() || typeof trusted !== 'boolean') {
+      return null;
+    }
+    const config = await updateConfig((cfg) => {
+      cfg.workspaces = setWorkspaceTrusted(cfg.workspaces, id, trusted);
+    });
+    // The backend restarts the language servers that read trust before it answers.
+    await syncRuntimeConfigToPython(config, getLlamaManagedRuntimeOverrides(config));
+    broadcastConfig(config);
     return config;
   });
 

@@ -105,6 +105,11 @@ def gdls_stub_cache_dir() -> Path:
     return get_runtime_gdls_dir() / 'stubs'
 
 
+def get_runtime_rust_analyzer_dir() -> Path:
+    """Root of the rust-analyzer install: one ``<tag>/`` directory per version."""
+    return get_runtime_dir() / 'rust-analyzer'
+
+
 def get_runtime_downloads_dir() -> Path:
     return get_runtime_dir() / 'downloads'
 

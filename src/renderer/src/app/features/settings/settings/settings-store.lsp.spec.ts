@@ -56,7 +56,7 @@ describe('SettingsStore LSP settings', () => {
 
   it('lists every server under the LSP tab, Godot first', () => {
     const store = setup();
-    expect(store.subTabsFor('lsp').map((tab) => tab.id)).toEqual(['gdscript', 'python', 'typescript', 'java']);
+    expect(store.subTabsFor('lsp').map((tab) => tab.id)).toEqual(['gdscript', 'python', 'typescript', 'java', 'rust']);
     expect(store.activeSubTabId('lsp')).toBe('gdscript');
   });
 

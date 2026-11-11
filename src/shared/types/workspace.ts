@@ -27,6 +27,12 @@ export interface Workspace {
   /** Sort rank among favorites (lower first). Only meaningful when `favorite` is true. */
   favoriteOrder?: number;
   /**
+   * The user trusts this folder, so language servers may run code from it: rust-analyzer (cargo),
+   * and Godot for gdls's engine API dump. Asked when the workspace is added; anything but `true`
+   * is untrusted.
+   */
+  trusted?: boolean;
+  /**
    * Stable id from Python discovery (`runtime-venv`, `app-backend`, `dot-venv`, …);
    * drives Python LSP analysis env. Empty/unset → app default (`runtime-venv` when installed).
    */
@@ -120,6 +126,33 @@ export function setWorkspaceFavorite(
   return workspaces.map((ws) =>
     ws.id === id ? { ...ws, favorite: true, favoriteOrder: maxOrder + 1 } : ws,
   );
+}
+
+export function isTrustedWorkspace(ws: Pick<Workspace, 'trusted'> | null | undefined): boolean {
+  return ws?.trusted === true;
+}
+
+/** Unknown ids leave the list as it was. Untrusting drops the field, as on a workspace never asked about. */
+export function setWorkspaceTrusted(workspaces: readonly Workspace[], id: string, trusted: boolean): Workspace[] {
+  return workspaces.map((ws) => {
+    if (ws.id !== id || isTrustedWorkspace(ws) === trusted) {
+      return ws;
+    }
+    if (trusted) {
+      return { ...ws, trusted: true };
+    }
+    const next = { ...ws };
+    delete next.trusted;
+    return next;
+  });
+}
+
+/** Folders of the trusted workspaces, for the backend. */
+export function trustedWorkspacePaths(workspaces: readonly Workspace[]): string[] {
+  return workspaces
+    .filter(isTrustedWorkspace)
+    .map((ws) => (ws.path ?? '').trim())
+    .filter((path) => path.length > 0);
 }
 
 export function compactFavoriteOrders(workspaces: readonly Workspace[]): Workspace[] {

@@ -924,7 +924,7 @@ export class WorkspaceMonacoComponent {
     this.editor.onDidFocusEditorWidget(() => this.zone.run(() => this.emitOutputVoid(this.surfaceFocused)));
     this.store.ensureLspRegistered(monacoApi);
     this.lspDiagnosticsUnsubscribe = this.electron.onLspDiagnosticsUpdated((payload) => {
-      if (!this.focused()) {
+      if (this.destroyed || !this.focused()) {
         return;
       }
       const rel = this.relativePath()?.trim();
@@ -942,7 +942,7 @@ export class WorkspaceMonacoComponent {
       if (model && (generationRewound || (epochChanged && dirty))) {
         invalidateMonacoModelLspDocumentSync(model);
       }
-      void this.refreshActiveLspDiagnostics(dirty);
+      void this.refreshActiveLspDiagnostics(dirty, { generation: payload.generation, epoch });
     });
     if (this.focused()) {
       this.store.setFocusedEditor(this.editor);
@@ -973,8 +973,12 @@ export class WorkspaceMonacoComponent {
     }, LSP_DIAGNOSTICS_DEBOUNCE_MS);
   }
 
-  private async refreshActiveLspDiagnostics(forceSync: boolean): Promise<void> {
-    if (!this.focused()) {
+  /** ``event`` is the watch update that asked for this refresh, when one did. */
+  private async refreshActiveLspDiagnostics(
+    forceSync: boolean,
+    event?: { generation: number; epoch: number },
+  ): Promise<void> {
+    if (this.destroyed || !this.focused()) {
       // Unfocused slots never touch the shared diagnostics watch or shell state.
       return;
     }
@@ -1023,6 +1027,12 @@ export class WorkspaceMonacoComponent {
       res = await this.electron.lspEditorDiagnostics(sid, rel, model.getValue(), false);
     }
     if (!res.ok) {
+      // The server couldn't answer (not installed, workspace not trusted). Count the update as
+      // handled: left unset, the same update would ask again every time the watch repeats it.
+      if (event && watchKey === this.lastLspDiagnosticsWatchKey) {
+        this.lastLspDiagnosticsGeneration = event.generation;
+        this.lastLspDiagnosticsEpoch = event.epoch;
+      }
       return;
     }
     // The server holds the text we sent even if this editor moved on to another file meanwhile.

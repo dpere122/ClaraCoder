@@ -22,6 +22,7 @@ from clara_coder_backend.lsp.plugins.gdscript_plugin import GdscriptLspPlugin, G
 from clara_coder_backend.lsp.server_plugin import LspServerNotInstalledError
 from clara_coder_backend.runtime.deps.providers import gdls
 from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
+from clara_coder_backend.workspace.trust import trusted_workspace_keys
 
 
 def _project(path: Path) -> Path:
@@ -120,15 +121,35 @@ def _init_options(workspace: Path) -> dict[str, Any]:
     return plugin.compute_start_params(session=_session(), workspace_root=workspace, state=plugin.create_state()).init_options
 
 
-def test_a_saved_godot_path_alone_does_not_opt_in(tmp_path: Path, gdscript_settings) -> None:  # noqa: ANN001
+def _trust(monkeypatch: pytest.MonkeyPatch, workspace: Path) -> None:
+    monkeypatch.setattr(runtime_config, 'trusted_workspace_keys', trusted_workspace_keys([str(workspace)]))
+
+
+def test_an_untrusted_workspace_gets_no_engine_api_dump(tmp_path: Path, gdscript_settings) -> None:  # noqa: ANN001
+    assert gdscript_settings.allow_engine_api_dump is True, 'on by default; trust is what holds it back'
     gdscript_settings.godot_binary_path = 'C:/godot/godot.exe'
     options = _init_options(tmp_path)
     assert options['autoDumpExtensionApi'] is False
     assert 'godotBinaryPath' not in options
 
 
-def test_the_settings_toggle_opts_in(tmp_path: Path, gdscript_settings) -> None:  # noqa: ANN001
-    gdscript_settings.allow_engine_api_dump = True
+def test_the_settings_toggle_can_turn_the_dump_off_in_a_trusted_workspace(
+    tmp_path: Path, gdscript_settings, monkeypatch  # noqa: ANN001
+) -> None:
+    _trust(monkeypatch, tmp_path)
+    gdscript_settings.allow_engine_api_dump = False
+    assert _init_options(tmp_path)['autoDumpExtensionApi'] is False
+
+
+def test_trusting_another_workspace_does_not_count(tmp_path: Path, gdscript_settings, monkeypatch) -> None:  # noqa: ANN001
+    _trust(monkeypatch, tmp_path / 'other')
+    assert _init_options(tmp_path)['autoDumpExtensionApi'] is False
+    _trust(monkeypatch, tmp_path.parent)
+    assert _init_options(tmp_path)['autoDumpExtensionApi'] is False, 'a trusted parent folder is a different workspace'
+
+
+def test_a_trusted_workspace_gets_the_engine_api_dump(tmp_path: Path, gdscript_settings, monkeypatch) -> None:  # noqa: ANN001
+    _trust(monkeypatch, tmp_path)
     options = _init_options(tmp_path)
     assert 'autoDumpExtensionApi' not in options
     assert 'godotBinaryPath' not in options, 'with no path, gdls finds Godot itself'

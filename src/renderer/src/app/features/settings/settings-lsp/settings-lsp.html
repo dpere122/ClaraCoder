@@ -46,10 +46,17 @@
             <span>Let gdls run Godot to read native add-on classes</span>
           </label>
           <p class='settings-field-hint'>
-            Adds completion and type checks for GDExtension classes. Godot runs on each project you open
-            here, which can load that project's native code with your permissions. Leave this off unless
-            you trust every project you open on this machine.
+            Adds completion and type checks for GDExtension classes. Godot runs on the project, which can
+            load its native code with your permissions, so this only happens in a workspace you trust.
           </p>
+          @if (godot().allowEngineApiDump) {
+            @if (untrustedWorkspaceName(); as name) {
+              <div class='settings-lsp-notice' role='note'>
+                <p class='panel__copy'>{{ name }} isn't a trusted workspace, so gdls doesn't run Godot there.</p>
+                <p class='settings-field-hint'>Trust it under Settings → Workspaces to turn this on.</p>
+              </div>
+            }
+          }
         </div>
       </div>
     </div>
@@ -388,6 +395,156 @@
       <p class='settings-field-hint'>
         Import paths and quote style apply to the imports that completions and quick fixes add.
       </p>
+    </div>
+  } @else if (server().id === 'rust') {
+    <div class='form-section'>
+      <h4>Language server</h4>
+      <div class='settings-lsp-status'>
+        <div>
+          @if (rustAnalyzer(); as dep) {
+            <p class='panel__copy'>
+              rust-analyzer · {{ dependencyStatus(dep) }}
+            </p>
+            @if (dep.path) {
+              <p class='settings-field-hint settings-lsp-status__path'>{{ dep.path }}</p>
+            }
+          } @else {
+            <p class='panel__copy'>rust-analyzer</p>
+          }
+        </div>
+        <button type='button' class='action-button' (click)='openDependencies()'>Open Dependencies</button>
+      </div>
+      <p class='settings-field-hint'>
+        rust-analyzer loads a project by running cargo on it, and cargo can run code from the folder. So it only
+        runs in a workspace you trust, and it needs Rust (cargo) installed on this computer.
+      </p>
+      @if (untrustedWorkspaceName(); as name) {
+        <div class='settings-lsp-notice' role='note'>
+          <p class='panel__copy'>{{ name }} isn't a trusted workspace, so rust-analyzer is off there.</p>
+          <p class='settings-field-hint'>Trust it under Settings → Workspaces to turn Rust on.</p>
+        </div>
+      }
+    </div>
+
+    <div class='form-section'>
+      <h4>Project</h4>
+      <div class='form-grid'>
+        <div class='field field--full field--hint'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='rust().runBuildScripts'
+              (ngModelChange)='patchRust({ runBuildScripts: $event })'
+            />
+            <span>Run build scripts</span>
+          </label>
+          <p class='settings-field-hint'>
+            Runs each crate's build.rs so generated code and cfg flags resolve.
+          </p>
+        </div>
+        <div class='field field--full field--hint'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='rust().expandProcMacros'
+              (ngModelChange)='patchRust({ expandProcMacros: $event })'
+            />
+            <span>Expand procedural macros</span>
+          </label>
+          <p class='settings-field-hint'>
+            Builds and runs derive and attribute macros, such as serde's, so the code they generate is analyzed.
+            Build scripts run too while this is on.
+          </p>
+        </div>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='rust().allFeatures'
+              (ngModelChange)='patchRust({ allFeatures: $event })'
+            />
+            <span>Analyze with every cargo feature turned on</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Compiler checks</h4>
+      <div class='form-grid'>
+        <div class='field field--full field--hint'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='rust().checkOnSave'
+              (ngModelChange)='patchRust({ checkOnSave: $event })'
+            />
+            <span>Check on save</span>
+          </label>
+          <p class='settings-field-hint'>
+            Runs cargo when a file is saved and shows the compiler's errors and warnings, including borrow
+            checker errors. Without it you get only what rust-analyzer finds while you type.
+          </p>
+        </div>
+        <label class='field'>
+          <span>Check with</span>
+          <app-pill-select
+            [options]='rustCheckCommandOptions'
+            [value]='rust().checkCommand'
+            (valueChange)='patchRust({ checkCommand: $any($event) })'
+          />
+        </label>
+        <div class='field field--full field--hint'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='rust().separateTargetDir'
+              (ngModelChange)='patchRust({ separateTargetDir: $event })'
+            />
+            <span>Give rust-analyzer its own build folder</span>
+          </label>
+          <p class='settings-field-hint'>
+            Its cargo runs write to target/rust-analyzer, so they never make your own cargo build or the agent's
+            wait for the build lock. The folder holds a second copy of the build output.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Inlay hints</h4>
+      <div class='form-grid'>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='rust().inlayTypeHints'
+              (ngModelChange)='patchRust({ inlayTypeHints: $event })'
+            />
+            <span>Variable types</span>
+          </label>
+        </div>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='rust().inlayParameterHints'
+              (ngModelChange)='patchRust({ inlayParameterHints: $event })'
+            />
+            <span>Parameter names at call sites</span>
+          </label>
+        </div>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='rust().inlayChainingHints'
+              (ngModelChange)='patchRust({ inlayChainingHints: $event })'
+            />
+            <span>Types along method chains</span>
+          </label>
+        </div>
+      </div>
     </div>
   } @else {
     <div class='form-section'>

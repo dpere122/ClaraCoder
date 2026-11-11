@@ -14,6 +14,7 @@ export const LSP_EXTENSION_TO_SERVER: Readonly<Record<string, string>> = {
   '.cjs': 'typescript',
   '.gd': 'gdscript',
   '.java': 'java',
+  '.rs': 'rust',
 };
 
 /** Monaco ``languageId`` values that receive workspace LSP providers. */
@@ -23,6 +24,7 @@ export const LSP_MONACO_LANGUAGE_IDS: readonly string[] = [
   'javascript',
   'gdscript',
   'java',
+  'rust',
 ];
 
 /**
@@ -41,7 +43,14 @@ export const LSP_SEMANTIC_LEGEND_SERVER_IDS: readonly string[] = [
   'typescript',
   'gdscript',
   'java',
+  'rust',
 ];
+
+/**
+ * Servers that behave differently in a trusted workspace, so they restart when trust changes
+ * (the backend plugins with ``uses_workspace_trust``).
+ */
+export const LSP_WORKSPACE_TRUST_SERVER_IDS: readonly string[] = ['gdscript', 'rust'];
 
 /**
  * Subset prefetched on editor mount (empty — legends load when the first matching file opens).
@@ -78,6 +87,9 @@ export function lspServerIdForMonacoLanguageId(monacoLanguageId: string): string
   }
   if (id === 'java') {
     return 'java';
+  }
+  if (id === 'rust') {
+    return 'rust';
   }
   return null;
 }

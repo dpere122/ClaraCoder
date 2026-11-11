@@ -6,9 +6,11 @@ import {
   type JavaLspSettings,
   type LspServersSettings,
   type PythonLspSettings,
+  type RustLspSettings,
   type TypescriptLspSettings,
 } from '@shared/lsp-settings';
 import type { DependencyInfo } from '@shared/types/dependencies';
+import type { Workspace } from '@shared/types/workspace';
 import { ElectronService } from '../../../core/electron.service';
 import { SettingsStore } from '../settings/settings-store';
 import { SettingsLsp } from './settings-lsp';
@@ -16,9 +18,13 @@ import { SettingsLsp } from './settings-lsp';
 function setup(subTab = 'python') {
   const lspServers = signal<LspServersSettings>(defaultLspServersSettings());
   const deps = signal<DependencyInfo[]>([]);
+  const workspaces = signal<Workspace[]>([]);
+  const currentWorkspace = signal<Workspace | null>(null);
   const store = {
     lspServers,
     lspDependencies: deps,
+    workspaces,
+    currentWorkspace,
     activeSubTabId: () => subTab,
     refreshLspDependencies: vi.fn().mockResolvedValue(undefined),
     patchGdscriptLsp: vi.fn(),
@@ -30,6 +36,9 @@ function setup(subTab = 'python') {
     }),
     patchJavaLsp: vi.fn((patch: Partial<JavaLspSettings>) => {
       lspServers.update((servers) => ({ ...servers, java: { ...servers.java, ...patch } }));
+    }),
+    patchRustLsp: vi.fn((patch: Partial<RustLspSettings>) => {
+      lspServers.update((servers) => ({ ...servers, rust: { ...servers.rust, ...patch } }));
     }),
   };
   const electron = {
@@ -50,7 +59,7 @@ function setup(subTab = 'python') {
     ],
   });
   const fixture = TestBed.createComponent(SettingsLsp);
-  return { fixture, store, electron, lspServers, deps };
+  return { fixture, store, electron, lspServers, deps, workspaces, currentWorkspace };
 }
 
 async function settle(fixture: ReturnType<typeof setup>['fixture']): Promise<void> {
@@ -337,5 +346,95 @@ describe('Java settings', () => {
     await settle(fixture);
     expect(lspServers().java.formatterSettingsPath).toBe('C:\\style.xml');
     expect(electron.openFileDialog).toHaveBeenCalledWith({ filters: [{ name: 'XML files', extensions: ['xml'] }] });
+  });
+});
+
+describe('Rust settings', () => {
+  function checkbox(fixture: ReturnType<typeof setup>['fixture'], label: string): HTMLInputElement {
+    const rows = [...(fixture.nativeElement as HTMLElement).querySelectorAll('label.toggle-row')];
+    const row = rows.find((el) => el.textContent?.includes(label));
+    expect(row, label).toBeTruthy();
+    return row!.querySelector('input')!;
+  }
+
+  function notices(fixture: ReturnType<typeof setup>['fixture']): string[] {
+    return [...(fixture.nativeElement as HTMLElement).querySelectorAll('.settings-lsp-notice')].map(
+      (el) => el.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+    );
+  }
+
+  const workspace = (trusted?: boolean): Workspace => ({
+    id: 'w1',
+    name: 'engine',
+    path: 'C:/work/engine',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    ...(trusted ? { trusted: true } : {}),
+  });
+
+  it('shows the form with the code-running options on, and saves a toggle', async () => {
+    const { fixture, store, lspServers } = setup('rust');
+    await settle(fixture);
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('rust-analyzer');
+    expect(text).not.toContain('Eclipse JDT LS');
+    expect(checkbox(fixture, 'Run build scripts').checked).toBe(true);
+    expect(checkbox(fixture, 'Expand procedural macros').checked).toBe(true);
+    expect(checkbox(fixture, 'Check on save').checked).toBe(true);
+    expect(checkbox(fixture, 'Analyze with every cargo feature').checked).toBe(false);
+
+    checkbox(fixture, 'Check on save').click();
+    await settle(fixture);
+
+    expect(store.patchRustLsp).toHaveBeenCalledWith({ checkOnSave: false });
+    expect(lspServers().rust.checkOnSave).toBe(false);
+    expect(store.patchJavaLsp).not.toHaveBeenCalled();
+  });
+
+  it('shows the state of the rust-analyzer download', async () => {
+    const { fixture, deps } = setup('rust');
+    deps.set([{ id: 'rust-analyzer', state: 'installed', version: '2026-11-09', path: 'C:/rt/rust-analyzer.exe' } as DependencyInfo]);
+    await settle(fixture);
+    const status = (fixture.nativeElement as HTMLElement).querySelector('.settings-lsp-status .panel__copy');
+    expect(status?.textContent?.trim()).toBe('rust-analyzer · Installed, 2026-11-09');
+  });
+
+  it('says rust-analyzer is off while the open workspace is untrusted, and stops once it is trusted', async () => {
+    const { fixture, workspaces, currentWorkspace } = setup('rust');
+    await settle(fixture);
+    expect(notices(fixture)).toEqual([]);
+
+    workspaces.set([workspace()]);
+    currentWorkspace.set(workspace());
+    await settle(fixture);
+    expect(notices(fixture)).toHaveLength(1);
+    expect(notices(fixture)[0]).toContain("engine isn't a trusted workspace, so rust-analyzer is off there.");
+
+    // The Workspaces tab updates the list; the current-workspace snapshot is older.
+    workspaces.set([workspace(true)]);
+    await settle(fixture);
+    expect(notices(fixture)).toEqual([]);
+  });
+});
+
+describe('Godot settings and workspace trust', () => {
+  it('says the Godot dump is held back in an untrusted workspace, only while the option is on', async () => {
+    const { fixture, lspServers, workspaces, currentWorkspace } = setup('gdscript');
+    const untrusted: Workspace = { id: 'w1', name: 'game', path: 'C:/work/game', createdAt: '2026-01-01T00:00:00.000Z' };
+    workspaces.set([untrusted]);
+    currentWorkspace.set(untrusted);
+    await settle(fixture);
+    const notice = (): string =>
+      (fixture.nativeElement as HTMLElement).querySelector('.settings-lsp-notice')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+    expect(notice()).toContain("game isn't a trusted workspace, so gdls doesn't run Godot there.");
+
+    lspServers.update((servers) => ({ ...servers, gdscript: { ...servers.gdscript, allowEngineApiDump: false } }));
+    await settle(fixture);
+    expect(notice()).toBe('');
+
+    lspServers.update((servers) => ({ ...servers, gdscript: { ...servers.gdscript, allowEngineApiDump: true } }));
+    workspaces.set([{ ...untrusted, trusted: true }]);
+    await settle(fixture);
+    expect(notice()).toBe('');
   });
 });

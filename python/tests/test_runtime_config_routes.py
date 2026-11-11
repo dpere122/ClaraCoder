@@ -531,3 +531,100 @@ def test_runtime_config_applies_lsp_settings_and_restarts_gdls_only_when_they_ch
         state.runtime_config.audio = orig.audio
         state.runtime_config.host = orig.host
         os.environ['PATH'] = orig_path
+
+
+def test_runtime_config_applies_rust_lsp_settings_and_restarts_rust_analyzer_only_when_they_change(monkeypatch) -> None:
+    from clara_coder_backend.main import app
+    from clara_coder_backend.session import state
+    from clara_coder_backend.lsp import manager as lsp_manager
+    from clara_coder_backend.lsp.plugins import rust_plugin
+
+    stopped: list[str] = []
+    monkeypatch.setattr(lsp_manager, 'shutdown_lsp_server_for_all_sessions', stopped.append)
+    orig = deepcopy(state.runtime_config)
+    settings = {
+        'runBuildScripts': False,
+        'expandProcMacros': False,
+        'checkOnSave': True,
+        'checkCommand': 'clippy',
+        'separateTargetDir': False,
+        'allFeatures': True,
+        'inlayTypeHints': False,
+        'inlayParameterHints': True,
+        'inlayChainingHints': False,
+    }
+    try:
+        with TestClient(app) as client:
+            assert client.post('/runtime-config', json=_payload()).status_code == 200
+            assert stopped == []
+
+            body = {**_payload(), 'lsp': {'rust': settings}}
+            assert client.post('/runtime-config', json=body).status_code == 200
+            applied = state.runtime_config.lsp.rust
+            assert applied.run_build_scripts is False
+            assert applied.expand_proc_macros is False
+            assert applied.check_command == 'clippy'
+            assert applied.separate_target_dir is False
+            assert applied.all_features is True
+            assert applied.inlay_chaining_hints is False
+            assert rust_plugin.runtime_config.lsp.rust is applied, 'importers see live values'
+            assert stopped == ['rust']
+
+            assert client.post('/runtime-config', json=body).status_code == 200
+            assert stopped == ['rust'], 'saving unrelated settings must not restart rust-analyzer'
+
+            bad = {**_payload(), 'lsp': {'rust': {**settings, 'checkCommand': 'build'}}}
+            assert client.post('/runtime-config', json=bad).status_code == 422
+    finally:
+        state.runtime_config.lsp = orig.lsp
+        state.runtime_config.tools = orig.tools
+        state.runtime_config.connections = orig.connections
+        state.runtime_config.active_connection_id = orig.active_connection_id
+        state.runtime_config.audio = orig.audio
+        state.runtime_config.host = orig.host
+
+
+def test_runtime_config_applies_workspace_trust_and_restarts_the_servers_that_read_it(monkeypatch, tmp_path) -> None:
+    from clara_coder_backend.main import app
+    from clara_coder_backend.session import state
+    from clara_coder_backend.lsp import manager as lsp_manager
+    from clara_coder_backend.workspace.trust import workspace_is_trusted
+
+    stopped: list[str] = []
+    monkeypatch.setattr(lsp_manager, 'shutdown_lsp_server_for_all_sessions', stopped.append)
+    orig = deepcopy(state.runtime_config)
+    trusted = tmp_path / 'trusted'
+    other = tmp_path / 'other'
+    try:
+        with TestClient(app) as client:
+            state.runtime_config.trusted_workspace_keys = frozenset()
+            assert client.post('/runtime-config', json=_payload()).status_code == 200
+            assert stopped == []
+            assert workspace_is_trusted(trusted) is False, 'nothing is trusted until the app says so'
+
+            body = {**_payload(), 'trustedWorkspacePaths': [str(trusted)]}
+            assert client.post('/runtime-config', json=body).status_code == 200
+            assert workspace_is_trusted(trusted) is True
+            assert workspace_is_trusted(other) is False
+            assert sorted(stopped) == ['gdscript', 'rust']
+
+            assert client.post('/runtime-config', json=body).status_code == 200
+            assert len(stopped) == 2, 'an unchanged list restarts nothing'
+
+            assert client.post('/runtime-config', json=_payload()).status_code == 200
+            assert workspace_is_trusted(trusted) is True, 'a payload without the list keeps it'
+            assert len(stopped) == 2
+
+            # A change that already restarts a server doesn't stop it a second time.
+            both = {**_payload(), 'trustedWorkspacePaths': [], 'lsp': {'rust': {'checkCommand': 'clippy'}}}
+            assert client.post('/runtime-config', json=both).status_code == 200
+            assert workspace_is_trusted(trusted) is False, 'revoking trust takes effect'
+            assert sorted(stopped[2:]) == ['gdscript', 'rust']
+    finally:
+        state.runtime_config.lsp = orig.lsp
+        state.runtime_config.tools = orig.tools
+        state.runtime_config.connections = orig.connections
+        state.runtime_config.active_connection_id = orig.active_connection_id
+        state.runtime_config.audio = orig.audio
+        state.runtime_config.host = orig.host
+        state.runtime_config.trusted_workspace_keys = orig.trusted_workspace_keys

@@ -1,4 +1,4 @@
-import { LSP_SERVER_CATALOG, defaultLspServersSettings, normalizeLspServersSettings, type GdscriptLspSettings, type JavaLspSettings, type LspServersSettings, type PythonLspSettings, type TypescriptLspSettings } from '@shared/lsp-settings';
+import { LSP_SERVER_CATALOG, defaultLspServersSettings, normalizeLspServersSettings, type GdscriptLspSettings, type JavaLspSettings, type LspServersSettings, type PythonLspSettings, type RustLspSettings, type TypescriptLspSettings } from '@shared/lsp-settings';
 import type { DependencyInfo } from '@shared/types/dependencies';
 import { Injectable, afterNextRender, effect, inject, Injector, computed, signal, untracked } from '@angular/core';
 import { NgxSpinnerService } from 'ngx-spinner';
@@ -151,6 +151,7 @@ import {
   type GpuVramCardUsage,
   type ManagedLlamaModelSource,
   setWorkspaceFavorite,
+  setWorkspaceTrusted,
 } from '@shared/index';
 import {
   SecretValue,
@@ -173,6 +174,7 @@ import {
   localSourceRemovePrompt,
   workspaceRemovePrompt,
 } from '../../../shared/themed-confirm-dialog/format-delete-prompt';
+import { askWorkspaceTrust } from '../../../shared/themed-confirm-dialog/format-workspace-trust-prompt';
 import { DEFAULT_THEME_ID, resolveLegacyThemeId } from '@shared/theme';
 import { applyAppFontOverrides } from '../../../core/theme/app-font-overrides';
 import { ThemeEngineService } from '../../../core/theme/theme-engine.service';
@@ -1185,8 +1187,15 @@ export class SettingsStore {
     }
 
     const name = selected.split(/[\\/]/).pop() || 'New Workspace';
-    const added = await this.electron.addWorkspace(name, selected);
+    const trusted = await askWorkspaceTrust(this.themedConfirm, name, selected);
+    const added = await this.electron.addWorkspace(name, selected, { trusted });
     return added?.id ?? null;
+  }
+
+  /** Trust decides whether language servers may run code from the folder; they restart to pick it up. */
+  async setWorkspaceTrusted(id: string, trusted: boolean): Promise<void> {
+    const saved = await this.electron.setWorkspaceTrusted(id, trusted);
+    this.workspaces.set(saved?.workspaces ?? setWorkspaceTrusted(this.workspaces(), id, trusted));
   }
 
   /** Confirm, then drop the workspace and its app data (chats, index). The folder on disk is untouched. */
@@ -3422,6 +3431,11 @@ export class SettingsStore {
 
   patchTypescriptLsp(patch: Partial<TypescriptLspSettings>): void {
     this.lspServers.update((servers) => ({ ...servers, typescript: { ...servers.typescript, ...patch } }));
+    this.markSettingsDirty();
+  }
+
+  patchRustLsp(patch: Partial<RustLspSettings>): void {
+    this.lspServers.update((servers) => ({ ...servers, rust: { ...servers.rust, ...patch } }));
     this.markSettingsDirty();
   }
 

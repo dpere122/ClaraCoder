@@ -95,6 +95,16 @@ def get_runtime_java_lsp_dir() -> Path:
     return get_runtime_dir() / 'java-lsp'
 
 
+def get_runtime_gdls_dir() -> Path:
+    """Root of the gdls install: one ``<tag>/`` directory per version, plus the API page cache."""
+    return get_runtime_dir() / 'gdls'
+
+
+def gdls_stub_cache_dir() -> Path:
+    """Where gdls writes its read-only engine API pages (go-to-definition targets for ``Node2D`` etc.)."""
+    return get_runtime_gdls_dir() / 'stubs'
+
+
 def get_runtime_downloads_dir() -> Path:
     return get_runtime_dir() / 'downloads'
 

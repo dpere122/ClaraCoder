@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from clara_coder_backend.llm.factory import build_llm
 from clara_coder_backend.llm.gemma_output import gemma_content_needs_parsing, split_gemma_channels
@@ -35,7 +35,7 @@ _THINK_BLOCK_RE = re.compile(r'<think>.*?</think>', re.DOTALL | re.IGNORECASE)
 _CONTROL_LINE_RE = re.compile(r'^(?:<\|\S+|<(?:channel|think)\b)', re.IGNORECASE)
 
 
-def sanitize_suggested_title(raw: str) -> str:
+def sanitize_suggested_title(raw: Any) -> str:
     """Take the first visible title line; drop thinking channels and control tokens."""
     text = stringify_content(raw)
     if gemma_content_needs_parsing(text):
@@ -97,13 +97,8 @@ async def suggest_conversation_title(request: SuggestConversationTitleRequest) -
         logger.warning('suggest-title: ainvoke failed: %s', exc)
         return JSONResponse({'title': ''})
 
-    raw = ''
-    if isinstance(resp, AIMessage):
-        raw = str(resp.content or '')
-    else:
-        raw = str(getattr(resp, 'content', '') or '')
-
-    safe = sanitize_suggested_title(raw)
+    # Claude returns a list of content blocks; sanitize_suggested_title flattens it.
+    safe = sanitize_suggested_title(getattr(resp, 'content', '') or '')
     if not safe:
         return JSONResponse({'title': ''})
     return JSONResponse({'title': safe})

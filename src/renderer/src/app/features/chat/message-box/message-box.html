@@ -15,44 +15,28 @@
 }
 <div class="composer-stack" data-theme-group="chat.composer" (mousedown)="onComposerMouseDown($event)">
   <div class="composer-entry-row">
-    <div
-      class="composer-input-wrap"
-      [class.composer-input-wrap--multiline]="multilineMode()"
-    >
+    <div class="composer-input-wrap">
       <button
         type="button"
         class="composer-prompt"
         [class.composer-prompt--active]="multilineMode()"
         [attr.aria-pressed]="multilineMode()"
-        [title]="multilineMode() ? 'Multiline: Enter for new line · Shift+Enter to send' : 'Shift+Enter for multiline · Enter to send'"
+        [title]="multilineMode() ? 'Multiline: Enter for new line · Ctrl+Enter to send' : 'Ctrl+Enter for multiline · Enter to send'"
         aria-label="Toggle multiline input"
         (mousedown)="onPromptMouseDown($event)"
         (click)="toggleMultilineMode($event)"
       >&gt;</button>
-      @if (multilineMode()) {
-        <textarea
-          #messageInput
-          class="form-control form-control--multiline"
-          rows="1"
-          [ngModel]="composerDraft()"
-          (ngModelChange)="composerDraft.set($event)"
-          (keydown)="onComposerKeydown($event)"
-          (input)="onTextareaInput()"
-          [disabled]="contextBlocked()"
-          [placeholder]="contextBlocked() ? 'Context full — start a new conversation to continue' : ''"
-        ></textarea>
-      } @else {
-        <input
-          #messageInput
-          type="text"
-          class="form-control"
-          [ngModel]="composerDraft()"
-          (ngModelChange)="composerDraft.set($event)"
-          (keydown)="onSingleLineKeydown($event)"
-          [disabled]="contextBlocked()"
-          [placeholder]="contextBlocked() ? 'Context full — start a new conversation to continue' : ''"
-        />
-      }
+      <textarea
+        #messageInput
+        class="form-control composer-field"
+        [class.composer-field--expanded]="multilineMode()"
+        rows="1"
+        [ngModel]="composerDraft()"
+        (ngModelChange)="composerDraft.set($event)"
+        (keydown)="onComposerKeydown($event)"
+        [disabled]="contextBlocked()"
+        [placeholder]="composerPlaceholder()"
+      ></textarea>
     </div>
     @if (loading()) {
       @if (hasDraft()) {
@@ -62,16 +46,24 @@
           (click)="send()"
           [disabled]="sendDisabled() || draining()"
           [title]="sendDisabled() ? sendTitle() : 'Send now — interrupts the current reply'"
+          aria-label="Send now"
         >
-          SEND >>
+          <lucide-icon name="arrow-up" [size]="16" class="send-icon" aria-hidden="true"></lucide-icon>
         </button>
       }
       <button class="btn btn-abort" type="button" (click)="abort()" title="Stop generation">
         <lucide-icon name="square" [size]="16" class="stop-icon"></lucide-icon>
       </button>
     } @else {
-      <button class="btn btn-send" type="button" (click)="send()" [disabled]="sendDisabled()" [title]="sendTitle()">
-        SEND >>
+      <button
+        class="btn btn-send"
+        type="button"
+        (click)="send()"
+        [disabled]="sendDisabled()"
+        [title]="sendTitle()"
+        aria-label="Send message"
+      >
+        <lucide-icon name="arrow-up" [size]="16" class="send-icon" aria-hidden="true"></lucide-icon>
       </button>
     }
   </div>
@@ -86,6 +78,20 @@
         <lucide-icon name="mic" [size]="18" class="voice-mic-icon"></lucide-icon>
       </button>
     </span>
+    @if (claudeActive()) {
+      <div class="composer-mode-wrap composer-model-wrap">
+        <app-pill-select
+          class="composer-mode-select composer-model-select"
+          [options]="claudeModelOptions()"
+          [value]="claudeModelId()"
+          [menuFitContent]="true"
+          (valueChange)="onClaudeModelChange($event)"
+          [disabled]="loading() || claudeModelBusy() || claudeModelOptions().length === 0"
+          [attr.title]="loading() ? 'Claude model (change it after this reply)' : 'Claude model'"
+          ariaLabel="Claude model"
+        />
+      </div>
+    }
     @if (showReasoningCluster()) {
       <div class="composer-reasoning-cluster">
         @if (thinkingVisible()) {

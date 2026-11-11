@@ -1,14 +1,44 @@
 <div class='app-layout'>
-  <div class='app-top-bar' data-theme-group='shell.titlebar'>
+  <div class='app-top-bar' data-theme-group='shell.titlebar' data-tutorial='home-navigation'>
     @if (electron.isElectron) {
       <div class='window-chrome'>
         <h1 class='chrome-title' (dblclick)='onWindowToggleMaximize()'>
           <img class='chrome-title-icon' src='app-icon.png' alt='Clara Coder' />
         </h1>
-        <button type='button' class='chrome-menu-btn' (click)='onChromeFileMenu($event)'>File</button>
-        <button type='button' class='chrome-menu-btn' (click)='onChromeSettingsMenu($event)'>Settings</button>
-        <button type='button' class='chrome-menu-btn' (click)='onChromeDependencies()'>Dependencies</button>
+        <button type='button' class='chrome-menu-btn' data-tutorial='home-file-menu' (click)='onChromeFileMenu($event)'>File</button>
+        <button type='button' class='chrome-menu-btn' data-tutorial='home-settings-menu' (click)='onChromeSettingsMenu($event)'>Settings</button>
+        <button
+          type='button'
+          class='chrome-menu-btn'
+          data-tutorial='home-dependencies-menu'
+          [class.chrome-menu-btn--attention]='!!coreDependenciesNotice()'
+          [attr.title]='coreDependenciesNotice() || null'
+          (click)='onChromeDependencies()'
+        >
+          @if (coreDependenciesNotice()) {
+            <lucide-icon
+              name='triangle-alert'
+              [size]='11'
+              class='chrome-menu-btn-alert'
+              role='img'
+              [attr.aria-label]='coreDependenciesNotice()'
+            ></lucide-icon>
+          }
+          Dependencies
+        </button>
         <button type='button' class='chrome-menu-btn' (click)='onChromeHealth()'>Health</button>
+        <button
+          type='button'
+          class='chrome-menu-btn chrome-update-btn'
+          (click)='onChromeUpdates()'
+          title='Check for updates'
+        >
+          <lucide-icon name='circle-arrow-up' [size]='11' class='chrome-update-icon' aria-hidden='true'></lucide-icon>
+          Update
+        </button>
+        @if (appVersion()) {
+          <span class='chrome-version' [attr.title]='"Clara Coder " + appVersion()'>v{{ appVersion() }}</span>
+        }
         <button
           type='button'
           class='chrome-win-btn chrome-pin-btn'
@@ -193,6 +223,7 @@
           (workspaceFileOpen)='onWorkspaceFileOpen($event)'
           (addToChatContext)='addChatContextPath($event.absolutePath, $event.isDirectory)'
           (outlineSymbolReveal)='onWorkspaceMonacoNavigate($event)'
+          (moveConfirmDisabled)='onMoveConfirmDisabled()'
         />
       </div>
 
@@ -258,10 +289,12 @@
               [appConfig]='appConfig()'
               [mainWindowWorkspace]='mainWindowWorkspace()'
               (joinMainWindow)='onJoinMainWindow()'
+              [missingDependencies]='coreDependenciesAlert()'
               (addWorkspace)='onAddWorkspace()'
               (openWorkspace)='onWorkspaceChanged($event)'
               (toggleFavorite)='onToggleWorkspaceFavorite($event)'
               (reorderFavorites)='onReorderWorkspaceFavorites($event)'
+              (openSources)='onChromeMenuSettingsTab("models")'
               (openModelManager)='onChromeMenuSettingsTab("modelManager")'
               (openDependencies)='onChromeDependencies()'
               (defaultHomePageChange)='onDefaultHomePageChange($event)'
@@ -269,6 +302,7 @@
           </div>
           @if (hasOpenWorkspace()) {
           <app-editor-grid
+            #editorGridRef
             class='chat-area__tab-panel chat-area__tab-panel--grid'
             [class.chat-area__tab-panel--hidden]='mainStageShowsEmptyState() || chatExpanded()'
             [layout]='editorGrid()'
@@ -306,6 +340,7 @@
                     [buildPlanStreamingKeys]='buildPlanStreamingKeys()'
                     [focused]='focused'
                     (surfaceFocused)='onEditorGridSlotFocus(slot.id)'
+                    (tabStripActions)='editorGridRef.setSlotTabActions(slot.id, $event)'
                     (navigateWorkspaceFile)='onWorkspaceMonacoNavigate($event)'
                     (pendingEditorRevealHandled)='onMonacoRevealHandled()'
                     (editorSelectionChange)='onEditorSelectionChange($event)'
@@ -506,6 +541,9 @@
   @if (electron.isElectron && currentWorkspaceId()) {
     <footer class="app-status-footer" data-theme-group="shell.status-bar">
       <div class="app-status-footer__start">
+        <div class="app-status-footer__source" data-theme-group="workspace.footer">
+          <app-managed-llama-controls layout="status-bar" [appConfig]="appConfig()" />
+        </div>
         <app-llama-status-indicator [appConfig]="appConfig()" />
       </div>
       <div class="app-status-footer__end">

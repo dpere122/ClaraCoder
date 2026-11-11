@@ -1,4 +1,9 @@
+import type { LspServersSettings } from '../lsp-settings';
+import type { LmStudioSettings } from '../lm-studio-ipc';
+import type { OpenAiCompatSettings } from '../openai-compat';
 import type { Workspace } from './workspace';
+import type { TutorialProgress } from './tutorial';
+import type { ScreenshotRetentionSettings } from '../screenshot-retention';
 import {
   QWEN_REASONING_EFFORT_VALUES,
   type ChatTemplateReasoningCaps,
@@ -108,7 +113,7 @@ export function coerceSecretValue(value: unknown): SecretValue<string> {
   return SecretValue.of(String(value));
 }
 
-/** Family-specific tuning template from Settings → Models (synced to Python). */
+/** Family-specific tuning template from Settings → Sources (synced to Python). */
 export type LlmOptimizationPreset = 'generic' | 'qwen' | 'gemma';
 
 /** Gemma 4 / LM Studio thinking: boolean-style control (not OpenAI reasoning_effort tiers). */
@@ -169,6 +174,11 @@ export type GemmaArchitectureHint = 'auto' | 'dense';
 export interface LlamaCppManaged {
   chatRunCommand: string;
   embeddingRunCommand: string;
+  /**
+   * The app's last ``-c`` / ``-ctk`` / ``-ctv`` choice for this command; a user's own flag differs from
+   * it. An empty ``ctk`` / ``ctv`` means the user's own flag stayed.
+   */
+  autoTuned?: { c: number; ctk: string; ctv: string };
 }
 
 /**
@@ -217,11 +227,16 @@ export interface LlmModelProfile {
    */
   optimizationPreset: LlmOptimizationPreset;
   /**
-   * Hard cap on completion length sent to the API (max_tokens). 0 = omit max_tokens (no Clara-side limit).
+   * Hard cap on completion length sent to the API (max_tokens). 0 = no limit on the model client; local
+   * servers get the 24576 per-step default from the backend's ``bounded_step_settings``.
    */
   maxOutputTokens: number;
   /** Managed ``llama-server`` launch profile (``llamacpp`` provider). */
   llamaCppManaged?: LlamaCppManaged;
+  /** How Clara loads this model on an ``lmstudio`` source. */
+  lmStudio?: LmStudioSettings;
+  /** What the server accepts, on an ``openai-compatible`` source. */
+  openAiCompat?: OpenAiCompatSettings;
 }
 
 /** One API base URL + credentials with many named model presets. */
@@ -233,8 +248,13 @@ export interface LlmProviderConfig {
    * selected local model (see ``managedLlamaSourceDisplayName``), falling back to ``name``.
    */
   customName?: string;
-  /** ``llamacpp`` targets llama.cpp’s OpenAI-compatible HTTP server (``llama-server``). ``openrouter`` is OpenRouter’s chat API. */
-  provider: 'openai' | 'lmstudio' | 'llamacpp' | 'openrouter' | 'python-t2i';
+  /**
+   * ``llamacpp`` targets llama.cpp’s OpenAI-compatible HTTP server (``llama-server``). ``openrouter`` is OpenRouter’s chat API.
+   * ``anthropic`` is the Claude API; its key lives in main's keychain store, never in ``apiKey``.
+   * ``openai-compatible`` is any other server with that API; Clara assumes nothing about it beyond
+   * ``openAiCompat``, unlike ``llamacpp``, which gets llama-server's own request fields.
+   */
+  provider: 'openai' | 'lmstudio' | 'llamacpp' | 'openai-compatible' | 'openrouter' | 'anthropic' | 'python-t2i';
   baseUrl: string;
   apiKey: SecretValue<string>;
   /**
@@ -247,6 +267,8 @@ export interface LlmProviderConfig {
    * (e.g. remote ``llama-server`` chat on :8080 and embeddings on :8081).
    */
   embeddingsBaseUrl?: string;
+  /** ``openai-compatible``: sent on every request, for servers that don't use ``Authorization: Bearer``. */
+  customHeaders?: McpSecretEntry[];
   models: LlmModelProfile[];
 }
 
@@ -258,7 +280,7 @@ export interface LlamaManagedRuntimeEndpoints {
 
 /** Single resolved row for Python / UI (provider endpoint + one model preset). `id` is the model preset id. */
 export type LlmConnectionConfig = LlmModelProfile &
-  Pick<LlmProviderConfig, 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel' | 'embeddingsBaseUrl'>;
+  Pick<LlmProviderConfig, 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel' | 'embeddingsBaseUrl' | 'customHeaders'>;
 
 const GEMMA_THINKING_MODE_VALUES = new Set<string>(LLM_THINKING_MODE_OPTIONS.map((o) => o.value));
 /**
@@ -369,6 +391,30 @@ export function llmEffortSelectOptionsFromCaps(
     return effortOptionsFromValues(caps.reasoningEffortValues);
   }
   return llmReasoningSelectOptions(preset === 'gemma' ? 'generic' : preset);
+}
+
+/**
+ * Composer effort dropdown: only the efforts the live scan retrieved, with no Default/on/off
+ * aliases. Empty (dropdown hidden) until a scan advertises an effort allow-list.
+ */
+export function llmComposerEffortOptions(
+  caps: ChatTemplateReasoningCaps | null | undefined,
+): readonly { value: string; label: string }[] {
+  return caps?.reasoningEffortValues ? effortOptionsFromValues(caps.reasoningEffortValues).slice(1) : [];
+}
+
+/**
+ * Effort the composer shows and keeps: the saved one when the model offers it, otherwise
+ * ``medium`` when offered, otherwise the first offered effort. ``''`` when nothing is offered.
+ */
+export function llmComposerEffortValue(
+  options: readonly { value: string }[],
+  saved: string | undefined,
+): string {
+  if (options.some((o) => o.value === saved)) {
+    return saved as string;
+  }
+  return options.find((o) => o.value === 'medium')?.value ?? options[0]?.value ?? '';
 }
 
 /** Default Kokoro voice when assistant speech is enabled (American English). */
@@ -639,12 +685,35 @@ export interface WorkspaceToolsConfig {
    */
   exposeAllWorkspaceFiles?: boolean;
   /**
-   * When true, bind `web_search` (SearXNG) and `fetch_url` agent tools.
-   * Default false. Requires a reachable SearXNG base URL for search.
+   * When true, bind `web_search` and `fetch_url` agent tools.
+   * Default false. Search works out of the box with the built-in metasearch engine.
    */
   allowWebAccess?: boolean;
   /** Base URL of a SearXNG instance (e.g. `http://127.0.0.1:8080`). Empty until configured. */
   searxngBaseUrl?: string;
+  /**
+   * `web_search` backend: `auto` (SearXNG when a base URL is set, else the built-in
+   * metasearch engine), `internal` (always built-in), or `searxng` (always SearXNG).
+   * Default `auto`.
+   */
+  webSearchProvider?: 'auto' | 'internal' | 'searxng';
+  /**
+   * Built-in metasearch engines to query, by id (`duckduckgo`, `bing`, `mojeek`, `wikipedia`).
+   * Empty means every engine. Ignored when the provider is `searxng`.
+   */
+  webSearchEngines?: string[];
+  /**
+   * User-Agent sent with built-in search and screenshot requests. Empty uses the built-in default.
+   * Shown on the approval card when Auto Run is off.
+   */
+  webSearchUserAgent?: string;
+  /**
+   * Seconds an engine is skipped after a blocker (rate limit, challenge page).
+   * `0` disables cooldowns. Default 300.
+   */
+  webSearchCooldownSeconds?: number;
+  /** Main-process screenshot storage policy; never synced to Python runtime-config. */
+  screenshotRetention?: ScreenshotRetentionSettings;
   /**
    * Extra directories prepended onto agent `run_command` PATH (one per line).
    * Login-shell PATH and common user bins (`~/.local/bin`, `~/.cargo/bin`, …) are
@@ -658,37 +727,27 @@ export interface WorkspaceToolsConfig {
   enableAgentFormatters?: boolean;
 }
 
-/** LangGraph checkpoint compaction; synced to Python `/runtime-config`. */
+/** Context compaction; synced to Python `/runtime-config`. */
 export interface ContextCompressionConfig {
-  /**
-   * When false, checkpoint compaction is skipped (post-turn and mid-turn before
-   * each model call).
-   */
+  /** When false, older messages are never removed from what is sent to the model. */
   enabled: boolean;
-  /** Start compaction when checkpoint estimate ≥ this × usable budget (0.5–0.95). */
+  /** Start compacting when the prompt reaches this share of the context window (0.5–0.95). */
   triggerRatio: number;
-  /** Reserved for a future compaction phase; Phase 1 compacts tool bodies only. */
+  /** Bring the prompt down to about this share of the window (0.4–0.9, at least 0.1 under the trigger). */
   targetRatio: number;
-  /** Recent checkpoint messages left verbatim (8–100). */
-  protectTailMessages: number;
-  /** Max tool body chars for messages just outside the protected tail. */
-  recentToolBodyMaxChars: number;
-  /** Max tool body chars for older tool messages outside the tail. */
-  oldToolBodyMaxChars: number;
-  /** Fraction of context window reserved for system prompt + output (0.1–0.5). */
-  systemReserveRatio: number;
 }
 
 export function getDefaultContextCompression(): ContextCompressionConfig {
   return {
-    enabled: false,
-    triggerRatio: 0.7,
-    targetRatio: 0.55,
-    protectTailMessages: 24,
-    recentToolBodyMaxChars: 2000,
-    oldToolBodyMaxChars: 400,
-    systemReserveRatio: 0.25,
+    enabled: true,
+    triggerRatio: 0.8,
+    targetRatio: 0.5,
   };
+}
+
+/** Highest allowed target for a trigger: a compaction has to free something. Rounded: 0.8 - 0.1 is 0.7000000000000001. */
+export function maxContextCompressionTarget(triggerRatio: number): number {
+  return Math.round((triggerRatio - 0.1) * 100) / 100;
 }
 
 /** A selectable font choice for the app-wide font pickers (Settings → General). */
@@ -771,7 +830,6 @@ export interface MonacoWorkspaceEditorSettings {
   renderLineHighlight: 'all' | 'line' | 'none' | 'gutter';
   renderControlCharacters: boolean;
   lineNumbers: 'on' | 'off' | 'relative' | 'interval';
-  glyphMargin: boolean;
   folding: boolean;
   guidesIndentation: boolean;
   guidesBracketPairs: boolean;
@@ -815,7 +873,6 @@ export function defaultMonacoWorkspaceEditorSettings(): MonacoWorkspaceEditorSet
     renderLineHighlight: 'all',
     renderControlCharacters: false,
     lineNumbers: 'on',
-    glyphMargin: true,
     folding: true,
     guidesIndentation: true,
     guidesBracketPairs: true,
@@ -920,7 +977,6 @@ export function normalizeMonacoWorkspaceEditorSettings(raw: unknown): {
     ),
     renderControlCharacters: pickBool('renderControlCharacters', base.renderControlCharacters),
     lineNumbers: pickStr('lineNumbers', ['on', 'off', 'relative', 'interval'] as const, base.lineNumbers),
-    glyphMargin: pickBool('glyphMargin', base.glyphMargin),
     folding: pickBool('folding', base.folding),
     guidesIndentation: pickBool('guidesIndentation', base.guidesIndentation),
     guidesBracketPairs: pickBool('guidesBracketPairs', base.guidesBracketPairs),
@@ -1484,6 +1540,8 @@ export interface AppConfig {
    * Older files omit this field (treated as 0); see `migrateConfig` in load-save.
    */
   configSchemaVersion?: number;
+  /** Progress is main-process-owned; ordinary Settings saves cannot replace it. */
+  tutorial?: TutorialProgress;
   currentWorkspaceId: string | null;
   /**
    * When true, the welcome/home screen is shown on launch instead of restoring
@@ -1554,8 +1612,15 @@ export interface AppConfig {
   chatContainerSize?: ChatContainerSize;
   /** Live reasoning as the streaming preview box or a compact timed pill. Client-only; default `preview`. */
   chatThinkingDisplay?: ChatThinkingDisplay;
+  /**
+   * When true (default), moving a file or folder into another folder asks for confirmation.
+   * Client-only UI preference; the dialog's "Don't ask again" checkbox sets it false.
+   */
+  confirmMove?: boolean;
   /** Workspace Monaco editor options (client-only). */
   monacoWorkspaceEditor?: MonacoWorkspaceEditorSettings;
+  /** Options for the integrated language servers (Settings → LSP; synced to the Python backend). */
+  lspServers?: LspServersSettings;
   /** Per-workspace Monaco scroll positions for open file tabs (client-only). */
   workspaceMonacoScrollByWorkspaceId?: WorkspaceMonacoScrollByWorkspaceId;
   /** Per-workspace open editor tabs restored when switching workspaces (client-only). */

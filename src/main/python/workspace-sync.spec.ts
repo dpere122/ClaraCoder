@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import type { LlmConnectionConfig } from '../../shared';
-import { embeddingsConfiguredForWire, embeddingsEnabledForWire, ensureOpenAiV1Base } from './workspace-sync';
+import { defaultLspServersSettings } from '../../shared/lsp-settings';
+import {
+  changedLspServerIds,
+  chatTemplateReasoningWire,
+  embeddingsConfiguredForWire,
+  embeddingsEnabledForWire,
+  ensureOpenAiV1Base,
+  normalizeBindAllHostToLocalhost,
+} from './workspace-sync';
 
 function llamacppConn(overrides: Partial<LlmConnectionConfig> = {}): LlmConnectionConfig {
   return {
@@ -22,11 +30,37 @@ function llamacppConn(overrides: Partial<LlmConnectionConfig> = {}): LlmConnecti
   };
 }
 
+describe('normalizeBindAllHostToLocalhost', () => {
+  it.each([
+    ['http://0.0.0.0:8080/v1', 'http://127.0.0.1:8080/v1'],
+    ['http://[::]:8080/v1', 'http://127.0.0.1:8080/v1'],
+  ])('rewrites the bind address in %s', (raw, expected) => {
+    expect(normalizeBindAllHostToLocalhost(raw)).toBe(expected);
+  });
+
+  it('leaves a concrete host alone', () => {
+    expect(normalizeBindAllHostToLocalhost('http://[::1]:8080/v1')).toBe('http://[::1]:8080/v1');
+  });
+});
+
 describe('ensureOpenAiV1Base', () => {
   it('appends /v1 when the user pasted a host-only LM Studio URL', () => {
     expect(ensureOpenAiV1Base('http://127.0.0.1:1234')).toBe('http://127.0.0.1:1234/v1');
     expect(ensureOpenAiV1Base('http://127.0.0.1:1234/v1/')).toBe('http://127.0.0.1:1234/v1');
     expect(ensureOpenAiV1Base('')).toBe('');
+  });
+});
+
+describe('chatTemplateReasoningWire', () => {
+  const caps = { enableThinking: true, reasoningEffortValues: null };
+
+  it('passes the server vision capability through', () => {
+    expect(chatTemplateReasoningWire({ ...caps, vision: false })).toEqual({ ...caps, vision: false });
+    expect(chatTemplateReasoningWire({ ...caps, vision: true })).toEqual({ ...caps, vision: true });
+  });
+
+  it('leaves vision out when the server did not report it', () => {
+    expect(chatTemplateReasoningWire(caps)).not.toHaveProperty('vision');
   });
 });
 
@@ -96,5 +130,22 @@ describe('embeddingsConfiguredForWire', () => {
     expect(
       embeddingsConfiguredForWire(llamacppConn({ embeddingsBaseUrl: 'http://127.0.0.1:8081/v1' })),
     ).toBe(false);
+  });
+});
+
+describe('changedLspServerIds', () => {
+  it('names only the servers whose settings changed', () => {
+    const before = defaultLspServersSettings();
+    const after = defaultLspServersSettings();
+    after.typescript.inlayVariableTypes = true;
+    after.python.extraPaths = ['src'];
+    expect(changedLspServerIds(before, after)).toEqual(['python', 'typescript']);
+    expect(changedLspServerIds(after, structuredClone(after))).toEqual([]);
+  });
+
+  it('names none on the first sync, when the sidecar runs no servers yet', () => {
+    const settings = defaultLspServersSettings();
+    settings.gdscript.inlayTypeHints = !settings.gdscript.inlayTypeHints;
+    expect(changedLspServerIds(null, settings)).toEqual([]);
   });
 });

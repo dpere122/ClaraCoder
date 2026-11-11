@@ -4,6 +4,7 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'child_process';
 import { existsSync, promises as fs, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import * as net from 'net';
+import { totalmem } from 'os';
 import path = require('path');
 
 import type {
@@ -17,10 +18,8 @@ import type {
   ManagedServerHealthState,
 } from '../shared';
 import {
-  appendJinjaFlagToManagedChatCommand,
+  buildManagedChatStartCommand,
   detectShellQuotingPlatform,
-  ensureManagedLlamaDefaultServerFlags,
-  ensureManagedLlamaGemmaReasoningFormat,
   findLlmModelLocation,
   formatChatTemplateReasoningSummary,
   looksLikeLlamaModelDownload,
@@ -29,7 +28,6 @@ import {
   parseLlamaServerPropsReasoning,
   parseManagedLlamaChatTemplateFile,
   prepareManagedLlamaShellCommand,
-  promoteManagedSentinelNglToAuto,
 } from '../shared';
 import { loadConfigSync } from './config/load-save';
 import { SecretValue, unwrapSecret } from '../shared/types/app-config';
@@ -45,6 +43,7 @@ import {
 } from './utils/stop-llama-server';
 import { ingestElectronLog } from './log-ingest';
 import { rewriteManagedLlamaCommand } from './runtime/dependency-manager';
+import { MANAGED_LLAMA_SHELL_METACHAR_RE, tokenizeManagedLlamaCommand } from '../shared/llama-command-tokens';
 import { syncRuntimeConfigToPython } from './python/workspace-sync';
 import {
   clearCachedChatTemplateReasoning,
@@ -119,6 +118,8 @@ interface ManagedLlamaSlot {
   /** Chat and embed (if configured) passed ``/health``; UI may show running. */
   ready: boolean;
   chatProc: ChildProcess | undefined;
+  /** Chat command this server was spawned with, port filled in; what Settings compares against. */
+  launchedChatCommand: string | undefined;
   embedProc: ChildProcess | undefined;
   chatPort: number;
   embedPort: number | undefined;
@@ -352,6 +353,13 @@ function logTailForStream(bucket: StreamBuf, which: StreamKind): string {
   return redactSecrets(`${out}\n${err}`.slice(-12_000));
 }
 
+/** Enough of the log to hold llama-server's last error lines. */
+const LAST_OUTPUT_CHARS = 1500;
+
+function lastOutputForStream(bucket: StreamBuf, which: StreamKind): string {
+  return logTailForStream(bucket, which).trim().slice(-LAST_OUTPUT_CHARS);
+}
+
 /**
  * Persisted ``customModelsDir`` is authoritative for managed ``llama-server`` so Hugging Face / llama cache
  * env vars match Settings → Model Manager even if the renderer IPC snapshot is stale. HF token may still
@@ -512,83 +520,7 @@ function managedLlamaSpawnOptions(env: NodeJS.ProcessEnv): SpawnOptions {
   };
 }
 
-/** Disallowed shell metacharacters (unquoted tokens; newlines are rejected on the full string). */
-export const MANAGED_LLAMA_SHELL_METACHAR_RE = /[;|&<>`$(){}!*\n\r~#]/;
-const UNQUOTED_TOKEN_METACHAR_RE = /[;|&<>`$(){}!*~#]/;
-
-/**
- * Tokenize a prepared managed run command into argv.
- * Honors single/double quotes; rejects unbalanced quotes and unquoted shell metacharacters.
- * Quoted tokens may contain path characters such as ``()`` (e.g. ``Program Files (x86)``).
- */
-export function tokenizeManagedLlamaCommand(
-  command: string,
-): { ok: true; argv: string[] } | { ok: false; error: string } {
-  if (/[\n\r]/.test(command)) {
-    return {
-      ok: false,
-      error:
-        'Run command contains disallowed shell metacharacters (; | & < > ` $ ( ) { } ! * # ~ or newlines).',
-    };
-  }
-  const argv: string[] = [];
-  let i = 0;
-  const s = command;
-  while (i < s.length) {
-    while (i < s.length && (s[i] === ' ' || s[i] === '\t')) {
-      i++;
-    }
-    if (i >= s.length) {
-      break;
-    }
-    const q = s[i];
-    if (q === '"' || q === "'") {
-      i++;
-      let token = '';
-      let closed = false;
-      while (i < s.length) {
-        if (s[i] === q) {
-          closed = true;
-          i++;
-          break;
-        }
-        token += s[i];
-        i++;
-      }
-      if (!closed) {
-        return { ok: false, error: 'Run command has unbalanced quotes.' };
-      }
-      argv.push(token);
-      continue;
-    }
-    let token = '';
-    while (i < s.length && s[i] !== ' ' && s[i] !== '\t' && s[i] !== '"' && s[i] !== "'") {
-      token += s[i];
-      i++;
-    }
-    // Reject shell-style adjacent quotes (e.g. --chat-template-file="/path with spaces").
-    // Supported forms: --flag value, --flag=/path (no spaces), or a fully quoted token.
-    if (i < s.length && (s[i] === '"' || s[i] === "'")) {
-      return {
-        ok: false,
-        error:
-          'Run command has quotes adjacent to an unquoted token (e.g. --flag="value"). Use --flag value or --flag=value without adjacent quotes.',
-      };
-    }
-    if (UNQUOTED_TOKEN_METACHAR_RE.test(token)) {
-      return {
-        ok: false,
-        error:
-          'Run command contains disallowed shell metacharacters (; | & < > ` $ ( ) { } ! * # ~ or newlines).',
-      };
-    }
-    argv.push(token);
-  }
-  if (argv.length === 0) {
-    return { ok: false, error: 'Run command is empty.' };
-  }
-  return { ok: true, argv };
-}
+export { MANAGED_LLAMA_SHELL_METACHAR_RE, tokenizeManagedLlamaCommand };
 
 /**
  * Allow only the managed runtime ``llama-server`` binary under the real runtime/bin directory.
@@ -657,20 +589,23 @@ export function managedLlamaCommandToSpawnArgv(
   return { ok: true, bin: allowed.bin, args };
 }
 
+/** A real auth failure: "401" can be part of a size, and "huggingface" of a model's path or download URL. */
+export function hfAuthFailureInLogs(logs: string): boolean {
+  return /\bhttp[^\n]*\b401\b|\b401\b[^\n]*(?:http|unauthorized)|unauthorized[^\n]*\b401\b|hf_token|hf token|gated model|model is private|private or does not exist|provide a valid hf token|invalid credentials/.test(
+    logs.toLowerCase(),
+  );
+}
+
 function hfWarmHintFromLogs(logBuf: StreamBuf, kind: StreamKind): string {
   const t = logTailForStream(logBuf, kind).toLowerCase();
-  if (
-    /401|hf_token|hf token|hugging\s*face|gated model|model is private|private or does not exist|provide a valid hf token|invalid credentials/.test(
-      t,
-    )
-  ) {
+  if (hfAuthFailureInLogs(t)) {
     return ' Hugging Face rejected the request (often HTTP 401 for gated or private repos). Set a read token in Clara → Settings → Model Manager → Hugging Face token (used when you Start managed servers), or set HF_TOKEN in your user environment.';
   }
   if (/repository not found|"error":\s*"repository not found"|manifests\//i.test(t)) {
     return ' Hugging Face returned 404 (unknown repo, branch, or manifest/quantization tag in your chat `-hf` command). Fix chat first: the embedding server starts only after chat is healthy, so a bad chat preset used to abort an embed download mid-way.';
   }
   if (/head failed,\s*status:\s*404|no remote preset found/.test(t)) {
-    return ' A remote preset or file returned 404—verify the model id and file name. Some downloads still require a Hugging Face token.';
+    return ' A remote preset or file returned 404. Verify the model id and file name. Some downloads still require a Hugging Face token.';
   }
   return '';
 }
@@ -715,6 +650,7 @@ function attachLlamaStreams(
       `${which} llama-server spawn error modelId=${modelId} pid=${proc.pid ?? '?'} error=${err.message}`,
     );
   });
+  let crashed = false;
   proc.on('exit', (code, signal) => {
     const flushedOut = stdoutRedact.flush();
     if (flushedOut) {
@@ -736,6 +672,7 @@ function attachLlamaStreams(
       `${which} llama-server process exited modelId=${modelId} pid=${proc.pid ?? '?'} ` +
         `code=${code} signal=${signal ?? ''} unexpected=${unexpected}`,
     );
+    crashed = unexpected && code !== 0;
     sendToRenderer('llama-server-process-exit', {
       modelId,
       stream: which,
@@ -743,9 +680,10 @@ function attachLlamaStreams(
       signal: signal != null ? String(signal) : null,
     });
     // Chat death ends the managed pair. Intentional stop deletes from ``running`` first
-    // so this path only runs on unexpected exit (or a race after stop).
+    // so this path only runs on unexpected exit (or a race after stop). During start the
+    // health wait reports the exit instead, with the server's last output.
     if (which === 'chat') {
-      if (unexpected) {
+      if (unexpected && st?.chatReady) {
         void stopManagedLlamaServers(modelId);
       }
       return;
@@ -764,6 +702,15 @@ function attachLlamaStreams(
       void syncWithManagedLlamaOverrides();
     }
   });
+  // After 'exit' the last output can still be on its way, and it's what says why the server died.
+  proc.on('close', () => {
+    if (crashed) {
+      logLlamaLifecycle(
+        'WARNING',
+        `${which} llama-server last output modelId=${modelId}:\n${lastOutputForStream(bucket, which)}`,
+      );
+    }
+  });
 }
 
 function reserveManagedLlamaSlot(modelId: string): ManagedLlamaSlot {
@@ -773,6 +720,7 @@ function reserveManagedLlamaSlot(modelId: string): ManagedLlamaSlot {
     chatReady: false,
     ready: false,
     chatProc: undefined,
+    launchedChatCommand: undefined,
     embedProc: undefined,
     chatPort: 0,
     embedPort: undefined,
@@ -824,14 +772,11 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
   }
 
   const managedLlamaBin = getManagedLlamaServerPath();
-  let chatCmd = promoteManagedSentinelNglToAuto(
-    rewriteManagedLlamaCommand((managed.chatRunCommand || '').trim(), managedLlamaBin),
-    detectShellQuotingPlatform(),
-  );
-  if (!chatCmd) {
+  const savedChatCmd = rewriteManagedLlamaCommand((managed.chatRunCommand || '').trim(), managedLlamaBin);
+  if (!savedChatCmd) {
     return { ok: false, error: 'chatRunCommand is empty.' };
   }
-  if (/^(["']?)llama-server(?:\.exe)?\1(\s|$)/i.test(chatCmd) && !managedLlamaBin) {
+  if (/^(["']?)llama-server(?:\.exe)?\1(\s|$)/i.test(savedChatCmd) && !managedLlamaBin) {
     return {
       ok: false,
       error:
@@ -839,15 +784,17 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
     };
   }
 
-  chatCmd = ensureManagedLlamaDefaultServerFlags(appendJinjaFlagToManagedChatCommand(chatCmd));
-  if ((loc.model.optimizationPreset || '').trim().toLowerCase() === 'gemma') {
-    chatCmd = ensureManagedLlamaGemmaReasoningFormat(chatCmd);
-  }
+  const chatCmd = buildManagedChatStartCommand(
+    savedChatCmd,
+    loc.model.optimizationPreset,
+    detectShellQuotingPlatform(),
+    totalmem(),
+  );
   const chatTemplateFile = parseManagedLlamaChatTemplateFile(chatCmd);
   if (chatTemplateFile && !existsSync(chatTemplateFile)) {
     return {
       ok: false,
-      error: `Chat template file was not found at ${chatTemplateFile}. Clear Chat template in Settings to use the GGUF template, or pick a valid .jinja file.`,
+      error: `Chat template file was not found at ${chatTemplateFile}. Remove --chat-template-file from the run command in Settings to use the GGUF template, or pick a valid .jinja file.`,
     };
   }
 
@@ -933,6 +880,7 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
      */
     const chatProc = spawn(chatArgv.bin, chatArgv.args, managedLlamaSpawnOptions(spawnEnv));
     st.chatProc = chatProc;
+    st.launchedChatCommand = chatBuilt.command;
     hideWindowsConsoleWindow(chatProc.pid);
     persistManagedLlamaPids();
     attachLlamaStreams(modelId, 'chat', chatProc, st.logBuf, hfToken);
@@ -1078,7 +1026,11 @@ function shortEarlyExitError(label: string, proc: ChildProcess, logBuf: StreamBu
   const sig = proc.signalCode;
   const why =
     code !== null ? `exit ${code}` : sig != null ? `signal ${sig}` : 'exited unexpectedly';
-  return `${label} llama-server process ended (${why}). See the llama.cpp server terminal tab for process output.${hfWarmHintFromLogs(logBuf, kind)}`;
+  const output = lastOutputForStream(logBuf, kind);
+  return (
+    `${label} llama-server process ended (${why}). See the llama.cpp server terminal tab for process output.` +
+    `${hfWarmHintFromLogs(logBuf, kind)}${output ? `\nLast output:\n${output}` : ''}`
+  );
 }
 
 function fetchWithTimeout(url: string, ms: number, init?: RequestInit): Promise<Response> {
@@ -1572,6 +1524,12 @@ async function getRemoteLlamacppUrlStatus(
     out.embed = embedBlock;
   }
   return attachCachedReasoning(out);
+}
+
+/** The chat command a running managed server was spawned with, or ``null`` when none is running. */
+export function getManagedLlamaLaunchedCommand(modelId: string): string | null {
+  const st = running.get(modelId);
+  return st?.chatProc ? (st.launchedChatCommand ?? null) : null;
 }
 
 export async function getManagedLlamaStatus(

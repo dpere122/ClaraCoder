@@ -63,4 +63,8 @@ def _resolve_deferred_tool(tool_name: str) -> Any | None:
         from clara_coder_backend.tools.fetch_url import fetch_url_tool
 
         return fetch_url_tool
+    if tool_name == 'screenshot_webpage':
+        from clara_coder_backend.tools.screenshot_webpage import screenshot_webpage_tool
+
+        return screenshot_webpage_tool
     return None

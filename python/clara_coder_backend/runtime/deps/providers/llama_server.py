@@ -1,11 +1,13 @@
 """Install the llama.cpp ``llama-server`` binary into the runtime bin dir.
 
 Asset selection is CUDA/Vulkan-aware:
-  * Windows x64 + NVIDIA + CUDA 13.x driver -> prebuilt ``cuda-13.3`` asset + cudart DLLs
+  * Windows x64 + NVIDIA + CUDA 13.x driver -> prebuilt ``cuda-13.5`` asset + cudart DLLs
   * Windows x64 + NVIDIA + CUDA 12.x driver -> prebuilt ``cuda-12.4`` asset + cudart DLLs
   * Windows x64 + NVIDIA + no/unknown CUDA driver -> CPU fallback
-  * Linux x64 + NVIDIA -> prebuilt ``vulkan`` asset (GPU accel via the Vulkan driver
-    that ships with the NVIDIA driver; no CUDA toolkit needed)
+  * Linux x64 + NVIDIA + CUDA 13.x driver -> prebuilt ``ubuntu-cuda-13.5`` asset + CUDA runtime libs
+  * Linux x64 + NVIDIA + CUDA 12.x driver -> prebuilt ``ubuntu-cuda-12.8`` asset + CUDA runtime libs
+  * Linux x64 + NVIDIA + no/unknown/older CUDA driver -> prebuilt ``vulkan`` asset (GPU
+    accel via the Vulkan driver that ships with the NVIDIA driver; no CUDA toolkit needed)
   * Linux x64 + NVIDIA + ``CLARA_LLAMA_SERVER_CUDA=compile`` -> compile from source
     with ``-DGGML_CUDA=ON`` (requires cmake + gcc + CUDA toolkit; errors clearly if missing)
   * macOS / Linux arm64 / no NVIDIA -> CPU build (existing behavior)
@@ -46,23 +48,40 @@ from clara_coder_backend.runtime.deps.providers import gpu_detect
 logger = logging.getLogger('clara.runtime.deps.llama_server')
 
 DEP_ID = 'llama-server'
-# Pin a known release tag; override with CLARA_LLAMA_SERVER_VERSION (e.g. b10867).
+# Pin a known release tag; override with CLARA_LLAMA_SERVER_VERSION (e.g. b12182).
 # Need >= b10344 for Nemotron 3.5 Lightning MTP (nextn) GGUF tensors.
-# b10867 (2026-09-08): latest ggml-org release; same asset naming as b10375
-# (win cuda-12.4 / cuda-13.3 + cudart bundles, win/ubuntu vulkan, cpu builds).
-DEFAULT_TAG = 'b10867'
-SIZE_HINT = '~40–400 MB (CPU ~40 MB; CUDA build + cudart DLLs up to ~400 MB)'
+# b12182 (2026-11-07): latest ggml-org release; win cuda-13 asset renamed to
+# cuda-13.5 (was cuda-13.3 in b10867); cuda-12.4 unchanged. Unlike b10867,
+# it also ships Linux CUDA prebuilts (ubuntu-cuda-12.8 / ubuntu-cuda-13.5 + cudart tarballs).
+DEFAULT_TAG = 'b12182'
+SIZE_HINT = '~40–750 MB (CPU ~40 MB; CUDA build + CUDA runtime libs up to ~750 MB)'
 
 VARIANT_MARKER = '.clara-llama-variant'
 # CUDA build timeout for the Linux compile-from-source path.
 COMPILE_TIMEOUT_S = 1800
 
-# Prebuilt CUDA variants shipped by ggml-org for Windows x64.
-# (asset template, cudart DLL bundle template, variant label)
-_CUDA_ASSETS = {
+# Prebuilt CUDA variants shipped by ggml-org, per host OS (x64 only).
+# (asset template, CUDA runtime bundle template, variant label)
+# The variant KEYS (``cuda-12`` / ``cuda-13``) are shared across platforms; the
+# exact CUDA minor differs (Windows 12.4 vs Linux 12.8). The Windows cudart zip
+# name has no tag; the Linux cudart tarball's does.
+_WIN_CUDA_ASSETS = {
     'cuda-12': ('llama-{tag}-bin-win-cuda-12.4-x64.zip', 'cudart-llama-bin-win-cuda-12.4-x64.zip', 'cuda-12.4'),
-    'cuda-13': ('llama-{tag}-bin-win-cuda-13.3-x64.zip', 'cudart-llama-bin-win-cuda-13.3-x64.zip', 'cuda-13.3'),
+    'cuda-13': ('llama-{tag}-bin-win-cuda-13.5-x64.zip', 'cudart-llama-bin-win-cuda-13.5-x64.zip', 'cuda-13.5'),
 }
+_LINUX_CUDA_ASSETS = {
+    'cuda-12': (
+        'llama-{tag}-bin-ubuntu-cuda-12.8-x64.tar.gz',
+        'cudart-llama-{tag}-bin-ubuntu-cuda-12.8-x64.tar.gz',
+        'cuda-12.8',
+    ),
+    'cuda-13': (
+        'llama-{tag}-bin-ubuntu-cuda-13.5-x64.tar.gz',
+        'cudart-llama-{tag}-bin-ubuntu-cuda-13.5-x64.tar.gz',
+        'cuda-13.5',
+    ),
+}
+_CUDA_VARIANTS = ('cuda-12', 'cuda-13')
 
 # All variants ``install(variant=...)`` may be forced to (internal names).
 # ``compile`` (from the env var) maps to ``cuda-compiled``.
@@ -129,8 +148,20 @@ def _vulkan_asset_name(tag: str) -> str | None:
     return None
 
 
-def _select_windows_cuda_variant(gpu: gpu_detect.NvidiaGpuInfo) -> str | None:
-    """Pick ``cuda-12`` or ``cuda-13`` for Windows based on the CUDA driver version."""
+def _cuda_assets() -> dict[str, tuple[str, str, str]] | None:
+    """Return this host's prebuilt CUDA asset table, or ``None`` if ggml-org ships none."""
+    machine = platform.machine().lower()
+    if machine in ('aarch64', 'arm64'):
+        return None
+    if sys.platform.startswith('win'):
+        return _WIN_CUDA_ASSETS
+    if sys.platform.startswith('linux'):
+        return _LINUX_CUDA_ASSETS
+    return None
+
+
+def _select_cuda_variant(gpu: gpu_detect.NvidiaGpuInfo) -> str | None:
+    """Pick ``cuda-12`` or ``cuda-13`` from the CUDA driver version (Windows and Linux)."""
     major = gpu.cuda_major
     if major is None:
         return None
@@ -144,8 +175,8 @@ def _select_windows_cuda_variant(gpu: gpu_detect.NvidiaGpuInfo) -> str | None:
 def select_variant() -> str:
     """Resolve the variant this host should install.
 
-    Returns ``cpu``, ``cuda-12``, ``cuda-13``, ``vulkan``, or ``cuda-compiled``
-    (Linux source build, opt-in only).
+    Returns ``cpu``, ``cuda-12``, ``cuda-13`` (Windows/Linux x64 prebuilts),
+    ``vulkan``, or ``cuda-compiled`` (Linux source build, opt-in only).
     """
     forced = _forced_variant()
     if forced is not None:
@@ -156,7 +187,7 @@ def select_variant() -> str:
     if system.startswith('win') and machine not in ('aarch64', 'arm64'):
         gpu = gpu_detect.detect_nvidia_gpu()
         if gpu.present:
-            cuda_variant = _select_windows_cuda_variant(gpu)
+            cuda_variant = _select_cuda_variant(gpu)
             if cuda_variant:
                 return cuda_variant
             logger.info('NVIDIA GPU detected but CUDA driver version unknown; falling back to CPU')
@@ -165,8 +196,12 @@ def select_variant() -> str:
     if system.startswith('linux') and machine not in ('aarch64', 'arm64'):
         gpu = gpu_detect.detect_nvidia_gpu()
         if gpu.present:
+            cuda_variant = _select_cuda_variant(gpu)
+            if cuda_variant:
+                return cuda_variant
             # Vulkan prebuilt gives GPU accel via the NVIDIA Vulkan driver without
-            # requiring the CUDA toolkit. Compile-from-source is opt-in via env.
+            # the CUDA runtime. Compile-from-source is opt-in via env.
+            logger.info('NVIDIA GPU detected but no CUDA 12+ driver; using the Vulkan build')
             return 'vulkan'
         return 'cpu'
 
@@ -194,8 +229,8 @@ def components() -> list[str]:
 
     variant = _read_variant()
     out = ['llama-server', 'ggml / llama shared libs']
-    if variant in ('cuda-12', 'cuda-13'):
-        out.append('cudart DLLs')
+    if variant in _CUDA_VARIANTS:
+        out.append('CUDA runtime libs')
     if variant:
         out.append(f'variant: {variant}')
     return out
@@ -218,8 +253,31 @@ def _version_label(tag: str, variant: str) -> str:
     if variant == 'cpu':
         return tag
     # Marker stores the variant KEY; map CUDA keys to the precise label for display.
-    display = _CUDA_ASSETS[variant][2] if variant in _CUDA_ASSETS else variant
+    table = _cuda_assets() or {}
+    display = table[variant][2] if variant in table else variant
     return f'{tag} ({display})'
+
+
+def _build_number(tag: str | None) -> int | None:
+    """``b12182`` -> ``12182``; ``None`` for anything that is not a ggml-org build tag."""
+    text = (tag or '').strip()
+    if len(text) > 1 and text[0] == 'b' and text[1:].isdigit():
+        return int(text[1:])
+    return None
+
+
+def _newer_pinned_tag(installed_tag: str | None) -> str | None:
+    """The pinned tag when the installed build is older than it, else ``None``.
+
+    An install made before a pin bump keeps running, but models that need the newer
+    llama.cpp fail to load with an error that does not name the build as the cause.
+    A build newer than the pin (``CLARA_LLAMA_SERVER_VERSION`` set lower) is not flagged.
+    """
+    pinned = _pinned_tag()
+    installed_n, pinned_n = _build_number(installed_tag), _build_number(pinned)
+    if installed_n is None or pinned_n is None or installed_n >= pinned_n:
+        return None
+    return pinned
 
 
 def _runtime_libs_present(bin_path: Path) -> bool:
@@ -265,6 +323,7 @@ def status() -> dict:
             'sizeHint': SIZE_HINT,
             'canDelete': True,
             'error': None,
+            'updateAvailable': _newer_pinned_tag(version),
         }
     return {
         'id': DEP_ID,
@@ -294,7 +353,13 @@ def _install_prebuilt_vulkan(tag: str, *, force: bool) -> None:
 
 
 def _install_prebuilt_cuda(tag: str, variant_key: str, *, force: bool) -> None:
-    asset_tmpl, cudart_tmpl, _label = _CUDA_ASSETS[variant_key]
+    table = _cuda_assets()
+    if not table or variant_key not in table:
+        raise RuntimeError(
+            f'No prebuilt {variant_key} llama-server is available for this platform '
+            '(Windows x64 and Linux x64 only)'
+        )
+    asset_tmpl, cudart_tmpl, _label = table[variant_key]
     asset = asset_tmpl.format(tag=tag)
     cudart_asset = cudart_tmpl.format(tag=tag)
     base = f'https://github.com/ggml-org/llama.cpp/releases/download/{tag}'
@@ -353,7 +418,7 @@ def _install_prebuilt(
 
         download_file(url, archive, on_progress=_prog, timeout=300)
 
-        # CUDA builds need the matching cudart DLL bundle extracted next to the binary.
+        # CUDA builds need the matching CUDA runtime bundle (cudart/cuBLAS) next to the binary.
         for extra_name, extra_url in extra_assets:
             extra_archive = downloads / extra_name
             PROGRESS.emit(DEP_ID, 'downloading', message=f'Downloading {extra_name}…')
@@ -371,7 +436,9 @@ def _install_prebuilt(
             PROGRESS.emit(DEP_ID, 'extracting', message=f'Extracting {extra_name}…')
             extra_extract = downloads / f'llama-extract-{tag}-{variant}-cudart'
             extract_archive(extra_archive, extra_extract)
-            _copy_cocolocated_libs(extra_extract, bin_dir)
+            # The Windows zip holds the DLLs at its root; the Linux tarball nests
+            # them under ``cudart-llama-<tag>-bin-ubuntu-cuda-…/``.
+            _copy_libs_in_tree(extra_extract, bin_dir)
             shutil.rmtree(extra_extract, ignore_errors=True)
 
         PROGRESS.emit(DEP_ID, 'extracting', message='Extracting archive…')
@@ -414,6 +481,23 @@ def _copy_cocolocated_libs(src_dir: Path, dest_dir: Path) -> None:
                 seen.add(lib.name)
                 shutil.copy2(lib, dest_dir / lib.name)
                 logger.info('co-located lib %s', lib.name)
+
+
+def _copy_libs_in_tree(root: Path, dest_dir: Path) -> None:
+    """Copy every shared library anywhere under ``root`` into ``dest_dir`` (flattened).
+
+    For runtime-only bundles (the cudart archives), which hold nothing but libs.
+    """
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for pattern in ('*.dll', '*.so*', '*.dylib*'):
+        for lib in root.rglob(pattern):
+            if lib.is_file():
+                shutil.copy2(lib, dest_dir / lib.name)
+                logger.info('co-located lib %s', lib.name)
+                copied += 1
+    if not copied:
+        raise RuntimeError(f'No shared libraries found in {root.name}')
 
 
 def _ensure_origin_runpath(bin_dir: Path) -> None:
@@ -596,7 +680,7 @@ def install(*, force: bool = False, variant: str | None = None) -> dict:
                 'or choose a different variant (auto/vulkan/cpu).'
             )
         _install_compiled_cuda(tag, force=force)
-    elif chosen in _CUDA_ASSETS:
+    elif chosen in _CUDA_VARIANTS:
         _install_prebuilt_cuda(tag, chosen, force=force)
     elif chosen == 'vulkan':
         _install_prebuilt_vulkan(tag, force=force)
@@ -630,7 +714,7 @@ def delete() -> dict:
 def cleanup_partial() -> None:
     """Remove what a cancelled install leaves in ``runtime/downloads``.
 
-    Covers release archives (``llama-<tag>-bin-…``, ``cudart-llama-bin-…``), their
+    Covers release archives (``llama-<tag>-bin-…``, ``cudart-llama-[<tag>-]bin-…``), their
     ``.partial`` downloads, extraction scratch dirs, and the compile-from-source tree.
     The installed binary itself is handled by :func:`delete` when it is no longer valid.
     """

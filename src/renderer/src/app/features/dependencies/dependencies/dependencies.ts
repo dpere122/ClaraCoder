@@ -33,7 +33,6 @@ import {
   WHISPER_MODEL_OPTIONS,
   WHISPER_SIZE_REPOS,
   dependencyComponents,
-  pythonPackageUrl,
   whisperModelSource,
 } from '@shared/index';
 import { applyAppFontOverrides } from '../../../core/theme/app-font-overrides';
@@ -54,6 +53,16 @@ const WHISPER_ID = 'whisper';
 export type DependencyDisplayState = DependencyInfo['state'] | 'partial';
 
 type InstallAction = 'download' | 'reinstall';
+
+type TutorialLlamaState = 'checking' | 'missing' | 'installing' | 'success' | 'installed' | 'error' | 'cancelled';
+type TutorialLlamaOutcome = 'success' | 'error' | 'cancelled' | null;
+
+interface DependencyListRefresh {
+  /** A newer request superseded this response, so it must not be used for verification. */
+  superseded: boolean;
+  /** Null for failed/fallback status queries or a response without llama-server. */
+  dependencies: DependencyInfo[] | null;
+}
 
 /** Outcome shown on the row itself (replaces the old window-wide footer message). */
 export interface RowMessage {
@@ -83,8 +92,8 @@ export interface DependencyGroup {
 }
 
 const DEPENDENCY_GROUPS: readonly DependencyGroupDef[] = [
-  { id: 'required', label: 'Required', ids: ['python-runtime', 'llama-server'] },
-  { id: 'lsp', label: 'Language servers', ids: ['java-lsp'] },
+  { id: 'required', label: 'Required', ids: ['llama-server'] },
+  { id: 'lsp', label: 'Language servers', ids: ['java-lsp', 'gdls'] },
   { id: 'voice', label: 'Voice', ids: ['kokoro', 'whisper'], comingSoon: true },
 ];
 
@@ -110,6 +119,12 @@ export function installedLlamaVariant(dep: Pick<DependencyInfo, 'state' | 'compo
     if (m && (LLAMA_SERVER_VARIANTS as readonly string[]).includes(m[1]!)) return m[1] as LlamaServerVariant;
   }
   return null;
+}
+
+/** Says the install is behind the version a reinstall would fetch; null when it is current. */
+export function dependencyUpdateHint(dep: Pick<DependencyInfo, 'state' | 'updateAvailable'>): string | null {
+  if (dep.state !== 'installed' || !dep.updateAvailable) return null;
+  return `Clara now installs ${dep.updateAvailable}. Reinstall to update: newer models can fail to load on this older build.`;
 }
 
 @Component({
@@ -140,6 +155,13 @@ export class Dependencies implements OnInit, OnDestroy {
   /** Installs the user cancelled that are still cleaning up. */
   protected readonly cancellingIds = signal<Set<DependencyId>>(new Set());
   protected readonly busyIds = signal<Set<DependencyId>>(new Set());
+  /** Local IPC actions remain busy until their result and subsequent status refresh finish. */
+  private readonly pendingActionIds = signal<Set<DependencyId>>(new Set());
+  private readonly listStatusTrusted = signal(false);
+  private readonly llamaTutorialOutcome = signal<TutorialLlamaOutcome>(null);
+  private listRefreshVersion = 0;
+  private latestListRefresh: Promise<DependencyListRefresh> | null = null;
+  private supersedeListRefresh: (() => void) | null = null;
   protected readonly progressById = signal<Partial<Record<DependencyId, DependencyProgressEvent>>>({});
   protected readonly logById = signal<Partial<Record<DependencyId, LogEntry[]>>>({});
   protected readonly variantById = signal<Partial<Record<DependencyId, LlamaServerVariant>>>({});
@@ -159,7 +181,7 @@ export class Dependencies implements OnInit, OnDestroy {
 
   /**
    * When set, the window switches from the full list to a focused view showing
-   * only this dependency's card plus a live terminal log. Cleared on done/error.
+   * only this dependency's card plus a live terminal log. Success/cancellation return to the list.
    */
   protected readonly activeId = signal<DependencyId | null>(null);
   /**
@@ -169,6 +191,36 @@ export class Dependencies implements OnInit, OnDestroy {
   protected readonly failedId = signal<DependencyId | null>(null);
   /** Last install action per dependency, so Retry repeats a download vs. a reinstall. */
   private readonly lastAction = new Map<DependencyId, InstallAction>();
+
+  /** DOM contract for the tutorial. A progress `done` is never an install result. */
+  protected readonly tutorialLlamaBusy = computed(() => this.isBusy(LLAMA_SERVER_ID));
+  /** Known operations plus unknown/checking status; skipping must not close or cancel downloads. */
+  protected readonly tutorialDependenciesBusy = computed(() =>
+    this.listLoading() ||
+    !this.listStatusTrusted() ||
+    this.pendingActionIds().size > 0 ||
+    this.busyIds().size > 0 ||
+    this.cancellingIds().size > 0 ||
+    this.dependencies().some((dep) => dep.state === 'updating'),
+  );
+  protected readonly tutorialLlamaState = computed<TutorialLlamaState>(() => {
+    const outcome = this.llamaTutorialOutcome();
+    if (outcome === 'error' || outcome === 'cancelled') return outcome;
+    if (this.tutorialLlamaBusy()) return 'installing';
+    if (this.listLoading()) return 'checking';
+    if (!this.listStatusTrusted()) return 'error';
+    const dep = this.dependencies().find((item) => item.id === LLAMA_SERVER_ID);
+    if (!dep || dep.state === 'error') return 'error';
+    if (dep.state === 'installed') return outcome === 'success' ? 'success' : 'installed';
+    if (dep.state === 'updating') return 'installing';
+    return dep.state === 'missing' ? 'missing' : 'error';
+  });
+  /** The real card is replaced during focused views; keep a hidden state target when it is absent. */
+  protected readonly tutorialLlamaFallback = computed(() => {
+    const active = this.activeDep();
+    if (active) return !this.isLlamaServer(active);
+    return this.firstLoad() || !this.dependencies().some((dep) => dep.id === LLAMA_SERVER_ID);
+  });
 
   protected readonly variantOptions = LLAMA_SERVER_VARIANTS;
   protected readonly variantLabels = LLAMA_SERVER_VARIANT_LABELS;
@@ -182,6 +234,7 @@ export class Dependencies implements OnInit, OnDestroy {
 
   private configSub: { unsubscribe(): void } | null = null;
   private offProgress: (() => void) | null = null;
+  private destroyed = false;
 
   constructor() {
     effect(() => {
@@ -206,14 +259,25 @@ export class Dependencies implements OnInit, OnDestroy {
   }
 
   async ngOnInit(): Promise<void> {
-    const cfg = await this.electron.loadConfig();
-    this.applyTheme(cfg);
-    this.configSub = this.electron.config$.subscribe((c: AppConfig) => this.applyTheme(c));
+    let receivedConfigUpdate = false;
+    this.configSub = this.electron.config$.subscribe((config: AppConfig) => {
+      receivedConfigUpdate = true;
+      this.applyTheme(config);
+    });
     this.offProgress = this.electron.onDepsProgress((ev) => this.onProgress(ev));
+    // A slow or failed appearance config must not keep dependency status at "checking".
+    // Do not let a late initial response overwrite a newer config broadcast.
+    void Promise.resolve()
+      .then(() => this.destroyed ? null : this.electron.loadConfig())
+      .then((config) => {
+        if (config && !this.destroyed && !receivedConfigUpdate) this.applyTheme(config);
+      })
+      .catch(() => {});
     await this.refreshList();
   }
 
   ngOnDestroy(): void {
+    this.destroyed = true;
     this.configSub?.unsubscribe();
     this.offProgress?.();
     for (const timer of this.rowMessageTimers.values()) clearTimeout(timer);
@@ -250,7 +314,8 @@ export class Dependencies implements OnInit, OnDestroy {
   }
 
   protected isBusy(id: DependencyId): boolean {
-    return this.busyIds().has(id) || this.dependencies().find((d) => d.id === id)?.state === 'updating';
+    return this.pendingActionIds().has(id) || this.busyIds().has(id) || this.cancellingIds().has(id) ||
+      this.dependencies().find((d) => d.id === id)?.state === 'updating';
   }
 
   protected isLlamaServer(dep: DependencyInfo): boolean {
@@ -317,10 +382,15 @@ export class Dependencies implements OnInit, OnDestroy {
     this.activeId.set(null);
   }
 
+  /** Retry repeats the last action; only a download retry is the tour’s install control. */
+  protected retryIsDownload(dep: DependencyInfo): boolean {
+    return this.lastAction.get(dep.id) !== 'reinstall';
+  }
+
   protected retry(dep: DependencyInfo): void {
     this.failedId.set(null);
-    if (this.lastAction.get(dep.id) === 'reinstall') void this.reinstall(dep);
-    else void this.download(dep);
+    if (this.retryIsDownload(dep)) void this.download(dep);
+    else void this.reinstall(dep);
   }
 
   protected activeDep(): DependencyInfo | undefined {
@@ -348,21 +418,14 @@ export class Dependencies implements OnInit, OnDestroy {
    */
   protected async cancelInstall(dep: DependencyInfo): Promise<void> {
     if (this.isCancelling(dep.id)) return;
-    if (dep.id === 'python-runtime') {
-      const proceed =
-        (await this.themedConfirm.open({
-          title: 'Cancel the Python runtime install?',
-          message:
-            "Clara's backend runs from this environment. The partly built environment is removed, and chat, tools, and indexing won't work until you download it again.",
-          cancelText: 'Keep installing',
-          confirmText: 'Cancel install',
-          variant: 'warning',
-        })) === 'confirm';
-      if (!proceed) return;
-    }
     this.cancellingIds.update((s) => new Set(s).add(dep.id));
-    const res = await this.electron.depsCancel(dep.id);
-    if (!res.ok) {
+    let res: { ok: boolean; error?: string };
+    try {
+      res = await this.electron.depsCancel(dep.id);
+    } catch (err) {
+      res = { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+    if (!res.ok && this.isCancelling(dep.id)) {
       this.cancellingIds.update((s) => {
         const next = new Set(s);
         next.delete(dep.id);
@@ -411,6 +474,10 @@ export class Dependencies implements OnInit, OnDestroy {
     return `Installed: ${this.variantLabels[installed]}. Reinstall to switch to ${this.variantLabels[chosen]}.`;
   }
 
+  protected updateHint(dep: DependencyInfo): string | null {
+    return dependencyUpdateHint(dep);
+  }
+
   protected setVariant(dep: DependencyInfo, v: LlamaServerVariant): void {
     this.variantById.update((m) => ({ ...m, [dep.id]: v }));
   }
@@ -422,11 +489,6 @@ export class Dependencies implements OnInit, OnDestroy {
   /** Sub-dependencies the install drops on disk (provider list, else static catalog). */
   protected componentsFor(dep: DependencyInfo): string[] {
     return dependencyComponents(dep);
-  }
-
-  /** PyPI page for Python runtime packages; other components have no per-item page. */
-  protected componentUrl(dep: DependencyInfo, component: string): string | null {
-    return dep.id === 'python-runtime' ? pythonPackageUrl(component) : null;
   }
 
   /** Upstream origins for the Details section; Whisper adds a model repo per downloaded/selected size. */
@@ -469,8 +531,8 @@ export class Dependencies implements OnInit, OnDestroy {
   }
 
   /**
-   * Short size label for the row pill, e.g. "~40–400 MB" from
-   * "~40–400 MB (CPU ~40 MB; CUDA build …)". The full hint goes in the tooltip.
+   * Short size label for the row pill, e.g. "~40–750 MB" from
+   * "~40–750 MB (CPU ~40 MB; CUDA build …)". The full hint goes in the tooltip.
    */
   protected sizeShort(hint: string): string {
     const idx = hint.indexOf(' (');
@@ -496,7 +558,6 @@ export class Dependencies implements OnInit, OnDestroy {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
     let out = '';
-    let style = '';
     let open = false;
     const closeSpan = () => {
       if (open) {
@@ -505,7 +566,6 @@ export class Dependencies implements OnInit, OnDestroy {
       }
     };
     const openSpan = (s: string) => {
-      style = s;
       out += `<span style="${s}">`;
       open = true;
     };
@@ -567,27 +627,67 @@ export class Dependencies implements OnInit, OnDestroy {
     return null;
   }
 
-  protected async refreshList(): Promise<void> {
+  protected refreshList(): Promise<DependencyListRefresh> {
+    // Do not make an install wait forever for an older status request which has been
+    // superseded by a newer one. The old IPC result is still ignored when it arrives.
+    this.supersedeListRefresh?.();
+    const version = ++this.listRefreshVersion;
     this.listLoading.set(true);
+    let supersede!: () => void;
+    const superseded = new Promise<DependencyListRefresh>((resolve) => {
+      supersede = () => resolve({ superseded: true, dependencies: null });
+    });
+    this.supersedeListRefresh = supersede;
+    const request = Promise.race([this.loadDependencyList(version), superseded]).then((result) => {
+      if (this.supersedeListRefresh === supersede) this.supersedeListRefresh = null;
+      return result;
+    });
+    this.latestListRefresh = request;
+    return request;
+  }
+
+  private async loadDependencyList(version: number): Promise<DependencyListRefresh> {
     try {
       const res = await this.electron.depsList();
+      if (version !== this.listRefreshVersion) return { superseded: true, dependencies: null };
       if (!res.ok) {
         this.statusMessage.set(res.error || 'Failed to list dependencies.');
-        this.dependencies.set([]);
-        return;
+        this.listStatusTrusted.set(false);
+        // Keep an existing focused install visible even if a status refresh fails.
+        return { superseded: false, dependencies: null };
       }
-      this.dependencies.set(res.dependencies ?? []);
+      const deps = res.dependencies ?? [];
+      const llama = deps.find((dep) => dep.id === LLAMA_SERVER_ID);
+      const trusted = !res.warning && !!llama;
+      this.dependencies.set(deps);
+      this.listStatusTrusted.set(trusted);
+      if (trusted && llama?.state !== 'installed' && this.llamaTutorialOutcome() === 'success') {
+        this.llamaTutorialOutcome.set(null);
+      }
       if (res.warning) {
         this.statusMessage.set(res.warning);
-      } else if (!res.dependencies?.length) {
+      } else if (!deps.length) {
         this.statusMessage.set('No dependencies reported.');
+      } else {
+        this.statusMessage.set('');
       }
+      return { superseded: false, dependencies: trusted ? deps : null };
     } catch (err) {
+      if (version !== this.listRefreshVersion) return { superseded: true, dependencies: null };
       this.statusMessage.set(err instanceof Error ? err.message : String(err));
-      this.dependencies.set([]);
+      this.listStatusTrusted.set(false);
+      return { superseded: false, dependencies: null };
     } finally {
-      this.listLoading.set(false);
+      if (version === this.listRefreshVersion) this.listLoading.set(false);
     }
+  }
+
+  /** An action must be verified by a status request begun after its own result. */
+  private async refreshAfterAction(): Promise<DependencyInfo[] | null> {
+    let result = await this.refreshList();
+    // A later request also began after the action; wait for it rather than trusting a stale response.
+    while (result.superseded && this.latestListRefresh) result = await this.latestListRefresh;
+    return result.superseded ? null : result.dependencies;
   }
 
   protected async download(dep: DependencyInfo): Promise<void> {
@@ -623,6 +723,10 @@ export class Dependencies implements OnInit, OnDestroy {
     opts: { focus: boolean },
   ): Promise<void> {
     const id = dep.id;
+    if (this.pendingActionIds().has(id) || this.isBusy(id)) return;
+    const isLlama = id === LLAMA_SERVER_ID;
+    if (isLlama) this.llamaTutorialOutcome.set(null);
+    this.pendingActionIds.update((s) => new Set(s).add(id));
     this.busyIds.update((s) => new Set(s).add(id));
     this.clearRowMessage(id);
     // Fresh log buffer and rate estimate for this action.
@@ -637,37 +741,75 @@ export class Dependencies implements OnInit, OnDestroy {
       this.activeId.set(id);
     }
     try {
-      const res = await action();
-      let outcome: RowMessage | null = null;
-      if (res.cancelled) {
+      let res: { ok: boolean; error?: string; cancelled?: boolean };
+      try {
+        res = await action();
+      } catch (err) {
+        res = { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+      let cancelled = !!res.cancelled || (isLlama && (this.llamaTutorialOutcome() === 'cancelled' || this.isCancelling(id)));
+      let failed = !res.ok || (isLlama && this.llamaTutorialOutcome() === 'error');
+      if (cancelled) {
+        if (isLlama) this.llamaTutorialOutcome.set('cancelled');
         this.finishCancel(id);
-      } else if (!res.ok) {
-        outcome = { tone: 'error', text: res.error || `${dep.label} failed.` };
+      } else if (failed) {
+        if (isLlama) this.llamaTutorialOutcome.set('error');
         if (opts.focus && this.activeId() === id) this.failedId.set(id);
       } else {
-        outcome = { tone: 'ok', text: `${successVerb} ${dep.label}.` };
         this.progressById.update((m) => {
           const next = { ...m };
           delete next[id];
           return next;
         });
       }
-      // Show the result once the row reflects it, so "Downloaded" never sits next to "Missing".
-      await this.refreshList();
-      if (outcome) {
-        this.setRowMessage(id, outcome.tone, outcome.text);
-      } else if (res.cancelled && !this.rowMessage(id)) {
+
+      // A `done` progress event is also emitted for deletion/cleanup. Only this action's
+      // successful install result, followed by a trustworthy installed status, is success.
+      const refreshed = await this.refreshAfterAction();
+      let verificationError = '';
+      if (isLlama) {
+        cancelled ||= this.llamaTutorialOutcome() === 'cancelled';
+        failed ||= this.llamaTutorialOutcome() === 'error';
+        if (cancelled) {
+          this.llamaTutorialOutcome.set('cancelled');
+        } else if (failed) {
+          this.llamaTutorialOutcome.set('error');
+        } else if (opts.focus) {
+          if (refreshed?.some((item) => item.id === LLAMA_SERVER_ID && item.state === 'installed')) {
+            this.llamaTutorialOutcome.set('success');
+          } else {
+            failed = true;
+            this.llamaTutorialOutcome.set('error');
+            verificationError = 'Install finished, but llama-server could not be verified as installed.';
+          }
+        }
+      }
+      if (cancelled) {
         // The 'cancelled' progress event carries the cleanup outcome; fill in only if it never arrived.
-        this.setRowMessage(id, 'info', 'Install cancelled.');
+        if (!this.rowMessage(id)) this.setRowMessage(id, 'info', 'Install cancelled.');
+      } else if (failed) {
+        if (opts.focus && this.activeId() === id) this.failedId.set(id);
+        const progressError = this.rowMessage(id);
+        this.setRowMessage(
+          id,
+          'error',
+          verificationError || res.error || (progressError?.tone === 'error' ? progressError.text : `${dep.label} failed.`),
+        );
+      } else {
+        this.setRowMessage(id, 'ok', `${successVerb} ${dep.label}.`);
       }
     } finally {
+      this.pendingActionIds.update((s) => {
+        const next = new Set(s);
+        next.delete(id);
+        return next;
+      });
       this.busyIds.update((s) => {
         const next = new Set(s);
         next.delete(id);
         return next;
       });
-      // Safety net: if no done/error event arrived, return to the list — unless it failed,
-      // in which case the focused view stays up so the log and error remain readable.
+      // Do not disturb a different dependency's focused install.
       if (this.activeId() === id && this.failedId() !== id) {
         this.activeId.set(null);
       }
@@ -698,6 +840,14 @@ export class Dependencies implements OnInit, OnDestroy {
   }
 
   private onProgress(ev: DependencyProgressEvent): void {
+    const localAction = this.pendingActionIds().has(ev.depId);
+    if (ev.depId === LLAMA_SERVER_ID) {
+      if (ev.phase === 'queued' && !localAction && !this.isCancelling(ev.depId)) {
+        this.llamaTutorialOutcome.set(null);
+      } else if (ev.phase === 'error' || ev.phase === 'cancelled') {
+        this.llamaTutorialOutcome.set(ev.phase);
+      }
+    }
     if (ev.phase === 'cancelling') {
       this.cancellingIds.update((s) => new Set(s).add(ev.depId));
     }
@@ -705,9 +855,13 @@ export class Dependencies implements OnInit, OnDestroy {
       this.appendLog(ev);
       this.finishCancel(ev.depId);
       const message = ev.message;
-      void this.refreshList().then(() => {
+      if (localAction) {
         if (message) this.setRowMessage(ev.depId, 'info', message);
-      });
+      } else {
+        void this.refreshList().then(() => {
+          if (message) this.setRowMessage(ev.depId, 'info', message);
+        });
+      }
       return;
     }
     // Cleanup after a cancel deletes the partial install, which reports 'done' ("… removed"):
@@ -726,20 +880,21 @@ export class Dependencies implements OnInit, OnDestroy {
       this.busyIds.update((s) => new Set(s).add(ev.depId));
     }
     if (ev.phase === 'done' || ev.phase === 'error') {
-      this.busyIds.update((s) => {
-        const next = new Set(s);
-        next.delete(ev.depId);
-        return next;
-      });
-      if (ev.phase === 'error' && ev.message) {
-        this.setRowMessage(ev.depId, 'error', ev.message);
+      if (ev.phase === 'error') {
+        if (ev.message) this.setRowMessage(ev.depId, 'error', ev.message);
+        if (this.activeId() === ev.depId) this.failedId.set(ev.depId);
       }
-      // Success returns to the list; a failure keeps the log open (see failedId).
-      if (this.activeId() === ev.depId) {
-        if (ev.phase === 'error') this.failedId.set(ev.depId);
-        else this.activeId.set(null);
+      // A local action is still in flight even if a progress event says done/error.
+      // Its IPC result and post-result status refresh own the final transition.
+      if (!localAction) {
+        this.busyIds.update((s) => {
+          const next = new Set(s);
+          next.delete(ev.depId);
+          return next;
+        });
+        if (ev.phase === 'done' && this.activeId() === ev.depId) this.activeId.set(null);
+        void this.refreshList();
       }
-      void this.refreshList();
     }
   }
 
@@ -766,6 +921,7 @@ export class Dependencies implements OnInit, OnDestroy {
 
   private scheduleNamedSpinnerSync(name: string, show: boolean): void {
     queueMicrotask(() => {
+      if (this.destroyed) return;
       if (show) void this.ngxSpinner.show(name);
       else void this.ngxSpinner.hide(name);
     });

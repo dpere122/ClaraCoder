@@ -1,0 +1,694 @@
+<div class='settings-pane settings-pane--sectioned'>
+  @if (server().id === 'gdscript') {
+    <div class='form-section'>
+      <h4>Language server</h4>
+      <div class='settings-lsp-status'>
+        <div>
+          @if (gdls(); as dep) {
+            <p class='panel__copy'>
+              gdls · {{ dependencyStatus(dep) }}
+            </p>
+            @if (dep.path) {
+              <p class='settings-field-hint settings-lsp-status__path'>{{ dep.path }}</p>
+            }
+          } @else {
+            <p class='panel__copy'>gdls</p>
+          }
+        </div>
+        <button type='button' class='action-button' (click)='openDependencies()'>Open Dependencies</button>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Godot engine</h4>
+      <div class='form-grid'>
+        <div class='field field--full'>
+          <label for='settings-lsp-godot-path'>Godot executable</label>
+          <div class='settings-lsp-path-row'>
+            <input
+              id='settings-lsp-godot-path'
+              type='text'
+              [ngModel]='godot().godotBinaryPath'
+              (ngModelChange)='patch({ godotBinaryPath: $event })'
+              placeholder='Find godot4 or godot on PATH'
+            />
+            <button type='button' class='action-button' (click)='browseForGodot()'>Browse…</button>
+          </div>
+          <p class='settings-field-hint'>Only used when the option below is on.</p>
+        </div>
+        <div class='field field--full field--hint'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='godot().allowEngineApiDump'
+              (ngModelChange)='patch({ allowEngineApiDump: $event })'
+            />
+            <span>Let gdls run Godot to read native add-on classes</span>
+          </label>
+          <p class='settings-field-hint'>
+            Adds completion and type checks for GDExtension classes. Godot runs on each project you open
+            here, which can load that project's native code with your permissions. Leave this off unless
+            you trust every project you open on this machine.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Diagnostics</h4>
+      <div class='form-grid'>
+        <label class='field'>
+          <span>Warning profile</span>
+          <app-pill-select
+            [options]='profileOptions'
+            [value]='godot().diagnosticsProfile'
+            (valueChange)='patch({ diagnosticsProfile: $any($event) })'
+          />
+        </label>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Inlay hints</h4>
+      <div class='form-grid'>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='godot().inlayTypeHints'
+              (ngModelChange)='patch({ inlayTypeHints: $event })'
+            />
+            <span>Show inferred types on <code>:=</code> declarations</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='godot().inlayParameterHints'
+              (ngModelChange)='patch({ inlayParameterHints: $event })'
+            />
+            <span>Show parameter names at call sites</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Formatter</h4>
+      <div class='form-grid'>
+        <label class='field'>
+          <span>Command</span>
+          <input
+            type='text'
+            [ngModel]='godot().formatterCommand'
+            (ngModelChange)='patch({ formatterCommand: $event })'
+            placeholder='gdformat, if it is on PATH'
+          />
+        </label>
+        <label class='field'>
+          <span>Arguments</span>
+          <input
+            type='text'
+            [ngModel]='godot().formatterArgs'
+            (ngModelChange)='patch({ formatterArgs: $event })'
+          />
+        </label>
+      </div>
+      <p class='settings-field-hint'>
+        Gets the document on stdin and must print the formatted result. With no formatter, Format Document
+        does nothing for GDScript.
+      </p>
+    </div>
+  } @else if (server().id === 'python') {
+    <div class='form-section'>
+      <h4>Language server</h4>
+      <p class='panel__copy'>basedpyright · ships with Clara</p>
+      <p class='settings-field-hint'>
+        Finds installed packages through the workspace's Python interpreter or virtual environment. Changing
+        a setting here restarts the server.
+      </p>
+      @if (pythonProjectConfig(); as cfg) {
+        <div class='settings-lsp-notice' role='note'>
+          <p class='panel__copy'>
+            This workspace has its own basedpyright config in <code>{{ cfg.file }}</code>
+            @if (cfg.section) {
+              (<code>[{{ cfg.section }}]</code>)
+            }
+          </p>
+          <p class='settings-field-hint'>
+            basedpyright takes the type checking mode from that file, and its <code>extraPaths</code> when it
+            sets them. The scope, inlay hint and auto-import settings below still apply.
+          </p>
+        </div>
+      }
+    </div>
+
+    <div class='form-section'>
+      <h4>Diagnostics</h4>
+      <div class='form-grid'>
+        <label class='field'>
+          <span>Type checking mode</span>
+          <app-pill-select
+            [options]='typeCheckingOptions'
+            [value]='python().typeCheckingMode'
+            (valueChange)='patchPython({ typeCheckingMode: $any($event) })'
+          />
+        </label>
+        <label class='field'>
+          <span>Check</span>
+          <app-pill-select
+            [options]='diagnosticModeOptions'
+            [value]='python().diagnosticMode'
+            (valueChange)='patchPython({ diagnosticMode: $any($event) })'
+          />
+        </label>
+      </div>
+      <p class='settings-field-hint'>
+        Recommended and All rules are basedpyright's stricter sets, beyond Strict. Checking the whole
+        workspace lists problems in files you haven't opened, but is slower on large projects.
+      </p>
+    </div>
+
+    <div class='form-section'>
+      <h4>Inlay hints</h4>
+      <div class='form-grid'>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='python().inlayVariableTypes'
+              (ngModelChange)='patchPython({ inlayVariableTypes: $event })'
+            />
+            <span>Show inferred variable types</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='python().inlayCallArgumentNames'
+              (ngModelChange)='patchPython({ inlayCallArgumentNames: $event })'
+            />
+            <span>Show parameter names at call sites</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='python().inlayFunctionReturnTypes'
+              (ngModelChange)='patchPython({ inlayFunctionReturnTypes: $event })'
+            />
+            <span>Show inferred return types on functions</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='python().inlayGenericTypes'
+              (ngModelChange)='patchPython({ inlayGenericTypes: $event })'
+            />
+            <span>Show inferred type arguments, e.g. <code>[int]</code> after <code>list</code></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Completions</h4>
+      <div class='form-grid'>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='python().autoImportCompletions'
+              (ngModelChange)='patchPython({ autoImportCompletions: $event })'
+            />
+            <span>Suggest names from modules that aren't imported yet, and add the import</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Import paths</h4>
+      <div class='form-grid'>
+        <label class='field field--full'>
+          <span>Extra paths</span>
+          <textarea
+            rows='3'
+            [ngModel]='extraPathsDraft()'
+            (ngModelChange)='setExtraPaths($event)'
+            placeholder='src&#10;libs/vendored'
+          ></textarea>
+        </label>
+      </div>
+      <p class='settings-field-hint'>
+        One folder per line. Imports resolve from these as well as the environment's packages. Relative
+        paths start at the workspace folder.
+      </p>
+    </div>
+  } @else if (server().id === 'typescript') {
+    <div class='form-section'>
+      <h4>Language server</h4>
+      <p class='panel__copy'>vtsls · ships with Clara</p>
+      <p class='settings-field-hint'>
+        One server handles TypeScript and JavaScript, and these settings apply to both. A project's
+        <code>tsconfig.json</code> or <code>jsconfig.json</code> still sets its own compiler options. Changing a
+        setting here restarts the server.
+      </p>
+      <div class='form-grid'>
+        <div class='field field--full field--hint'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='typescript().useWorkspaceTsdk'
+              (ngModelChange)='patchTypescript({ useWorkspaceTsdk: $event })'
+            />
+            <span>Use the workspace's TypeScript version when it has one</span>
+          </label>
+          <p class='settings-field-hint'>
+            Uses the project's <code>node_modules/typescript</code>, so errors match its own <code>tsc</code>.
+            Otherwise vtsls uses the TypeScript it ships with.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>JavaScript diagnostics</h4>
+      <div class='form-grid'>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='typescript().validateJavaScript'
+              (ngModelChange)='patchTypescript({ validateJavaScript: $event })'
+            />
+            <span>Report errors in JavaScript files</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='typescript().checkJs'
+              [disabled]='!typescript().validateJavaScript'
+              (ngModelChange)='patchTypescript({ checkJs: $event })'
+            />
+            <span>Type-check JavaScript files outside a <code>jsconfig.json</code> or <code>tsconfig.json</code> project</span>
+          </label>
+        </div>
+      </div>
+      <p class='settings-field-hint'>
+        Files inside such a project follow its <code>checkJs</code> option instead. One file can opt in with a
+        <code>// &#64;ts-check</code> comment. With errors off, JavaScript files report nothing, type-checked or
+        not.
+      </p>
+    </div>
+
+    <div class='form-section'>
+      <h4>Inlay hints</h4>
+      <div class='form-grid'>
+        <label class='field'>
+          <span>Parameter names at call sites</span>
+          <app-pill-select
+            [options]='parameterNameHintOptions'
+            [value]='typescript().inlayParameterNames'
+            (valueChange)='patchTypescript({ inlayParameterNames: $any($event) })'
+          />
+        </label>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='typescript().inlayVariableTypes'
+              (ngModelChange)='patchTypescript({ inlayVariableTypes: $event })'
+            />
+            <span>Show inferred variable types</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='typescript().inlayParameterTypes'
+              (ngModelChange)='patchTypescript({ inlayParameterTypes: $event })'
+            />
+            <span>Show inferred parameter types, e.g. on callbacks</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='typescript().inlayFunctionReturnTypes'
+              (ngModelChange)='patchTypescript({ inlayFunctionReturnTypes: $event })'
+            />
+            <span>Show inferred return types on functions</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='typescript().inlayPropertyDeclarationTypes'
+              (ngModelChange)='patchTypescript({ inlayPropertyDeclarationTypes: $event })'
+            />
+            <span>Show property types inferred from the constructor</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='typescript().inlayEnumMemberValues'
+              (ngModelChange)='patchTypescript({ inlayEnumMemberValues: $event })'
+            />
+            <span>Show enum member values</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Completions and imports</h4>
+      <div class='form-grid'>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='typescript().autoImportCompletions'
+              (ngModelChange)='patchTypescript({ autoImportCompletions: $event })'
+            />
+            <span>Suggest exports from modules that aren't imported yet, and add the import</span>
+          </label>
+        </div>
+        <label class='field'>
+          <span>Import paths</span>
+          <app-pill-select
+            [options]='importSpecifierOptions'
+            [value]='typescript().importModuleSpecifier'
+            (valueChange)='patchTypescript({ importModuleSpecifier: $any($event) })'
+          />
+        </label>
+        <label class='field'>
+          <span>Quote style</span>
+          <app-pill-select
+            [options]='quoteStyleOptions'
+            [value]='typescript().quoteStyle'
+            (valueChange)='patchTypescript({ quoteStyle: $any($event) })'
+          />
+        </label>
+      </div>
+      <p class='settings-field-hint'>
+        Import paths and quote style apply to the imports that completions and quick fixes add.
+      </p>
+    </div>
+  } @else {
+    <div class='form-section'>
+      <h4>Language server</h4>
+      <div class='settings-lsp-status'>
+        <div>
+          @if (jdtls(); as dep) {
+            <p class='panel__copy'>
+              Eclipse JDT LS · {{ dependencyStatus(dep) }}
+            </p>
+            @if (dep.path) {
+              <p class='settings-field-hint settings-lsp-status__path'>{{ dep.path }}</p>
+            }
+          } @else {
+            <p class='panel__copy'>Eclipse JDT LS</p>
+          }
+        </div>
+        <button type='button' class='action-button' (click)='openDependencies()'>Open Dependencies</button>
+      </div>
+      <p class='settings-field-hint'>
+        Changing a setting here restarts the server, and a large project can take a while to load again.
+      </p>
+    </div>
+
+    <div class='form-section'>
+      <h4>Java runtime</h4>
+      <div class='form-grid'>
+        <div class='field field--full'>
+          <label for='settings-lsp-java-home'>JDK folder</label>
+          <div class='settings-lsp-path-row'>
+            <input
+              id='settings-lsp-java-home'
+              type='text'
+              [ngModel]='java().jdkHome'
+              (ngModelChange)='patchJava({ jdkHome: $event })'
+              placeholder='JAVA_HOME, then java on PATH'
+            />
+            <button type='button' class='action-button' (click)='browseForJdk()'>Browse…</button>
+          </div>
+          <p class='settings-field-hint'>The JDK that runs the language server. It needs Java 21 or newer.</p>
+          @if (jdkHomeProblem(); as problem) {
+            <p class='settings-field-hint settings-field-hint--warning' role='alert'>{{ problem }}</p>
+          }
+        </div>
+        <label class='field'>
+          <span>Maximum memory</span>
+          <app-pill-select
+            [options]='maxHeapOptions'
+            [value]='java().maxHeap'
+            (valueChange)='patchJava({ maxHeap: $any($event) })'
+          />
+        </label>
+        <label class='field field--full'>
+          <span>Project JDKs</span>
+          <textarea
+            rows='3'
+            [ngModel]='javaRuntimesDraft()'
+            (ngModelChange)='setJavaRuntimes($event)'
+            placeholder='JavaSE-17=C:\jdks\jdk-17&#10;JavaSE-1.8=C:\jdks\jdk8'
+          ></textarea>
+        </label>
+      </div>
+      <p class='settings-field-hint'>
+        One per line, as execution environment=JDK folder. A Maven or Gradle project compiles against the one
+        matching its Java version. The first is the default for folders with no build file, unless a folder's
+        <code>.clara/java.json</code> lists its own runtimes. A folder that isn't a JDK stops the server from starting.
+      </p>
+      @for (problem of javaRuntimeProblems(); track problem) {
+        <p class='settings-field-hint settings-field-hint--warning'>{{ problem }}</p>
+      }
+      @for (problem of projectJdkProblems(); track $index) {
+        <p class='settings-field-hint settings-field-hint--warning' role='alert'>{{ problem }}</p>
+      }
+    </div>
+
+    <div class='form-section'>
+      <h4>Build tools</h4>
+      <div class='form-grid'>
+        <div class='field field--full field--hint'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().importMaven'
+              (ngModelChange)='patchJava({ importMaven: $event })'
+            />
+            <span>Import Maven projects</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().importGradle'
+              (ngModelChange)='patchJava({ importGradle: $event })'
+            />
+            <span>Import Gradle projects</span>
+          </label>
+          <p class='settings-field-hint'>
+            Importing runs the project's build setup, which can run its code. With import off, a project gets limited
+            code intelligence. A project with <code>.project</code>, <code>.classpath</code> and
+            <code>.settings</code> files stays imported until you delete them.
+          </p>
+        </div>
+        <div class='field field--full field--hint'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().projectMetadataAtRoot'
+              (ngModelChange)='patchJava({ projectMetadataAtRoot: $event })'
+            />
+            <span>Keep project files in the project folder</span>
+          </label>
+          <p class='settings-field-hint'>
+            Importing creates <code>.project</code>, <code>.classpath</code> and <code>.settings</code>. With this off
+            they stay in Clara's own data, out of your project and source control. Files already in the project stay
+            until you delete them, and the project keeps working if you do. Build output, such as Maven's
+            <code>target</code> folder, still goes in the project.
+          </p>
+        </div>
+        <label class='field'>
+          <span>Update the project when a build file changes</span>
+          <app-pill-select
+            [options]='updateBuildOptions'
+            [value]='java().updateBuildConfiguration'
+            (valueChange)='patchJava({ updateBuildConfiguration: $any($event) })'
+          />
+        </label>
+        <div class='field field--full'>
+          <label for='settings-lsp-java-maven-settings'>Maven settings file</label>
+          <div class='settings-lsp-path-row'>
+            <input
+              id='settings-lsp-java-maven-settings'
+              type='text'
+              [ngModel]='java().mavenUserSettings'
+              (ngModelChange)='patchJava({ mavenUserSettings: $event })'
+              placeholder='~/.m2/settings.xml, if it exists'
+            />
+            <button type='button' class='action-button' (click)='browseForXml("mavenUserSettings")'>Browse…</button>
+          </div>
+        </div>
+        <div class='field field--full field--hint'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().autobuild'
+              (ngModelChange)='patchJava({ autobuild: $event })'
+            />
+            <span>Build the project in the background</span>
+          </label>
+          <p class='settings-field-hint'>With this off, only files you have open report problems.</p>
+        </div>
+      </div>
+      <p class='settings-field-hint'>
+        Never holds back changes such as a new Java version. Changed Maven dependencies are still picked up.
+      </p>
+    </div>
+
+    <div class='form-section'>
+      <h4>Inlay hints</h4>
+      <div class='form-grid'>
+        <label class='field'>
+          <span>Parameter names at call sites</span>
+          <app-pill-select
+            [options]='parameterNameHintOptions'
+            [value]='java().inlayParameterNames'
+            (valueChange)='patchJava({ inlayParameterNames: $any($event) })'
+          />
+        </label>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().inlayVariableTypes'
+              (ngModelChange)='patchJava({ inlayVariableTypes: $event })'
+            />
+            <span>Show inferred types on <code>var</code> declarations</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().inlayParameterTypes'
+              (ngModelChange)='patchJava({ inlayParameterTypes: $event })'
+            />
+            <span>Show inferred parameter types on lambdas</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().inlayFormatParameters'
+              (ngModelChange)='patchJava({ inlayFormatParameters: $event })'
+            />
+            <span>Show which argument fills each specifier in a format string</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Code lenses</h4>
+      <div class='form-grid'>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().referencesCodeLens'
+              (ngModelChange)='patchJava({ referencesCodeLens: $event })'
+            />
+            <span>Show reference counts</span>
+          </label>
+        </div>
+        <label class='field'>
+          <span>Show implementation counts on</span>
+          <app-pill-select
+            [options]='implementationLensOptions'
+            [value]='java().implementationCodeLens'
+            (valueChange)='patchJava({ implementationCodeLens: $any($event) })'
+          />
+        </label>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Completions</h4>
+      <div class='form-grid'>
+        <label class='field'>
+          <span>Fill in method arguments with</span>
+          <app-pill-select
+            [options]='guessArgumentOptions'
+            [value]='java().guessMethodArguments'
+            (valueChange)='patchJava({ guessMethodArguments: $any($event) })'
+          />
+        </label>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().signatureHelp'
+              (ngModelChange)='patchJava({ signatureHelp: $event })'
+            />
+            <span>Show the method signature while typing arguments</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class='form-section'>
+      <h4>Formatting</h4>
+      <div class='form-grid'>
+        <div class='field field--full'>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().formatEnabled'
+              (ngModelChange)='patchJava({ formatEnabled: $event })'
+            />
+            <span>Format Java files with the language server</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().formatComments'
+              [disabled]='!java().formatEnabled'
+              (ngModelChange)='patchJava({ formatComments: $event })'
+            />
+            <span>Format comments too</span>
+          </label>
+          <label class='toggle-row'>
+            <input
+              type='checkbox'
+              [ngModel]='java().formatOnType'
+              [disabled]='!java().formatEnabled'
+              (ngModelChange)='patchJava({ formatOnType: $event })'
+            />
+            <span>Allow formatting while typing</span>
+          </label>
+        </div>
+        <div class='field field--full'>
+          <label for='settings-lsp-java-formatter'>Eclipse formatter file</label>
+          <div class='settings-lsp-path-row'>
+            <input
+              id='settings-lsp-java-formatter'
+              type='text'
+              [ngModel]='java().formatterSettingsPath'
+              (ngModelChange)='patchJava({ formatterSettingsPath: $event })'
+              placeholder='The built-in Eclipse style'
+            />
+            <button type='button' class='action-button' (click)='browseForXml("formatterSettingsPath")'>Browse…</button>
+          </div>
+        </div>
+        <label class='field'>
+          <span>Formatter profile</span>
+          <input
+            type='text'
+            [ngModel]='java().formatterProfile'
+            (ngModelChange)='patchJava({ formatterProfile: $event })'
+            placeholder='The last in the file'
+          />
+        </label>
+      </div>
+      <p class='settings-field-hint'>
+        Formatting while typing also needs Format on type turned on under Settings → Editor. Indent size follows
+        the editor, not the formatter file.
+      </p>
+    </div>
+  }
+</div>

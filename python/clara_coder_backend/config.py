@@ -41,7 +41,8 @@ def _env_int(name: str, default: int, lo: int, hi: int) -> int:
 # ---------------------------------------------------------------------------
 # Optional output caps (see :mod:`clara_coder_backend.llm.model_tuning`): ``CLARA_CHAT_MAX_OUTPUT_TOKENS``
 # (any model when set and positive). ``CLARA_QWEN_DEFAULT_MAX_OUTPUT_TOKENS`` /
-# ``CLARA_GEMMA_DEFAULT_MAX_OUTPUT_TOKENS`` apply only when explicitly set; Settings 0 omits max_tokens.
+# ``CLARA_GEMMA_DEFAULT_MAX_OUTPUT_TOKENS`` apply only when explicitly set; Settings 0 means no limit on
+# the model client, and local servers get the 24576 per-step default from ``bounded_step_settings``.
 # Max characters returned from the worker to the manager (truncation with notice).
 try:
     CLARA_WORKER_RESULT_MAX_CHARS = max(
@@ -182,15 +183,8 @@ except ValueError:
     MAX_READ_TOOL_STREAM_CHARS = 120_000
 
 # ---------------------------------------------------------------------------
-# LangGraph checkpoint context compression (Settings → Tools overrides via runtime-config)
+# Context window assumed when the active connection reports none
 # ---------------------------------------------------------------------------
-CLARA_CONTEXT_COMPACT_ENABLED = _env_bool('CLARA_CONTEXT_COMPACT_ENABLED', False)
-CLARA_CONTEXT_COMPACT_TRIGGER_RATIO = _env_float('CLARA_CONTEXT_COMPACT_TRIGGER_RATIO', 0.70, 0.5, 0.95)
-CLARA_CONTEXT_COMPACT_TARGET_RATIO = _env_float('CLARA_CONTEXT_COMPACT_TARGET_RATIO', 0.55, 0.4, 0.90)
-CLARA_CONTEXT_COMPACT_PROTECT_TAIL = _env_int('CLARA_CONTEXT_COMPACT_PROTECT_TAIL', 24, 8, 100)
-CLARA_CONTEXT_COMPACT_RECENT_TOOL_CHARS = _env_int('CLARA_CONTEXT_COMPACT_RECENT_TOOL_CHARS', 2000, 200, 20_000)
-CLARA_CONTEXT_COMPACT_OLD_TOOL_CHARS = _env_int('CLARA_CONTEXT_COMPACT_OLD_TOOL_CHARS', 400, 100, 10_000)
-CLARA_CONTEXT_COMPACT_SYSTEM_RESERVE_RATIO = _env_float('CLARA_CONTEXT_COMPACT_SYSTEM_RESERVE_RATIO', 0.25, 0.1, 0.5)
 CLARA_CONTEXT_WINDOW_FALLBACK = _env_int('CLARA_CONTEXT_WINDOW_FALLBACK', 128_000, 1024, 10_000_000)
 
 # ---------------------------------------------------------------------------

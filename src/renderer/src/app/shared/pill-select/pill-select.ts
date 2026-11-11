@@ -38,9 +38,15 @@ export class PillSelectComponent {
   readonly labelKey = input('label');
   readonly value = input('');
   readonly disabled = input(false);
+  /** Trigger text when ``value`` is empty. */
+  readonly placeholder = input('');
   readonly ariaLabel = input('Select');
   /** Id placed on the trigger so an external label can point at it. */
   readonly controlId = input('');
+  /** Narrowest the open menu gets, in px; it still grows to the trigger and stops at the window edge. */
+  readonly menuMinWidth = input(160);
+  /** Widen the open menu to its longest option (still capped at the window) instead of the trigger width. */
+  readonly menuFitContent = input(false);
 
   readonly valueChange = output<string>();
 
@@ -52,7 +58,7 @@ export class PillSelectComponent {
   protected readonly selectedLabel = computed(() => {
     const id = this.value();
     const match = this.options().find((option) => this.optionId(option) === id);
-    return match ? this.optionLabel(match) : id;
+    return match ? this.optionLabel(match) : id || this.placeholder();
   });
 
   constructor() {
@@ -62,18 +68,22 @@ export class PillSelectComponent {
       const menu = this.menu()?.nativeElement;
       if (menu && typeof menu.showPopover === 'function' && !menu.matches(':popover-open')) {
         menu.showPopover();
+        if (this.menuFitContent()) {
+          this.keepMenuInViewport(menu);
+        }
       }
     });
 
+    // Only a scroller around the trigger moves it away from the menu. Unrelated panes, such as a
+    // terminal following llama-server output, scroll all the time and must leave the menu open.
     const onScroll = (event: Event): void => {
       if (!this.open()) {
         return;
       }
       const target = event.target;
-      if (target instanceof Node && this.host.nativeElement.contains(target)) {
-        return;
+      if (target instanceof Node && target.contains(this.host.nativeElement)) {
+        this.open.set(false);
       }
-      this.open.set(false);
     };
     document.addEventListener('scroll', onScroll, true);
     this.destroyRef.onDestroy(() => document.removeEventListener('scroll', onScroll, true));
@@ -151,6 +161,15 @@ export class PillSelectComponent {
     }
   }
 
+  /** Shift a fit-content menu left when its measured width would cross the window's right edge. */
+  private keepMenuInViewport(menu: HTMLElement): void {
+    const r = menu.getBoundingClientRect();
+    const maxLeft = window.innerWidth - r.width - 8;
+    if (r.left > maxLeft) {
+      this.menuStyle.update((style) => ({ ...style, left: `${Math.max(8, maxLeft)}px` }));
+    }
+  }
+
   private placeMenu(): void {
     const trigger = this.host.nativeElement.querySelector('.pill-select__trigger');
     if (!(trigger instanceof HTMLElement)) {
@@ -161,15 +180,20 @@ export class PillSelectComponent {
     const spaceAbove = rect.top;
     const openUp = spaceBelow < 180 && spaceAbove > spaceBelow;
     this.openUp.set(openUp);
-    const width = Math.max(rect.width, 160);
+    const width = Math.min(Math.max(rect.width, this.menuMinWidth()), window.innerWidth - 16);
     const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
     const room = Math.max(120, Math.min(224, (openUp ? spaceAbove : spaceBelow) - 12));
+    // Fit-content menus take their longest option's width; keepMenuInViewport() pulls them back
+    // from the right edge once that width is known.
+    const sizing: Record<string, string> = this.menuFitContent()
+      ? { width: 'max-content', minWidth: `${width}px`, maxWidth: `${window.innerWidth - 16}px` }
+      : { width: `${width}px` };
     this.menuStyle.set(
       openUp
         ? {
             position: 'fixed',
             left: `${left}px`,
-            width: `${width}px`,
+            ...sizing,
             bottom: `${window.innerHeight - rect.top + 6}px`,
             top: 'auto',
             maxHeight: `${room}px`,
@@ -178,7 +202,7 @@ export class PillSelectComponent {
         : {
             position: 'fixed',
             left: `${left}px`,
-            width: `${width}px`,
+            ...sizing,
             top: `${rect.bottom + 6}px`,
             bottom: 'auto',
             maxHeight: `${room}px`,

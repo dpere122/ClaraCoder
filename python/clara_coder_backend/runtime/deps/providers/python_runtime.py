@@ -1,11 +1,14 @@
-"""Ensure app-managed Python venv + core requirements.txt."""
+"""Ensure app-managed Python venv + core requirements.txt.
+
+Not a listed dependency: Kokoro and Whisper call :func:`install` as the first step of
+their own installs, and its progress is reported under their id.
+"""
 
 from __future__ import annotations
 
 import hashlib
 import logging
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -30,38 +33,10 @@ from clara_coder_backend.config import env_clara
 logger = logging.getLogger('clara.runtime.deps.python_runtime')
 
 DEP_ID = 'python-runtime'
-SIZE_HINT = '~150 MB (venv + core packages)'
 REQ_HASH_MARKER = '.clara-requirements-hash'
 
 # Cached ``_base_has_core`` result for the bundled interpreter (status() polls often).
 _BUNDLED_CORE_OK: bool | None = None
-
-
-_REQ_NAME_END = re.compile(r'[\s\[<>=!~;@]')
-
-
-def requirement_names(text: str) -> list[str]:
-    """Distribution names from requirements.txt text (comments/options/markers stripped)."""
-
-    names: list[str] = []
-    for raw in text.splitlines():
-        line = raw.split('#', 1)[0].strip()
-        if not line or line.startswith('-'):
-            continue
-        name = _REQ_NAME_END.split(line, 1)[0].strip()
-        if name and name not in names:
-            names.append(name)
-    return names
-
-
-def components() -> list[str]:
-    """Packages this dependency installs: venv + pip, then everything in requirements.txt."""
-
-    try:
-        text = requirements_txt().read_text(encoding='utf-8')
-    except OSError:
-        text = ''
-    return ['venv', 'pip', *requirement_names(text)]
 
 
 def _requirements_fingerprint() -> str:
@@ -108,7 +83,7 @@ def _requirements_current(venv: Path) -> bool:
     return bool(stored) and stored == digest
 
 
-def _pip_install_requirements(python_exe: Path) -> None:
+def _pip_install_requirements(python_exe: Path, dep_id: str) -> None:
     req = requirements_txt()
     if not req.is_file():
         raise RuntimeError(f'Missing requirements file: {req}')
@@ -117,7 +92,7 @@ def _pip_install_requirements(python_exe: Path) -> None:
     try:
         run_streaming(
             [str(python_exe), '-m', 'pip', 'install', '-r', str(req)],
-            dep_id=DEP_ID,
+            dep_id=dep_id,
             label='pip install',
         )
     except RuntimeError:
@@ -257,95 +232,44 @@ def _core_packages_importable(python_exe: Path) -> bool:
         return False
 
 
+def _status(state: str, *, path: str | None, version: str | None, error: str | None = None) -> dict:
+    return {'id': DEP_ID, 'state': state, 'path': path, 'version': version, 'error': error}
+
+
 def status() -> dict:
+    """State of the runtime venv for the Kokoro / Whisper installs (``installed`` when usable).
+
+    ``error`` means :func:`install` must repair it; the sidecar skips a stale isolated venv meanwhile.
+    """
     venv = get_runtime_python_dir()
     bundled = bundled_python_executable()
     if bundled is not None and venv_python(venv) is None and _bundled_core_importable(str(bundled)):
         manifest = read_bundled_runtime_manifest() or {}
         version = manifest.get('pythonVersion') or _interpreter_version(str(bundled))
-        return {
-            'id': DEP_ID,
-            'label': 'Python runtime',
-            'description': (
-                'Bundled with Clara Coder (core packages); optional packages install into an overlay venv.'
-            ),
-            'version': version,
-            'state': 'installed',
-            'path': str(bundled),
-            'sizeHint': SIZE_HINT,
-            'canDelete': False,
-            'error': None,
-        }
+        return _status('installed', path=str(bundled), version=version)
     py = venv_python(venv)
     version = read_ready_marker(venv)
     if py and version:
-        if _core_packages_importable(py):
-            if not _requirements_current(venv):
-                return {
-                    'id': DEP_ID,
-                    'label': 'Python runtime',
-                    'description': 'App-managed virtualenv with Clara backend packages.',
-                    'version': version,
-                    'state': 'error',
-                    'path': str(py),
-                    'sizeHint': SIZE_HINT,
-                    'canDelete': True,
-                    'error': 'requirements.txt changed; use Download to update packages.',
-                }
-            return {
-                'id': DEP_ID,
-                'label': 'Python runtime',
-                'description': 'App-managed virtualenv with Clara backend packages.',
-                'version': version,
-                'state': 'installed',
-                'path': str(py),
-                'sizeHint': SIZE_HINT,
-                'canDelete': True,
-                'error': None,
-            }
-        return {
-            'id': DEP_ID,
-            'label': 'Python runtime',
-            'description': 'App-managed virtualenv with Clara backend packages.',
-            'version': version,
-            'state': 'error',
-            'path': str(py),
-            'sizeHint': SIZE_HINT,
-            'canDelete': True,
-            'error': 'Venv present but core packages missing.',
-        }
-    # pyvenv.cfg exists but its base interpreter is gone (e.g. previous app install
-    # removed). Tell the user why instead of silently reporting "missing".
+        if not _core_packages_importable(py):
+            return _status('error', path=str(py), version=version, error='Venv present but core packages missing.')
+        if not _requirements_current(venv):
+            return _status('error', path=str(py), version=version, error='requirements.txt changed since setup.')
+        return _status('installed', path=str(py), version=version)
+    # pyvenv.cfg exists but its base interpreter is gone (e.g. previous app install removed).
     if (venv / 'pyvenv.cfg').is_file():
         reason = venv_unusable_reason(venv)
         if reason:
-            return {
-                'id': DEP_ID,
-                'label': 'Python runtime',
-                'description': 'App-managed virtualenv with Clara backend packages.',
-                'version': read_ready_marker(venv),
-                'state': 'error',
-                'path': str(venv),
-                'sizeHint': SIZE_HINT,
-                'canDelete': True,
-                'error': f'Runtime venv is unusable ({reason}); use Download to recreate it.',
-            }
-    return {
-        'id': DEP_ID,
-        'label': 'Python runtime',
-        'description': 'App-managed virtualenv with Clara backend packages.',
-        'version': None,
-        'state': 'missing',
-        'path': None,
-        'sizeHint': SIZE_HINT,
-        'canDelete': True,
-        'error': None,
-    }
+            return _status('error', path=str(venv), version=version, error=f'Runtime venv is unusable ({reason}).')
+    return _status('missing', path=None, version=None)
 
 
-def install(*, force: bool = False) -> dict:
+def install(*, dep_id: str, force: bool = False) -> dict:
+    """Create or refresh the runtime venv as a step of ``dep_id``'s install.
+
+    Progress goes to ``dep_id`` and never reports ``done``: the caller's install goes on.
+    """
     logger.info('install python-runtime force=%s', force)
-    PROGRESS.emit(DEP_ID, 'installing', message='Creating virtualenv…')
+    PROGRESS.emit(dep_id, 'installing', message='Creating virtualenv…')
     venv = get_runtime_python_dir()
     # Resolve before force-delete: sidecar often runs from this venv.
     base = _base_python(venv)
@@ -357,7 +281,7 @@ def install(*, force: bool = False) -> dict:
     if venv.exists() and (force or unusable):
         if unusable and not force:
             logger.warning('removing unusable runtime venv (%s) path=%s', unusable, venv)
-            PROGRESS.emit(DEP_ID, 'installing', message=f'Recreating runtime venv ({unusable})…')
+            PROGRESS.emit(dep_id, 'installing', message=f'Recreating runtime venv ({unusable})…')
         shutil.rmtree(venv, ignore_errors=True)
 
     existing = venv_python(venv)
@@ -369,18 +293,18 @@ def install(*, force: bool = False) -> dict:
                 st.get('path'),
                 st.get('version'),
             )
-            PROGRESS.emit(DEP_ID, 'done', message='Already installed')
+            PROGRESS.emit(dep_id, 'installing', message='Python runtime already set up')
             return st
         if bundled:
             logger.info('python-runtime bundled requirements hash stale; rewriting marker path=%s', existing)
             _write_requirements_hash(venv)
-            PROGRESS.emit(DEP_ID, 'done', message='Core packages come from the bundled runtime')
+            PROGRESS.emit(dep_id, 'installing', message='Core packages come from the bundled runtime')
             return status()
         logger.info('python-runtime requirements.txt changed; updating packages path=%s', existing)
-        PROGRESS.emit(DEP_ID, 'installing', message='Updating Python packages…')
-        _pip_install_requirements(existing)
+        PROGRESS.emit(dep_id, 'installing', message='Updating Python packages…')
+        _pip_install_requirements(existing, dep_id)
         _write_requirements_hash(venv)
-        PROGRESS.emit(DEP_ID, 'done', message='Python runtime packages updated')
+        PROGRESS.emit(dep_id, 'installing', message='Python runtime packages updated')
         return status()
 
     venv.mkdir(parents=True, exist_ok=True)
@@ -390,7 +314,7 @@ def install(*, force: bool = False) -> dict:
         else [base, '-m', 'venv', str(venv)]
     )
     try:
-        run_streaming(argv, dep_id=DEP_ID, label='venv create')
+        run_streaming(argv, dep_id=dep_id, label='venv create')
     except RuntimeError as exc:
         logger.error('python-runtime venv create failed: %s', exc)
         raise RuntimeError(f'Failed to create venv: {exc}') from exc
@@ -399,37 +323,28 @@ def install(*, force: bool = False) -> dict:
     if not py:
         raise RuntimeError(f'Venv created but python missing under {venv}')
 
-    PROGRESS.emit(DEP_ID, 'installing', message='Bootstrapping pip…')
+    PROGRESS.emit(dep_id, 'installing', message='Bootstrapping pip…')
     run_streaming(
         [str(py), '-m', 'ensurepip', '--upgrade'],
-        dep_id=DEP_ID,
+        dep_id=dep_id,
         label='ensurepip',
         check=False,
     )
 
     if overlay:
         PROGRESS.emit(
-            DEP_ID,
+            dep_id,
             'installing',
             message='Core packages provided by the bundled runtime; skipping pip install',
         )
     else:
-        PROGRESS.emit(DEP_ID, 'installing', message='Installing core packages…')
-        _pip_install_requirements(py)
+        PROGRESS.emit(dep_id, 'installing', message='Installing core packages…')
+        _pip_install_requirements(py, dep_id)
 
     # Version of the venv interpreter (matches ``base``), not the possibly-different sidecar.
     ver = _interpreter_version(str(py))
     write_ready_marker(venv, ver)
     _write_requirements_hash(venv)
     logger.info('python-runtime ready path=%s version=%s', py, ver)
-    PROGRESS.emit(DEP_ID, 'done', message='Python runtime ready')
-    return status()
-
-
-def delete() -> dict:
-    venv = get_runtime_python_dir()
-    logger.info('delete python-runtime path=%s', venv)
-    if venv.exists():
-        shutil.rmtree(venv, ignore_errors=True)
-    PROGRESS.emit(DEP_ID, 'done', message='Python runtime removed')
+    PROGRESS.emit(dep_id, 'installing', message='Python runtime ready')
     return status()

@@ -1,4 +1,6 @@
+import { defaultLspServersSettings } from '../../shared/lsp-settings';
 import { randomUUID } from 'crypto';
+import { DEFAULT_SCREENSHOT_RETENTION } from '../../shared/screenshot-retention';
 import { homedir } from 'os';
 import path = require('path');
 import type {
@@ -15,6 +17,8 @@ import {
   DEFAULT_CHAT_CONTAINER_SIZE,
   DEFAULT_CHAT_THINKING_DISPLAY,
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
+  DEFAULT_MANAGED_LLAMA_SOURCE_NAME,
+  DEFAULT_URL_SOURCE_NAME,
   DEFAULT_KOKORO_TTS_VOICE,
   DEFAULT_OPENAI_TTS_BASE_URL,
   DEFAULT_TTS_PROVIDER,
@@ -23,18 +27,19 @@ import {
   defaultMonacoWorkspaceEditorSettings,
   getDefaultContextCompression,
   inferContextWindowTokens,
-  PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   PINNED_LM_STUDIO_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
   PINNED_OPENROUTER_PROVIDER_ID,
+  PINNED_ANTHROPIC_PROVIDER_ID,
   OPENROUTER_DEFAULT_BASE_URL,
   TTS_SPEECH_SPEED_DEFAULT,
 } from '../../shared';
 import { SecretValue } from '../../shared/types/app-config';
+import { createDefaultTutorialProgress } from '../../shared/types/tutorial';
 import { FIRST_THEME_ID } from '../constants';
 
 /** Bump when persisted `config.json` needs a one-time migration step (see `migrateConfig`). */
-export const APP_CONFIG_SCHEMA_VERSION = 8;
+export const APP_CONFIG_SCHEMA_VERSION = 9;
 
 function defaultLmStudioModelProfile(): LlmModelProfile {
   const defaultLmStudioModel = process.env.LM_STUDIO_MODEL || 'local-model';
@@ -58,7 +63,7 @@ function defaultLmStudioModelProfile(): LlmModelProfile {
 export function createPinnedLmStudioProvider(): LlmProviderConfig {
   return {
     id: PINNED_LM_STUDIO_PROVIDER_ID,
-    name: 'LM Studio Default',
+    name: 'LM Studio',
     provider: 'lmstudio',
     baseUrl: process.env.LM_STUDIO_BASE_URL || 'http://127.0.0.1:1234/v1',
     apiKey: SecretValue.of(process.env.LM_STUDIO_API_KEY || 'lm-studio'),
@@ -66,23 +71,23 @@ export function createPinnedLmStudioProvider(): LlmProviderConfig {
   };
 }
 
-/** Pinned managed llama-server on this machine (stable id; never deleted in UI). */
-export function createPinnedLocalManagedLlamaProvider(): LlmProviderConfig {
+/** The managed llama-server source a new config starts with; an ordinary source the user can remove. */
+function createLocalManagedLlamaProvider(): LlmProviderConfig {
   const defaultLlamacppModel = process.env.LLAMACPP_MODEL || 'local-model';
   const chatRunCommand =
     process.env.LLAMACPP_CHAT_RUN_COMMAND ||
     DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND;
   const embeddingRunCommand = process.env.LLAMACPP_EMBEDDING_RUN_COMMAND || '';
   return {
-    id: PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
-    name: 'Llama server (local)',
+    id: randomUUID(),
+    name: DEFAULT_MANAGED_LLAMA_SOURCE_NAME,
     provider: 'llamacpp',
     baseUrl: process.env.LLAMACPP_BASE_URL || 'http://127.0.0.1:8080/v1',
     apiKey: SecretValue.of(process.env.LLAMACPP_API_KEY || ''),
     models: [
       {
-        id: 'default-llamacpp',
-        name: 'llama.cpp local',
+        id: randomUUID(),
+        name: 'Model 1',
         model: defaultLlamacppModel,
         contextWindowTokens: inferContextWindowTokens(defaultLlamacppModel, 'llamacpp'),
         reasoningEffort: '',
@@ -103,12 +108,12 @@ export function createPinnedLocalManagedLlamaProvider(): LlmProviderConfig {
   };
 }
 function defaultLlamacppUrlModelProfile(): LlmModelProfile {
-  const defaultM = process.env.LLAMA_SERVER_DEFAULT_MODEL || 'local-model';
+  const defaultM = process.env.LLAMA_SERVER_DEFAULT_MODEL || '';
   return {
     id: 'default-llama-server-url',
     name: 'Llama server (URL)',
     model: defaultM,
-    contextWindowTokens: inferContextWindowTokens(defaultM, 'llamacpp'),
+    contextWindowTokens: inferContextWindowTokens(defaultM, 'openai-compatible'),
     reasoningEffort: '',
     thinkingMode: 'default',
     samplingPreset: 'provider-default',
@@ -120,17 +125,14 @@ function defaultLlamacppUrlModelProfile(): LlmModelProfile {
   };
 }
 
-/** Pinned remote ``llama-server`` row (OpenAI-compatible URL; no managed Start). */
+/** Pinned row for any server with an OpenAI-compatible API (no managed Start). */
 export function createPinnedLlamaServerUrlProvider(): LlmProviderConfig {
   const chatBase = process.env.LLAMA_SERVER_BASE_URL || 'http://127.0.0.1:8080/v1';
-  const embeddingsBase =
-    process.env.LLAMA_SERVER_EMBEDDINGS_BASE_URL || 'http://127.0.0.1:8081/v1';
   return {
     id: PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
-    name: 'Llama server (URL)',
-    provider: 'llamacpp',
+    name: DEFAULT_URL_SOURCE_NAME,
+    provider: 'openai-compatible',
     baseUrl: chatBase,
-    embeddingsBaseUrl: embeddingsBase,
     apiKey: SecretValue.of(process.env.LLAMA_SERVER_API_KEY || ''),
     models: [defaultLlamacppUrlModelProfile()],
   };
@@ -165,12 +167,45 @@ export function createPinnedOpenRouterProvider(): LlmProviderConfig {
   };
 }
 
+function defaultAnthropicModelProfile(): LlmModelProfile {
+  return {
+    id: 'default-anthropic',
+    name: 'Claude',
+    model: '',
+    contextWindowTokens: inferContextWindowTokens('', 'anthropic'),
+    reasoningEffort: '',
+    thinkingMode: 'default',
+    samplingPreset: 'provider-default',
+    architectureHint: 'auto',
+    temperature: 0,
+    parallelToolCalls: true,
+    optimizationPreset: 'generic',
+    maxOutputTokens: 0,
+  };
+}
+
+/**
+ * Pinned Claude row (stable id; never deleted in UI). ``apiKey`` stays empty: the key lives in
+ * main's keychain store (``anthropic-key-store``) and is never part of the config.
+ */
+export function createPinnedAnthropicProvider(): LlmProviderConfig {
+  return {
+    id: PINNED_ANTHROPIC_PROVIDER_ID,
+    name: 'Claude',
+    provider: 'anthropic',
+    baseUrl: '',
+    apiKey: SecretValue.of(''),
+    models: [defaultAnthropicModelProfile()],
+  };
+}
+
 export function getDefaultLlmProviders(): LlmProviderConfig[] {
   return [
     createPinnedLmStudioProvider(),
     createPinnedLlamaServerUrlProvider(),
-    createPinnedLocalManagedLlamaProvider(),
     createPinnedOpenRouterProvider(),
+    createPinnedAnthropicProvider(),
+    createLocalManagedLlamaProvider(),
   ];
 }
 
@@ -203,6 +238,11 @@ export function getDefaultWorkspaceTools(): WorkspaceToolsConfig {
     exposeAllWorkspaceFiles: false,
     allowWebAccess: false,
     searxngBaseUrl: '',
+    webSearchProvider: 'auto',
+    webSearchEngines: [],
+    webSearchUserAgent: '',
+    webSearchCooldownSeconds: 300,
+    screenshotRetention: { ...DEFAULT_SCREENSHOT_RETENTION },
     extraUserPath: '',
     enableAgentFormatters: false,
   };
@@ -237,6 +277,7 @@ export function createDefaultConfig(): AppConfig {
   const llmProviders = getDefaultLlmProviders();
   return {
     configSchemaVersion: APP_CONFIG_SCHEMA_VERSION,
+    tutorial: createDefaultTutorialProgress(),
     currentWorkspaceId: null,
     defaultHomePageOnStart: false,
     lastActiveConversationByWorkspaceId: {},
@@ -259,9 +300,11 @@ export function createDefaultConfig(): AppConfig {
     chatExpandedToMainPanel: false,
     chatContainerSize: DEFAULT_CHAT_CONTAINER_SIZE,
     chatThinkingDisplay: DEFAULT_CHAT_THINKING_DISPLAY,
+    confirmMove: true,
     uiFontFamily: '',
     codeFontFamily: '',
     monacoWorkspaceEditor: defaultMonacoWorkspaceEditorSettings(),
+    lspServers: defaultLspServersSettings(),
   };
 }
 

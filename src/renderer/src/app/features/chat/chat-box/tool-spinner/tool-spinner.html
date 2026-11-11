@@ -10,29 +10,78 @@
 >
   @switch (kind()) {
     @case ('think') {
-      <!-- Sierpinski triangle turning; its inner triangle pulses. -->
-      <g class="ts-turn">
-        <path class="ts-line" d="M16 4l12 21H4z" stroke-width="1.8" />
-        <path class="ts-hi ts-pulse" d="M22 14.5L16 25l-6-10.5z" stroke-width="1.8" />
-      </g>
+      <!-- Thought bubble: the trail rises into it and its three dots pulse in turn. -->
+      <circle class="ts-dot ts-wave" cx="7.5" cy="26" r="1.6" />
+      <circle class="ts-third ts-wave ts-d1" cx="11.5" cy="20.5" r="2.4" />
+      <circle class="ts-line ts-fill" cx="20" cy="11" r="7.5" />
+      <circle class="ts-dot ts-pulse" cx="16.8" cy="11" r="1.1" />
+      <circle class="ts-dot ts-pulse ts-d1" cx="20" cy="11" r="1.1" />
+      <circle class="ts-dot ts-pulse ts-d2" cx="23.2" cy="11" r="1.1" />
     }
     @case ('prefill') {
-      <!-- Cantor set: each level splits the one above into thirds. -->
-      <path class="ts-line ts-level" d="M4 8h24" stroke-width="3" />
-      <path class="ts-line ts-level ts-d1" d="M4 15h8M20 15h8" stroke-width="3" />
-      <path class="ts-hi ts-level ts-d2" d="M4 22h2.67M9.33 22h2.67M20 22h2.67M25.33 22h2.67" stroke-width="3" />
+      <!-- Absorbing: a drop falls into the pool and rings spread out from it. -->
+      <path class="ts-line" d="M2.5 23h4.5M25 23h4.5" />
+      <ellipse class="ts-third ts-pf-ripple" cx="16" cy="23" rx="3.6" ry="1.5" vector-effect="non-scaling-stroke" />
+      <ellipse class="ts-third ts-pf-ripple-2" cx="16" cy="23" rx="3.6" ry="1.5" vector-effect="non-scaling-stroke" />
+      <path class="ts-hi ts-fill-hi ts-pf-fall" d="M16 5c2.6 3.4 4 5.6 4 7.4a4 4 0 0 1-8 0c0-1.8 1.4-4 4-7.4z" />
+    }
+    @case ('prefill-unfold') {
+      <!-- Unfolding: the side panels of a folded sheet close in and open out again. -->
+      <rect class="ts-line ts-fill" x="12" y="7" width="8" height="18" rx="0.8" />
+      <path class="ts-hi ts-wave" d="M14.5 12h3" />
+      <path class="ts-hi ts-wave ts-d1" d="M14.5 16h3" />
+      <path class="ts-hi ts-wave ts-d2" d="M14.5 20h2" />
+      <g class="ts-pf-flap-l">
+        <path class="ts-third" d="M12 7L5 8.5v15L12 25" />
+        <path class="ts-third ts-thin" d="M7.5 13h2.5M7.5 17h2.5" />
+      </g>
+      <g class="ts-pf-flap-r">
+        <path class="ts-third" d="M20 7l7 1.5v15L20 25" />
+        <path class="ts-third ts-thin" d="M22 13h2.5M22 17h2.5" />
+      </g>
+    }
+    @case ('prefill-decipher') {
+      <!-- Deciphering: a cipher dial clicks round under the index mark until the key lines up. -->
+      <path class="ts-dot ts-pulse" d="M14.4 0.6h3.2L16 3z" />
+      <circle class="ts-line" cx="16" cy="16" r="12" />
+      <g class="ts-pf-dial">
+        <path
+          class="ts-third ts-thin"
+          d="M24.8 16h1.8M22.2 22.2l1.3 1.3M16 24.8v1.8M9.8 22.2l-1.3 1.3M7.2 16H5.4M9.8 9.8L8.5 8.5M22.2 9.8l1.3-1.3"
+        />
+        <path class="ts-hi ts-bold" d="M16 7.2V5.4" />
+      </g>
+      <g class="ts-pf-dial-in">
+        <circle class="ts-third" cx="16" cy="16" r="5.6" />
+        <path class="ts-hi" d="M16 10.4v2.4" />
+      </g>
+      <circle class="ts-dot" cx="16" cy="16" r="1.4" />
+    }
+    @case ('prefill-attune') {
+      <!-- Attuning: two waves drift into phase and become one; the dot lights while they agree. -->
+      <path class="ts-line ts-pf-wave-a" d="M4 16q3-8 6 0t6 0t6 0t6 0" />
+      <path class="ts-hi ts-pf-wave-b" d="M4 16q3-8 6 0t6 0t6 0t6 0" />
+      <circle class="ts-dot ts-pf-tuned" cx="16" cy="25.5" r="1.6" />
     }
     @case ('read') {
-      <!-- Nested squares lighting from the outside in. -->
-      <path class="ts-line ts-wave" d="M6 6h20v20H6z" stroke-width="1.8" />
-      <path class="ts-third ts-wave ts-d1" d="M16 6l10 10-10 10L6 16z" stroke-width="1.8" />
-      <path class="ts-hi ts-wave ts-d2" d="M11 11h10v10H11z" stroke-width="1.8" />
+      <!-- Scanner: a beam sweeps down the frame and back over the lines. -->
+      <path class="ts-line" d="M5 10V5h5M22 5h5v5M27 22v5h-5M10 27H5v-5" />
+      <path class="ts-third ts-thin" d="M9.5 11h13M9.5 16h10M9.5 21h12" />
+      <path class="ts-hi ts-bold ts-scan" d="M7 16h18" />
     }
     @case ('run') {
-      <!-- Hex core: two hexagons spinning against each other. -->
-      <path class="ts-line ts-cw" d="M26 16l-5 8.66H11L6 16l5-8.66h10z" stroke-width="1.8" />
-      <path class="ts-third ts-ccw" d="M22.5 16l-3.25 5.63h-6.5L9.5 16l3.25-5.63h6.5z" stroke-width="1.8" />
-      <circle class="ts-dot" cx="16" cy="16" r="1.6" />
+      <!-- Gear turning round a play mark; the dashed ring is its 12 teeth. -->
+      <circle
+        class="ts-third ts-cw"
+        cx="16"
+        cy="16"
+        r="11.2"
+        stroke-width="3.2"
+        stroke-linecap="butt"
+        stroke-dasharray="2.93 2.93"
+      />
+      <circle class="ts-line ts-fill" cx="16" cy="16" r="8" />
+      <path class="ts-hi ts-fill-hi" d="M13.8 11.8v8.4l6.8-4.2z" />
     }
     @case ('web') {
       <!-- A signal branching out to the nodes. -->
@@ -58,6 +107,12 @@
       <rect class="ts-line" x="5" y="7" width="22" height="18" rx="2.5" />
       <path class="ts-third" d="M7 23l5.5-6 4 4.5 3-3 5.5 4.5" />
       <circle class="ts-dot ts-node" cx="21" cy="12.5" r="2" />
+    }
+    @case ('screenshot') {
+      <!-- Camera; the shutter pulses while a webpage capture is running. -->
+      <path class="ts-line" d="M5 10h5l2-4h8l2 4h5v16H5z" />
+      <circle class="ts-hi ts-pulse" cx="16" cy="17" r="5" />
+      <circle class="ts-dot" cx="24" cy="13" r="1" />
     }
     @case ('list') {
       <!-- Directory tree; entries light in order. -->
@@ -326,16 +381,11 @@
       <circle class="ts-dot ts-pulse ts-d1" cx="19" cy="4" r="1" />
     }
     @default {
-      <!-- write: a fractal tree growing level by level. -->
-      <path class="ts-line ts-grow" d="M16 28v-8" stroke-width="2.4" />
-      <path class="ts-line ts-grow ts-d1" d="M16 20l-5-5M16 20l5-5" stroke-width="2" />
-      <path class="ts-third ts-grow ts-d2" d="M11 15l-3-4M11 15l2-4.5M21 15l-2-4.5M21 15l3-4" stroke-width="1.8" />
-      <g class="ts-grow ts-d3">
-        <circle class="ts-dot" cx="8" cy="11" r="1.4" />
-        <circle class="ts-dot" cx="13" cy="10.5" r="1.4" />
-        <circle class="ts-dot" cx="19" cy="10.5" r="1.4" />
-        <circle class="ts-dot" cx="24" cy="11" r="1.4" />
-      </g>
+      <!-- write: blocks dropping onto a base, the top one last. -->
+      <path class="ts-third" d="M3 28.5h26" />
+      <rect class="ts-line ts-fill ts-drop" x="5" y="19" width="10" height="7.5" rx="1.2" />
+      <rect class="ts-line ts-fill ts-drop ts-d1" x="17" y="19" width="10" height="7.5" rx="1.2" />
+      <rect class="ts-hi ts-fill-hi ts-drop ts-d2" x="11" y="9.5" width="10" height="7.5" rx="1.2" />
     }
   }
 </svg>

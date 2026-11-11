@@ -29,6 +29,7 @@ import { getDefaultCustomModelsDir } from '../config/defaults';
 import { loadConfigSync } from '../config/load-save';
 import { unwrapSecret } from '../../shared';
 import { killProcessTree } from '../utils/kill-process-tree';
+import { screenshotBrokerEnvironment, startScreenshotBroker } from '../web/screenshot-browser';
 
 let reportedMissingBundledRuntime = false;
 
@@ -154,6 +155,7 @@ export async function ensurePythonServer(): Promise<void> {
       `Foreign process already listening on PYTHON_PORT (${PYTHON_PORT}); refusing to reuse it as the Clara sidecar.`,
     );
   }
+  await startScreenshotBroker();
   const proc = startPythonServer();
   await waitForPython(proc);
 }
@@ -203,6 +205,7 @@ export async function restartPythonServer(): Promise<void> {
     // 'ours' with a dying child — keep waiting for the port to free.
     await new Promise((r) => setTimeout(r, 200));
   }
+  await startScreenshotBroker();
   const next = startPythonServer();
   await waitForPython(next);
   await resyncRuntimeConfigAfterSidecarRestart();
@@ -271,6 +274,7 @@ export function startPythonServer(): ChildProcess {
       ...spawnEnv,
       PYTHONUNBUFFERED: '1',
       CLARA_SIDECAR_TOKEN: sidecarToken,
+      ...screenshotBrokerEnvironment(),
       CLARA_PYTHON_PORT: String(PYTHON_PORT),
       CLARA_LOG_DIR: logDir,
       CLARA_STAGING_DIR: stagingDir,

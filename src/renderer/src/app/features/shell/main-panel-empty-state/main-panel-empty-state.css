@@ -89,15 +89,20 @@
  * Home (no workspace, IDE flat): a start page instead of the centered logo card. Title row,
  * then two columns: Start / Favorites / Recent lists on the left, Runtime on the right.
  * Rows are full-width with hover fills; section headings are small muted caps.
+ * The page itself never scrolls: it fills the panel height, and the Favorites and Recent
+ * lists share what is left of the main column, each scrolling on its own.
  */
 .main-panel-empty--home {
-  align-items: flex-start;
+  align-items: stretch;
   justify-content: center;
-  overflow-y: auto;
 }
 
 .home {
+  container: home / inline-size;
+  display: flex;
+  flex-direction: column;
   width: min(100%, 60rem);
+  min-height: 0;
   box-sizing: border-box;
   padding: clamp(2rem, 9vh, 5.5rem) 1.5rem 3rem;
   color: var(--t-fg);
@@ -106,6 +111,7 @@
 
 .home__header {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 1rem;
 }
@@ -136,14 +142,26 @@
 
 .home__columns {
   display: flex;
-  flex-wrap: wrap;
+  flex: 1 1 auto;
+  min-height: 0;
   gap: 0 3.5rem;
   margin-top: 0.75rem;
 }
 
+/*
+ * Start keeps its height; the rows after it (Favorites, Recent) grow evenly up to their content,
+ * so a short list stays whole and a long one takes the rest and scrolls. The column track is
+ * minmax(0, 1fr) so long nowrap paths ellipsize instead of widening the rows past the column.
+ */
 .home__col--main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto;
+  grid-auto-rows: minmax(0, max-content);
+  align-content: start;
   flex: 1 1 22rem;
   min-width: 0;
+  min-height: 0;
 }
 
 .home__col--side {
@@ -151,8 +169,39 @@
   min-width: 0;
 }
 
+/* Too narrow for two columns (22rem + 17rem + gap): Runtime drops below the lists. */
+@container home (width < 42.5rem) {
+  .home__columns {
+    flex-direction: column;
+  }
+
+  .home__col--main {
+    flex: 1 1 auto;
+  }
+
+  .home__col--side {
+    flex: 0 0 auto;
+  }
+}
+
 .home__section {
   margin-top: 1.75rem;
+}
+
+/* Favorites / Recent: fill their grid row and scroll their rows; the heading stays put. */
+.home__section--scroll {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.home__section--scroll .home__heading {
+  flex-shrink: 0;
+}
+
+.home__section--scroll .home__list {
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .home__heading {
@@ -162,6 +211,39 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--t-text-muted);
+}
+
+.home__heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.home__heading-row .home__heading {
+  margin: 0;
+}
+
+/* Negative margins keep the row as tall as a plain heading, so the columns stay level. */
+.home__heading-action {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin: -0.5rem 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--chat-radius-sm);
+  background: transparent;
+  color: var(--t-text-muted);
+  cursor: pointer;
+}
+
+.home__heading-action:hover {
+  background: var(--t-hover-bg);
+  color: var(--t-fg);
 }
 
 .home__list {
@@ -191,7 +273,19 @@
   background: var(--t-hover-bg);
 }
 
+/* Core runtime dependencies still need downloading. */
+.home__action--attention {
+  color: var(--t-warn);
+  background: color-mix(in srgb, var(--t-warn) 10%, transparent);
+}
+
+.home__action-alert {
+  margin-left: auto;
+  color: var(--t-warn);
+}
+
 .home__action:focus-visible,
+.home__heading-action:focus-visible,
 .home__row-main:focus-visible,
 .home__row-action:focus-visible,
 .home__row-grip:focus-visible,

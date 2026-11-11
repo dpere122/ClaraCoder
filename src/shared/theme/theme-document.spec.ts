@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BUILTIN_THEMES,
   CLARA_DARK_THEME,
   CLARA_LIGHT_THEME,
   DEFAULT_THEME,
@@ -16,10 +17,32 @@ import {
   validateThemeDocument,
 } from './theme-document';
 import { THEME_TOKENS } from './theme-tokens';
+import { scopeThemeCss } from './theme-css-scope';
 
 describe('validateThemeDocument', () => {
+  it('ships the Clara Dark Royal Ocean and Cadmium Lantern, and Clara Light Mint, Iris and Ochre built-ins', () => {
+    expect(BUILTIN_THEMES.map((t) => [t.id, t.name, t.mode])).toEqual([
+      ['clara-dark', 'Clara Dark Royal Ocean', 'dark'],
+      ['clara-dark-cadmium-lantern', 'Clara Dark Cadmium Lantern', 'dark'],
+      ['clara-dark-cadmium-orange', 'Clara Dark Cadmium Orange', 'dark'],
+      ['clara-light', 'Clara Light Mint', 'light'],
+      ['clara-light-iris', 'Clara Light Iris', 'light'],
+      ['clara-light-ochre', 'Clara Light Ochre', 'light'],
+    ]);
+  });
+
+  it('keeps every built-in group override intact through the CSS scoper', () => {
+    for (const builtIn of BUILTIN_THEMES) {
+      for (const [groupId, group] of Object.entries(builtIn.groups)) {
+        if (!group?.css) continue;
+        const scoped = scopeThemeCss(group.css, `[data-theme-group="${groupId}"]`);
+        expect(scoped.warnings, `${builtIn.id} ${groupId}`).toEqual([]);
+      }
+    }
+  });
+
   it('accepts the built-in themes without warnings about tokens', () => {
-    for (const builtIn of [DEFAULT_THEME, CLARA_DARK_THEME, CLARA_LIGHT_THEME]) {
+    for (const builtIn of BUILTIN_THEMES) {
       const result = validateThemeDocument(builtIn);
       expect(result.ok).toBe(true);
       expect(result.errors).toEqual([]);
@@ -29,21 +52,22 @@ describe('validateThemeDocument', () => {
   });
 
   it('built-ins define every catalog token', () => {
-    for (const builtIn of [DEFAULT_THEME, CLARA_DARK_THEME, CLARA_LIGHT_THEME]) {
+    for (const builtIn of BUILTIN_THEMES) {
       for (const token of THEME_TOKENS) {
         expect(builtIn.tokens[token.name], `${builtIn.id} ${token.name}`).toBeTruthy();
       }
     }
   });
 
-  it('makes Default the default and dark base, keeping Clara Light for light mode', () => {
-    expect(DEFAULT_THEME_ID).toBe('default');
+  it('makes Clara Dark Royal Ocean the default and dark base, keeping Clara Light for light mode', () => {
+    expect(DEFAULT_THEME_ID).toBe('clara-dark');
+    expect(DEFAULT_THEME).toBe(CLARA_DARK_THEME);
     expect(DEFAULT_THEME.mode).toBe('dark');
-    expect(builtInThemeForMode('dark').id).toBe('default');
+    expect(builtInThemeForMode('dark').id).toBe('clara-dark');
     expect(builtInThemeForMode('light').id).toBe(CLARA_LIGHT_THEME.id);
-    expect(resolveLegacyThemeId('default')).toBe('default');
+    expect(resolveLegacyThemeId('default')).toBe('clara-dark');
     expect(resolveLegacyThemeId('woodland')).toBe(CLARA_DARK_THEME.id);
-    expect(resolveLegacyThemeId('')).toBe('default');
+    expect(resolveLegacyThemeId('')).toBe('clara-dark');
   });
 
   it('rejects non-objects and bad versions', () => {

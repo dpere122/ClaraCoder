@@ -48,6 +48,15 @@ function indicativeDetailKind(label: string): string {
   if (normalized.includes('script')) {
     return 'script';
   }
+  if (normalized.includes('user-agent') || normalized.includes('user agent')) {
+    return 'ua';
+  }
+  if (normalized === 'query') {
+    return 'query';
+  }
+  if (normalized === 'limit') {
+    return 'limit';
+  }
   return '';
 }
 

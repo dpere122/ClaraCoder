@@ -73,7 +73,7 @@ async def _on_async_request(request: httpx.Request) -> None:
 
 
 def _is_llm_generation_request(response: httpx.Response) -> bool:
-    """True for OpenAI-style completion endpoints (not health/slots/embeddings)."""
+    """True for completion endpoints: OpenAI-style, and Claude ``/v1/messages`` (not health/slots/embeddings)."""
     try:
         path = str(response.request.url.path).lower()
     except Exception:
@@ -82,6 +82,7 @@ def _is_llm_generation_request(response: httpx.Response) -> bool:
         'chat/completions' in path
         or path.rstrip('/').endswith('/completions')
         or '/responses' in path
+        or path.rstrip('/').endswith('/v1/messages')
     )
 
 
@@ -222,9 +223,87 @@ def acquire_llm_http_clients(timeout: httpx.Timeout) -> tuple[httpx.Client, http
     return _sync_client, _async_client
 
 
+_anthropic_clients: tuple[Any, Any] | None = None
+_anthropic_timeout: float | None = None
+
+
+def acquire_anthropic_http_clients(timeout: float) -> tuple[Any, Any]:
+    """Return process-wide ``httpx2`` clients for the Anthropic SDK, on the same Stop hooks.
+
+    The Anthropic SDK only accepts ``httpx2`` clients, so it cannot share the ``httpx`` pair
+    above; the hooks only touch attributes both libraries have, so Stop closes a Claude
+    ``/v1/messages`` stream the same way it closes a Chat Completions one.
+    """
+    global _anthropic_clients, _anthropic_timeout
+    if _anthropic_clients is not None and _anthropic_timeout == timeout:
+        sync_c, async_c = _anthropic_clients
+        if not sync_c.is_closed and not async_c.is_closed:
+            return _anthropic_clients
+
+    import httpx2
+
+    class _OwnedSyncClient2(httpx2.Client):
+        def close(self) -> None:
+            return
+
+        def _dispose(self) -> None:
+            super().close()
+
+    class _OwnedAsyncClient2(httpx2.AsyncClient):
+        async def aclose(self) -> None:
+            return
+
+        async def _dispose(self) -> None:
+            await super().aclose()
+
+    old = _anthropic_clients
+    pair = (
+        _OwnedSyncClient2(
+            timeout=timeout,
+            event_hooks={'request': [_on_sync_request], 'response': [_on_sync_response]},
+        ),
+        _OwnedAsyncClient2(
+            timeout=timeout,
+            event_hooks={'request': [_on_async_request], 'response': [_on_async_response]},
+        ),
+    )
+    _anthropic_clients = pair
+    _anthropic_timeout = timeout
+    if old is not None:
+        _dispose_owned_pair_soon(old)
+    return pair
+
+
+def _dispose_owned_pair_soon(pair: tuple[Any, Any]) -> None:
+    sync_c, async_c = pair
+    try:
+        sync_c._dispose()
+    except Exception:
+        logger.debug('sync anthropic httpx2 client dispose failed', exc_info=True)
+
+    async def _go() -> None:
+        try:
+            await async_c._dispose()
+        except Exception:
+            logger.debug('async anthropic httpx2 client dispose failed', exc_info=True)
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(_go())
+        return
+    loop.create_task(_go())
+
+
 async def reset_llm_http_clients() -> None:
     """Dispose owned clients and clear in-flight maps (tests and timeout rebuilds)."""
-    global _sync_client, _async_client, _client_timeout
+    global _sync_client, _async_client, _client_timeout, _anthropic_clients, _anthropic_timeout
+    anthropic_pair = _anthropic_clients
+    _anthropic_clients = None
+    _anthropic_timeout = None
+    if anthropic_pair is not None:
+        anthropic_pair[0]._dispose()
+        await anthropic_pair[1]._dispose()
     with _lock:
         _in_flight_sync.clear()
         _in_flight_async.clear()

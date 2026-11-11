@@ -1,7 +1,12 @@
 import {
   type ChatThinkingDisplay,
   type StreamPart,
+  condenseToolTrailText,
+  isAwaitingApprovalText,
+  isDeclinedToolCall,
   isHitlTrailStreamTag,
+  isRunCommandLaneRunning,
+  isRunCommandStreamTag,
   isToolTrailStatusStreamTag,
   toolPillLabel,
   toolStatusStreamPartMeta,
@@ -140,17 +145,64 @@ export function previewItemLabel(item: TurnFeedItem): string {
   }
 }
 
+/** Pill verbs of one `run_command`: its call row and its output lane, before and after it ends. */
+const COMMAND_VERBS: ReadonlySet<string> = new Set(['Run', 'Running']);
+
+/** True for a `run_command` row still in flight: the running call or its unfinished output lane. */
+function isRunningCommandItem(item: TurnFeedItem): boolean {
+  if (item.kind !== 'tool') {
+    return false;
+  }
+  const { part } = item;
+  return (
+    isRunCommandLaneRunning(part, true)
+    || (isToolTrailStatusStreamTag(part.streamTag) && part.label.trim() === 'run_command' && part.toolChainState === 'running')
+  );
+}
+
+/**
+ * True while a command in the open preview's batch is in flight. An approved command runs while
+ * its card still reads as pending, so this, not the turn's spinner state, decides that it glows.
+ */
+export function previewRunsCommand(current: TurnFeedItem | undefined, inbound: readonly TurnFeedItem[]): boolean {
+  return !!current && [current, ...currentBatchInbound(current, inbound)].some(isRunningCommandItem);
+}
+
+/**
+ * True once the open preview's batch holds a finished command or a declined call, and nothing there
+ * still runs or waits on its card. A call that never started a command has no lane, only its call row.
+ */
+function previewCommandFinished(current: TurnFeedItem, inbound: readonly TurnFeedItem[]): boolean {
+  const parts = [current, ...currentBatchInbound(current, inbound)].flatMap((item) =>
+    item.kind === 'tool' ? [item.part] : [],
+  );
+  const settled = parts.some(
+    (part) => isRunCommandStreamTag(part.streamTag) || isDeclinedToolCall(part) || part.label.trim() === 'run_command',
+  );
+  return (
+    settled
+    && !parts.some(
+      (part) =>
+        part.toolChainState === 'running' || isRunCommandLaneRunning(part, true) || isAwaitingApprovalText(part.text),
+    )
+  );
+}
+
 /**
  * Live preview label: the current event, then the next inbound one it anticipates. Only one
  * event is announced ahead, so a wide parallel batch never stacks a long run of names.
+ * A command's call row and output lane are one category: `Running` while either is in flight
+ * (the command itself shows as the meta), never `Run — Running`.
  */
 export function previewQueueHeader(current: TurnFeedItem, inbound: readonly TurnFeedItem[]): string {
-  const head = previewItemLabel(current);
+  const commandRunning = previewRunsCommand(current, inbound);
+  const fold = (label: string): string => (commandRunning && COMMAND_VERBS.has(label) ? 'Running' : label);
+  const head = fold(previewItemLabel(current));
   // Parallel calls of one kind share a verb; `Read — Read` says nothing new.
   let next: string | undefined;
   for (const item of inbound) {
-    const label = previewItemLabel(item);
-    if (label.length > 0 && label !== head) {
+    const label = fold(previewItemLabel(item));
+    if (label.length > 0 && label !== head && !(COMMAND_VERBS.has(label) && COMMAND_VERBS.has(head))) {
       next = label;
       break;
     }
@@ -160,8 +212,9 @@ export function previewQueueHeader(current: TurnFeedItem, inbound: readonly Turn
 
 /**
  * Live detail beside the preview tool pill: the most recent in-flight tool-status row in the
- * batch (path while arguments stream, write-job phase while the tool runs). Empty for
- * thought / nudge previews and for tool rows without status detail.
+ * batch (path while arguments stream, write-job phase while the tool runs) or the command of a
+ * still-running `run_command` output lane. Empty for thought / nudge previews and for tool rows
+ * without status detail.
  */
 export function previewQueueMeta(
   current: TurnFeedItem | undefined,
@@ -173,10 +226,18 @@ export function previewQueueMeta(
   const batch = [current, ...currentBatchInbound(current, inbound)];
   for (let i = batch.length - 1; i >= 0; i--) {
     const item = batch[i]!;
-    if (item.kind !== 'tool' || !isToolTrailStatusStreamTag(item.part.streamTag)) {
+    if (item.kind !== 'tool') {
       continue;
     }
-    if (item.part.toolChainState !== 'running') {
+    if (isRunCommandLaneRunning(item.part, true)) {
+      // The lane is labelled with the command itself: `Running · npm test`.
+      const command = condenseToolTrailText(item.part.label, 64);
+      if (command) {
+        return command;
+      }
+      continue;
+    }
+    if (!isToolTrailStatusStreamTag(item.part.streamTag) || item.part.toolChainState !== 'running') {
       continue;
     }
     const text = item.part.text.trim();
@@ -481,7 +542,11 @@ export function decidePreviewCommit(opts: {
   if (isZeroDwellQueueItem(opts.current)) {
     return { action: 'commit' };
   }
-  if (!hasCommitPressure(opts.items, opts.current, opts.inbound)) {
+  // A finished command lands without waiting for the next event: its verb must not outlive the run.
+  if (
+    !hasCommitPressure(opts.items, opts.current, opts.inbound)
+    && !previewCommandFinished(opts.current, opts.inbound)
+  ) {
     return { action: 'stay' };
   }
   const dwellLeft = PREVIEW_OPEN_DWELL_MS - (opts.now - opts.previewStartedAt);

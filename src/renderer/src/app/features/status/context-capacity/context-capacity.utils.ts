@@ -6,7 +6,7 @@ const STREAM_OVERHEAD_TOKENS = 4;
 const WORKSPACE_OVERHEAD_TOKENS = 16;
 const TOOL_ARTIFACT_OVERHEAD_TOKENS = 12;
 
-/** At or above this percentage, new chat messages are blocked. */
+/** With context compaction off, a measured reading at or above this percentage blocks new chat messages. */
 export const CONTEXT_CHAT_BLOCKED_PERCENT = 95;
 
 export interface ContextCapacitySnapshot {
@@ -15,8 +15,8 @@ export interface ContextCapacitySnapshot {
   remainingTokens: number;
   usedPercentage: number;
   /**
-   * True when ``usedTokens`` is anchored to API usage metadata (or a delta from it after
-   * checkpoint compaction), not a pure transcript heuristic.
+   * True when ``usedTokens`` is anchored to API usage metadata (or the estimate a compaction
+   * reports for the prompt it left), not a pure transcript heuristic.
    */
   measuredFromApi: boolean;
 }
@@ -83,12 +83,15 @@ export function buildContextCapacitySnapshot(args: {
   messages: ConversationMessage[];
   streamingParts: StreamPart[];
   workspaceContextText: string;
-  /** Latest prompt-side token count from the chat API (full context sent to the model on the last completion). */
+  /**
+   * Latest prompt-side token count: from the chat API (full context sent to the model on the last
+   * completion), or a compaction's estimate of the full prompt it left.
+   */
   measuredPromptTokens?: number | null;
   /**
    * Transcript estimate captured when ``measuredPromptTokens`` was last set. Growth of the
    * transcript above this baseline is added so the meter keeps moving after a measurement
-   * (e.g. mid-turn tool output) without treating checkpoint-only compaction estimates as absolute.
+   * (e.g. mid-turn tool output).
    */
   measuredBaselineFallbackTokens?: number | null;
 }): ContextCapacitySnapshot {

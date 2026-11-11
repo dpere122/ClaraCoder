@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import logging
+import threading
 import time
 
 from fastapi import HTTPException
@@ -47,6 +48,12 @@ current_tool_batch_id: contextvars.ContextVar[str] = contextvars.ContextVar('cur
 
 # Id of the tool call now running (the model's ``tool_call_id``); empty outside a tool call.
 current_tool_call_id: contextvars.ContextVar[str] = contextvars.ContextVar('current_tool_call_id', default='')
+
+# Editor mode of the agent stream whose tools are running (None outside one). Unlike the session's
+# ``worker_apply_mode``, a read-only stream sees False while an Editor stream overlaps it.
+current_stream_apply_mode: contextvars.ContextVar[bool | None] = contextvars.ContextVar(
+    'current_stream_apply_mode', default=None
+)
 
 # All known sessions; created on demand via get_session().
 sessions: dict[str, SessionState] = {}
@@ -106,6 +113,8 @@ def build_default_runtime_config() -> RuntimeConfig:
 
 # Live settings; replaced entirely when the client POSTs /runtime-config.
 runtime_config: RuntimeConfig = build_default_runtime_config()
+#: Set by the first POST /runtime-config. Until then ``runtime_config`` holds defaults, not the user's Settings.
+runtime_config_received = threading.Event()
 
 
 def touch_session(sess: SessionState, *, now: float | None = None) -> None:
@@ -195,6 +204,22 @@ def get_session(session_id: str) -> SessionState:
     sess = sessions.setdefault(session_id, SessionState())
     touch_session(sess)
     return sess
+
+
+def drop_frozen_prompt_tree(session: SessionState) -> None:
+    """The next render freezes the tree again. ``reset_for_new_thread`` would drop packs a kept thread still holds."""
+    session.prompt_tree = ''
+    session.prompt_tree_changes = []
+    session.prompt_tree_changes_reported = 0
+
+
+def reset_for_new_thread(session: SessionState) -> None:
+    """The turn starts a thread with no checkpoint: the model has seen no tree or context pack in it.
+
+    The one rule for every way a thread goes away (``/clear``, ``/load``, a failed turn, a new plan thread).
+    """
+    drop_frozen_prompt_tree(session)
+    session.activated_context_packs.clear()
 
 
 def agent_formatters_enabled() -> bool:

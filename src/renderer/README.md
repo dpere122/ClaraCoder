@@ -39,4 +39,4 @@ npm run ng -- generate component features/chat/my-widget
 
 ## Themes
 
-Components that should be themeable carry a `data-theme-group="<category>.<name>"` attribute on their root element. After adding or renaming one, run `npm run gen:theme-registry` (it also runs before `dev`, `build`, and `test`). See [Themes](../../README.md#themes) in the root README for the full workflow.
+Components that should be themeable carry a `data-theme-group="<category>.<name>"` attribute on their root element. After adding or renaming one, run `npm run gen:theme-registry` (it also runs before `dev`, `build`, and `test`). See [THEMES.md](../../THEMES.md) for the full workflow.

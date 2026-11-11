@@ -1,4 +1,8 @@
-import { randomUUID } from 'crypto';
+import { normalizeLspServersSettings } from '../../shared/lsp-settings';
+import { normalizeLmStudioSettings } from '../../shared/lm-studio-ipc';
+import { normalizeOpenAiCompatSettings } from '../../shared/openai-compat';
+import { createHash, randomUUID } from 'crypto';
+import { normalizeScreenshotRetention } from '../../shared/screenshot-retention';
 import { promises as fs } from 'fs';
 import path = require('path');
 const syncFs = require('fs');
@@ -19,10 +23,12 @@ import type {
   McpServerTransport,
   McpToolDecision,
   McpTrust,
+  SecretStorageMode,
   WorkspaceToolsConfig,
 } from '../../shared';
 import {
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
+  uniqueManagedLlamaSourceName,
   defaultLlamaCppManaged,
   DEFAULT_KOKORO_TTS_VOICE,
   DEFAULT_OPENAI_TRANSCRIBE_MODEL,
@@ -38,19 +44,22 @@ import {
   normalizeChatContainerSize,
   normalizeChatThinkingDisplay,
   normalizeMonacoWorkspaceEditorSettings,
+  normalizeWebSearchEngines,
   normalizeWorkspaceMonacoScrollByWorkspaceId,
   normalizeWorkspaceOpenTabsByWorkspaceId,
   getDefaultContextCompression,
+  maxContextCompressionTarget,
   TTS_SPEECH_SPEED_DEFAULT,
   TTS_SPEECH_SPEED_MAX,
   TTS_SPEECH_SPEED_MIN,
   type ShellQuotingPlatform,
 } from '../../shared';
 import {
-  PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   PINNED_LM_STUDIO_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
+  DEFAULT_URL_SOURCE_NAME,
   PINNED_OPENROUTER_PROVIDER_ID,
+  PINNED_ANTHROPIC_PROVIDER_ID,
   OPENROUTER_DEFAULT_BASE_URL,
 } from '../../shared';
 import {
@@ -60,6 +69,13 @@ import {
   SecretValue,
   unwrapSecret,
 } from '../../shared/types/app-config';
+import {
+  applyTutorialTransition,
+  isTutorialProgressSupported,
+  normalizeTutorialProgress,
+  type TutorialProgress,
+  type TutorialTransition,
+} from '../../shared/types/tutorial';
 import { FIRST_THEME_ID } from '../constants';
 import { THEME_ID_PATTERN } from '../../shared/theme/theme-document';
 import { LEGACY_THEME_ID_MAP } from '../../shared/theme/builtin';
@@ -69,8 +85,8 @@ import {
   createDefaultConfig,
   createPinnedLmStudioProvider,
   createPinnedLlamaServerUrlProvider,
-  createPinnedLocalManagedLlamaProvider,
   createPinnedOpenRouterProvider,
+  createPinnedAnthropicProvider,
   getDefaultAudioTranscription,
   getDefaultHealthMonitor,
   getDefaultLlmProviders,
@@ -118,6 +134,11 @@ function warnKeychainFallbackOnce(): void {
   console.warn(
     '[config] OS keychain encryption unavailable; persisting secrets as plaintext in mode-0600 config file.',
   );
+}
+
+/** How {@link encryptSecretForDisk} will store secrets on this host right now. */
+export function secretStorageMode(): SecretStorageMode {
+  return tryGetSafeStorage()?.isEncryptionAvailable() ? 'keychain' : 'plaintext';
 }
 
 function encryptSecretForDisk(plain: string): string {
@@ -514,6 +535,7 @@ function mergeMcpServers(
 function exposeSecretsForConsumers(config: AppConfig): AppConfig {
   for (const p of config.llmProviders ?? []) {
     (p as { apiKey: string | SecretValue<string> }).apiKey = unwrapSecret(p.apiKey);
+    exposeMcpSecretEntries(p.customHeaders ?? []);
   }
   if (config.audioTranscription) {
     const audio = config.audioTranscription as {
@@ -537,7 +559,9 @@ function exposeSecretsForConsumers(config: AppConfig): AppConfig {
 function serializeConfigForDisk(config: AppConfig): Record<string, unknown> {
   const providers = (config.llmProviders ?? []).map((p) => ({
     ...p,
-    apiKey: encryptSecretForDisk(unwrapSecret(p.apiKey)),
+    // The Claude key lives in its own keychain file (anthropic-key-store), never in config.json.
+    apiKey: p.provider === 'anthropic' ? '' : encryptSecretForDisk(unwrapSecret(p.apiKey)),
+    ...(p.customHeaders ? { customHeaders: encryptMcpSecretEntries(p.customHeaders) } : {}),
     models: p.models,
   }));
   const audio = config.audioTranscription
@@ -816,6 +840,20 @@ function normalizeLlmModelProfile(model: LlmModelProfile, provider: LlmProviderC
     delete (model as LlmModelProfile & { planRetryAttemptsCount?: unknown }).planRetryAttemptsCount;
     migrated = true;
   }
+  if (provider.provider === 'openai-compatible' && model.openAiCompat !== undefined) {
+    const compat = normalizeOpenAiCompatSettings(model.openAiCompat);
+    if (JSON.stringify(compat) !== JSON.stringify(model.openAiCompat)) {
+      model.openAiCompat = compat;
+      migrated = true;
+    }
+  }
+  if (provider.provider === 'lmstudio' && model.lmStudio !== undefined) {
+    const lmStudio = normalizeLmStudioSettings(model.lmStudio);
+    if (JSON.stringify(lmStudio) !== JSON.stringify(model.lmStudio)) {
+      model.lmStudio = lmStudio;
+      migrated = true;
+    }
+  }
   if (provider.provider === 'llamacpp') {
     if (normalizeLlamaCppManagedField(model)) {
       migrated = true;
@@ -856,6 +894,10 @@ function normalizeLlamaCppManagedField(model: LlmModelProfile): boolean {
     migrated = true;
   }
   const next: LlamaCppManaged = { chatRunCommand, embeddingRunCommand };
+  const tuned = raw.autoTuned as LlamaCppManaged['autoTuned'];
+  if (tuned && typeof tuned.c === 'number' && typeof tuned.ctk === 'string' && typeof tuned.ctv === 'string') {
+    next.autoTuned = { c: tuned.c, ctk: tuned.ctk, ctv: tuned.ctv };
+  }
   model.llamaCppManaged = next;
   return migrated;
 }
@@ -908,14 +950,18 @@ function normalizeLlmProvidersTree(providers: LlmProviderConfig[]): boolean {
             ? 'llama.cpp'
             : p.provider === 'openrouter'
               ? 'OpenRouter'
-              : 'OpenAI';
+              : p.provider === 'anthropic'
+                ? 'Claude'
+                : 'OpenAI';
       migrated = true;
     }
     if (
       p.provider !== 'openai' &&
       p.provider !== 'lmstudio' &&
       p.provider !== 'llamacpp' &&
-      p.provider !== 'openrouter'
+      p.provider !== 'openai-compatible' &&
+      p.provider !== 'openrouter' &&
+      p.provider !== 'anthropic'
     ) {
       p.provider = 'openai';
       migrated = true;
@@ -931,7 +977,13 @@ function normalizeLlmProvidersTree(providers: LlmProviderConfig[]): boolean {
               : '';
       migrated = true;
     }
-    if (p.apiKey === undefined) {
+    if (p.provider === 'anthropic') {
+      // Never carried in config (see anthropic-key-store); drop anything a client sent.
+      if (p.apiKey === undefined || unwrapSecret(p.apiKey) !== '') {
+        migrated = true;
+      }
+      p.apiKey = SecretValue.of('');
+    } else if (p.apiKey === undefined) {
       p.apiKey = SecretValue.of(p.provider === 'lmstudio' ? 'lm-studio' : '');
       migrated = true;
     } else {
@@ -940,6 +992,11 @@ function normalizeLlmProvidersTree(providers: LlmProviderConfig[]): boolean {
         p.apiKey = coerced;
         migrated = true;
       }
+    }
+    if (p.customHeaders !== undefined) {
+      const headers = normalizeMcpSecretEntries(p.customHeaders);
+      p.customHeaders = headers.entries;
+      migrated = migrated || headers.migrated;
     }
     if (!Array.isArray(p.models) || p.models.length === 0) {
       const mid = defaultLlmModelId(p.provider);
@@ -997,6 +1054,10 @@ function ensurePinnedLmStudioProvider(providers: LlmProviderConfig[]): boolean {
       pinned.provider = 'lmstudio';
       migrated = true;
     }
+    if (pinned.name === 'LM Studio Default') {
+      pinned.name = 'LM Studio';
+      migrated = true;
+    }
     return migrated;
   }
   const firstLmIdx = providers.findIndex((p) => p.provider === 'lmstudio');
@@ -1009,10 +1070,42 @@ function ensurePinnedLmStudioProvider(providers: LlmProviderConfig[]): boolean {
   return true;
 }
 
+/**
+ * Move a URL source saved as ``llamacpp``, which sent every server llama-server's own fields, to its
+ * own type without changing where its requests go. That type doesn't add ``/v1`` to a path or accept
+ * ``user:pw@``, so the URL gets its ``/v1`` here, and the credentials become the header httpx was sending.
+ */
+function retypeLegacyUrlSource(source: LlmProviderConfig): boolean {
+  if (source.provider === 'openai-compatible') {
+    return false;
+  }
+  source.provider = 'openai-compatible';
+  const raw = (source.baseUrl ?? '').trim() || (process.env.LLAMACPP_BASE_URL ?? '').trim() || 'http://127.0.0.1:8080/v1';
+  try {
+    const url = new URL(raw.includes('://') ? raw : `http://${raw}`);
+    if (url.username || url.password) {
+      const credentials = `${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`;
+      source.customHeaders = [
+        ...(source.customHeaders ?? []),
+        { key: 'Authorization', value: SecretValue.of(`Basic ${Buffer.from(credentials).toString('base64')}`) },
+      ];
+      url.username = '';
+      url.password = '';
+    }
+    const path = url.pathname.replace(/\/+$/, '');
+    url.pathname = path.toLowerCase().endsWith('/v1') ? path : `${path}/v1`;
+    source.baseUrl = url.href;
+  } catch {
+    // Not a URL: its screen says so, and the text stays for the user to fix.
+  }
+  return true;
+}
+
 /** Ensure pinned remote ``llama-server`` URL source exists (next to LM Studio in the list). */
 function ensurePinnedLlamaServerUrlProvider(providers: LlmProviderConfig[]): boolean {
-  if (providers.some((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID)) {
-    return false;
+  const pinned = providers.find((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID);
+  if (pinned) {
+    return retypeLegacyUrlSource(pinned);
   }
   const lmIdx = providers.findIndex((p) => p.id === PINNED_LM_STUDIO_PROVIDER_ID);
   const at = lmIdx >= 0 ? lmIdx + 1 : 1;
@@ -1022,7 +1115,7 @@ function ensurePinnedLlamaServerUrlProvider(providers: LlmProviderConfig[]): boo
 }
 
 /**
- * Ensure the pinned OpenRouter row exists after the local llama source, with its fixed provider
+ * Ensure the pinned OpenRouter row exists after the remote URL source, with its fixed provider
  * and name (Settings offers no rename). Does not change the active model.
  */
 function ensurePinnedOpenRouterProvider(providers: LlmProviderConfig[]): boolean {
@@ -1039,28 +1132,71 @@ function ensurePinnedOpenRouterProvider(providers: LlmProviderConfig[]): boolean
     }
     return changed;
   }
-  const localIdx = providers.findIndex((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID);
-  const insert = localIdx >= 0 ? localIdx + 1 : providers.length;
+  const urlIdx = providers.findIndex((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID);
+  const insert = urlIdx >= 0 ? urlIdx + 1 : providers.length;
   providers.splice(insert, 0, createPinnedOpenRouterProvider());
   return true;
 }
 
-/** Ensure pinned managed local ``llama-server`` row exists (after LM Studio + remote URL). */
-function ensurePinnedLocalManagedLlamaProvider(providers: LlmProviderConfig[]): boolean {
-  if (providers.some((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID)) {
-    return false;
+/**
+ * Ensure the pinned Claude row exists after OpenRouter, with its fixed provider and name.
+ * Does not change the active model.
+ */
+function ensurePinnedAnthropicProvider(providers: LlmProviderConfig[]): boolean {
+  const existing = providers.find((p) => p.id === PINNED_ANTHROPIC_PROVIDER_ID);
+  if (existing) {
+    let changed = false;
+    if (existing.provider !== 'anthropic') {
+      existing.provider = 'anthropic';
+      changed = true;
+    }
+    if (existing.name !== 'Claude') {
+      existing.name = 'Claude';
+      changed = true;
+    }
+    return changed;
   }
-  const urlIdx = providers.findIndex((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID);
-  const at = urlIdx >= 0 ? urlIdx + 1 : providers.length;
-  providers.splice(at, 0, createPinnedLocalManagedLlamaProvider());
+  const openRouterIdx = providers.findIndex((p) => p.id === PINNED_OPENROUTER_PROVIDER_ID);
+  const insert = openRouterIdx >= 0 ? openRouterIdx + 1 : providers.length;
+  providers.splice(insert, 0, createPinnedAnthropicProvider());
   return true;
 }
 
 /**
- * Ensure the three pinned sources exist in order (LM Studio, remote URL, local managed),
- * preserving user data where possible. Additional non-pinned sources are kept after them.
+ * Rename managed local ``llama-server`` sources still carrying an old default name
+ * (``Llama server (local)``, ``Llama Server N``). Settings has no rename for these
+ * (``customName`` is the user's label), so ``name`` is only the no-model fallback.
  */
-function migrateLlmProvidersToThreePinnedSources(
+function renameLegacyManagedLlamaSourceNames(providers: LlmProviderConfig[]): boolean {
+  let changed = false;
+  for (const p of providers) {
+    if (p.provider !== 'llamacpp' || p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID) {
+      continue;
+    }
+    if (p.name === 'Llama server (local)' || /^Llama Server \d+$/.test(p.name)) {
+      // Numbered past the first so renamed sources stay distinguishable.
+      p.name = uniqueManagedLlamaSourceName(providers.filter((o) => o !== p).map((o) => o.name));
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+/** Rename the pinned URL source if it still has an old default name; a name the user chose stays. */
+function renameLegacyUrlSourceName(providers: LlmProviderConfig[]): boolean {
+  const url = providers.find((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID);
+  if (url?.name !== 'Llama server (URL)' && url?.name !== 'llama.cpp') {
+    return false;
+  }
+  url.name = DEFAULT_URL_SOURCE_NAME;
+  return true;
+}
+
+/**
+ * Ensure LM Studio and the remote URL source exist and lead the list, preserving user data
+ * where possible. All other sources are kept after them.
+ */
+function migrateLlmProvidersToLeadingPinnedSources(
   providers: LlmProviderConfig[],
   activeModelId: string,
 ): { providers: LlmProviderConfig[]; activeModelId: string } {
@@ -1075,31 +1211,6 @@ function migrateLlmProvidersToThreePinnedSources(
   lm.provider = 'lmstudio';
 
   const used = new Set<string>([lm.id]);
-
-  let local: LlmProviderConfig;
-  const localPinned = pool.find((p) => p.id === PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID);
-  if (localPinned) {
-    local = localPinned;
-  } else {
-    const cand = pool.find(
-      (p) =>
-        !used.has(p.id) &&
-        p.provider === 'llamacpp' &&
-        (p.models?.[0]?.llamaCppManaged?.chatRunCommand ?? '').trim(),
-    );
-    if (cand) {
-      absorbedIds.add(cand.id);
-      local = structuredClone(cand) as LlmProviderConfig;
-    } else {
-      local = createPinnedLocalManagedLlamaProvider();
-    }
-  }
-  local.id = PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID;
-  if (!local.name?.trim()) {
-    local.name = 'Llama server (local)';
-  }
-  local.provider = 'llamacpp';
-  used.add(local.id);
 
   let url: LlmProviderConfig;
   const urlPinned = pool.find((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID);
@@ -1121,22 +1232,13 @@ function migrateLlmProvidersToThreePinnedSources(
   }
   url.id = PINNED_LLAMA_SERVER_URL_PROVIDER_ID;
   if (!url.name?.trim()) {
-    url.name = 'Llama server (URL)';
+    url.name = DEFAULT_URL_SOURCE_NAME;
   }
-  url.provider = 'llamacpp';
-  if (!(url.embeddingsBaseUrl ?? '').trim()) {
-    url.embeddingsBaseUrl =
-      process.env.LLAMA_SERVER_EMBEDDINGS_BASE_URL || 'http://127.0.0.1:8081/v1';
-  }
+  retypeLegacyUrlSource(url);
 
-  const pinnedTriple = [lm, url, local];
-  const pinnedIdSet = new Set([
-    PINNED_LM_STUDIO_PROVIDER_ID,
-    PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
-    PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
-  ]);
+  const pinnedIdSet = new Set([PINNED_LM_STUDIO_PROVIDER_ID, PINNED_LLAMA_SERVER_URL_PROVIDER_ID]);
   const extras = pool.filter((p) => !pinnedIdSet.has(p.id) && !absorbedIds.has(p.id));
-  const out = [...pinnedTriple, ...extras];
+  const out = [lm, url, ...extras];
   let nextActive = activeModelId;
   if (!findLlmModelLocation(out, nextActive)) {
     const fallback = lm.models[0]?.id ?? out[0]!.models[0]!.id;
@@ -1151,6 +1253,16 @@ function migrateLlmProvidersToThreePinnedSources(
 export function migrateConfig(config: AppConfig): AppConfig {
   let migrated = false;
   const newConfig: AppConfig = { ...config } as AppConfig;
+
+  // Do not normalize a schema introduced by a newer release: it may no longer use
+  // the v1 revision, phases or cursor shapes, and must survive ordinary config saves.
+  if (isTutorialProgressSupported(newConfig.tutorial)) {
+    const tutorial = normalizeTutorialProgress(newConfig.tutorial);
+    if (JSON.stringify(newConfig.tutorial) !== JSON.stringify(tutorial)) {
+      newConfig.tutorial = tutorial;
+      migrated = true;
+    }
+  }
 
   if (!Array.isArray(newConfig.workspaces)) {
     newConfig.workspaces = [];
@@ -1231,7 +1343,7 @@ export function migrateConfig(config: AppConfig): AppConfig {
       newConfig.activeLlmModelId =
         newConfig.llmProviders[0]?.models[0]?.id ?? 'default-lmstudio';
     } else if (schemaVersion < 3) {
-      const m = migrateLlmProvidersToThreePinnedSources(
+      const m = migrateLlmProvidersToLeadingPinnedSources(
         newConfig.llmProviders,
         newConfig.activeLlmModelId,
       );
@@ -1271,6 +1383,38 @@ export function migrateConfig(config: AppConfig): AppConfig {
         monaco.theme = 'follow-app';
       }
     }
+    if (schemaVersion < 9) {
+      // Compaction was rewritten: the old flag controlled a different, harmful behaviour, so saved
+      // configs turn on. A deliberate off cannot be told from the old default and flips once; the
+      // release note says so. The old default ratios move; custom ones stay.
+      const cc = (newConfig as AppConfig).contextCompression;
+      if (cc && typeof cc === 'object') {
+        // The old compaction's own settings: nothing reads them any more.
+        for (const key of ['protectTailMessages', 'recentToolBodyMaxChars', 'oldToolBodyMaxChars', 'systemReserveRatio']) {
+          delete (cc as unknown as Record<string, unknown>)[key];
+        }
+        cc.enabled = true;
+        if (cc.triggerRatio === 0.7) {
+          cc.triggerRatio = 0.8;
+        }
+        if (cc.targetRatio === 0.55) {
+          cc.targetRatio = 0.5;
+        }
+      }
+      // Only the flag the app's own builder wrote, in its order: `--cache-ram -1` or a value the
+      // user placed elsewhere stays, and later saves are not touched (this runs once).
+      for (const provider of newConfig.llmProviders) {
+        for (const model of provider.models) {
+          const managed = model.llamaCppManaged;
+          if (managed && typeof managed.chatRunCommand === 'string') {
+            managed.chatRunCommand = managed.chatRunCommand.replace(
+              /(-np\s+1\s+--no-webui)\s+--cache-ram\s+0(?=\s|$)/g,
+              '$1',
+            );
+          }
+        }
+      }
+    }
     (newConfig as { configSchemaVersion: number }).configSchemaVersion = APP_CONFIG_SCHEMA_VERSION;
     migrated = true;
   }
@@ -1289,25 +1433,25 @@ export function migrateConfig(config: AppConfig): AppConfig {
     migrated = true;
   }
 
-  if (ensurePinnedLocalManagedLlamaProvider(newConfig.llmProviders)) {
-    migrated = true;
-  }
-
   if (ensurePinnedOpenRouterProvider(newConfig.llmProviders)) {
     migrated = true;
   }
 
-  const wantOrder = [
-    PINNED_LM_STUDIO_PROVIDER_ID,
-    PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
-    PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
-  ];
-  const hasAllPins = wantOrder.every((id) => newConfig.llmProviders.some((p) => p.id === id));
-  const firstThreeOrdered = wantOrder.every((id, i) => newConfig.llmProviders[i]?.id === id);
-  const needsThreeSourceReshape =
-    newConfig.llmProviders.length < 3 || !hasAllPins || !firstThreeOrdered;
-  if (needsThreeSourceReshape) {
-    const m = migrateLlmProvidersToThreePinnedSources(
+  if (ensurePinnedAnthropicProvider(newConfig.llmProviders)) {
+    migrated = true;
+  }
+
+  if (renameLegacyManagedLlamaSourceNames(newConfig.llmProviders)) {
+    migrated = true;
+  }
+
+  if (renameLegacyUrlSourceName(newConfig.llmProviders)) {
+    migrated = true;
+  }
+
+  const wantOrder = [PINNED_LM_STUDIO_PROVIDER_ID, PINNED_LLAMA_SERVER_URL_PROVIDER_ID];
+  if (!wantOrder.every((id, i) => newConfig.llmProviders[i]?.id === id)) {
+    const m = migrateLlmProvidersToLeadingPinnedSources(
       newConfig.llmProviders,
       newConfig.activeLlmModelId,
     );
@@ -1511,6 +1655,13 @@ export function migrateConfig(config: AppConfig): AppConfig {
     migrated = true;
   }
 
+  const lspPrev = (newConfig as AppConfig).lspServers;
+  const lspNorm = normalizeLspServersSettings(lspPrev);
+  if (JSON.stringify(lspPrev) !== JSON.stringify(lspNorm)) {
+    (newConfig as AppConfig).lspServers = lspNorm;
+    migrated = true;
+  }
+
   const monacoPrev = (newConfig as AppConfig).monacoWorkspaceEditor;
   const { settings: monacoNorm, migrated: monacoMigrated } = normalizeMonacoWorkspaceEditorSettings(monacoPrev);
   if (monacoMigrated || monacoPrev === undefined) {
@@ -1529,6 +1680,11 @@ export function migrateConfig(config: AppConfig): AppConfig {
     migrated = true;
   } else {
     const wt = wtRaw;
+    const retention = normalizeScreenshotRetention(wt.screenshotRetention);
+    if (JSON.stringify(wt.screenshotRetention) !== JSON.stringify(retention)) {
+      wt.screenshotRetention = retention;
+      migrated = true;
+    }
     if (wt.editToolsMode !== 'standard' && wt.editToolsMode !== 'strict') {
       wt.editToolsMode = 'standard';
       migrated = true;
@@ -1605,6 +1761,39 @@ export function migrateConfig(config: AppConfig): AppConfig {
         migrated = true;
       }
     }
+    const providerRaw = (wt as unknown as { webSearchProvider?: unknown }).webSearchProvider;
+    if (providerRaw !== 'auto' && providerRaw !== 'internal' && providerRaw !== 'searxng') {
+      wt.webSearchProvider = 'auto';
+      migrated = true;
+    }
+    const enginesRaw = (wt as unknown as { webSearchEngines?: unknown }).webSearchEngines;
+    const engines = normalizeWebSearchEngines(enginesRaw);
+    if (JSON.stringify(engines) !== JSON.stringify(enginesRaw)) {
+      wt.webSearchEngines = engines;
+      migrated = true;
+    }
+    const uaRaw = (wt as unknown as { webSearchUserAgent?: unknown }).webSearchUserAgent;
+    if (typeof uaRaw !== 'string') {
+      wt.webSearchUserAgent = '';
+      migrated = true;
+    } else {
+      const trimmed = uaRaw.trim();
+      if (trimmed !== uaRaw) {
+        wt.webSearchUserAgent = trimmed;
+        migrated = true;
+      }
+    }
+    const cooldownRaw = (wt as unknown as { webSearchCooldownSeconds?: unknown }).webSearchCooldownSeconds;
+    if (typeof cooldownRaw !== 'number' || !Number.isFinite(cooldownRaw)) {
+      wt.webSearchCooldownSeconds = 300;
+      migrated = true;
+    } else {
+      const clamped = Math.min(3600, Math.max(0, Math.round(cooldownRaw)));
+      if (clamped !== cooldownRaw) {
+        wt.webSearchCooldownSeconds = clamped;
+        migrated = true;
+      }
+    }
     const extraPathRaw = (wt as unknown as { extraUserPath?: unknown }).extraUserPath;
     if (typeof extraPathRaw !== 'string') {
       wt.extraUserPath = '';
@@ -1631,51 +1820,20 @@ export function migrateConfig(config: AppConfig): AppConfig {
   } else {
     const cc = ccRaw;
     if (typeof cc.enabled !== 'boolean') {
-      cc.enabled = false;
+      cc.enabled = true;
       migrated = true;
     }
     if (typeof cc.triggerRatio !== 'number' || cc.triggerRatio < 0.5 || cc.triggerRatio > 0.95) {
-      cc.triggerRatio = 0.7;
+      cc.triggerRatio = 0.8;
       migrated = true;
     }
     if (typeof cc.targetRatio !== 'number' || cc.targetRatio < 0.4 || cc.targetRatio > 0.9) {
-      cc.targetRatio = 0.55;
+      cc.targetRatio = 0.5;
       migrated = true;
     }
-    if (cc.targetRatio > cc.triggerRatio) {
-      cc.targetRatio = Math.min(cc.triggerRatio, 0.55);
-      migrated = true;
-    }
-    if (
-      typeof cc.protectTailMessages !== 'number' ||
-      cc.protectTailMessages < 8 ||
-      cc.protectTailMessages > 100
-    ) {
-      cc.protectTailMessages = 24;
-      migrated = true;
-    }
-    if (
-      typeof cc.recentToolBodyMaxChars !== 'number' ||
-      cc.recentToolBodyMaxChars < 200 ||
-      cc.recentToolBodyMaxChars > 20_000
-    ) {
-      cc.recentToolBodyMaxChars = 2000;
-      migrated = true;
-    }
-    if (
-      typeof cc.oldToolBodyMaxChars !== 'number' ||
-      cc.oldToolBodyMaxChars < 100 ||
-      cc.oldToolBodyMaxChars > 10_000
-    ) {
-      cc.oldToolBodyMaxChars = 400;
-      migrated = true;
-    }
-    if (
-      typeof cc.systemReserveRatio !== 'number' ||
-      cc.systemReserveRatio < 0.1 ||
-      cc.systemReserveRatio > 0.5
-    ) {
-      cc.systemReserveRatio = 0.25;
+    const maxTarget = maxContextCompressionTarget(cc.triggerRatio);
+    if (cc.targetRatio > maxTarget) {
+      cc.targetRatio = Math.min(maxTarget, 0.5);
       migrated = true;
     }
   }
@@ -1776,9 +1934,162 @@ const CONFIG_READ_RETRIES = 3;
 const CONFIG_READ_RETRY_MS = 25;
 
 let configMutationChain: Promise<unknown> = Promise.resolve();
+const CONFIG_LOCK_STALE_MS = 4_000;
+const CONFIG_LOCK_TIMEOUT_MS = 20_000;
+/** No config operation holds the lock this long, so a seemingly live owner is a recycled PID. */
+const CONFIG_LOCK_ABANDONED_MS = 120_000;
+
+function configLockOwnerAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // Fail closed on permission/other errors; only ESRCH proves that the owner is gone.
+    return (err as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+}
+
+type ConfigLockOwner = { pid: number; token: string };
+
+async function readConfigLockOwner(lockPath: string): Promise<ConfigLockOwner | null> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(lockPath, 'utf-8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw err;
+  }
+  try {
+    const owner = asRecord(JSON.parse(raw));
+    if (owner && typeof owner['pid'] === 'number' && Number.isSafeInteger(owner['pid']) && owner['pid'] > 0 &&
+        typeof owner['token'] === 'string' && owner['token'].length > 0 && owner['token'].length <= 512) {
+      return { pid: owner['pid'], token: owner['token'] };
+    }
+  } catch { /* An incomplete lock is not safe to steal. */ }
+  return null;
+}
+
+/** Reclaim only a dead or long-expired owner, with one recovery guard per immutable owner token. */
+async function recoverAbandonedConfigLock(
+  lockPath: string,
+  publishLock: (destination: string) => Promise<void>,
+  depth = 0,
+): Promise<void> {
+  let stat: Awaited<ReturnType<typeof fs.stat>>;
+  try {
+    stat = await fs.stat(lockPath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw err;
+  }
+  const age = Date.now() - stat.mtimeMs;
+  if (age <= CONFIG_LOCK_STALE_MS) return;
+  const owner = await readConfigLockOwner(lockPath);
+  const expired = age > CONFIG_LOCK_ABANDONED_MS;
+  if (!owner || (!expired && configLockOwnerAlive(owner.pid))) return;
+  const key = createHash('sha256').update(JSON.stringify([owner.pid, owner.token])).digest('hex').slice(0, 32);
+  const recoveryPath = `${lockPath}.recovery.${key}`;
+  try {
+    await publishLock(recoveryPath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    // A recovery process can itself crash. Recover its owned guard using the same
+    // protocol; bound nesting so a damaged filesystem cannot create unbounded paths.
+    if (depth < 3) await recoverAbandonedConfigLock(recoveryPath, publishLock, depth + 1);
+    return;
+  }
+  try {
+    const current = await readConfigLockOwner(lockPath);
+    // Another reclaimer may have removed the old lock and a live process may have
+    // installed a new one. Never unlink unless the exact abandoned owner is still present.
+    if (current?.pid === owner.pid && current.token === owner.token && (expired || !configLockOwnerAlive(owner.pid))) {
+      await fs.rm(lockPath, { force: true });
+    }
+  } finally {
+    await fs.rm(recoveryPath, { force: true });
+  }
+}
+
+/** Remove only our private staging files left by an interrupted writer, while holding the lock. */
+async function cleanupOrphanedConfigTemps(configPath: string): Promise<void> {
+  const directory = path.dirname(configPath);
+  const prefix = `${path.basename(configPath)}.`;
+  const stagingName = /^(?:bak\.)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/i;
+  try {
+    for (const name of await fs.readdir(directory)) {
+      if (name.startsWith(prefix) && stagingName.test(name.slice(prefix.length))) {
+        // unlink removes a symlink itself, never the file it points at.
+        await fs.unlink(path.join(directory, name)).catch(() => {});
+      }
+    }
+  } catch {
+    // Cleanup is best-effort; failure must not prevent loading the existing config.
+  }
+}
+
+/** Serialize config mutations across app processes as well as windows. */
+async function withConfigFileLock<T>(operation: () => Promise<T>): Promise<T> {
+  const lockPath = `${getConfigPath()}.lock`;
+  const configDir = path.dirname(lockPath);
+  await fs.mkdir(configDir, { recursive: true, mode: 0o700 });
+  try { await fs.chmod(configDir, 0o700); } catch { /* Best-effort on Windows. */ }
+  const token = `${process.pid}-${randomUUID()}`;
+  const payload = JSON.stringify({ pid: process.pid, token });
+  const candidate = `${lockPath}.${token}.candidate`;
+  // Publishing a complete file via a hard link eliminates the empty-lock crash window.
+  await fs.writeFile(candidate, payload, { encoding: 'utf-8', flag: 'wx', mode: 0o600 });
+  const deadline = Date.now() + CONFIG_LOCK_TIMEOUT_MS;
+  let hardLinksSupported = true;
+  const publishLock = async (destination: string): Promise<void> => {
+    if (hardLinksSupported) {
+      try {
+        await fs.link(candidate, destination);
+        return;
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV'].includes(code ?? '')) throw err;
+        hardLinksSupported = false;
+      }
+    }
+    // Filesystems without hard links fall back to exclusive create. An incomplete
+    // fallback lock is not reclaimed automatically, since its owner is unknowable.
+    const handle = await fs.open(destination, 'wx', 0o600);
+    try {
+      await handle.writeFile(payload, 'utf-8');
+    } catch (err) {
+      await handle.close().catch(() => {});
+      await fs.rm(destination, { force: true });
+      throw err;
+    }
+    await handle.close();
+  };
+  try {
+    while (true) {
+      try {
+        await publishLock(lockPath);
+        break;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+        await recoverAbandonedConfigLock(lockPath, publishLock);
+        if (Date.now() >= deadline) throw new Error('Timed out waiting for the configuration lock.');
+        await sleep(25);
+      }
+    }
+
+    try {
+      await cleanupOrphanedConfigTemps(getConfigPath());
+      return await operation();
+    } finally {
+      const current = await readConfigLockOwner(lockPath);
+      if (current?.pid === process.pid && current.token === token) await fs.rm(lockPath, { force: true });
+    }
+  } finally {
+    await fs.rm(candidate, { force: true });
+  }
+}
 
 function runSerializedConfigMutation<T>(operation: () => Promise<T>): Promise<T> {
-  const run = configMutationChain.then(operation, operation);
+  const run = configMutationChain.then(() => withConfigFileLock(operation), () => withConfigFileLock(operation));
   configMutationChain = run.then(
     () => undefined,
     () => undefined,
@@ -1821,35 +2132,42 @@ async function configFileExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw err;
   }
 }
 
 async function readConfigFromDiskForMutation(): Promise<AppConfig> {
   const configPath = getConfigPath();
   const backupPath = `${configPath}${CONFIG_BACKUP_SUFFIX}`;
+  let unreadable = false;
 
   for (const filePath of [configPath, backupPath]) {
+    let parsed: AppConfig;
+    let raw: string;
     try {
-      const raw = await readConfigRawFromPath(filePath);
+      raw = await readConfigRawFromPath(filePath);
       // Never log `raw` — may contain plaintext or encrypted secrets.
-      const parsed = migrateConfig(JSON.parse(raw) as AppConfig);
-      if (filePath === backupPath) {
-        console.warn('[config] restored config from backup file.');
-        await writeConfigToDiskUnsafe(parsed);
-      }
-      return parsed;
+      const document = asRecord(JSON.parse(raw));
+      if (!document) throw new Error('Invalid config document');
+      parsed = migrateConfig(document as unknown as AppConfig);
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        continue;
-      }
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') unreadable = true;
       // Do not log err stacks that might echo file snippets; keep message generic.
+      continue;
     }
+    if (filePath === backupPath) {
+      console.warn('[config] restored config from backup file.');
+      // Restore the raw backup, not migrated/decrypted data: the keychain may be
+      // temporarily unavailable, and the good backup must remain untouched as well.
+      await writeConfigDocumentToDiskUnsafe(JSON.parse(raw) as Record<string, unknown>, false);
+    }
+    return parsed;
   }
 
-  if (await configFileExists(configPath)) {
-    console.error('[config] config file exists but could not be parsed; refusing to reset.');
+  if (unreadable) {
+    console.error('[config] config or backup could not be read; refusing to reset.');
     throw new Error('Config file is corrupt and no valid backup is available.');
   }
 
@@ -1858,9 +2176,29 @@ async function readConfigFromDiskForMutation(): Promise<AppConfig> {
   return defaultConfig;
 }
 
-async function writeConfigToDiskUnsafe(config: AppConfig): Promise<void> {
+/** Write a private, uniquely named file in the destination directory and flush its contents. */
+async function writePrivateConfigTemp(destination: string, data: string | Buffer): Promise<string> {
+  const temporary = `${destination}.${randomUUID()}${CONFIG_TEMP_SUFFIX}`;
+  const handle = await fs.open(temporary, 'wx', 0o600);
+  try {
+    await handle.writeFile(data);
+    await handle.sync();
+    await handle.close();
+    return temporary;
+  } catch (err) {
+    await handle.close().catch(() => {});
+    await fs.rm(temporary, { force: true }).catch(() => {});
+    throw err;
+  }
+}
+
+/** Write an already-serialized document, retaining unknown fields and encrypted secrets verbatim. */
+async function writeConfigDocumentToDiskUnsafe(
+  diskSafe: Record<string, unknown>,
+  backupCurrent = true,
+  canCommit: () => boolean = () => true,
+): Promise<boolean> {
   const configPath = getConfigPath();
-  const tempPath = `${configPath}${CONFIG_TEMP_SUFFIX}`;
   const backupPath = `${configPath}${CONFIG_BACKUP_SUFFIX}`;
   const configDir = path.dirname(configPath);
   await fs.mkdir(configDir, { recursive: true, mode: 0o700 });
@@ -1870,25 +2208,90 @@ async function writeConfigToDiskUnsafe(config: AppConfig): Promise<void> {
   } catch {
     // Best-effort on platforms that ignore directory modes.
   }
-  // Encrypt secrets via keychain (or plaintext fallback) before stringify so the
-  // payload never relies on live SecretValue fields (toJSON would redact).
+
+  const temporary = await writePrivateConfigTemp(configPath, JSON.stringify(diskSafe, null, 2));
+  let backupTemporary: string | null = null;
+  try {
+    if (!canCommit()) return false;
+    if (backupCurrent && await configFileExists(configPath)) {
+      // A unique 0600 staging file and rename avoid following an existing backup symlink
+      // or leaving a partially overwritten backup if the process is interrupted.
+      backupTemporary = await writePrivateConfigTemp(backupPath, await fs.readFile(configPath));
+      await fs.rename(backupTemporary, backupPath);
+      backupTemporary = null;
+      await chmod600BestEffort(backupPath);
+    }
+    if (!canCommit()) return false;
+    await fs.rename(temporary, configPath);
+    await chmod600BestEffort(configPath);
+    return true;
+  } finally {
+    await fs.rm(temporary, { force: true });
+    if (backupTemporary) await fs.rm(backupTemporary, { force: true });
+  }
+}
+
+async function writeConfigToDiskUnsafe(config: AppConfig, backupCurrent = true): Promise<void> {
+  // Encrypt secrets before stringify; SecretValue.toJSON would otherwise redact them.
   const diskSafe = serializeConfigForDisk(config);
-  const payload = JSON.stringify(diskSafe, null, 2);
-  // Safety: if a SecretValue slipped through, toJSON redacts rather than leaking.
-  if (payload.includes('"apiKey": "[REDACTED]"') || payload.includes('"huggingFaceToken": "[REDACTED]"')) {
+  const payload = JSON.stringify(diskSafe);
+  if (payload.includes('"apiKey":"[REDACTED]"') || payload.includes('"huggingFaceToken":"[REDACTED]"')) {
     console.warn('[config] secret field redacted in disk payload; check serializeConfigForDisk.');
   }
-  await fs.writeFile(tempPath, payload, { encoding: 'utf-8', mode: 0o600 });
-  await chmod600BestEffort(tempPath);
-  if (await configFileExists(configPath)) {
-    await fs.copyFile(configPath, backupPath);
-    await chmod600BestEffort(backupPath);
+  await writeConfigDocumentToDiskUnsafe(diskSafe, backupCurrent);
+}
+
+/** Read raw data for a tutorial-only mutation: never decrypt/re-encrypt unrelated credentials. */
+async function readTutorialConfigDocument(): Promise<Record<string, unknown>> {
+  const configPath = getConfigPath();
+  const backupPath = `${configPath}${CONFIG_BACKUP_SUFFIX}`;
+  let unreadable = false;
+  for (const filePath of [configPath, backupPath]) {
+    let document: Record<string, unknown>;
+    try {
+      const parsed = asRecord(JSON.parse(await readConfigRawFromPath(filePath)));
+      if (!parsed) throw new Error('Invalid config document');
+      document = parsed;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') unreadable = true;
+      // Never log raw config or exception details, which may contain secrets.
+      continue;
+    }
+    if (filePath === backupPath) {
+      console.warn('[config] restored config from backup file.');
+      // Do not replace the good backup with the broken primary while recovering.
+      await writeConfigDocumentToDiskUnsafe(document, false);
+    }
+    return document;
   }
-  await fs.rename(tempPath, configPath);
-  await chmod600BestEffort(configPath);
-  if (await configFileExists(backupPath)) {
-    await chmod600BestEffort(backupPath);
+  if (unreadable) throw new Error('Config file is corrupt and no valid backup is available.');
+  const defaults = serializeConfigForDisk(createDefaultConfig());
+  await writeConfigDocumentToDiskUnsafe(defaults);
+  return defaults;
+}
+
+/**
+ * The Claude model is set through ``anthropic:set-model`` (Settings and the composer), so a
+ * Settings save drafted before a composer pick must not roll it back.
+ */
+function keepDiskClaudeModel(disk: LlmProviderConfig[], client: LlmProviderConfig[]): LlmProviderConfig[] {
+  const diskModel = disk.find((p) => p.id === PINNED_ANTHROPIC_PROVIDER_ID)?.models[0];
+  if (!diskModel) {
+    return client;
   }
+  return client.map((p) => {
+    if (p.id !== PINNED_ANTHROPIC_PROVIDER_ID || !p.models[0]) {
+      return p;
+    }
+    const [first, ...rest] = p.models;
+    return {
+      ...p,
+      models: [
+        { ...first, model: diskModel.model, name: diskModel.name, contextWindowTokens: diskModel.contextWindowTokens },
+        ...rest,
+      ],
+    };
+  });
 }
 
 /** Preserve workspace registry fields owned by dedicated IPC handlers. */
@@ -1896,9 +2299,18 @@ export function mergeSettingsConfigSave(disk: AppConfig, client: AppConfig): App
   // Client-wins settings merge; never log client/disk (secrets).
   // Read MCP touch flags first — migrate keeps them, but merge must see the pre-normalize client.
   const flags = mcpMergeFlags(client.mcpServers);
+  const screenshotRetention = normalizeScreenshotRetention({
+    ...disk.workspaceTools?.screenshotRetention,
+    ...client.workspaceTools?.screenshotRetention,
+  });
   const clientMigrated = migrateConfig(client);
   return {
     ...clientMigrated,
+    llmProviders: keepDiskClaudeModel(disk.llmProviders, clientMigrated.llmProviders),
+    workspaceTools: { ...clientMigrated.workspaceTools, screenshotRetention },
+    // Tutorial transitions have their own revision-checked IPC; a stale Settings draft
+    // must never resurrect dismissed phases or move the committed cursor backwards.
+    tutorial: isTutorialProgressSupported(disk.tutorial) ? normalizeTutorialProgress(disk.tutorial) : disk.tutorial,
     workspaces: disk.workspaces,
     currentWorkspaceId: disk.currentWorkspaceId,
     lastActiveConversationByWorkspaceId: disk.lastActiveConversationByWorkspaceId,
@@ -1925,6 +2337,48 @@ export async function updateConfig(
   });
 }
 
+/** Atomically compare and update just the tutorial cursor inside the config write queue. */
+export async function updateTutorialProgress(
+  request: TutorialTransition,
+  canApply: () => boolean = () => true,
+): Promise<{ applied: boolean; progress: TutorialProgress }> {
+  return runSerializedConfigMutation(async () => {
+    const document = await readTutorialConfigDocument();
+    const progress = normalizeTutorialProgress(document['tutorial']);
+    if (!canApply()) return { applied: false, progress };
+    const result = applyTutorialTransition(progress, request);
+    if (result.applied) {
+      document['tutorial'] = result.progress;
+      // A window may release/crash while the temporary file or backup is being written.
+      // Recheck its lease immediately before publishing the new primary document.
+      if (!await writeConfigDocumentToDiskUnsafe(document, true, canApply)) return { applied: false, progress };
+    }
+    return result;
+  });
+}
+
+/** Apply the Settings checkbox to the current progress; a saved preference has no revision to compare. */
+export async function setTutorialEnabled(enabled: boolean): Promise<{ applied: boolean; progress: TutorialProgress }> {
+  return runSerializedConfigMutation(async () => {
+    const document = await readTutorialConfigDocument();
+    const progress = normalizeTutorialProgress(document['tutorial']);
+    const result = applyTutorialTransition(progress, {
+      action: enabled ? 'restart' : 'dismiss-all',
+      expectedRevision: progress.revision,
+    });
+    if (result.applied) {
+      document['tutorial'] = result.progress;
+      await writeConfigDocumentToDiskUnsafe(document);
+    }
+    return result;
+  });
+}
+
+/** Read only tutorial data without decrypting or migrating unrelated config fields. */
+export async function loadTutorialProgress(): Promise<TutorialProgress> {
+  return runSerializedConfigMutation(async () => normalizeTutorialProgress((await readTutorialConfigDocument())['tutorial']));
+}
+
 /** Async load; creates default file on first run. */
 export async function loadConfig(): Promise<AppConfig> {
   return runSerializedConfigMutation(async () => {
@@ -1940,7 +2394,8 @@ export async function loadConfig(): Promise<AppConfig> {
 
 export async function saveConfig(config: AppConfig): Promise<void> {
   await runSerializedConfigMutation(async () => {
-    await writeConfigToDiskUnsafe(migrateConfig(config));
+    const disk = await readConfigFromDiskForMutation();
+    await writeConfigToDiskUnsafe(migrateConfig({ ...config, tutorial: disk.tutorial }));
   });
 }
 
@@ -1948,30 +2403,25 @@ export async function saveConfig(config: AppConfig): Promise<void> {
 export function loadConfigSync(): AppConfig {
   const configPath = getConfigPath();
   const backupPath = `${configPath}${CONFIG_BACKUP_SUFFIX}`;
+  let unreadable = false;
 
   for (const filePath of [configPath, backupPath]) {
     try {
       const raw = readConfigRawFromPathSync(filePath);
       // Never log `raw` or throw it in error text — may contain secrets.
-      return exposeSecretsForConsumers(migrateConfig(JSON.parse(raw) as AppConfig));
+      const document = asRecord(JSON.parse(raw));
+      if (!document) throw new Error('Invalid config document');
+      return exposeSecretsForConsumers(migrateConfig(document as unknown as AppConfig));
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        continue;
-      }
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') unreadable = true;
       // Swallow parse errors without logging file contents or secret-bearing messages.
     }
   }
 
-  try {
-    syncFs.accessSync(configPath);
-    console.error('[config] config file exists but could not be parsed; refusing to reset.');
+  if (unreadable) {
+    console.error('[config] config or backup could not be read; refusing to reset.');
     throw new Error('Config file is corrupt and no valid backup is available.');
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw err;
-    }
   }
-
   return exposeSecretsForConsumers(createDefaultConfig());
 }
 

@@ -1,4 +1,12 @@
 import type { PreloadIpc } from '../preload-ipc';
+import type { ScreenshotAssetStatus, ScreenshotStorageStats } from '../../shared/screenshot-retention';
+import type {
+  TutorialClaimResult,
+  TutorialSnapshot,
+  TutorialTransition,
+  TutorialTransitionResult,
+  TutorialWindow,
+} from '../../shared/types/tutorial';
 import type {
   AppConfig,
   HealthMonitorConfig,
@@ -8,11 +16,37 @@ import type {
   WorkspaceOpenTabsState,
 } from '../../shared';
 
+type ScreenshotStorageResult = { ok: true; stats: ScreenshotStorageStats } | { ok: false; error: string };
+
 /** App config, window chrome, scripts, and LLM server IPC. */
 export const createAppServicesApi = (ipcRenderer: PreloadIpc) => ({
   setAlwaysOnTop: (pinned: boolean) => ipcRenderer.invoke('set-always-on-top', pinned),
   loadConfig: () => ipcRenderer.invoke('load-config'),
   saveConfig: (config: unknown) => ipcRenderer.invoke('save-config', config),
+  getTutorialSnapshot: (): Promise<TutorialSnapshot> => ipcRenderer.invoke('tutorial:get-snapshot'),
+  transitionTutorial: (transition: TutorialTransition): Promise<TutorialTransitionResult> =>
+    ipcRenderer.invoke('tutorial:transition', transition),
+  claimTutorial: (window: TutorialWindow): Promise<TutorialClaimResult> =>
+    ipcRenderer.invoke('tutorial:claim', window),
+  releaseTutorial: (requestedWindow?: TutorialWindow): Promise<TutorialSnapshot> =>
+    ipcRenderer.invoke('tutorial:release', requestedWindow),
+  setTutorialEnabled: (enabled: boolean): Promise<TutorialTransitionResult> =>
+    ipcRenderer.invoke('tutorial:set-enabled', enabled),
+  onTutorialUpdated: (callback: (snapshot: TutorialSnapshot) => void): (() => void) => {
+    const listener = (_event: unknown, snapshot: TutorialSnapshot) => callback(snapshot);
+    ipcRenderer.on('tutorial:updated', listener);
+    return () => { ipcRenderer.removeListener('tutorial:updated', listener); };
+  },
+  getScreenshotStorageStats: (): Promise<ScreenshotStorageResult> => ipcRenderer.invoke('screenshot-storage-stats'),
+  runScreenshotCleanup: (): Promise<ScreenshotStorageResult> => ipcRenderer.invoke('screenshot-cleanup'),
+  clearScreenshots: (): Promise<ScreenshotStorageResult> => ipcRenderer.invoke('screenshot-clear'),
+  getScreenshotAssetStatus: (url: string): Promise<ScreenshotAssetStatus> =>
+    ipcRenderer.invoke('screenshot-asset-status', url),
+  onScreenshotAssetsChanged: (callback: () => void): (() => void) => {
+    const listener = () => callback();
+    ipcRenderer.on('screenshot-assets-changed', listener);
+    return () => { ipcRenderer.removeListener('screenshot-assets-changed', listener); };
+  },
   /** App-wide UI theme (single `AppConfig.themeId`, no per-workspace override). */
   setTheme: (themeId: string) => ipcRenderer.invoke('set-theme', themeId),
   setLastActiveConversation: (workspaceKey: string, conversationId: string) =>
@@ -26,6 +60,8 @@ export const createAppServicesApi = (ipcRenderer: PreloadIpc) => ({
     ipcRenderer.invoke('patch-workspace-open-tabs', workspaceId, state),
   setActiveLlmModel: (modelId: string) => ipcRenderer.invoke('set-active-llm-model', modelId),
   patchHealthMonitor: (patch: Partial<HealthMonitorConfig>) => ipcRenderer.invoke('patch-health-monitor', patch),
+  /** Client-only UI preference; main mutates just this key so other windows' saves survive. */
+  setConfirmMove: (enabled: boolean) => ipcRenderer.invoke('set-confirm-move', enabled),
   onConfigUpdated: (callback: (event: unknown, config: unknown) => void) => ipcRenderer.on('config-updated', callback),
   onSettingsWindowVisibilityChanged: (callback: (event: unknown, isOpen: boolean) => void) =>
     ipcRenderer.on('settings-window-visibility-changed', callback),
@@ -48,17 +84,34 @@ export const createAppServicesApi = (ipcRenderer: PreloadIpc) => ({
     ipcRenderer.invoke('mcp:remember-decision', payload),
   llamaServerChatTemplateReasoning: (payload: { modelId: string }) =>
     ipcRenderer.invoke('llama-server:chat-template-reasoning', payload),
+  llamaServerFlagCatalog: () => ipcRenderer.invoke('llama-server:flag-catalog'),
+  llamaServerVramUsage: () => ipcRenderer.invoke('llama-server:vram-usage'),
+  llamaServerGgufSize: (payload: { path: string }) => ipcRenderer.invoke('llama-server:gguf-size', payload),
+  llamaServerGgufProfile: (payload: { path: string }) => ipcRenderer.invoke('llama-server:gguf-profile', payload),
+  llamaServerTotalRam: () => ipcRenderer.invoke('llama-server:total-ram'),
+  llamaServerLaunchedCommand: (payload: { modelId: string }) =>
+    ipcRenderer.invoke('llama-server:launched-command', payload),
   llamacppManagedListModels: (payload: { modelId: string; config: AppConfig }) =>
     ipcRenderer.invoke('llamacpp-managed:list-models', payload),
+  llmSourcePing: (payload: { modelId: string; config: AppConfig }) => ipcRenderer.invoke('llm-source:ping', payload),
   llamacppOpenAiListModels: (payload: { baseUrl: string; apiKey: string }) =>
     ipcRenderer.invoke('llamacpp-openai:list-models', payload),
   openRouterListModels: (payload: { baseUrl: string; apiKey: string }) =>
     ipcRenderer.invoke('openrouter:list-models', payload),
+  /** Claude: the key goes in once and never comes back out; status carries only a hint. */
+  anthropicStatus: (payload?: { refresh?: boolean }) => ipcRenderer.invoke('anthropic:status', payload),
+  anthropicSetApiKey: (payload: { apiKey: string }) => ipcRenderer.invoke('anthropic:set-api-key', payload),
+  anthropicClearApiKey: () => ipcRenderer.invoke('anthropic:clear-api-key'),
+  anthropicSetModel: (payload: { modelId: string }) => ipcRenderer.invoke('anthropic:set-model', payload),
   lmStudioListModels: (payload: { baseUrl: string; apiKey?: string }) => ipcRenderer.invoke('lm-studio:list-models', payload),
-  lmStudioLoadModel: (payload: { baseUrl: string; model: string; apiKey?: string }) =>
+  lmStudioLoadModel: (payload: { baseUrl: string; model: string; apiKey?: string; options?: Record<string, unknown> }) =>
     ipcRenderer.invoke('lm-studio:load-model', payload),
   lmStudioUnloadModel: (payload: { baseUrl: string; instanceId: string; apiKey?: string }) =>
     ipcRenderer.invoke('lm-studio:unload-model', payload),
+  openAiCompatListModels: (payload: { endpoint: Record<string, unknown> }) =>
+    ipcRenderer.invoke('openai-compat:list-models', payload),
+  openAiCompatTest: (payload: { endpoint: Record<string, unknown>; model: string }) =>
+    ipcRenderer.invoke('openai-compat:test', payload),
   onLlamaServerOutput: (callback: (event: unknown, data: unknown) => void) =>
     ipcRenderer.on('llama-server-output', callback),
   onLlamaServerProcessExit: (callback: (event: unknown, data: unknown) => void) =>

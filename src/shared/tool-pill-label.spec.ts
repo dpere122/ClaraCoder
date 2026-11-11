@@ -6,8 +6,10 @@ import {
   formatThoughtDuration,
   formatToolDuration,
   humanizeToolName,
+  isAwaitingApprovalText,
+  isDeclinedToolCall,
   runCommandIdFromReport,
-  toolPillSlowestMs,
+  toolCallsRunMs,
   toolPillGroupLabel,
   toolPillLabel,
   toolPillMeta,
@@ -24,6 +26,39 @@ function pill(part: StreamPart, live = false): string {
   const label = toolPillLabel(part, live);
   return [label.verb, toolPillMeta(label)].filter(Boolean).join(' · ');
 }
+
+describe('approval outcomes', () => {
+  it('reads every staged card result as awaiting approval', () => {
+    expect(isAwaitingApprovalText('Pending user confirmation for `run_command`.')).toBe(true);
+    expect(isAwaitingApprovalText('Pending user confirmation: big.bin is too large to restore.')).toBe(true);
+    expect(isAwaitingApprovalText('Exit code: 0')).toBe(false);
+  });
+
+  it('counts a denied MCP call as declined: it never ran, and its row keeps saying denied', () => {
+    const denied = status('mcp__docs__lookup', 'Tool `lookup` on MCP server `docs` is denied.');
+    expect(isDeclinedToolCall(denied)).toBe(true);
+    expect(pill(denied)).toBe('Lookup · denied');
+    expect(isDeclinedToolCall(status('mcp__docs__lookup', 'Found 3 results'))).toBe(false);
+  });
+});
+
+describe('toolCallsRunMs', () => {
+  it('counts the slowest call of each step, and adds up the steps and unbatched calls', () => {
+    expect(
+      toolCallsRunMs([
+        { toolBatch: 's1', toolDurationMs: 3_000 },
+        { toolBatch: 's1', toolDurationMs: 5_000 },
+        { toolBatch: 's2', toolDurationMs: 1_000 },
+        { toolDurationMs: 2_000 },
+      ]),
+    ).toBe(8_000);
+  });
+
+  it('is undefined when no call has a time', () => {
+    expect(toolCallsRunMs([{}, {}])).toBeUndefined();
+    expect(toolCallsRunMs([{ toolDurationMs: 0 }])).toBe(0);
+  });
+});
 
 describe('toolPillLabel', () => {
   it('sub-agents: names the sub-agent, not its task', () => {
@@ -102,18 +137,29 @@ describe('toolPillLabel', () => {
     );
   });
 
-  it('answered approval cards: cancelled and denied calls say so', () => {
+  it('answered approval cards: declined and denied calls say so, approved ones add nothing', () => {
     expect(pill(status('fetch_url', 'User cancelled the pending command: Fetch URL.', { toolTarget: 'https://example.com' }))).toBe(
-      'Fetch · https://example.com · cancelled',
+      'Fetch · https://example.com · declined',
     );
-    expect(pill(status('run_command', 'User declined administrator access for this agent.'))).toBe('Run · cancelled');
+    expect(pill(status('run_command', 'User declined administrator access for this agent.'))).toBe('Run · declined');
     expect(pill(status('mcp__s__lookup', 'Tool `lookup` on MCP server `docs` is denied.'))).toBe('Lookup · denied');
   });
 
   it('run-command lanes: command label and exit code', () => {
     const lane: StreamPart = { streamTag: 'run-command:6514a07e', label: 'python hello.py', text: 'Hello world\r\n', runComplete: true, exitCode: 0 };
     expect(pill(lane)).toBe('Run · python hello.py · exit 0');
-    expect(pill({ ...lane, runComplete: false, exitCode: undefined }, true)).toBe('Run · python hello.py · running');
+    expect(pill({ ...lane, runComplete: false, exitCode: undefined }, true)).toBe('Running · python hello.py');
+    // A live lane carries no `runComplete` at all until `tool_exec_complete` lands.
+    expect(pill({ streamTag: lane.streamTag, label: lane.label, text: lane.text }, true)).toBe('Running · python hello.py');
+    // A saved turn never shows a live verb, even for a lane left unfinished.
+    expect(pill({ ...lane, runComplete: false, exitCode: undefined })).toBe('Run · python hello.py · Hello world');
+  });
+
+  it('run_command calls: running pill previews the command', () => {
+    const running = status('run_command', 'npm run build', { toolChainState: 'running' });
+    expect(pill(running, true)).toBe('Running · npm run build');
+    expect(pill(running)).toBe('Run · npm run build');
+    expect(pill(status('read_workspace_file', 'src/a.ts', { toolChainState: 'running' }), true)).toBe('Read · src/a.ts');
   });
 
   it('lsp diagnostics: issue count', () => {
@@ -156,6 +202,12 @@ describe('toolPillLabel', () => {
     expect(
       pill(status('wait_for_command', 'Command report: - Command id: `ab12` - Command: `npm test` - Working directory: `.` - Status: still running after 30s (waited 30s this call)')),
     ).toBe('Wait · npm test · running');
+  });
+
+  it('context compaction: live verb while it runs, the token change when done', () => {
+    expect(pill(status('compact_context', '', { toolChainState: 'running' }), true)).toBe('Compacting context');
+    expect(pill(status('compact_context', '42.1K → 18.3K tokens'))).toBe('Compacted context · 42.1K → 18.3K tokens');
+    expect(pill(status('compact_context', ''))).toBe('Compacted context');
   });
 
   it('unknown tools get a humanized name and an excerpt', () => {
@@ -253,6 +305,20 @@ describe('activityHeadline', () => {
     expect(headline(failedRun, failedRun)).toBe('Ran 2 commands');
   });
 
+  it('counts every command, even ones whose cut-off labels look alike', () => {
+    expect(headline(run('node -e "setTimeout(()=>con…'), run('node -e "setTimeout(()=>con…'))).toBe('Ran 2 commands');
+    expect(headline(run('npm test'))).toBe('Ran npm test');
+    expect(headline(read('a.py'), read('a.py'))).toBe('Read a.py');
+  });
+
+  it('leaves declined calls out of the headline unless nothing else ran', () => {
+    const declined = (...flags: boolean[]) => (labels: ToolPillLabel[]) => activityHeadline(labels, [], flags).text;
+    expect(declined(false, true, false)([run('a'), run('b'), run('c')])).toBe('Ran 2 commands');
+    expect(declined(false, true)([run('a'), run('b')])).toBe('Ran a');
+    expect(declined(true)([run('npm test')])).toBe('Declined npm test');
+    expect(declined(true, true)([run('a'), run('b')])).toBe('Declined 2 commands');
+  });
+
   it('a failed or stopped change reads as tried and does not fold a later read', () => {
     const out = activityHeadline([edit('a.py'), read('a.py')], [true, false]);
     expect(out.text).toBe('Tried to edit a.py, read a.py');
@@ -265,6 +331,12 @@ describe('activityHeadline', () => {
     const out = activityHeadline([read('a.py'), list, search('q'), edit('a.py'), lsp]);
     expect(out.text).toBe('Read a.py, searched for "q", edited a.py, +2 more');
     expect(out.clauses).toEqual(['read a.py', 'listed src', 'searched for "q"', 'edited a.py', 'checked diagnostics']);
+  });
+
+  it('context compaction reads as one clause in the order it happened', () => {
+    const compact = label('compact_context', '42.1K → 18.3K tokens');
+    expect(headline(compact)).toBe('Compacted context');
+    expect(headline(read('a.py'), compact, edit('a.py'), compact)).toBe('Read a.py, compacted context, edited a.py');
   });
 
   it('shortens long commands and is empty with no calls', () => {
@@ -298,8 +370,4 @@ describe('tool call durations', () => {
     expect(formatThoughtDuration(64_000)).toBe('1m 04s');
   });
 
-  it('picks the slowest timed call of a group', () => {
-    expect(toolPillSlowestMs([{ toolDurationMs: 40 }, {}, { toolDurationMs: 1200 }])).toBe(1200);
-    expect(toolPillSlowestMs([{}, {}])).toBeUndefined();
-  });
 });

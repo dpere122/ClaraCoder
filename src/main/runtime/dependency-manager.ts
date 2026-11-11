@@ -59,7 +59,7 @@ function pythonPackageRoot(): string {
 function ensureRuntimeDirs(): void {
   mkdirSync(getRuntimeDir(), { recursive: true });
   mkdirSync(getRuntimeBinDir(), { recursive: true });
-  // python-venv is created by the python-runtime provider on install (not an empty stub dir).
+  // python-venv is created by the Kokoro / Whisper installs when needed (not an empty stub dir).
 }
 
 function modelManagerHfToken(): string {
@@ -138,7 +138,7 @@ interface ActiveInstall {
 const activeInstalls = new Map<DependencyId, ActiveInstall>();
 
 /** Deps that change the interpreter / site-packages the FastAPI sidecar must reload. */
-const SIDECAR_RESTART_DEPS = new Set<DependencyId>(['python-runtime', 'kokoro', 'whisper']);
+const SIDECAR_RESTART_DEPS = new Set<DependencyId>(['kokoro', 'whisper']);
 
 async function maybeRestartSidecar(depId: DependencyId, ok: boolean): Promise<void> {
   if (!ok || !SIDECAR_RESTART_DEPS.has(depId)) return;

@@ -48,17 +48,17 @@ describe('deriveMonacoTheme', () => {
   it('derives a full palette from the dark built-in', () => {
     const def = deriveMonacoTheme(CLARA_DARK_THEME);
     expect(def.base).toBe('vs-dark');
-    expect(def.colors['editor.background']).toBe('#151812');
-    expect(def.colors['editor.foreground']).toBe('#ddd8cc');
-    expect(def.colors['editor.selectionBackground']).toBe('#a8b89a47');
-    expect(def.rules.find((r) => r.token === 'comment')).toEqual({ token: 'comment', foreground: '6b7361', fontStyle: 'italic' });
+    expect(def.colors['editor.background']).toBe('#101013');
+    expect(def.colors['editor.foreground']).toBe('#e4e4e7');
+    expect(def.colors['editor.selectionBackground']).toBe('#4da3ff4d');
+    expect(def.rules.find((r) => r.token === 'comment')).toEqual({ token: 'comment', foreground: '6b6b76', fontStyle: 'italic' });
   });
 
   it('uses vs for light themes and honours transparentBackground', () => {
     const def = deriveMonacoTheme(CLARA_LIGHT_THEME, { transparentBackground: true });
     expect(def.base).toBe('vs');
     expect(def.colors['editor.background']).toBe('#00000000');
-    expect(def.colors['editor.foreground']).toBe('#3d2b1f');
+    expect(def.colors['editor.foreground']).toBe('#173b31');
   });
 
   it('lets editor.monaco group tokens override global tokens for the editor palette', () => {

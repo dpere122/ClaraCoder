@@ -1,0 +1,189 @@
+<div class='upd-shell' data-theme-group='updater.window'>
+  <header class='upd-handle'>
+    <div class='upd-handle__titles'>
+      <h2>Updates</h2>
+      @if (currentVersion()) {
+        <span class='upd-handle__current'>Current version v{{ currentVersion() }}</span>
+      }
+    </div>
+    <button
+      type='button'
+      class='upd-icon-btn'
+      [disabled]='loading()'
+      (click)='refresh()'
+      aria-label='Refresh releases'
+      title='Refresh releases'
+    >
+      <lucide-icon name='refresh-cw' [size]='13' [class.upd-spin]='loading()'></lucide-icon>
+    </button>
+    <button type='button' class='upd-icon-btn upd-close-btn' (click)='closeWindow()' aria-label='Close' title='Close'>
+      ×
+    </button>
+  </header>
+
+  <div class='upd-body'>
+    <aside class='upd-list-pane' aria-label='Versions'>
+      <label class='upd-beta-toggle'>
+        <input type='checkbox' [checked]='showBeta()' (change)='showBeta.set($any($event.target).checked)' />
+        Show beta versions
+      </label>
+
+      <div class='upd-list' role='listbox' aria-label='Available versions' (keydown)='onListKeydown($event)'>
+        @for (r of visibleReleases(); track r.version) {
+          <button
+            type='button'
+            class='upd-item'
+            role='option'
+            [attr.data-version]='r.version'
+            [class.is-selected]='r.version === selectedVersion()'
+            [class.is-current]='isCurrent(r)'
+            [attr.aria-selected]='r.version === selectedVersion()'
+            [attr.tabindex]='r.version === selectedVersion() ? 0 : -1'
+            (click)='select(r.version)'
+          >
+            <span class='upd-item__version'>v{{ r.version }}</span>
+            <span class='upd-item__badges'>
+              @if (isCurrent(r)) {
+                <span class='upd-badge upd-badge--current'>Current</span>
+              }
+              @if (r.prerelease) {
+                <span class='upd-badge upd-badge--beta'>Beta</span>
+              }
+            </span>
+            @if (r.publishedAt) {
+              <span class='upd-item__date'>{{ formatDate(r.publishedAt) }}</span>
+            }
+          </button>
+        } @empty {
+          <p class='upd-empty'>
+            @if (loading()) {
+              Loading releases…
+            } @else if (listError()) {
+              Couldn't load releases.
+            } @else if (releases().length) {
+              No stable releases yet. Turn on beta versions to see pre-releases.
+            } @else {
+              No releases published yet.
+            }
+          </p>
+        }
+      </div>
+    </aside>
+
+    <section class='upd-detail' aria-live='polite'>
+      @if (listError()) {
+        <p class='upd-alert upd-alert--error' role='alert'>{{ listError() }}</p>
+      }
+      @if (selected(); as r) {
+        <header class='upd-detail__head'>
+          <div class='upd-detail__titles'>
+            <h3>
+              v{{ r.version }}
+              @if (isCurrent(r)) {
+                <span class='upd-badge upd-badge--current'>Current</span>
+              }
+              @if (r.prerelease) {
+                <span class='upd-badge upd-badge--beta'>Beta</span>
+              }
+            </h3>
+            <span class='upd-detail__meta'>
+              @if (r.name !== r.tag && r.name !== 'v' + r.version) {
+                <span>{{ r.name }}</span>
+              }
+              @if (r.publishedAt) {
+                <span>{{ formatDate(r.publishedAt) }}</span>
+              }
+              @if (r.installer) {
+                <span>{{ formatMb(r.installer.size) }}</span>
+              }
+              <a [href]='r.htmlUrl' target='_blank' rel='noopener noreferrer'>View on GitHub</a>
+            </span>
+          </div>
+          @if (selectedAction(); as action) {
+            <div class='upd-actions'>
+              <button
+                type='button'
+                class='upd-btn'
+                [class.upd-btn--primary]="action === 'update'"
+                [class.upd-btn--caution]="action === 'downgrade'"
+                [attr.data-action]='action'
+                [disabled]='busy() || !r.installer'
+                [attr.title]='!r.installer ? "This release has no installer for your platform" : null'
+                (click)='runAction(r)'
+              >
+                {{ actionLabels[action] }}
+              </button>
+            </div>
+          }
+        </header>
+
+        @if (!r.installer) {
+          <p class='upd-alert'>This release has no installer for your platform.</p>
+        }
+        @if (selectedState(); as s) {
+          @if (s.phase === 'downloading' || s.phase === 'verifying') {
+            <div class='upd-progress'>
+              <div class='upd-progress__head'>
+                <span>
+                  @if (s.phase === 'verifying') {
+                    Verifying installer…
+                  } @else {
+                    Downloading {{ formatMb(s.receivedBytes) }} of {{ formatMb(s.totalBytes) }}
+                  }
+                </span>
+                <span class='upd-progress__pct'>{{ progressPercent() }}%</span>
+                @if (s.phase === 'downloading') {
+                  <button type='button' class='upd-btn upd-btn--small' (click)='cancelDownload()'>Cancel</button>
+                }
+              </div>
+              <progress class='upd-progress__bar' max='100' [attr.value]="s.phase === 'verifying' ? null : progressPercent()"></progress>
+            </div>
+          } @else if (s.phase === 'error' && s.error) {
+            <p class='upd-alert upd-alert--error' role='alert'>{{ s.error }}</p>
+          }
+        }
+        @if (actionError()) {
+          <p class='upd-alert upd-alert--error' role='alert'>{{ actionError() }}</p>
+        }
+
+        <div class='upd-notes'>
+          @if (notesHtml(); as html) {
+            <div class='upd-notes__body' [innerHTML]='html'></div>
+          } @else {
+            <p class='upd-empty'>This release has no release notes.</p>
+          }
+        </div>
+      } @else if (!loading() && !listError()) {
+        <p class='upd-empty upd-empty--center'>Select a version to see its release notes.</p>
+      }
+    </section>
+  </div>
+
+  @if (readyState(); as s) {
+    <footer class='upd-footer' role='region' aria-label='Install update'>
+      <div class='upd-footer__copy'>
+        <strong>v{{ s.version }} is downloaded and verified.</strong>
+        <span>
+          @if (!s.installSupported) {
+            {{ s.installUnsupportedReason }}
+          } @else if (s.installOnQuit) {
+            It will install the next time you quit Clara Coder.
+          } @else {
+            Restart Clara Coder to {{ s.action === 'downgrade' ? 'downgrade' : s.action === 'reinstall' ? 'reinstall' : 'update' }}.
+          }
+        </span>
+      </div>
+      <button
+        type='button'
+        class='upd-btn'
+        [disabled]='!s.installSupported || s.installOnQuit'
+        (click)='restartLater()'
+      >
+        Restart later
+      </button>
+      <button type='button' class='upd-btn upd-btn--primary' [disabled]='!s.installSupported' (click)='restartAndInstall()'>
+        Restart and install
+      </button>
+    </footer>
+  }
+</div>

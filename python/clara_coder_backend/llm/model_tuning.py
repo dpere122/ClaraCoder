@@ -9,8 +9,8 @@ not OpenAI ``reasoning_effort`` tiers. Recommended ``temperature`` / ``top_p`` /
 the connection when the template is selected; inference uses those connection fields directly.
 Gemma does not add extra system-prompt notes.
 
-``max_output_tokens`` on the connection sets API ``max_tokens`` when positive. ``0`` omits
-``max_tokens`` (no Clara-side cap; the server context window still limits prompt plus completion).
+``max_output_tokens`` on the connection sets API ``max_tokens`` when positive. ``0`` means no limit on
+the model client; local servers still get the 24576 per-step default from ``bounded_step_settings``.
 Optional env ``CLARA_QWEN_DEFAULT_MAX_OUTPUT_TOKENS`` / ``CLARA_GEMMA_DEFAULT_MAX_OUTPUT_TOKENS``
 only apply when explicitly set. Global env ``CLARA_CHAT_MAX_OUTPUT_TOKENS`` still wins for all models
 when set and positive.
@@ -109,6 +109,13 @@ def connection_exposes_reasoning_effort(connection: RuntimeConnection) -> bool:
 def effective_parallel_tool_calls(connection: RuntimeConnection) -> bool:
     """Whether the API request should allow multiple tool calls in one completion."""
     return bool(connection.parallel_tool_calls)
+
+
+def sends_parallel_tool_calls_field(connection: RuntimeConnection) -> bool:
+    """False for an ``openai-compatible`` server that rejects ``parallel_tool_calls``."""
+    if connection.provider != 'openai-compatible':
+        return True
+    return bool((connection.open_ai_compat or {}).get('sendParallelToolCalls', True))
 
 
 def connection_user_sampling_kwargs_for_llm(connection: RuntimeConnection) -> dict[str, Any]:

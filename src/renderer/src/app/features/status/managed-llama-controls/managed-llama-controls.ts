@@ -25,10 +25,11 @@ import type {
 import {
   findLlmModelLocation,
   findManagedLocalLlamaLocation,
-  isPinnedLlamaCppLocalProviderId,
   isPinnedLlamaServerUrlProviderId,
   isPinnedLmStudioProviderId,
   isPinnedOpenRouterProviderId,
+  isPinnedAnthropicProviderId,
+  anthropicSourceLabel,
   isPinnedLlmSourceId,
   managedLlamaSourceDisplayName,
   openRouterSourceLabel,
@@ -49,7 +50,7 @@ const INVENTORY_SPINNER = {
 
 /**
  * LLM source picker + managed ``llama-server`` Start/Stop controls, shown in
- * the workspace panel below the system prompt area. A dropdown lists every
+ * the status bar and the home Runtime panel. A dropdown lists every
  * LLM source and switches the active one; the Start/Stop button is enabled
  * only for a managed (non-URL-only) llamacpp source — i.e. the local llama
  * server — and disabled for everything else. An inline loading spinner shows
@@ -69,8 +70,14 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
 
   /** Live app config from the shell; drives the active source and start/stop IPC calls. */
   readonly appConfig = input<AppConfig | null>(null);
+  /** `status-bar`: compact single row for the app footer. */
+  readonly layout = input<'default' | 'status-bar'>('default');
 
   protected readonly phase = signal<ManagedLlamaPhase>('idle');
+  /** Why the last start failed, which is what the server said when it exited. */
+  protected readonly startError = signal('');
+  /** The user cancelled the start in flight, so its failure isn't news. */
+  private cancelled = false;
 
   /** Monotonic id for the latest in-flight status probe; stale completions are ignored. */
   private probeRequestId = 0;
@@ -87,7 +94,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
    *  switches re-broadcast config and would otherwise re-trigger the spinner). */
   protected readonly customModelsDir = computed(() => this.appConfig()?.modelManager.customModelsDir?.trim() ?? '');
 
-  /** Sources listed in the dropdown, pinned rows first (same order as Settings → Models). */
+  /** Sources listed in the dropdown, pinned rows first (same order as Settings → Sources). */
   protected readonly sources = computed<LlmProviderConfig[]>(() => {
     const cfg = this.appConfig();
     if (!cfg) {
@@ -96,8 +103,8 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     const list = cfg.llmProviders;
     const pinLm = list.find((p) => isPinnedLmStudioProviderId(p.id));
     const pinUrl = list.find((p) => isPinnedLlamaServerUrlProviderId(p.id));
-    const pinLocal = list.find((p) => isPinnedLlamaCppLocalProviderId(p.id));
     const pinOpenRouter = list.find((p) => isPinnedOpenRouterProviderId(p.id));
+    const pinAnthropic = list.find((p) => isPinnedAnthropicProviderId(p.id));
     const rest = list.filter((p) => !isPinnedLlmSourceId(p.id));
     const head: LlmProviderConfig[] = [];
     if (pinLm) {
@@ -106,17 +113,22 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     if (pinUrl) {
       head.push(pinUrl);
     }
-    if (pinLocal) {
-      head.push(pinLocal);
-    }
     if (pinOpenRouter) {
       head.push(pinOpenRouter);
     }
-    return [...head, ...rest];
+    if (pinAnthropic) {
+      head.push(pinAnthropic);
+    }
+    return [...head, ...rest.filter((p) => p.provider !== 'llamacpp'), ...rest.filter((p) => p.provider === 'llamacpp')];
   });
 
+  /** Custom sources form their own menu section, set apart from the pinned rows. */
   protected readonly sourceOptions = computed(() =>
-    this.sources().map((provider) => ({ id: provider.id, label: this.sourceLabel(provider) })),
+    this.sources().map((provider) => ({
+      id: provider.id,
+      label: this.sourceLabel(provider),
+      group: isPinnedLlmSourceId(provider.id) ? '' : 'Custom',
+    })),
   );
 
   protected readonly show = computed(() => this.sources().length > 0);
@@ -140,7 +152,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
   /** Whether the active source is a local llama server (Start/Stop eligible). */
   protected readonly isLocalLlama = computed(() => this.activeLocation() !== null);
 
-  /** Active provider kind, used to hide the managed server button for OpenRouter. */
+  /** Active provider kind, used to hide the managed server button for hosted APIs. */
   private readonly activeProviderKind = computed(() => {
     const cfg = this.appConfig();
     const mid = cfg?.activeLlmModelId?.trim();
@@ -150,8 +162,11 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     return findLlmModelLocation(cfg.llmProviders, mid)?.provider.provider ?? null;
   });
 
-  /** Start/Stop is the managed local llama-server. Hide it while OpenRouter is the chat source. */
-  protected readonly showManagedStart = computed(() => this.activeProviderKind() !== 'openrouter');
+  /** Start/Stop is the managed local llama-server. Hide it while a hosted API (OpenRouter, Claude) is the chat source. */
+  protected readonly showManagedStart = computed(() => {
+    const kind = this.activeProviderKind();
+    return kind !== 'openrouter' && kind !== 'anthropic';
+  });
 
   protected readonly modelId = computed(() => this.activeLocation()?.model.id ?? '');
 
@@ -192,6 +207,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
             this.phase.set('downloading');
           } else if (ev.phase === 'running') {
             this.phase.set('running');
+            this.startError.set('');
           } else if (ev.phase === 'stopped') {
             this.phase.set('idle');
           }
@@ -212,6 +228,13 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
         return;
       }
       void this.probeStatus(cfg);
+    });
+
+    // A failure is about one model's last start: drop it when another source becomes active,
+    // including from outside this control (Settings), where nothing else would clear it.
+    effect(() => {
+      this.modelId();
+      untracked(() => this.startError.set(''));
     });
 
     // Keep the local model inventory in sync with the configured custom models dir
@@ -251,10 +274,13 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     );
   }
 
-  /** Display name for a source option in the dropdown (model name for llama and OpenRouter sources, else stored name). */
+  /** Display name for a source option in the dropdown (model name for llama, OpenRouter and Claude sources, else stored name). */
   protected sourceLabel(provider: LlmProviderConfig): string {
     if (provider.provider === 'openrouter') {
       return openRouterSourceLabel(provider);
+    }
+    if (provider.provider === 'anthropic') {
+      return anthropicSourceLabel(provider);
     }
     return managedLlamaSourceDisplayName(provider, this.inventory());
   }
@@ -281,6 +307,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     if (!mid) {
       return;
     }
+    this.startError.set('');
     await this.electron.setActiveLlmModel(mid);
   }
 
@@ -299,10 +326,15 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
       return;
     }
     this.phase.set('starting');
+    this.startError.set('');
+    this.cancelled = false;
     try {
       const res = await this.electron.llamaServerStart({ modelId: mid, config: cfg });
       if (!res.ok) {
         this.phase.set('idle');
+        if (!this.cancelled) {
+          this.startError.set(res.error);
+        }
       }
       // success path is driven by the 'running' lifecycle event
     } catch {
@@ -316,6 +348,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     if (!cfg || !mid || (!this.running() && !this.busy())) {
       return;
     }
+    this.cancelled = true;
     try {
       await this.electron.llamaServerStop({ modelId: mid, config: cfg });
       // 'stopped' lifecycle event resets phase to idle
@@ -340,6 +373,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
       }
       if (res.ok && res.running) {
         this.phase.set('running');
+        this.startError.set('');
       } else if (res.ok && res.starting) {
         if (this.phase() !== 'downloading') {
           this.phase.set('starting');

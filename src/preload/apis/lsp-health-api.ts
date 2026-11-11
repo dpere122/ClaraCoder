@@ -5,6 +5,11 @@ import type {
   LspDashboardStatus,
   RuntimeHealthSnapshot,
   CudaGpuDevice,
+  LspEditorFeature,
+  LspEditorFeatureResponse,
+  LspFileRenameIpc,
+  LspWireLocation,
+  LspWireTextEdit,
 } from '../../shared';
 import type {
   LspEditorCodeActionIpc,
@@ -22,6 +27,7 @@ import type {
   LspSemanticTokensLegendIpc,
   LspWorkspaceEditIpc,
 } from '../lsp-types';
+import type { JavaJdkCheck, PythonProjectConfigInfo } from '../../shared/lsp-settings';
 
 /** LSP dashboard, editor features, and health metrics IPC. */
 export const createLspHealthApi = (ipcRenderer: PreloadIpc) => ({
@@ -372,6 +378,35 @@ export const createLspHealthApi = (ipcRenderer: PreloadIpc) => ({
       | { ok: true; lens: LspEditorCodeLensIpc | null }
       | { ok: false; error: string }
     >,
+  lspEditorFeature: <F extends LspEditorFeature>(
+    sessionId: string,
+    relativePath: string,
+    feature: F,
+    params: Record<string, unknown>,
+    documentText: string,
+    skipDocumentSync?: boolean,
+  ) =>
+    ipcRenderer.invoke(
+      'lsp-editor-feature',
+      sessionId,
+      relativePath,
+      feature,
+      params,
+      documentText,
+      skipDocumentSync === true,
+    ) as Promise<LspEditorFeatureResponse<F>>,
+  lspWorkspaceSymbols: (sessionId: string, server: string, query: string) =>
+    ipcRenderer.invoke('lsp-workspace-symbols', sessionId, server, query) as Promise<
+      { ok: true; symbols: LspWireLocation[] } | { ok: false; error: string }
+    >,
+  lspWillRenameFiles: (sessionId: string, files: LspFileRenameIpc[]) =>
+    ipcRenderer.invoke('lsp-will-rename-files', sessionId, files) as Promise<
+      { ok: true; changes: Record<string, LspWireTextEdit[]> } | { ok: false; error: string }
+    >,
+  lspDidRenameFiles: (sessionId: string, files: LspFileRenameIpc[]) =>
+    ipcRenderer.invoke('lsp-did-rename-files', sessionId, files) as Promise<
+      { ok: true } | { ok: false; error: string }
+    >,
   lspEditorSemanticTokensDelta: (
     sessionId: string,
     relativePath: string,
@@ -393,12 +428,18 @@ export const createLspHealthApi = (ipcRenderer: PreloadIpc) => ({
             legend: { tokenTypes: string[]; tokenModifiers: string[] };
             resultId: string | null;
             edits: unknown[];
+            data?: number[];
           };
         }
       | { ok: false; error: string }
     >,
   onLspDiagnosticsUpdated: (callback: (event: unknown, payload: { sessionId: string; relativePath: string; generation: number; epoch?: number }) => void) =>
     ipcRenderer.on('lsp-diagnostics-updated', callback),
+  onLspSettingsApplied: (callback: (payload: { servers: string[] }) => void): (() => void) => {
+    const listener = (_event: unknown, payload: { servers: string[] }) => callback(payload);
+    ipcRenderer.on('lsp-settings-applied', listener);
+    return () => { ipcRenderer.removeListener('lsp-settings-applied', listener); };
+  },
   lspDiagnosticsWatchStart: (sessionId: string, relativePath: string) =>
     ipcRenderer.send('lsp-diagnostics-watch-start', sessionId, relativePath),
   lspDiagnosticsWatchStop: () => ipcRenderer.send('lsp-diagnostics-watch-stop'),
@@ -411,4 +452,15 @@ export const createLspHealthApi = (ipcRenderer: PreloadIpc) => ({
     ipcRenderer.on('health-log-record', callback),
   openHealthWindow: () => ipcRenderer.send('open-health-window'),
   closeHealthWindow: () => ipcRenderer.send('close-health-window'),
+  lspPythonProjectConfig: () =>
+    ipcRenderer.invoke('lsp:python-project-config') as Promise<{
+      ok: boolean;
+      error?: string;
+      workspacePath: string;
+      config: PythonProjectConfigInfo | null;
+    }>,
+  lspJavaCheckJdks: (jdkHome: string, runtimes: string[]) =>
+    ipcRenderer.invoke('lsp:java-check-jdks', jdkHome, runtimes) as Promise<
+      { ok: true; check: JavaJdkCheck } | { ok: false; error: string }
+    >,
 });

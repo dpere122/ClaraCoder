@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from clara_coder_backend.lsp.manager import _uri_to_path
@@ -57,8 +58,29 @@ def serialize_locations_payload(manager: Any, raw: Any) -> list[dict[str, Any]]:
         ir = _lsp_range_to_monaco_irange(rng)
         if ir is None:
             continue
-        out.append({'relativePath': rel, 'range': ir})
+        out.append(_location_row(manager, uri, rel, ir))
     return out
+
+
+def _location_row(manager: Any, uri: str, rel: str, ir: dict[str, int]) -> dict[str, Any]:
+    """A location, with ``externalPath`` when it is a server-generated page outside the workspace."""
+
+    row: dict[str, Any] = {'relativePath': rel, 'range': ir}
+    roots = getattr(manager, 'read_only_document_roots', None)
+    if not callable(roots):
+        return row
+    try:
+        target = _uri_to_path(uri).resolve()
+    except (ValueError, OSError):
+        return row
+    for root in roots():
+        try:
+            target.relative_to(Path(root).resolve())
+        except (ValueError, OSError):
+            continue
+        row['externalPath'] = target.as_posix()
+        break
+    return row
 
 
 def _format_documentation(doc: Any) -> str | dict[str, Any] | None:
@@ -115,6 +137,9 @@ def _serialize_item_defaults_edit(defaults: dict[str, Any]) -> dict[str, Any] | 
     return None
 
 
+DEFAULT_COMPLETION_ITEM_LIMIT = 500
+
+
 def serialize_completion_result(manager: Any, raw: Any) -> dict[str, Any]:
     """Shape ``textDocument/completion`` for the renderer (Monaco ``CompletionList``-like)."""
 
@@ -138,7 +163,7 @@ def serialize_completion_result(manager: Any, raw: Any) -> dict[str, Any]:
     default_data = defaults.get('data')
 
     items: list[dict[str, Any]] = []
-    for it in items_src[:500]:
+    for it in items_src[: getattr(manager, 'completion_item_limit', DEFAULT_COMPLETION_ITEM_LIMIT)]:
         if not isinstance(it, dict):
             continue
         label = it.get('label')
@@ -462,6 +487,14 @@ def serialize_inlay_hints_payload(raw: Any) -> list[dict[str, Any]]:
         tooltip = _format_documentation(hint.get('tooltip'))
         if tooltip is not None:
             row['tooltip'] = tooltip
+        edits = hint.get('textEdits')
+        if isinstance(edits, list):
+            serialized = [e for e in (_serialize_text_edit(x) for x in edits) if e is not None]
+            if serialized:
+                row['textEdits'] = serialized
+        # ``inlayHint/resolve`` needs the server's own hint back to fill in the tooltip.
+        if hint.get('data') is not None:
+            row['lspHint'] = hint
         out.append(row)
     return out
 
@@ -582,8 +615,12 @@ def serialize_semantic_tokens_delta_payload(manager: Any, raw: Any) -> dict[str,
     if not isinstance(edits, list):
         edits = []
     rid = raw.get('resultId')
-    return {
+    payload: dict[str, Any] = {
         'legend': legend,
         'resultId': None if rid is None else str(rid),
         'edits': edits,
     }
+    # A server may answer a delta request with whole tokens.
+    if isinstance(raw.get('data'), list):
+        payload['data'] = raw['data']
+    return payload

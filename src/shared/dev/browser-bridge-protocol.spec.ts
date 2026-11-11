@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { SecretValue } from '../types/app-config';
 import {
+  bridgeParse,
+  bridgeStringify,
   browserBridgeSettingsTabForHash,
   browserBridgeUrl,
   browserBridgeWindowForHash,
@@ -69,5 +72,14 @@ describe('browserBridgeUrl', () => {
     expect(new URL(url).hash).toBe('#/settings?tab=modelManager');
     expect(browserBridgeWindowForHash(new URL(url).hash)).toBe('settings');
     expect(browserBridgeSettingsTabForHash(new URL(url).hash)).toBe('modelManager');
+  });
+});
+
+describe('bridgeStringify', () => {
+  const base64 = { encode: () => '', decode: () => new Uint8Array() };
+
+  it('sends secrets as their text, like structured clone, instead of the redacted toJSON', () => {
+    const text = bridgeStringify({ modelManager: { huggingFaceToken: SecretValue.of('hf_abc123') } }, base64);
+    expect(bridgeParse(text, base64)).toEqual({ modelManager: { huggingFaceToken: 'hf_abc123' } });
   });
 });

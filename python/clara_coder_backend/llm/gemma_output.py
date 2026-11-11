@@ -11,8 +11,11 @@ and path so the UI can show a running row while large write arguments still stre
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
+
+from clara_coder_backend.mcp.names import is_mcp_tool_name
 
 _CHANNEL_BLOCK_RE = re.compile(r'<\|channel>\s*(\w+)\n?(.*?)<channel\|>', re.DOTALL)
 # Official ``<|channel>thought\n`` plus model-echoed variants (missing pipes / spaces).
@@ -246,20 +249,18 @@ def _parse_gemma_string(text: str, i: int) -> tuple[str, int]:
 def _parse_json_string(text: str, i: int) -> tuple[str, int]:
     if i >= len(text) or text[i] != '"':
         raise _IncompleteGemmaValue
-    i += 1
-    out: list[str] = []
-    while i < len(text):
-        ch = text[i]
+    end = i + 1
+    while end < len(text):
+        ch = text[end]
         if ch == '\\':
-            if i + 1 >= len(text):
-                raise _IncompleteGemmaValue
-            out.append(text[i + 1])
-            i += 2
+            end += 2
             continue
         if ch == '"':
-            return ''.join(out), i + 1
-        out.append(ch)
-        i += 1
+            try:
+                return json.loads(text[i : end + 1], strict=False), end + 1
+            except ValueError:
+                raise _IncompleteGemmaValue from None
+        end += 1
     raise _IncompleteGemmaValue
 
 
@@ -405,18 +406,41 @@ def _parse_complete_gemma_fields(text: str) -> dict[str, Any]:
             return out
 
 
-_PATH_ALIAS_KEYS = ('path', 'file_path')
-_CONTENT_ALIAS_KEYS = ('content',)
+#: Gemma can fall into repeating empty thought blocks until the context is full (measured: 5568 and over
+#: 12000 repeats, minutes of generation and far longer for the stream to arrive). A few blocks in a row are
+#: normal before a tool call or an answer (real logs: up to 3), so the server stops only on a long run.
+GEMMA_CHANNEL_LOOP_STOP = '<|channel>thought\n<channel|>' * 8
 
 
-def normalize_gemma_tool_args(args: dict[str, Any]) -> dict[str, Any]:
-    """Map Gemma-trained names (``path`` / ``file_path`` / ``content``) onto Clara parameters.
+def gemma_reply_is_empty(raw_content: str, reasoning: str = '') -> bool:
+    """True when raw Gemma output holds no answer and no tool call: only thought channels, if anything.
 
-    Gemma 4 write examples use ``path``/``file_path`` and ``content``, often with content first.
-    Clara tools require ``relative_path`` and ``new_content``. Extra alias keys are dropped so
-    LangChain does not pass unexpected kwargs into the tool.
+    ``reasoning`` is the sidecar a server split off, which can hold the call when the content is empty.
     """
-    if not args:
+    if _TOOL_CALL_OPEN in raw_content or _TOOL_CALL_OPEN in reasoning:
+        return False
+    visible, _reasoning = split_gemma_channels(raw_content)
+    return not strip_gemma_channel_markup(visible).strip()
+
+
+_PATH_ALIAS_KEYS = ('path', 'file_path')
+_BODY_ALIAS_KEYS = ('content', 'new_content', 'new_snippet')
+#: The file-body parameter of Clara's edit tools; every other tool keeps its own arguments.
+_TOOL_BODY_PARAM = {
+    'write_workspace_file': 'content',
+    'replace_workspace_lines': 'new_content',
+    'replace_workspace_snippet': 'new_snippet',
+}
+
+
+def normalize_gemma_tool_args(args: dict[str, Any], tool_name: str) -> dict[str, Any]:
+    """Map Gemma-trained names (``path`` / ``file_path``, the body names) onto ``tool_name``.
+
+    Gemma 4 write examples use ``path``/``file_path`` and ``content``, often with content first, and it
+    mixes up which edit tool takes which body name. Extra alias keys are dropped so LangChain does not
+    pass unexpected kwargs into the tool. MCP tools declare their own schema, so they pass through.
+    """
+    if not args or is_mcp_tool_name(tool_name):
         return args
     out = dict(args)
     rel = out.get('relative_path')
@@ -426,15 +450,13 @@ def normalize_gemma_tool_args(args: dict[str, Any]) -> dict[str, Any]:
             if isinstance(val, str) and val.strip():
                 out['relative_path'] = val.strip()
                 break
-    if 'new_content' not in out:
-        for key in _CONTENT_ALIAS_KEYS:
-            if key in out:
-                out['new_content'] = out[key]
-                break
     for key in _PATH_ALIAS_KEYS:
         out.pop(key, None)
-    for key in _CONTENT_ALIAS_KEYS:
-        out.pop(key, None)
+    body_param = _TOOL_BODY_PARAM.get(tool_name)
+    if body_param:
+        for key in _BODY_ALIAS_KEYS:
+            if key != body_param and key in out:
+                out.setdefault(body_param, out.pop(key))
     return out
 
 
@@ -466,7 +488,7 @@ def peek_partial_native_tool_call(interior: str) -> dict[str, Any] | None:
     name = text[pos:brace].strip()
     if not name:
         return None
-    raw_args = normalize_gemma_tool_args(_parse_complete_gemma_fields(text[brace:]))
+    raw_args = normalize_gemma_tool_args(_parse_complete_gemma_fields(text[brace:]), name)
     args = {
         key: val
         for key, val in raw_args.items()
@@ -513,8 +535,11 @@ def extract_gemma_native_tool_calls(text: str) -> list[dict[str, Any]]:
         out.append(
             {
                 'name': name,
-                'args': normalize_gemma_tool_args(args),
+                'args': normalize_gemma_tool_args(args, name),
                 'id': f'gemma-tool-{len(out) + 1}',
+                # ``model_copy`` does not validate, so the middleware's copy keeps only what is here, and
+                # ``ToolNode`` raises on a call without this key.
+                'type': 'tool_call',
             }
         )
         i = after + len(_TOOL_CALL_CLOSE)

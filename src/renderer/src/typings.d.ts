@@ -1,3 +1,13 @@
+import type { JavaJdkCheck, PythonProjectConfigInfo } from '@shared/lsp-settings';
+import type { ScreenshotAssetStatus, ScreenshotStorageStats } from '@shared/screenshot-retention';
+import type {
+  TutorialClaimResult,
+  TutorialSnapshot,
+  TutorialTransition,
+  TutorialTransitionResult,
+  TutorialWindow,
+} from '@shared/types/tutorial';
+
 import type {
   AcceptCommandPayload,
   AppConfig,
@@ -18,19 +28,32 @@ import type {
   LlamaServerStartResult,
   LlamaServerStatusResult,
   EmbeddingsStatusResult,
+  GgufProfile,
+  GpuVramCardUsage,
+  LlamaFlagCatalog,
   LlamacppManagedListModelsResult,
   OpenRouterListModelsResult,
+  AnthropicListModelsResult,
+  AnthropicSetModelResult,
   ChatTemplateReasoningCaps,
   LlmStatus,
   MenuFileCommand,
+  ModelManagerHfDetailsResult,
   ModelManagerHfFilesResult,
   ModelManagerHfSearchResult,
   ModelManagerListModelsResult,
   ModelManagerMutationResult,
   ModelManagerDownloadHfResult,
+  SecretStorageMode,
   HfDownloadId,
   HfDownloadProgressEvent,
+  HfDownloadSnapshot,
+  LlmSourcePingResult,
   LmStudioListModelsResult,
+  LmStudioLoadOptions,
+  OpenAiCompatEndpoint,
+  OpenAiCompatListResult,
+  OpenAiCompatTestResult,
   LmStudioMutationResult,
   MaybeAutoTitleResult,
   PythonInterpreterListItem,
@@ -57,7 +80,12 @@ import type {
   LspEditorDiagnosticPayload,
   LspEditorDocumentSymbolPayload,
   LspEditorFlatSymbolPayload,
+  LspEditorFeature,
+  LspEditorFeatureResponse,
   LspEditorIRangePayload,
+  LspFileRenameIpc,
+  LspWireLocation,
+  LspWireTextEdit,
   LspEditorLocationPayload,
   LspEditorTextEditPayload,
   LspSemanticTokensFullPayload,
@@ -304,7 +332,7 @@ declare global {
     ) => Promise<{ ok: boolean; path?: string; error?: string }>;
     readAbsoluteFile?: (
       absolutePath: string,
-    ) => Promise<{ ok: boolean; content?: string; path?: string; error?: string }>;
+    ) => Promise<{ ok: boolean; content?: string; path?: string; error?: string; readOnly?: boolean }>;
     setAlwaysOnTop: (pinned: boolean) => Promise<void>;
     getConversations: (workspaceId?: string | null) => Promise<ConversationMeta[]>;
     readConversationFromDisk: (id: string, workspaceId?: string | null) => Promise<Conversation>;
@@ -362,6 +390,7 @@ declare global {
     workspacePathIsDirectory: (absolutePath: string) => Promise<boolean>;
     showWorkspacePathInFileManager?: (absolutePath: string) => Promise<{ ok: boolean; error?: string }>;
     modelManagerPickCustomDir: () => Promise<string | null>;
+    modelManagerSecretStorage: () => Promise<SecretStorageMode>;
     modelManagerListCustomModels: (payload: { customDir: string }) => Promise<ModelManagerListModelsResult>;
     modelManagerRenameModel: (payload: {
       customDir: string;
@@ -376,6 +405,7 @@ declare global {
       skip?: number;
       fileType?: string;
     }) => Promise<ModelManagerHfSearchResult>;
+    modelManagerHfModelDetails: (payload: { id: string; token?: string }) => Promise<ModelManagerHfDetailsResult>;
     modelManagerListHfFiles: (payload: { id: string; token?: string }) => Promise<ModelManagerHfFilesResult>;
     modelManagerDownloadHfFile: (payload: {
       repoId: string;
@@ -383,10 +413,23 @@ declare global {
       customDir: string;
       token?: string;
     }) => Promise<ModelManagerDownloadHfResult>;
+    modelManagerPauseHfDownload?: (payload: { downloadId: HfDownloadId }) => Promise<{ ok: true } | { ok: false; error: string }>;
     modelManagerCancelHfDownload: (payload: { downloadId: HfDownloadId }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    modelManagerListHfDownloads?: () => Promise<HfDownloadSnapshot[]>;
     onModelManagerHfDownloadProgress?: (callback: (event: unknown, data: HfDownloadProgressEvent) => void) => void;
     loadConfig: () => Promise<AppConfig>;
     saveConfig: (config: AppConfig) => Promise<AppConfig>;
+    getTutorialSnapshot: () => Promise<TutorialSnapshot>;
+    transitionTutorial: (transition: TutorialTransition) => Promise<TutorialTransitionResult>;
+    claimTutorial: (window: TutorialWindow) => Promise<TutorialClaimResult>;
+    releaseTutorial: (requestedWindow?: TutorialWindow) => Promise<TutorialSnapshot>;
+    setTutorialEnabled: (enabled: boolean) => Promise<TutorialTransitionResult>;
+    onTutorialUpdated: (callback: (snapshot: TutorialSnapshot) => void) => () => void;
+    getScreenshotStorageStats: () => Promise<{ ok: true; stats: ScreenshotStorageStats } | { ok: false; error: string }>;
+    runScreenshotCleanup: () => Promise<{ ok: true; stats: ScreenshotStorageStats } | { ok: false; error: string }>;
+    clearScreenshots: () => Promise<{ ok: true; stats: ScreenshotStorageStats } | { ok: false; error: string }>;
+    getScreenshotAssetStatus: (url: string) => Promise<ScreenshotAssetStatus>;
+    onScreenshotAssetsChanged: (callback: () => void) => () => void;
     setLastActiveConversation: (workspaceKey: string, conversationId: string) => Promise<AppConfig>;
     patchWorkspaceMonacoScroll: (
       workspaceId: string,
@@ -399,6 +442,7 @@ declare global {
     ) => Promise<void>;
     setActiveLlmModel: (modelId: string) => Promise<AppConfig>;
     patchHealthMonitor: (patch: Partial<HealthMonitorConfig>) => Promise<AppConfig>;
+    setConfirmMove: (enabled: boolean) => Promise<AppConfig>;
     llamaServerStart: (payload: { modelId: string; config: AppConfig }) => Promise<LlamaServerStartResult>;
     llamaServerStop: (payload: { modelId: string; config: AppConfig }) => Promise<{ ok: true }>;
     llamaServerStatus: (payload: { modelId: string; config: AppConfig }) => Promise<LlamaServerStatusResult>;
@@ -420,10 +464,19 @@ declare global {
       | { ok: true; modelId: string; chatTemplateReasoning: ChatTemplateReasoningCaps | null; nCtx: number | null }
       | { ok: false; error: string }
     >;
+    llamaServerFlagCatalog: () => Promise<{ ok: true; catalog: LlamaFlagCatalog } | { ok: false; error: string }>;
+    llamaServerVramUsage: () => Promise<GpuVramCardUsage[]>;
+    llamaServerGgufSize: (payload: { path: string }) => Promise<number | null>;
+    llamaServerGgufProfile: (payload: { path: string }) => Promise<GgufProfile | null>;
+    llamaServerTotalRam: () => Promise<number | null>;
+    llamaServerLaunchedCommand: (payload: {
+      modelId: string;
+    }) => Promise<{ ok: true; command: string | null } | { ok: false; error: string }>;
     llamacppManagedListModels: (payload: {
       modelId: string;
       config: AppConfig;
     }) => Promise<LlamacppManagedListModelsResult>;
+    llmSourcePing: (payload: { modelId: string; config: AppConfig }) => Promise<LlmSourcePingResult>;
     llamacppOpenAiListModels: (payload: {
       baseUrl: string;
       apiKey: string;
@@ -432,8 +485,19 @@ declare global {
       baseUrl: string;
       apiKey: string;
     }) => Promise<OpenRouterListModelsResult>;
+    anthropicStatus: (payload?: { refresh?: boolean }) => Promise<AnthropicListModelsResult>;
+    anthropicSetApiKey: (payload: { apiKey: string }) => Promise<AnthropicListModelsResult>;
+    anthropicClearApiKey: () => Promise<AnthropicListModelsResult>;
+    anthropicSetModel: (payload: { modelId: string }) => Promise<AnthropicSetModelResult>;
+    openAiCompatListModels: (payload: { endpoint: OpenAiCompatEndpoint }) => Promise<OpenAiCompatListResult>;
+    openAiCompatTest: (payload: { endpoint: OpenAiCompatEndpoint; model: string }) => Promise<OpenAiCompatTestResult>;
     lmStudioListModels: (payload: { baseUrl: string; apiKey?: string }) => Promise<LmStudioListModelsResult>;
-    lmStudioLoadModel: (payload: { baseUrl: string; model: string; apiKey?: string }) => Promise<LmStudioMutationResult>;
+    lmStudioLoadModel: (payload: {
+      baseUrl: string;
+      model: string;
+      apiKey?: string;
+      options?: LmStudioLoadOptions;
+    }) => Promise<LmStudioMutationResult>;
     lmStudioUnloadModel: (payload: {
       baseUrl: string;
       instanceId: string;
@@ -790,6 +854,27 @@ declare global {
         }
       | { ok: false; error: string }
     >;
+    lspEditorFeature?: <F extends LspEditorFeature>(
+      sessionId: string,
+      relativePath: string,
+      feature: F,
+      params: Record<string, unknown>,
+      documentText: string,
+      skipDocumentSync?: boolean,
+    ) => Promise<LspEditorFeatureResponse<F>>;
+    lspWorkspaceSymbols?: (
+      sessionId: string,
+      server: string,
+      query: string,
+    ) => Promise<{ ok: true; symbols: LspWireLocation[] } | { ok: false; error: string }>;
+    lspWillRenameFiles?: (
+      sessionId: string,
+      files: LspFileRenameIpc[],
+    ) => Promise<{ ok: true; changes: Record<string, LspWireTextEdit[]> } | { ok: false; error: string }>;
+    lspDidRenameFiles?: (
+      sessionId: string,
+      files: LspFileRenameIpc[],
+    ) => Promise<{ ok: true } | { ok: false; error: string }>;
     lspEditorCodeLensResolve?: (
       sessionId: string,
       relativePath: string,
@@ -811,10 +896,13 @@ declare global {
             legend: { tokenTypes: string[]; tokenModifiers: string[] };
             resultId: string | null;
             edits: unknown[];
+            data?: number[];
           };
         }
       | { ok: false; error: string }
     >;
+    /** Servers ``/runtime-config`` restarted because their settings changed. */
+    onLspSettingsApplied?: (callback: (payload: { servers: string[] }) => void) => () => void;
     lspDiagnosticsWatchStart?: (sessionId: string, relativePath: string) => void;
     lspDiagnosticsWatchStop?: () => void;
     onLspDiagnosticsUpdated?: (
@@ -827,6 +915,16 @@ declare global {
     onHealthLogRecord: (callback: (event: unknown, record: HealthLogRecord) => void) => void;
     openHealthWindow: () => void;
     closeHealthWindow: () => void;
+    lspPythonProjectConfig: () => Promise<{
+      ok: boolean;
+      error?: string;
+      workspacePath: string;
+      config: PythonProjectConfigInfo | null;
+    }>;
+    lspJavaCheckJdks: (
+      jdkHome: string,
+      runtimes: string[],
+    ) => Promise<{ ok: true; check: JavaJdkCheck } | { ok: false; error: string }>;
     depsList: () => Promise<{
       ok: boolean;
       dependencies: import('@shared/index').DependencyInfo[];
@@ -853,6 +951,21 @@ declare global {
     ) => void;
     offDepsProgress: (
       callback: (event: unknown, data: import('@shared/index').DependencyProgressEvent) => void,
+    ) => void;
+    appVersion: () => Promise<string>;
+    updaterListReleases: (force?: boolean) => Promise<import('@shared/app-updater').AppReleaseListResult>;
+    updaterGetState: () => Promise<import('@shared/app-updater').AppUpdateState | null>;
+    updaterDownload: (version: string) => Promise<import('@shared/app-updater').AppUpdateActionResult>;
+    updaterCancel: () => Promise<import('@shared/app-updater').AppUpdateActionResult>;
+    updaterInstallNow: () => Promise<import('@shared/app-updater').AppUpdateActionResult>;
+    updaterInstallOnQuit: () => Promise<import('@shared/app-updater').AppUpdateActionResult>;
+    openUpdaterWindow: () => void;
+    closeUpdaterWindow: () => void;
+    onUpdaterState: (
+      callback: (event: unknown, state: import('@shared/app-updater').AppUpdateState) => void,
+    ) => void;
+    offUpdaterState: (
+      callback: (event: unknown, state: import('@shared/app-updater').AppUpdateState) => void,
     ) => void;
     openSettingsWindow: (tab?: string) => void;
     openDocumentation: () => void;

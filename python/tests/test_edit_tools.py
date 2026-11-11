@@ -77,6 +77,75 @@ def test_write_creates_file_with_parents_and_journals_create(journaled) -> None:
     assert 'beforeContent' not in rows[0]
 
 
+@pytest.mark.parametrize(
+    ('before', 'newline', 'after'),
+    [(b'one\r\ntwo\r\n', 'lf', b'one\ntwo\n'), (b'one\ntwo\n', 'crlf', b'one\r\ntwo\r\n')],
+)
+def test_the_same_text_with_another_newline_is_a_real_write(journaled, before, newline, after) -> None:
+    target = journaled.workspace / 'a.txt'
+    target.write_bytes(before)
+
+    out = write_workspace_file.invoke({'relative_path': 'a.txt', 'content': 'one\ntwo\n', 'newline': newline})
+
+    assert out.startswith('Updated'), out
+    assert target.read_bytes() == after
+
+
+def test_crlf_in_the_text_does_not_double_on_a_crlf_file(journaled) -> None:
+    target = journaled.workspace / 'a.txt'
+    target.write_bytes(b'x\r\ny\r\n')
+
+    write_workspace_file.invoke({'relative_path': 'a.txt', 'content': 'new\r\ntext\r\n', 'newline': 'crlf'})
+
+    assert target.read_bytes() == b'new\r\ntext\r\n'
+
+
+@pytest.mark.parametrize(
+    ('tool', 'args'),
+    [
+        ('snippet', {'old_snippet': 'beta\n', 'new_content': 'gamma\n'}),
+        ('lines', {'start_line': 2, 'end_line': 2, 'new_snippet': 'gamma\n'}),
+    ],
+)
+def test_a_body_under_the_wrong_name_is_refused_not_a_delete(journaled, tool, args) -> None:
+    """An unknown argument is dropped by the schema, so a default of '' would read as asking for a delete."""
+    target = journaled.workspace / 'a.txt'
+    target.write_bytes(b'alpha\nbeta\nomega\n')
+    edit = replace_workspace_snippet if tool == 'snippet' else replace_workspace_lines
+
+    with pytest.raises(ValueError, match='new_(snippet|content)'):
+        edit.invoke({'relative_path': 'a.txt', **args})
+
+    assert target.read_bytes() == b'alpha\nbeta\nomega\n'
+
+
+def test_an_explicit_empty_body_still_deletes(journaled) -> None:
+    target = journaled.workspace / 'a.txt'
+    target.write_bytes(b'alpha\nbeta\nomega\n')
+
+    out = replace_workspace_lines.invoke({'relative_path': 'a.txt', 'start_line': 2, 'end_line': 2, 'new_content': ''})
+
+    assert out.startswith('Updated'), out
+    assert target.read_bytes() == b'alpha\nomega\n'
+
+
+def test_rewriting_identical_content_says_no_change_and_writes_nothing(journaled) -> None:
+    """A model stuck rewriting one file reads ``Updated`` as a reason to go on: tell it nothing happened."""
+    target = journaled.workspace / 'same.txt'
+    target.write_bytes(b'one\r\ntwo\r\n')
+    before = target.stat().st_mtime_ns
+
+    out = write_workspace_file.invoke({'relative_path': 'same.txt', 'content': 'one\ntwo\n', 'newline': 'preserve'})
+
+    assert out.startswith('No change: `same.txt`'), out
+    assert not out.startswith('Tool error')
+    assert target.read_bytes() == b'one\r\ntwo\r\n'
+    assert target.stat().st_mtime_ns == before
+    assert _journal_rows(journaled.session) == []
+
+    assert write_workspace_file.invoke({'relative_path': 'same.txt', 'content': 'one\nTWO\n'}).startswith('Updated')
+
+
 def test_only_first_write_per_turn_is_journaled(journaled) -> None:
     target = journaled.workspace / 'a.txt'
     target.write_text('one\ntwo\nthree\n', encoding='utf-8')

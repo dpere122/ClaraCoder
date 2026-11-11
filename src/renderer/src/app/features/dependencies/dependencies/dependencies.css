@@ -340,16 +340,6 @@
   color: var(--t-success);
 }
 
-.deps-chip--link {
-  color: var(--t-primary);
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.deps-chip--link:hover {
-  text-decoration: underline;
-}
-
 /* ---- Row extras ---------------------------------------------------------- */
 
 .deps-path {
@@ -514,7 +504,6 @@
   line-height: 1.4;
 }
 
-.deps-chip--link:focus-visible,
 .deps-source__link:focus-visible,
 .deps-details-toggle:focus-visible {
   outline: 1px solid color-mix(in srgb, var(--t-primary) 60%, transparent);

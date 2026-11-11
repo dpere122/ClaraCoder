@@ -1,7 +1,11 @@
 /**
  * Hugging Face GGUF download into Hub cache layout under a custom models dir.
  * Uses @huggingface/hub `downloadFile` (Xet) instead of a single resolve-URL fetch.
- * Does not use `downloadFileToCacheDir` so abort and byte progress stay first-class.
+ * Does not use `downloadFileToCacheDir` so abort, byte progress and resume stay first-class.
+ *
+ * A stopped or failed download leaves its bytes in `blobs/<etag>.incomplete`, and the next call for
+ * the same file continues from there. The name is the content hash, so a partial file can only ever
+ * be continued with the bytes it was started from.
  */
 import { downloadFile, getRepoFolderName, pathsInfo } from '@huggingface/hub';
 import { createReadStream, createWriteStream, type WriteStream } from 'fs';
@@ -24,6 +28,8 @@ export type HfHubDownloadParams = {
   token?: string;
   abort: AbortController;
   onWriteStream?: (stream: WriteStream | null) => void;
+  /** Called once the partial file's path is known, before any byte is fetched. */
+  onPartialFile?: (incompletePath: string) => void;
   onProgress?: (receivedBytes: number, totalBytes: number | null) => void;
   progressMinIntervalMs?: number;
 };
@@ -122,6 +128,15 @@ function isLfsSha256Oid(etag: string): boolean {
   return /^[0-9a-f]{64}$/i.test(etag);
 }
 
+/** Size of a file in bytes; 0 when it does not exist. */
+async function fileSize(target: string): Promise<number> {
+  try {
+    return (await fs.stat(target)).size;
+  } catch {
+    return 0;
+  }
+}
+
 async function pathExists(target: string, followSymlinks: boolean): Promise<boolean> {
   try {
     if (followSymlinks) {
@@ -163,7 +178,8 @@ function etagFromPathInfo(info: { lfs?: { oid: string }; xetHash?: string; oid?:
 }
 
 /**
- * Download a GGUF into `{customDir}/models--org--repo/{blobs,snapshots}/…`.
+ * Download a GGUF into `{customDir}/models--org--repo/{blobs,snapshots}/…`, continuing a partial
+ * file left by an earlier attempt.
  * Cache hit when the snapshot pointer already exists (or the blob exists and can be linked).
  */
 export async function downloadHfGgufToHubCache(params: HfHubDownloadParams): Promise<HfHubDownloadResult> {
@@ -174,7 +190,6 @@ export async function downloadHfGgufToHubCache(params: HfHubDownloadParams): Pro
     fetch(input, { ...init, signal: params.abort.signal });
 
   let receivedBytes = 0;
-  let incompletePath = '';
 
   try {
     const infos = await pathsInfo({
@@ -209,7 +224,7 @@ export async function downloadHfGgufToHubCache(params: HfHubDownloadParams): Pro
         receivedBytes: 0,
       };
     }
-    incompletePath = layout.incompletePath;
+    params.onPartialFile?.(layout.incompletePath);
 
     if (await pathExists(layout.pointerPath, true)) {
       const st = await fs.stat(layout.pointerPath);
@@ -259,32 +274,45 @@ export async function downloadHfGgufToHubCache(params: HfHubDownloadParams): Pro
     const interval = params.progressMinIntervalMs ?? HF_HUB_DOWNLOAD_PROGRESS_MIN_INTERVAL_MS;
     let lastProgressMs = 0;
 
-    const writeStream = createWriteStream(layout.incompletePath);
-    params.onWriteStream?.(writeStream);
+    // Bytes kept from an earlier attempt. Without a known total there is no telling whether they
+    // are a prefix of this file, so only a sized download resumes.
+    const partialBytes = await fileSize(layout.incompletePath);
+    const resumeFrom = totalBytes != null && partialBytes <= totalBytes ? partialBytes : 0;
+    receivedBytes = resumeFrom;
+    params.onProgress?.(receivedBytes, totalBytes);
 
-    const webStream = blob.stream() as NodeWebReadableStream<Uint8Array>;
-    const nodeReadable = Readable.fromWeb(webStream);
-    const counter = new Transform({
-      transform(chunk: Buffer, _enc, cb) {
-        receivedBytes += chunk.byteLength;
-        const now = Date.now();
-        if (now - lastProgressMs >= interval) {
-          lastProgressMs = now;
-          params.onProgress?.(receivedBytes, totalBytes);
-        }
-        cb(null, chunk);
-      },
-    });
+    if (totalBytes == null || resumeFrom < totalBytes) {
+      const writeStream = createWriteStream(layout.incompletePath, { flags: resumeFrom > 0 ? 'a' : 'w' });
+      params.onWriteStream?.(writeStream);
 
-    try {
-      await pipeline(nodeReadable, counter, writeStream);
-    } finally {
-      params.onWriteStream?.(null);
+      const rest = resumeFrom > 0 ? blob.slice(resumeFrom) : blob;
+      const webStream = rest.stream() as NodeWebReadableStream<Uint8Array>;
+      const nodeReadable = Readable.fromWeb(webStream);
+      const counter = new Transform({
+        transform(chunk: Buffer, _enc, cb) {
+          receivedBytes += chunk.byteLength;
+          const now = Date.now();
+          if (now - lastProgressMs >= interval) {
+            lastProgressMs = now;
+            params.onProgress?.(receivedBytes, totalBytes);
+          }
+          cb(null, chunk);
+        },
+      });
+
+      try {
+        await pipeline(nodeReadable, counter, writeStream);
+      } finally {
+        params.onWriteStream?.(null);
+      }
     }
 
-    // Integrity: reject truncated or swapped bytes before promoting to the blob.
+    // Integrity: reject truncated or swapped bytes before promoting to the blob. A short file is
+    // still a valid start for the next attempt; a long one is not.
     if (totalBytes != null && receivedBytes !== totalBytes) {
-      await fs.unlink(layout.incompletePath).catch(() => {});
+      if (receivedBytes > totalBytes) {
+        await fs.unlink(layout.incompletePath).catch(() => {});
+      }
       return {
         ok: false,
         error: `Download size mismatch: received ${receivedBytes} of ${totalBytes} bytes.`,
@@ -322,13 +350,7 @@ export async function downloadHfGgufToHubCache(params: HfHubDownloadParams): Pro
     } catch {
       /* ignore */
     }
-    if (incompletePath) {
-      try {
-        await fs.unlink(incompletePath);
-      } catch {
-        /* ignore */
-      }
-    }
+    // The partial file stays: the next attempt resumes it, and whoever cancels for good deletes it.
     if (aborted) {
       return { ok: false, error: 'Download cancelled.', aborted: true, receivedBytes };
     }

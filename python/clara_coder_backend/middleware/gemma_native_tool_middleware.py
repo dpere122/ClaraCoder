@@ -69,7 +69,7 @@ def _normalize_tool_call_args(tool_calls: list[Any]) -> list[Any] | None:
     for call in tool_calls:
         if isinstance(call, dict):
             args = call.get('args') if isinstance(call.get('args'), dict) else {}
-            normalized = normalize_gemma_tool_args(args)
+            normalized = normalize_gemma_tool_args(args, str(call.get('name') or ''))
             if normalized != args:
                 changed = True
                 out.append({**call, 'args': normalized})
@@ -80,7 +80,7 @@ def _normalize_tool_call_args(tool_calls: list[Any]) -> list[Any] | None:
         if not isinstance(args, dict):
             out.append(call)
             continue
-        normalized = normalize_gemma_tool_args(args)
+        normalized = normalize_gemma_tool_args(args, str(getattr(call, 'name', '') or ''))
         if normalized == args:
             out.append(call)
             continue
@@ -95,8 +95,9 @@ def _normalize_tool_call_args(tool_calls: list[Any]) -> list[Any] | None:
 class GemmaNativeToolMiddleware(AgentMiddleware):
     """Convert Gemma ``<|tool_call>call:name{...}<tool_call|>`` text into executable tool calls.
 
-    Also moves ``<|channel>thought`` interiors onto ``reasoning_content`` so the GGUF Jinja
-    template can replay thought between tool-call turns (it strips channels from ``content``).
+    Also moves ``<|channel>thought`` interiors onto ``reasoning_content``, which keeps thought out of
+    the visible answer and in the checkpoint. It is never sent back: the wire carries no
+    ``reasoning_content``, and echoing it was measured to raise generation 2-5x with runaway thinking.
     """
 
     @override

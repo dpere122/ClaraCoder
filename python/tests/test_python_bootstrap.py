@@ -26,7 +26,9 @@ class _FakeProc:
 @pytest.fixture()
 def bootstrap_env():
     td = tempfile.TemporaryDirectory()
-    project_root = Path(td.name) / 'python'
+    # Resolved, because the session stores the resolved root and the temp dir can be an 8.3 short
+    # path on Windows (CI runners: ``C:\Users\RUNNER~1\...``), which resolve() expands.
+    project_root = Path(td.name).resolve() / 'python'
     project_root.mkdir()
     (project_root / 'requirements.txt').write_text('fastapi\n', encoding='utf-8')
     (project_root / 'requirements-dev.txt').write_text('pytest\n', encoding='utf-8')

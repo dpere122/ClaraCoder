@@ -1,9 +1,12 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { Component, ViewEncapsulation, computed, effect, inject, signal, untracked } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import {
   LLM_THINKING_MODE_OPTIONS,
   OPENROUTER_DEFAULT_BASE_URL,
+  llmComposerEffortOptions,
+  llmComposerEffortValue,
   llmEffortControlVisible,
   llmEffortSelectOptionsFromCaps,
   llmThinkingControlVisible,
@@ -13,9 +16,15 @@ import {
 } from '@shared/index';
 import { NgxSpinnerComponent } from 'ngx-spinner';
 import { LucideAngularModule } from 'lucide-angular';
+import { AnthropicService } from '../../../core/anthropic.service';
+import { claudeModelOptions, formatClaudeDate, formatClaudeTokens } from '../../../core/claude-models';
 import { ElectronService } from '../../../core/electron.service';
 import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 import { SettingsStore } from '../settings/settings-store';
+import { LlamaRunCommandComponent } from './llama-run-command/llama-run-command';
+import { LmStudioDashboardComponent } from './lm-studio-dashboard/lm-studio-dashboard';
+import { OpenAiCompatDashboardComponent } from './openai-compat-dashboard/openai-compat-dashboard';
+import { TutorialSourceExampleComponent } from './tutorial-source-example/tutorial-source-example';
 import {
   OPENROUTER_MODEL_SORT_OPTIONS,
   filterOpenRouterModels,
@@ -31,7 +40,17 @@ const OPENROUTER_GRID_PAGE = 48;
 
 @Component({
   selector: 'app-settings-models',
-  imports: [FormsModule, LucideAngularModule, NgxSpinnerComponent, PillSelectComponent],
+  imports: [
+    FormsModule,
+    LlamaRunCommandComponent,
+    LmStudioDashboardComponent,
+    LucideAngularModule,
+    NgTemplateOutlet,
+    NgxSpinnerComponent,
+    OpenAiCompatDashboardComponent,
+    PillSelectComponent,
+    TutorialSourceExampleComponent,
+  ],
   templateUrl: './settings-models.html',
   styleUrl: './settings-models.css',
   encapsulation: ViewEncapsulation.None,
@@ -53,11 +72,20 @@ export class SettingsModels {
   protected readonly effortVisible = computed(() =>
     llmEffortControlVisible(this.s.selectedModel()?.optimizationPreset, this.liveCaps()),
   );
-  protected readonly reasoningEffortOptions = computed(() =>
-    llmEffortSelectOptionsFromCaps(this.liveCaps(), this.s.selectedModel()?.optimizationPreset),
-  );
-  protected readonly builtinEmbeddingsOptions = [{ id: '', label: 'Built-in CPU embeddings' }];
-
+  /** Scanned efforts only, as in the composer (which would revert a Default picked here). */
+  private readonly scannedEffortOptions = computed(() => llmComposerEffortOptions(this.liveCaps()));
+  protected readonly reasoningEffortOptions = computed(() => {
+    const scanned = this.scannedEffortOptions();
+    return scanned.length
+      ? scanned
+      : llmEffortSelectOptionsFromCaps(this.liveCaps(), this.s.selectedModel()?.optimizationPreset);
+  });
+  /** Effort the dropdown shows: the composer's pick when the model was scanned, else the saved one. */
+  protected readonly reasoningEffortValue = computed(() => {
+    const saved = this.s.selectedResolved()?.reasoningEffort || '';
+    const scanned = this.scannedEffortOptions();
+    return scanned.length ? llmComposerEffortValue(scanned, saved) : saved;
+  });
   protected readonly openRouterDefaultBaseUrl = OPENROUTER_DEFAULT_BASE_URL;
   /** Connection fields are drafted here and only reach the config on Save. */
   protected readonly openRouterEditing = signal(false);
@@ -102,21 +130,73 @@ export class SettingsModels {
     return p?.provider === 'openrouter' ? p.id : null;
   });
 
+  protected readonly claude = inject(AnthropicService);
+  /** The key is write-only here: Edit opens an empty field, and Save hands it to main. */
+  protected readonly claudeEditing = signal(false);
+  protected readonly claudeKeyDraft = signal('');
+  private readonly claudeSourceId = computed(() => {
+    const p = this.s.selectedProvider();
+    return p?.provider === 'anthropic' ? p.id : null;
+  });
+  protected readonly claudeModelId = computed(() => {
+    const p = this.s.selectedProvider();
+    return p?.provider === 'anthropic' ? (p.models[0]?.model ?? '') : '';
+  });
+  protected readonly claudeModelOptions = computed(() => claudeModelOptions(this.claude.models(), this.claudeModelId()));
+  /** Catalog row for the saved model id, if the catalog lists it. */
+  protected readonly claudeCurrent = computed(() => {
+    const id = this.claudeModelId();
+    return id ? (this.claude.models().find((m) => m.id === id) ?? null) : null;
+  });
+  protected readonly claudeVerifiedAt = computed(() => {
+    const at = this.claude.status()?.verifiedAt;
+    return at ? new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  });
+  protected readonly formatTokens = formatClaudeTokens;
+  protected readonly formatDate = formatClaudeDate;
+
+  protected beginClaudeEdit(): void {
+    this.claude.error.set('');
+    this.claudeKeyDraft.set('');
+    this.claudeEditing.set(true);
+  }
+
+  protected cancelClaudeEdit(): void {
+    this.claudeEditing.set(false);
+    this.claudeKeyDraft.set('');
+  }
+
+  protected async saveClaudeKey(): Promise<void> {
+    const key = this.claudeKeyDraft().trim();
+    if (!key || this.claude.saving()) {
+      return;
+    }
+    const accepted = await this.claude.saveKey(key);
+    // Drop the plaintext from this window as soon as main has it (or rejected it).
+    this.claudeKeyDraft.set('');
+    if (accepted) {
+      this.claudeEditing.set(false);
+    }
+  }
+
+  protected async removeClaudeKey(): Promise<void> {
+    await this.claude.clearKey();
+    this.cancelClaudeEdit();
+  }
+
+  protected async pickClaudeModel(modelId: string): Promise<void> {
+    const model = this.claude.models().find((m) => m.id === modelId);
+    if (!model || modelId === this.claudeModelId()) {
+      return;
+    }
+    if (await this.claude.setModel(modelId)) {
+      this.s.mirrorClaudeModel(model);
+    }
+  }
+
   protected readonly formatContext = formatOpenRouterContext;
   protected readonly formatPrice = formatOpenRouterPrice;
   protected readonly isFree = openRouterModelIsFree;
-
-  protected lmStudioChatOptions(): { id: string; label: string }[] {
-    const current = this.s.selectedModel()?.model ?? '';
-    const rows = this.s.lmStudioMainModelOptions().map((opt) => ({
-      id: opt.id,
-      label: `${opt.id} — ${opt.state}`,
-    }));
-    if (current && !rows.some((row) => row.id === current)) {
-      rows.unshift({ id: current, label: `${current} (current)` });
-    }
-    return rows;
-  }
 
   protected managedModelOptions(): { id: string; label: string }[] {
     const rows = this.s.managedInventoryModels().map((model) => ({
@@ -128,11 +208,6 @@ export class SettingsModels {
       rows.push({ id: picked, label: `${picked.slice(3)} (HF)` });
     }
     return [{ id: '', label: 'Select a model' }, ...rows];
-  }
-
-  protected labeledIds(values: readonly string[], emptyLabel?: string): { id: string; label: string }[] {
-    const rows = values.map((value) => ({ id: value, label: value }));
-    return emptyLabel ? [{ id: '', label: emptyLabel }, ...rows] : rows;
   }
 
   protected presetOptions(provider: LlmProviderConfig['provider']): { id: string; label: string; title: string }[] {
@@ -196,6 +271,16 @@ export class SettingsModels {
       if (id) {
         void this.electron.refreshChatTemplateReasoning(id);
       }
+    });
+    // Opening the Claude card loads its status (key hint + model catalog) and closes a stale edit.
+    effect(() => {
+      const sourceId = this.claudeSourceId();
+      untracked(() => {
+        this.cancelClaudeEdit();
+        if (sourceId) {
+          void this.claude.ensureLoaded();
+        }
+      });
     });
     // Opening the OpenRouter card loads the catalog (it lists without a key) and drops any
     // half-edited connection left from an earlier visit.

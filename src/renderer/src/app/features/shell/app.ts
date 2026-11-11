@@ -118,6 +118,7 @@ import {
   WorkspaceMonacoModelStore,
   type WorkspaceMonacoSaveAsResult,
 } from '../workspace/workspace-monaco/workspace-monaco-model-store';
+import type { WorkspaceMonacoLspNavigatePayload } from '../workspace/workspace-monaco/workspace-monaco-lsp';
 import { applyAppFontOverrides } from '../../core/theme/app-font-overrides';
 import { SETTINGS_TABS, type SettingsTab } from '../settings/settings/settings-tabs';
 import {
@@ -127,7 +128,9 @@ import {
 } from '../status/context-capacity/context-capacity.utils';
 import { EditorLspStatusComponent } from './editor-lsp-status/editor-lsp-status';
 import { LlamaStatusIndicator } from '../status/llama-status-indicator/llama-status-indicator';
+import { ManagedLlamaControlsComponent } from '../status/managed-llama-controls/managed-llama-controls';
 import { MainPanelEmptyStateComponent } from './main-panel-empty-state/main-panel-empty-state';
+import { TutorialCoordinator } from '../tutorial/tutorial-coordinator';
 import { WorkspaceComponent } from '../workspace/workspace/workspace';
 import {
   WorkspaceMonacoComponent,
@@ -141,6 +144,7 @@ import { isViewableImagePath } from '../workspace/image-viewer/image-viewer-form
 import { planOpenWorkspaceImageTab } from './app-image-file-tabs';
 import { WorkspaceTerminalDockComponent } from '../workspace-terminal/workspace-terminal-dock';
 import { isBrowserBridgeTab } from '../../core/dev-bridge/bridge-tab';
+import { CoreDependenciesStatusService, coreDependenciesNeeded } from '../../core/core-dependencies-status.service';
 import { ElectronService, type MainWindowView } from '../../core/electron.service';
 import { TtsPlaybackService } from '../../core/tts-playback.service';
 import { ThemedConfirmDialogService } from '../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
@@ -235,6 +239,7 @@ export function editorGridSlotView(slot: EditorGridSlot): EditorGridSlotView {
     ChatConversationHubComponent,
     EditorLspStatusComponent,
     LlamaStatusIndicator,
+    ManagedLlamaControlsComponent,
     MainPanelEmptyStateComponent,
     LucideAngularModule,
     WorkspaceComponent,
@@ -256,6 +261,7 @@ export class App implements OnInit, OnDestroy {
   private readonly monacoStore = inject(WorkspaceMonacoModelStore);
   private readonly ngxSpinner = inject(NgxSpinnerService);
   private readonly inj = inject(Injector);
+  private readonly tutorial = inject(TutorialCoordinator);
   private shellDestroyed = false;
   protected readonly newConvExpandedSpinnerName = 'new-conv-expanded';
   protected readonly conversationSession = inject(ConversationSessionService);
@@ -318,10 +324,10 @@ export class App implements OnInit, OnDestroy {
     { planId: string; relativePath: string; active: boolean }
   >();
   /**
-   * Last measured prompt token count per conversation (from API usage metadata, or that
-   * value adjusted by a mid/post-turn compaction delta). Kept across chat switches in this
-   * session — the UI transcript heuristic can dwarf the real prompt after compaction / HITL
-   * cards, and falling back to it on reload falsely reports 100% and locks the composer.
+   * Last prompt token reading per conversation (from API usage metadata, or the estimate a
+   * compaction reports for the prompt it left). Kept across chat switches in this session — the
+   * UI transcript heuristic can dwarf the real prompt after compaction / HITL cards, and falling
+   * back to it on reload falsely reports 100%.
    */
   protected readonly measuredPromptTokensByConversation = signal<Record<string, number>>({});
   /**
@@ -467,6 +473,12 @@ export class App implements OnInit, OnDestroy {
   protected readonly chatCollapsed = model(false);
   /** Skip persisting chat chrome until the first config load has hydrated the signals. */
   private chatLayoutHydrated = false;
+  /**
+   * The chat is expanded only because no editor tab was open. Not saved to config, so the
+   * next start (or a workspace opened from home) doesn't cover restored tabs with it.
+   * Cleared once the chat leaves the expanded view.
+   */
+  private chatAutoExpanded = false;
   /** Skip open-tab persist/restore until the first config load. */
   private openTabsHydrated = false;
   /** Workspace whose `fileTabs` currently belong to; used to persist before restore. */
@@ -609,6 +621,20 @@ export class App implements OnInit, OnDestroy {
     }
     return resolveActiveLlmConnection(config);
   });
+  /** Flags the title-bar and home-screen Dependencies entries while core runtimes are missing. */
+  private readonly coreDependencies = inject(CoreDependenciesStatusService);
+  /** Missing core dependencies, or '' when none are missing or the selected source doesn't need them. */
+  protected readonly coreDependenciesAlert = computed(() =>
+    coreDependenciesNeeded(this.appConfig()) ? this.coreDependencies.missingSummary() : '',
+  );
+  /** Title-bar Dependencies flag: what's missing, else which core install is out of date. */
+  protected readonly coreDependenciesNotice = computed(
+    () =>
+      this.coreDependenciesAlert() ||
+      (coreDependenciesNeeded(this.appConfig()) ? this.coreDependencies.outdatedSummary() : ''),
+  );
+  /** Running app version, shown at the right of the title bar. */
+  protected readonly appVersion = signal('');
   private readonly llamaServerNctxByModel = toSignal(inject(ElectronService).llamaServerNctx$, {
     initialValue: {} as Readonly<Record<string, number>>,
   });
@@ -628,9 +654,18 @@ export class App implements OnInit, OnDestroy {
       measuredBaselineFallbackTokens: this.activeMeasuredBaselineFallbackTokens(),
     });
   });
-  protected readonly contextChatBlocked = computed(
-    () => this.contextCapacity().usedPercentage >= CONTEXT_CHAT_BLOCKED_PERCENT,
-  );
+  /**
+   * Compaction keeps the prompt inside the window, so it never locks the composer. With compaction
+   * off only a measured reading does: the transcript heuristic can dwarf the real prompt.
+   */
+  protected readonly contextChatBlocked = computed(() => {
+    const cc = this.appConfig()?.contextCompression;
+    if (cc?.enabled !== false) {
+      return false;
+    }
+    const c = this.contextCapacity();
+    return c.measuredFromApi && c.usedPercentage >= CONTEXT_CHAT_BLOCKED_PERCENT;
+  });
 
   // Layout
   protected readonly workspaceWidth = signal(App.defaultWorkspaceWidthPx());
@@ -854,6 +889,37 @@ export class App implements OnInit, OnDestroy {
       });
     });
 
+    // With a workspace open but no editor tab, the main stage would be empty:
+    // move the sidebar chat into the expanded view. Only on the change into
+    // that state, so un-expanding by hand still sticks; and when tabs come
+    // back (closing the last one is undone, a workspace with tabs restores),
+    // drop the overlay so they're visible. Closing the workspace drops it too,
+    // or it would cover the tabs of the next workspace opened from home.
+    // An automatic expand isn't saved to config (see `chatAutoExpanded`).
+    let prevNoTabOpen: boolean | null = null;
+    effect(() => {
+      const hasWorkspace = this.hasOpenWorkspace();
+      const noTabOpen = hasWorkspace && this.allFileTabs().length === 0;
+      untracked(() => {
+        if (!this.chatLayoutHydrated) {
+          return;
+        }
+        const prev = prevNoTabOpen;
+        prevNoTabOpen = noTabOpen;
+        if (prev === noTabOpen) {
+          return;
+        }
+        if (noTabOpen) {
+          if (!this.chatCollapsed() && this.chatHubView() === 'activeChat' && !this.chatExpanded()) {
+            this.chatAutoExpanded = true;
+            this.chatExpanded.set(true);
+          }
+        } else if (prev) {
+          this.chatExpanded.set(false);
+        }
+      });
+    });
+
     this.conversationSession.bindHooks({
       getCurrentWorkspaceId: () => this.currentWorkspaceId(),
       getSpeechSettings: () => ({
@@ -862,6 +928,13 @@ export class App implements OnInit, OnDestroy {
         speed: this.ttsSpeechSpeed(),
       }),
       onPlannerComplete: (conversationId) => this.setBuildPlanTabInactive(conversationId),
+      onConversationLoaded: (conversationId, contextTokens) => {
+        // A reopened conversation whose checkpoint Python kept: resume its last measured reading
+        // (this window has none yet) rather than the transcript estimate.
+        if (contextTokens && !(conversationId in this.measuredPromptTokensByConversation())) {
+          this.setMeasuredPromptTokensForConversation(conversationId, contextTokens);
+        }
+      },
     });
 
     // Sub-agents outlive the turn that started them: when their reports land with no turn running,
@@ -876,20 +949,7 @@ export class App implements OnInit, OnDestroy {
       if (inputTokens <= 0) {
         return;
       }
-      // token_usage is an absolute measurement of the last prompt sent to the model. Only let it
-      // RAISE the meter (or set the initial value). Decreases are driven exclusively by the
-      // contextCompressed$ event (mid-turn compaction). Without this guard, a llama.cpp context
-      // checkpoint restore reports a lower input_tokens after silently truncating context, which
-      // would reset the meter mid-conversation even though the transcript is unchanged.
-      const existing = this.measuredPromptTokensByConversation()[conversationId];
-      if (
-        typeof existing === 'number' &&
-        Number.isFinite(existing) &&
-        existing > 0 &&
-        inputTokens < existing
-      ) {
-        return;
-      }
+      // token_usage is an absolute measurement of the last prompt sent to the model.
       this.setMeasuredPromptTokensForConversation(conversationId, inputTokens);
     });
 
@@ -903,21 +963,23 @@ export class App implements OnInit, OnDestroy {
       void this.electron.getMainWindowView().then((view) => this.mainWindowView.set(view));
     }
 
-    this.electron.contextCompressed$.pipe(takeUntilDestroyed()).subscribe(
-      ({ conversationId, tokensBefore, tokensAfter }) => {
-        // Mid-turn estimates are checkpoint-only (no system prompt / tool schemas). Never treat
-        // tokensAfter as an absolute measurement — apply the freed delta to the last API reading.
-        const freed = Math.max(0, tokensBefore - tokensAfter);
-        if (freed <= 0) {
-          return;
-        }
-        const existing = this.measuredPromptTokensByConversation()[conversationId];
-        if (typeof existing !== 'number' || !Number.isFinite(existing) || existing <= 0) {
-          return;
-        }
-        this.setMeasuredPromptTokensForConversation(conversationId, Math.max(1, existing - freed));
-      },
-    );
+    this.electron.contextCompressed$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, tokensAfter }) => {
+      // tokensAfter is an absolute estimate of the full prompt the compaction left. It needs no
+      // earlier reading: a provider that reports no usage has none.
+      if (tokensAfter > 0) {
+        this.setMeasuredPromptTokensForConversation(conversationId, tokensAfter);
+      }
+    });
+
+    this.electron.llmStatus$.pipe(takeUntilDestroyed()).subscribe(({ conversationId, status }) => {
+      // The turn failed (a failed tool call has source `tool`) and its thread was deleted, so the
+      // reading describes a prompt that is gone. With compaction off it could lock the composer, and
+      // no later reading would ever lower it. `done$` cannot tell: Python ends every turn with
+      // [DONE], which main reports as `completed`.
+      if (status.state === 'error' && status.source === 'agent') {
+        this.removeContextMetricsForConversation(conversationId);
+      }
+    });
 
     this.electron.config$.pipe(takeUntilDestroyed()).subscribe((config) => {
       const previousWorkspaceId = this.currentWorkspaceId();
@@ -1026,16 +1088,19 @@ export class App implements OnInit, OnDestroy {
 
     if (this.electron.isElectron) {
       this.windowMaximized.set(await this.electron.windowIsMaximized());
+      void this.electron.appVersion().then((v) => this.appVersion.set(v));
     }
 
     this.syncSidebarWidthFromEffectivePercent();
     window.addEventListener('resize', this.boundOnWindowResize);
 
-    // Load conversations for current workspace
+    // The invitation must not race an async workspace/conversation restore.
     await this.loadConversationsForWorkspace();
+    if (!this.shellDestroyed) this.tutorial.markHomeRestored();
   }
 
   ngOnDestroy(): void {
+    this.tutorial.markHomeUnrestored();
     this.shellDestroyed = true;
     this.clearChromeRecentCloseTimer();
     this.stopLmStudioContextPoll();
@@ -1265,6 +1330,23 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  /** Persist the "Don't ask again" choice from the move confirmation dialog. */
+  protected async onMoveConfirmDisabled(): Promise<void> {
+    if (this.appConfig()?.confirmMove === false) {
+      return;
+    }
+    try {
+      // Targeted main-process mutation: sending the whole renderer config here would revert
+      // anything another window saved after this snapshot was taken.
+      const saved = await this.electron.setConfirmMove(false);
+      if (saved) {
+        this.applyIncomingAppConfig(saved);
+      }
+    } catch (err) {
+      console.error('[App] persist confirmMove failed', err);
+    }
+  }
+
   private restoreOpenTabsForWorkspace(workspaceId: string | null): void {
     this.applyingRestoredOpenTabs = true;
     try {
@@ -1333,7 +1415,10 @@ export class App implements OnInit, OnDestroy {
       return;
     }
     const collapsed = this.chatCollapsed();
-    const expanded = this.chatExpanded();
+    if (!this.chatExpanded()) {
+      this.chatAutoExpanded = false;
+    }
+    const expanded = this.chatExpanded() && !this.chatAutoExpanded;
     const current = resolveChatWindowState(config);
     if (current.collapsed === collapsed && current.expanded === expanded) {
       return;
@@ -1600,6 +1685,8 @@ export class App implements OnInit, OnDestroy {
     // Forget the deleted sub-agents first: their cards are stale, a still-running one's are not.
     this.conversationSession.forgetConversations(result.deletedSubagentIds ?? []);
     this.conversationSession.applyRestoredMessages(this.conversationSession.abandonStaleHitl(result.messages));
+    // The restore deleted the conversation's threads: the last reading describes a prompt that is gone.
+    this.removeContextMetricsForConversation(convId);
     this.conversationSession.removePending(convId);
     this.conversationSession.updateConversationMeta(convId, { updatedAt: new Date().toISOString() });
     this.composerDraft.set(draft);
@@ -2082,7 +2169,12 @@ export class App implements OnInit, OnDestroy {
       return;
     }
 
-    const tab = workspaceChatFileTab(norm);
+    this.openFileTabInFocusedSlot(workspaceChatFileTab(norm));
+  }
+
+  /** Focus ``tab`` wherever it is already open, else add it to the focused slot. */
+  private openFileTabInFocusedSlot(tab: ChatFileTab): void {
+    const focusedId = this.ensureFocusedSlotId();
     const id = chatFileTabId(tab);
     const key = chatFileTabModelKey(tab);
     const layout = this.editorGrid();
@@ -2482,17 +2574,24 @@ export class App implements OnInit, OnDestroy {
 
   protected onChromeMenuSettingsTab(tab: SettingsTab): void {
     this.closeChromeMenu();
+    if (tab === 'modelManager' && this.tutorial.handleHomeNavigation('modelManager')) return;
     this.electron.openSettingsWindow(tab);
   }
 
   protected onChromeDependencies(): void {
     this.closeChromeMenu();
+    if (this.tutorial.handleHomeNavigation('dependencies')) return;
     this.electron.openDependenciesWindow();
   }
 
   protected onChromeHealth(): void {
     this.closeChromeMenu();
     this.electron.openHealthWindow();
+  }
+
+  protected onChromeUpdates(): void {
+    this.closeChromeMenu();
+    this.electron.openUpdaterWindow();
   }
 
   /** @param slotId slot the close came from; defaults to the focused slot. */
@@ -2668,8 +2767,12 @@ export class App implements OnInit, OnDestroy {
     );
   }
 
-  protected onWorkspaceMonacoNavigate(payload: { relativePath: string; line: number; column: number }): void {
-    this.openOrFocusFileTab(payload.relativePath);
+  protected onWorkspaceMonacoNavigate(payload: WorkspaceMonacoLspNavigatePayload): void {
+    if (payload.absolutePath) {
+      this.openFileTabInFocusedSlot({ absolutePath: payload.absolutePath, outsideWorkspace: true });
+    } else {
+      this.openOrFocusFileTab(payload.relativePath);
+    }
     this.monacoRevealPending.set({
       relativePath: normalizePathSlashes(payload.relativePath),
       line: payload.line,

@@ -341,19 +341,23 @@ def test_parse_extra_user_path_splits_and_skips_assignments() -> None:
     assert all('=' not in d for d in dirs)
 
 
-def test_apply_extra_user_path_prefixes_and_keeps_venv_first(monkeypatch) -> None:
+def test_apply_extra_user_path_prefixes_and_keeps_venv_first(monkeypatch, tmp_path: Path) -> None:
     import os
 
     import clara_coder_backend.runtime.python_env as pe
 
+    # Real absolute paths joined with os.pathsep, so the test holds on Windows (';', drive letters) too.
+    venv_bin = str(tmp_path / 'ws' / '.venv' / 'bin')
+    extra = str(tmp_path / 'opt' / 'extra')
+    usr_bin = str(tmp_path / 'usr' / 'bin')
     orig_path = os.environ.get('PATH', '')
-    monkeypatch.setattr(pe, '_ACTIVE_PROCESS_PYTHON_BIN_PATH', '/ws/.venv/bin')
-    monkeypatch.setenv('PATH', '/usr/bin:/bin')
+    monkeypatch.setattr(pe, '_ACTIVE_PROCESS_PYTHON_BIN_PATH', venv_bin)
+    monkeypatch.setenv('PATH', os.pathsep.join([usr_bin, str(tmp_path / 'bin')]))
     try:
-        pe.apply_extra_user_path('/opt/extra')
+        pe.apply_extra_user_path(extra)
         parts = os.environ['PATH'].split(os.pathsep)
-        assert parts[0] == '/ws/.venv/bin'
-        assert '/opt/extra' in parts
-        assert parts.index('/opt/extra') < parts.index('/usr/bin')
+        assert parts[0] == venv_bin
+        assert extra in parts
+        assert parts.index(extra) < parts.index(usr_bin)
     finally:
         os.environ['PATH'] = orig_path

@@ -23,6 +23,14 @@ class SessionWorkspaceState:
     workspace_id: str = ''
     # Tree snapshot string pushed from the renderer (for system prompt workspace hint).
     workspace_context: str = ''
+    # Normalized tree frozen for the system prompt of the current thread; empty until first needed.
+    prompt_tree: str = ''
+    # The thread that tree froze for: the tree and what was told about it belong to that thread's history.
+    prompt_tree_thread: str = ''
+    # Created, deleted or renamed paths since ``prompt_tree`` froze, as ``(kind, relative path)``.
+    prompt_tree_changes: list[tuple[str, str]] = field(default_factory=list)
+    # How many of ``prompt_tree_changes`` the model has already been told about.
+    prompt_tree_changes_reported: int = 0
     # Optional per-workspace system prompt text (Electron app-data managed copy).
     workspace_system_prompt: str = ''
     # Batched file watcher paths for incremental semantic index updates ``(path, kind)``.
@@ -135,6 +143,8 @@ class SessionStreamState:
     worker_apply_mode: bool = False
     # Set when the client requests an abort; the streaming generator checks this to bail out early.
     abort_event: asyncio.Event = field(default_factory=asyncio.Event)
+    #: While a compaction notes call runs. It streams with no graph events, so the stall watchdog must not count it.
+    compaction_notes_call_open: bool = False
     # Outer ``/chat/stream`` allocates this queue so subprocess tools (pytest, smoke, overlay, …) can emit ``tool_exec_*`` SSE.
     planning_nested_events_q: asyncio.Queue | None = None
     # Event loop that owns ``planning_nested_events_q``; worker threads (write jobs) post via ``call_soon_threadsafe``.
@@ -197,6 +207,8 @@ class SessionAgentState:
     subagent_live_turns: int = 0
     #: Stop requested before or while this sub-agent's turn starts (its composer clears ``abort_event``).
     subagent_cancel_requested: bool = False
+    #: The turn's final answer when the harness ended it itself instead of the model.
+    harness_final_text: str = ''
 
 
 def _nest_prop(nest: str, attr: str):
@@ -272,7 +284,8 @@ class RuntimeConnection:
     parallel_tool_calls: bool = True
     #: ``generic`` | ``qwen`` | ``gemma`` — from Settings optimization template.
     optimization_preset: str = 'generic'
-    #: Chat max_tokens when > 0; 0 omits the cap (server context still limits).
+    #: Chat max_tokens when > 0; 0 means no limit on the model client (local servers get the 24576
+    #: per-step default from ``bounded_step_settings``).
     max_output_tokens: int = 0
     #: Gemma / LM Studio thinking: ``default`` | ``on`` | ``off`` (not OpenAI ``reasoning_effort`` tiers).
     thinking_mode: str = 'default'
@@ -298,8 +311,14 @@ class RuntimeConnection:
     presence_penalty: float | None = None
     #: Optional llama.cpp ``repeat_penalty`` in ``extra_body`` when set (not ``repetition_penalty`` on the wire).
     repeat_penalty: float | None = None
-    #: Main context window for this connection (from Settings); used for checkpoint compaction budgets.
+    #: Main context window for this connection (from Settings); used for context compaction budgets.
     context_window_tokens: int = 0
+    #: LM Studio idle unload in seconds, sent on requests so a model it auto-loads gets it; 0 omits it.
+    idle_ttl_seconds: int = 0
+    #: ``openai-compatible`` only: what the server accepts (``OpenAiCompatRequest`` as a dict).
+    open_ai_compat: dict[str, Any] | None = None
+    #: ``openai-compatible`` only: sent on every request. May hold credentials, so never logged.
+    custom_headers: dict[str, str] = field(default_factory=dict)
     #: Live llama-server Jinja scan: ``{enableThinking, reasoningEffortValues}`` or None when unknown.
     chat_template_reasoning: dict[str, Any] | None = None
 
@@ -320,18 +339,11 @@ class RuntimeConnection:
 
 @dataclass
 class RuntimeContextCompressionConfig:
-    """LangGraph checkpoint compaction settings (Settings → Tools).
+    """Context compaction settings (Settings → Tools)."""
 
-    Applies mid-turn (before each model call) and post-turn when enabled.
-    """
-
-    enabled: bool = False
-    trigger_ratio: float = 0.70
-    target_ratio: float = 0.55
-    protect_tail_messages: int = 24
-    recent_tool_body_max_chars: int = 2000
-    old_tool_body_max_chars: int = 400
-    system_reserve_ratio: float = 0.25
+    enabled: bool = True
+    trigger_ratio: float = 0.8
+    target_ratio: float = 0.5
 
 
 @dataclass
@@ -389,6 +401,16 @@ class RuntimeToolsConfig:
     allow_web_access: bool = False
     #: SearXNG instance base URL for ``web_search`` (e.g. ``http://127.0.0.1:8080``).
     searxng_base_url: str = ''
+    #: ``web_search`` backend: ``auto`` (SearXNG when a base URL is set, else the built-in
+    #: metasearch engine), ``internal`` (always built-in), or ``searxng`` (always SearXNG).
+    web_search_provider: str = 'auto'
+    #: Built-in metasearch engines to query (``duckduckgo``, ``bing``, ``mojeek``, ``wikipedia``).
+    #: Empty means every engine (Settings → Tools).
+    web_search_engines: list[str] = field(default_factory=list)
+    #: User-Agent sent with built-in engine requests; empty uses the built-in default.
+    web_search_user_agent: str = ''
+    #: Seconds an engine is skipped after a blocker (rate limit, challenge page). 0 disables.
+    web_search_cooldown_seconds: int = 300
     #: Extra directories prepended onto agent ``run_command`` PATH (Settings → Tools).
     extra_user_path: str = ''
     #: When True, auto-run Black/Prettier after edits and bind format_* tools (Settings → Tools).
@@ -428,6 +450,93 @@ class RuntimeMcpServer:
 
 
 @dataclass
+class RuntimeGdscriptLspConfig:
+    """Settings → LSP → Godot."""
+
+    godot_binary_path: str = ''
+    #: Lets gdls run Godot on a project, which can load the project's native code. Off until opted in.
+    allow_engine_api_dump: bool = False
+    diagnostics_profile: str = 'godot'
+    inlay_type_hints: bool = True
+    inlay_parameter_hints: bool = True
+    formatter_command: str = ''
+    formatter_args: str = ''
+
+
+@dataclass
+class RuntimePythonLspConfig:
+    """Settings → LSP → Python (basedpyright)."""
+
+    #: A project ``pyrightconfig.json`` or ``[tool.basedpyright]`` / ``[tool.pyright]`` table wins over this.
+    type_checking_mode: str = 'standard'
+    diagnostic_mode: str = 'openFilesOnly'
+    inlay_variable_types: bool = True
+    inlay_call_argument_names: bool = True
+    inlay_function_return_types: bool = True
+    inlay_generic_types: bool = False
+    auto_import_completions: bool = True
+    extra_paths: list[str] = field(default_factory=list)
+
+
+@dataclass
+class RuntimeTypescriptLspConfig:
+    """Settings → LSP → TypeScript / JavaScript (vtsls). Defaults are vtsls' own."""
+
+    use_workspace_tsdk: bool = False
+    validate_javascript: bool = True
+    #: Only for JavaScript files no ``jsconfig.json`` / ``tsconfig.json`` covers.
+    check_js: bool = False
+    inlay_parameter_names: str = 'none'
+    inlay_parameter_types: bool = False
+    inlay_variable_types: bool = False
+    inlay_property_declaration_types: bool = False
+    inlay_function_return_types: bool = False
+    inlay_enum_member_values: bool = False
+    auto_import_completions: bool = True
+    import_module_specifier: str = 'shortest'
+    quote_style: str = 'auto'
+
+
+@dataclass
+class RuntimeJavaLspConfig:
+    """Settings → LSP → Java (Eclipse JDT LS). Defaults keep what Clara ran before these settings existed."""
+
+    #: JDK that runs JDT LS; empty looks at ``JAVA_HOME``, then ``java`` on ``PATH``.
+    jdk_home: str = ''
+    max_heap: str = '1G'
+    #: ``(execution environment, JDK folder)`` projects compile against; the first is the default.
+    runtimes: list[tuple[str, str]] = field(default_factory=list)
+    import_maven: bool = True
+    import_gradle: bool = True
+    #: Write ``.project``, ``.classpath`` and ``.settings`` into the project; off keeps them in JDT LS's own data.
+    project_metadata_at_root: bool = True
+    maven_user_settings: str = ''
+    update_build_configuration: str = 'automatic'
+    autobuild: bool = True
+    inlay_parameter_names: str = 'literals'
+    inlay_variable_types: bool = False
+    inlay_parameter_types: bool = False
+    inlay_format_parameters: bool = False
+    references_code_lens: bool = True
+    implementation_code_lens: str = 'none'
+    signature_help: bool = True
+    guess_method_arguments: str = 'insertParameterNames'
+    format_enabled: bool = True
+    format_on_type: bool = False
+    format_comments: bool = True
+    formatter_settings_path: str = ''
+    formatter_profile: str = ''
+
+
+@dataclass
+class RuntimeLspConfig:
+    gdscript: RuntimeGdscriptLspConfig = field(default_factory=RuntimeGdscriptLspConfig)
+    python: RuntimePythonLspConfig = field(default_factory=RuntimePythonLspConfig)
+    typescript: RuntimeTypescriptLspConfig = field(default_factory=RuntimeTypescriptLspConfig)
+    java: RuntimeJavaLspConfig = field(default_factory=RuntimeJavaLspConfig)
+
+
+@dataclass
 class RuntimeConfig:
     """Full runtime settings chosen in the desktop UI and POSTed to /runtime-config."""
 
@@ -437,6 +546,7 @@ class RuntimeConfig:
     host: RuntimeHostConfig = field(default_factory=RuntimeHostConfig)
     tools: RuntimeToolsConfig = field(default_factory=RuntimeToolsConfig)
     context_compression: RuntimeContextCompressionConfig = field(default_factory=RuntimeContextCompressionConfig)
+    lsp: RuntimeLspConfig = field(default_factory=RuntimeLspConfig)
     mcp_servers: list[RuntimeMcpServer] = field(default_factory=list)
     #: Active workspace directory. MCP stdio cwd and the advertised root follow this path.
     active_workspace_path: str = ''

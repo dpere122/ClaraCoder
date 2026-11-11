@@ -1,4 +1,5 @@
 /** Settings window tab ids and sub-tab catalog. */
+import { LSP_SERVER_CATALOG } from '@shared/lsp-settings';
 import { THEME_GROUP_CATEGORIES } from '@shared/theme';
 import { SETTINGS_TAB_ENTRIES, isSettingsTab, type SettingsTab } from '@shared/settings-tabs';
 
@@ -18,6 +19,7 @@ const SETTINGS_TAB_DESCRIPTIONS: Record<SettingsTab, string> = {
   modelManager: 'Local models and Hugging Face search for managed llama-server.',
   tools: 'Workspace agent tool limits and edit modes (synced to the Python backend).',
   mcp: 'MCP servers whose tools Clara can call. One client, many server configs.',
+  lsp: 'The language servers behind code intelligence in the editor and agent tools.',
   monaco:
     'Monaco options for the in-app workspace file editor (color theme, font, minimap, wrap, cursor, and editing behavior).',
   audio: 'Transcription, talk-mode microphone, Kokoro assistant voice, speech speed, and end-of-speech timing.',
@@ -39,7 +41,7 @@ export function settingsTabFromHash(hash: string): SettingsTab | null {
   return isSettingsTab(tab) ? tab : null;
 }
 
-/** Pane to show on first paint: hash `tab=` when valid, otherwise Models. */
+/** Pane to show on first paint: hash `tab=` when valid, otherwise Sources. */
 export function initialSettingsTab(hash = globalThis.location?.hash ?? ''): SettingsTab {
   return settingsTabFromHash(hash) ?? 'models';
 }
@@ -82,6 +84,11 @@ export const SETTINGS_SUB_TAB_CATALOG: Partial<Record<SettingsTab, SettingsSubTa
       description:
         'App UI scale, chat font size, expanded chat width, thinking display, app-wide UI font, and code font for message text.',
     },
+    {
+      id: 'behavior',
+      label: 'Behavior',
+      description: 'Confirmation prompts for workspace actions, and the guided tour.',
+    },
   ],
   themes: buildThemesSubTabs(),
   tools: [
@@ -98,9 +105,9 @@ export const SETTINGS_SUB_TAB_CATALOG: Partial<Record<SettingsTab, SettingsSubTa
     },
     {
       id: 'compression',
-      label: 'Context compression',
+      label: 'Context compaction',
       description:
-        'Shortens older tool result bodies in the LangGraph checkpoint when usage exceeds the trigger threshold.',
+        'Replaces older messages with a summary in what the model sees when a conversation nears the context window. Saved chats do not change.',
     },
     {
       id: 'encoding',
@@ -108,7 +115,18 @@ export const SETTINGS_SUB_TAB_CATALOG: Partial<Record<SettingsTab, SettingsSubTa
       description:
         'Default encoding and newline style when the model omits them on read, search, and edit tools.',
     },
+    {
+      id: 'webTools',
+      label: 'Web tools',
+      description:
+        'Web search provider and engines, plus automatic cleanup, downsampling, and storage limits for webpage screenshots.',
+    },
   ],
+  lsp: LSP_SERVER_CATALOG.map((server) => ({
+    id: server.id,
+    label: server.label,
+    description: `${server.server}: how it runs and what it checks.`,
+  })),
   monaco: [
     {
       id: 'theme',

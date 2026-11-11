@@ -6,16 +6,22 @@ import {
 } from '@shared/index';
 
 /**
- * Which tool spinner a running tool shows: `read` (nested squares), `run` (hex core),
- * `web` (branching signal) or `write` (fractal tree — every other tool).
+ * Which tool spinner a running tool shows: `read` (scanner), `run` (gear),
+ * `web` (branching signal) or `write` (stacking blocks — every other tool).
  */
 export type ToolSpinnerKind = 'read' | 'write' | 'run' | 'web';
 
 /** Spinner a live pill can host: a tool kind, or `think` for the compact thinking pill. */
 export type PillSpinnerKind = ToolSpinnerKind | 'think';
 
-/** Every spinner {@link ToolSpinnerComponent} draws: pill kinds plus `prefill` (reading the prompt). */
-export type SpinnerKind = PillSpinnerKind | 'prefill';
+/**
+ * Prompt-prefill spinners: `prefill` (a drop absorbed into a pool) plus the alternates a turn can
+ * pick while it reads the prompt — a sheet unfolding, a cipher dial, two waves falling into phase.
+ */
+export type PrefillSpinnerKind = 'prefill' | 'prefill-unfold' | 'prefill-decipher' | 'prefill-attune';
+
+/** Every spinner {@link ToolSpinnerComponent} draws: pill kinds plus the prefill set. */
+export type SpinnerKind = PillSpinnerKind | PrefillSpinnerKind;
 
 /** Shell / background-command tools (terminal spinner). */
 const RUN_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
@@ -26,7 +32,7 @@ const RUN_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
 ]);
 
 /** Network tools (globe spinner). */
-const WEB_TOOL_NAMES: ReadonlySet<string> = new Set<string>(['web_search', 'fetch_url']);
+const WEB_TOOL_NAMES: ReadonlySet<string> = new Set<string>(['web_search', 'fetch_url', 'screenshot_webpage']);
 
 /**
  * One glyph per agent tool: drawn still it is the tool's icon, animated it is that tool's spinner.
@@ -59,6 +65,7 @@ export const TOOL_GLYPH_IDS = [
   'java',
   'web-search',
   'fetch',
+  'screenshot',
   'command',
   'wait',
   'stop-command',
@@ -89,11 +96,16 @@ const TOOL_GLYPHS: Readonly<Record<string, ToolGlyph>> = {
   search_structured: 'tree-search',
   read_structured_section: 'section',
   activate_context: 'context',
+  compact_context: 'context',
   lsp_get_diagnostics: 'diagnostics',
   lsp_hover: 'hover',
   lsp_find_definition: 'definition',
   lsp_find_references: 'references',
   lsp_get_document_symbols: 'symbols',
+  lsp_find_implementations: 'definition',
+  lsp_call_hierarchy: 'references',
+  lsp_type_hierarchy: 'references',
+  lsp_workspace_symbols: 'symbols',
   write_workspace_file: 'write-file',
   apply_workspace_full_file: 'write-file',
   stage_create_file: 'write-file',
@@ -113,6 +125,7 @@ const TOOL_GLYPHS: Readonly<Record<string, ToolGlyph>> = {
   java_bootstrap_project: 'java',
   web_search: 'web-search',
   fetch_url: 'fetch',
+  screenshot_webpage: 'screenshot',
   run_command: 'command',
   wait_for_command: 'wait',
   kill_background_command: 'stop-command',

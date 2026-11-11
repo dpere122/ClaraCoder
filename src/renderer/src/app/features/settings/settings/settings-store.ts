@@ -1,7 +1,9 @@
+import { LSP_SERVER_CATALOG, defaultLspServersSettings, normalizeLspServersSettings, type GdscriptLspSettings, type JavaLspSettings, type LspServersSettings, type PythonLspSettings, type TypescriptLspSettings } from '@shared/lsp-settings';
+import type { DependencyInfo } from '@shared/types/dependencies';
 import { Injectable, afterNextRender, effect, inject, Injector, computed, signal, untracked } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
 import { NgxSpinnerService } from 'ngx-spinner';
 import { Subscription } from 'rxjs';
+import { DEFAULT_SCREENSHOT_RETENTION, normalizeScreenshotRetention, type ScreenshotRetentionSettings } from '@shared/screenshot-retention';
 import type {
   AppConfig,
   AudioTranscriptionConfig,
@@ -13,14 +15,23 @@ import type {
   HuggingFaceModelSearchItem,
   HfDownloadId,
   HfDownloadProgressEvent,
+  HfDownloadStatus,
   LlamaCppManaged,
   LlmConnectionConfig,
   LlmModelProfile,
   LlmOptimizationPreset,
   LlmProviderConfig,
   LmStudioModelCard,
+  LmStudioSettings,
+  OpenAiCompatEndpoint,
+  OpenAiCompatModel,
+  OpenAiCompatSettings,
+  OpenAiCompatTestResult,
   OpenRouterCatalogModel,
+  AnthropicCatalogModel,
   ModelManagerFileEntry,
+  ModelManagerHfDetailsResult,
+  SecretStorageMode,
   MonacoWorkspaceEditorSettings,
   MonacoWorkspaceEditorThemeId,
   SystemFontInfo,
@@ -38,7 +49,9 @@ import {
   DEFAULT_CHAT_CONTAINER_SIZE,
   DEFAULT_CHAT_THINKING_DISPLAY,
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
+  uniqueManagedLlamaSourceName,
   getDefaultContextCompression,
+  maxContextCompressionTarget,
   DEFAULT_KOKORO_TTS_VOICE,
   DEFAULT_OPENAI_TRANSCRIBE_MODEL,
   DEFAULT_OPENAI_TTS_BASE_URL,
@@ -58,11 +71,16 @@ import {
   UI_FONT_SIZE_REM_MIN,
   UI_FONT_SIZE_REM_STEP,
   buildManagedLlamaChatCommand,
+  carryCustomLlamaFlags,
   clampUiFontSizeRem,
   defaultMonacoWorkspaceEditorSettings,
   defaultLlamaCppManaged,
   detectShellQuotingPlatform,
   effectiveLmStudioContextTokens,
+  lmStudioLoadOptions,
+  lmStudioRunningConfigDiffers,
+  normalizeLmStudioSettings,
+  normalizeOpenAiCompatSettings,
   countLlmModels,
   defaultLlmModelId,
   findLlmModelLocation,
@@ -70,23 +88,23 @@ import {
   inferContextWindowTokens,
   inferModelFamilyFromHint,
   inferOptimizationPresetFromModelHint,
-  MANAGED_LLAMA_BATCH_MAX,
-  MANAGED_LLAMA_BATCH_MIN,
-  MANAGED_LLAMA_CACHE_TYPES,
-  MANAGED_LLAMA_FLASH_ATTN_MODES,
-  MANAGED_LLAMA_NGL_DEFAULT,
-  MANAGED_LLAMA_NGL_MAX,
-  MANAGED_LLAMA_NGL_MIN,
+  isDraftSidecarGgufFileName,
+  isMmprojGgufFileName,
+  isMtpCompanionGgufFileName,
+  LOCAL_DRAFT_MODEL_FLAG_NAMES,
+  managedLlamaKvCacheWeight,
   managedLlamaCommandHasNoHost,
   managedLlamaCommandHasNoMmproj,
   managedLlamaModelLabel,
   managedLlamaSourceDisplayName,
   managedLlamaSourceHint,
+  managedMtpHead,
   managedPickerValueForCmd,
   mergeLlmProviderModel,
   normalizeChatContainerSize,
   normalizeChatThinkingDisplay,
   normalizeMonacoWorkspaceEditorSettings,
+  normalizeWebSearchEngines,
   optimizationPresetDefaultsPatch,
   optimizationPresetsForProvider,
   parseCustomManagedContextTokens,
@@ -102,8 +120,10 @@ import {
   parseManagedLlamaChatTemplateFile,
   parseManagedLlamaUbatchSize,
   mmprojNameMatchesLanguage,
+  readLlamaFlagValue,
   resolveMmprojPathForManagedSelection,
   resolveMmprojPathForManagedSource,
+  resolveMtpPathForManagedGguf,
   promoteManagedSentinelNglToAuto,
   recommendGpuOffload,
   formatGpuVramGb,
@@ -111,7 +131,6 @@ import {
   syncBatchSizeInManagedChatCommand,
   syncCacheTypeKInManagedChatCommand,
   syncCacheTypeVInManagedChatCommand,
-  syncContextFlagInManagedChatCommand,
   syncFlashAttnInManagedChatCommand,
   syncNglFlagInManagedChatCommand,
   syncNoHostFlagInManagedChatCommand,
@@ -120,14 +139,16 @@ import {
   syncGpuOffloadInManagedChatCommand,
   syncGpuOffloadFromParsed,
   syncUbatchSizeInManagedChatCommand,
+  tunePickedManagedChatCommand,
+  withoutAutoTunedFlags,
   isPinnedLlmSourceId,
   isPinnedLmStudioProviderId,
-  isPinnedLlamaCppLocalProviderId,
   isPinnedLlamaServerUrlProviderId,
   isPinnedOpenRouterProviderId,
+  isPinnedAnthropicProviderId,
   OPENROUTER_DEFAULT_BASE_URL,
-  type ManagedLlamaCacheType,
-  type ManagedLlamaFlashAttn,
+  type GgufProfile,
+  type GpuVramCardUsage,
   type ManagedLlamaModelSource,
   setWorkspaceFavorite,
 } from '@shared/index';
@@ -142,11 +163,21 @@ import {
 import { ElectronService } from '../../../core/electron.service';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { ThemedPromptDialogService } from '../../../shared/themed-prompt-dialog/themed-prompt-dialog.service';
-import { activeStreamWorkspaceSwitchPrompt, unsavedWorkspaceSwitchPrompt } from '../../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
-import { customModelDeletePrompt, workspaceRemovePrompt } from '../../../shared/themed-confirm-dialog/format-delete-prompt';
+import {
+  activeStreamWorkspaceSwitchPrompt,
+  discardSettingsChangesPrompt,
+  unsavedWorkspaceSwitchPrompt,
+} from '../../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
+import {
+  customModelDeletePrompt,
+  localSourceRemovePrompt,
+  workspaceRemovePrompt,
+} from '../../../shared/themed-confirm-dialog/format-delete-prompt';
 import { DEFAULT_THEME_ID, resolveLegacyThemeId } from '@shared/theme';
 import { applyAppFontOverrides } from '../../../core/theme/app-font-overrides';
 import { ThemeEngineService } from '../../../core/theme/theme-engine.service';
+import { isTutorialProgressSupported } from '@shared/types/tutorial';
+import { TutorialCoordinator } from '../../tutorial/tutorial-coordinator';
 import { SettingsThemesStore } from '../settings-themes/settings-themes-store';
 import { themesCategoryFromSubTabId } from './settings-tabs';
 import { VOICE_OPTIONS } from '../../speech/speech-module/speech-module';
@@ -188,18 +219,6 @@ function clampTtsSpeechSpeed(raw: unknown): number {
   return +c.toFixed(2);
 }
 
-/** Compare OpenAI-compatible ``…/v1`` bases for equality (trailing slashes optional). */
-function openAiV1BasesEquivalent(a: string, b: string): boolean {
-  const norm = (raw: string) => {
-    let s = (raw || '').trim().replace(/\/+$/, '');
-    if (!s.toLowerCase().endsWith('/v1')) {
-      s = `${s}/v1`;
-    }
-    return s.toLowerCase();
-  };
-  return norm(a) === norm(b);
-}
-
 /** Strip a trailing .gguf / .ggml extension (case-insensitive) for rename pre-fill. */
 function stripModelExtension(fileName: string): string {
   const lower = (fileName || '').toLowerCase();
@@ -237,6 +256,32 @@ interface TalkAudioInputDevice {
   label: string;
 }
 
+/** Hub search file-type filter on open and after Reset filters. */
+const DEFAULT_HF_FILE_TYPE = 'gguf';
+
+/** What the Model Manager detail panel shows. */
+export type ModelManagerSelection = { kind: 'hf'; id: string } | { kind: 'local'; path: string };
+
+/** A Hugging Face download that is running, or stopped with a partial file to resume from. */
+export interface HfDownloadEntry {
+  repoId: string;
+  fileName: string;
+  status: HfDownloadStatus;
+  receivedBytes: number;
+  totalBytes: number | null;
+  /** Why it stopped (only for ``error``). */
+  error?: string;
+}
+
+export type LmStudioStatus ='idle' | 'checking' | 'connected' | 'stale' | 'offline';
+
+export interface LmStudioConnection {
+  /** Base URL that was checked; a different draft URL makes the connection stale. */
+  baseUrl: string;
+  origin: string;
+  source: 'v1' | 'v0';
+}
+
 @Injectable()
 export class SettingsStore {
   private readonly ngxSpinner = inject(NgxSpinnerService);
@@ -257,6 +302,10 @@ export class SettingsStore {
   readonly whisperModelDropdownSpinnerName = `settings-whisper-model-dropdown-${Math.random().toString(36).slice(2, 10)}`;
   readonly cacheDetectSpinnerType = CACHE_DETECT_SPINNER_TYPE;
   readonly modelManagerLocalLoading = signal(false);
+  /** Inventory state is kept separately from status text, which other Model Manager actions also use. */
+  private readonly localInventoryResult = signal<'unknown' | 'ok' | 'error'>('unknown');
+  private readonly localInventoryInflight = signal(0);
+  private localInventoryRequestGen = 0;
   readonly whisperModelsLoading = signal(false);
   private whisperRefreshInflight = 0;
   /**
@@ -268,6 +317,7 @@ export class SettingsStore {
   /** Kokoro voice ids for {@link AudioTranscriptionConfig.ttsVoice} (same list as chat TTS). */
   readonly ttsVoiceChoices = VOICE_OPTIONS;
   private readonly themeEngine = inject(ThemeEngineService);
+  private readonly tutorial = inject(TutorialCoordinator);
   /** Theme editing state (Settings → Themes); participates in Apply / OK through {@link attach}. */
   readonly themes$ = inject(SettingsThemesStore);
   /** Selectable themes (built-ins + user library) as `{ id, label }` rows for pickers. */
@@ -296,6 +346,8 @@ export class SettingsStore {
   readonly currentWorkspace = signal<Workspace | null>(null);
   readonly themeId = signal(DEFAULT_THEME_ID);
   readonly llmProviders = signal<LlmProviderConfig[]>([]);
+  /** IDs in the latest authoritative config, not the editable Settings draft. */
+  private readonly persistedSourceIds = signal<ReadonlySet<string> | null>(null);
   readonly activeLlmModelId = signal('default-lmstudio');
   readonly selectedModelId = signal<string | null>(null);
   readonly audioProvider = signal<AudioTranscriptionProvider>('whisper');
@@ -321,6 +373,9 @@ export class SettingsStore {
   /** Code font override (CSS font-family value); empty = theme default. Overrides Monaco's own fontFamily. */
   readonly codeFontFamily = signal('');
   readonly monacoWorkspaceEditor = signal<MonacoWorkspaceEditorSettings>(defaultMonacoWorkspaceEditorSettings());
+  readonly lspServers = signal<LspServersSettings>(defaultLspServersSettings());
+  /** Dependencies rows behind the LSP tab; loaded when the tab opens. */
+  readonly lspDependencies = signal<readonly DependencyInfo[]>([]);
   readonly ttsVoice = signal(DEFAULT_KOKORO_TTS_VOICE);
   readonly ttsSpeechSpeed = signal(TTS_SPEECH_SPEED_DEFAULT);
   readonly ttsProvider = signal<TtsProvider>(DEFAULT_TTS_PROVIDER);
@@ -342,17 +397,29 @@ export class SettingsStore {
   readonly exposeAllWorkspaceFiles = signal(false);
   readonly allowWebAccess = signal(false);
   readonly searxngBaseUrl = signal('');
+  readonly webSearchProvider = signal<'auto' | 'internal' | 'searxng'>('auto');
+  readonly webSearchEngines = signal<string[]>([]);
+  readonly webSearchUserAgent = signal('');
+  readonly webSearchCooldownSeconds = signal(300);
+  readonly screenshotRetention = signal<ScreenshotRetentionSettings>({ ...DEFAULT_SCREENSHOT_RETENTION });
   readonly extraUserPath = signal('');
   readonly enableAgentFormatters = signal(false);
-  readonly contextCompressionEnabled = signal(false);
-  readonly contextCompressionTriggerRatio = signal(0.7);
-  readonly contextCompressionTargetRatio = signal(0.55);
-  readonly contextCompressionProtectTail = signal(24);
-  readonly contextCompressionRecentToolChars = signal(2000);
-  readonly contextCompressionOldToolChars = signal(400);
-  readonly contextCompressionSystemReserve = signal(0.25);
+  readonly confirmMove = signal(true);
+  /** Null follows the saved tour, so finishing or dismissing it elsewhere also unticks the box. */
+  private readonly tutorialEnabledDraft = signal<boolean | null>(null);
+  readonly tutorialEnabled = computed(() => this.tutorialEnabledDraft() ?? this.tutorial.hasUnresolved());
+  /** Progress saved by a newer release stays read-only here. */
+  readonly tutorialToggleAvailable = computed(() => {
+    const snapshot = this.tutorial.snapshot();
+    return !!snapshot && isTutorialProgressSupported(snapshot.progress);
+  });
+  readonly contextCompressionEnabled = signal(true);
+  readonly contextCompressionTriggerRatio = signal(0.8);
+  readonly contextCompressionTargetRatio = signal(0.5);
   readonly modelManagerCustomDir = signal('');
   readonly modelManagerHfToken = signal('');
+  /** How config secrets (the HF token) land on disk; null until main reports it. */
+  readonly modelManagerSecretStorage = signal<SecretStorageMode | null>(null);
   readonly modelManagerCustomModels = signal<ModelManagerFileEntry[]>([]);
   readonly modelManagerHfQuery = signal('');
   readonly modelManagerHfRawResults = signal<HuggingFaceModelSearchItem[]>([]);
@@ -360,12 +427,15 @@ export class SettingsStore {
   readonly modelManagerHfHasMore = signal(false);
   readonly modelManagerHfTotalPages = signal(0);
   readonly modelManagerHfWindowStart = signal(0);
-  readonly modelManagerHfPageSize = 10;
+  readonly modelManagerHfPageSize = 30;
 
   /** Filter panel state for HF search. */
   readonly modelManagerHfFiltersOpen = signal(false);
-  /** Selected file-type tag (server-side HF `filter` param). '' = all file types. */
-  readonly modelManagerHfFileType = signal('');
+  /**
+   * Selected file-type tag (server-side HF `filter` param). '' = all file types. Defaults to GGUF,
+   * the only format managed llama-server can run.
+   */
+  readonly modelManagerHfFileType = signal(DEFAULT_HF_FILE_TYPE);
   /** Minimum downloads threshold (client-side filter). 0 = any. */
   readonly modelManagerHfMinDownloads = signal(0);
   /** Minimum likes threshold (client-side filter). 0 = any. */
@@ -413,8 +483,11 @@ export class SettingsStore {
   readonly modelManagerBusy = signal(false);
   readonly modelManagerHfBusy = signal(false);
 
-  /** Repo id of the currently expanded HF search card (accordion: one open at a time). */
-  readonly modelManagerHfExpandedId = signal<string | null>(null);
+  /** Model shown in the Model Manager detail panel: a Hub repo, or a local file / hub folder by path. */
+  readonly modelManagerSelection = signal<ModelManagerSelection | null>(null);
+  /** Hub repo details (owner profiles, GGUF header facts) per repo id. */
+  readonly modelManagerHfDetailsById = signal<Record<string, ModelManagerHfDetailsResult>>({});
+  readonly modelManagerHfDetailsBusyById = signal<Record<string, boolean>>({});
   /** GGUF quant files discovered per repo id. */
   readonly modelManagerHfFilesByRepo = signal<Record<string, HuggingFaceModelFile[]>>({});
   /** Per-repo loading state for the file/quant fetch. */
@@ -422,10 +495,12 @@ export class SettingsStore {
   /** Per-repo error message for the file/quant fetch. */
   readonly modelManagerHfFilesErrorByRepo = signal<Record<string, string>>({});
 
-  /** In-flight HF quant downloads keyed by ``${repoId}/${fileName}``. */
-  readonly modelManagerHfDownloads = signal<
-    Record<HfDownloadId, { repoId: string; fileName: string; receivedBytes: number; totalBytes: number | null }>
-  >({});
+  /**
+   * HF quant downloads that are running or stopped with a partial file, keyed by
+   * ``${repoId}/${fileName}``. Main owns them, so they outlive this window: the list is read from
+   * main when the window opens and kept current by its progress events.
+   */
+  readonly modelManagerHfDownloads = signal<Record<HfDownloadId, HfDownloadEntry>>({});
   /** Quants that finished downloading (value = absolute path of the local GGUF). */
   readonly modelManagerHfDownloaded = signal<Record<HfDownloadId, string>>({});
   readonly uiFontSizeRemMin = UI_FONT_SIZE_REM_MIN;
@@ -441,17 +516,19 @@ export class SettingsStore {
   });
   readonly selectedProvider = computed(() => this.selectedLocation()?.provider ?? null);
   readonly selectedModel = computed(() => this.selectedLocation()?.model ?? null);
+  /** Source existence, not whether edits to an existing source have been applied; see settingsDirty. */
+  readonly tutorialSelectedSourceState = computed(() => {
+    const ids = this.persistedSourceIds();
+    if (!ids) return 'loading';
+    const provider = this.selectedProvider();
+    return provider ? (ids.has(provider.id) ? 'persisted' : 'draft') : 'none';
+  });
   readonly selectedResolved = computed(() => {
     const loc = this.selectedLocation();
     if (!loc) {
       return null;
     }
     return mergeLlmProviderModel(loc.provider, loc.model);
-  });
-  /** True for the pinned remote llama-server row (URL + Connect), not managed run commands. */
-  readonly isUrlOnlyLlamacpp = computed(() => {
-    const p = this.selectedProvider();
-    return !!p && p.provider === 'llamacpp' && isPinnedLlamaServerUrlProviderId(p.id);
   });
   /** Managed llama-server commands for the selected model (defaults when missing). */
   readonly selectedLlamaCppManaged = computed((): LlamaCppManaged => {
@@ -480,13 +557,13 @@ export class SettingsStore {
     const tab = this.tabs.find((t) => t.id === parent) ?? this.tabs[0];
     return { label: tab.label, description: tab.description, parentLabel: null as string | null };
   });
-  /** Pinned sources first: LM Studio, remote llama URL, local managed llama, OpenRouter; remaining rows keep file order. */
+  /** Pinned sources first: LM Studio, remote llama URL, OpenRouter, Claude; then other sources, then local models, each in file order. */
   readonly sourcesOrdered = computed(() => {
     const list = this.llmProviders();
     const pinLm = list.find((p) => isPinnedLmStudioProviderId(p.id));
     const pinUrl = list.find((p) => isPinnedLlamaServerUrlProviderId(p.id));
-    const pinLocal = list.find((p) => isPinnedLlamaCppLocalProviderId(p.id));
     const pinOpenRouter = list.find((p) => isPinnedOpenRouterProviderId(p.id));
+    const pinAnthropic = list.find((p) => isPinnedAnthropicProviderId(p.id));
     const rest = list.filter((p) => !isPinnedLlmSourceId(p.id));
     const head: LlmProviderConfig[] = [];
     if (pinLm) {
@@ -495,121 +572,197 @@ export class SettingsStore {
     if (pinUrl) {
       head.push(pinUrl);
     }
-    if (pinLocal) {
-      head.push(pinLocal);
-    }
     if (pinOpenRouter) {
       head.push(pinOpenRouter);
     }
-    return [...head, ...rest];
+    if (pinAnthropic) {
+      head.push(pinAnthropic);
+    }
+    return [
+      ...head,
+      ...rest.filter((p) => !this.isManagedLlamacppSource(p)),
+      ...rest.filter((p) => this.isManagedLlamacppSource(p)),
+    ];
   });
+  /** Where local models start in {@link sourcesOrdered}, for the list's separator; -1 when there are none. */
+  readonly firstLocalSourceIndex = computed(() =>
+    this.sourcesOrdered().findIndex((p) => this.isManagedLlamacppSource(p)),
+  );
   readonly lmStudioInventory = signal<LmStudioModelCard[]>([]);
   readonly lmStudioInventoryError = signal<string | null>(null);
   readonly lmStudioListInFlight = signal(false);
   private lmStudioListGen = 0;
-  readonly lmStudioMainModelOptions = computed(() =>
-    this.lmStudioInventory().filter((c) => !/embed/i.test(c.type)),
+  readonly openAiCompatModels = signal<OpenAiCompatModel[]>([]);
+  readonly openAiCompatListError = signal<string | null>(null);
+  readonly openAiCompatListInFlight = signal(false);
+  readonly openAiCompatTestRunning = signal(false);
+  readonly openAiCompatTestResult = signal<OpenAiCompatTestResult | null>(null);
+  /** What the last test changed, in words, so the update isn't silent. */
+  readonly openAiCompatApplied = signal<string[]>([]);
+  private readonly openAiCompatTestedFor = signal('');
+  /** Discards a slow reply that arrives after the user moved to another source. */
+  private openAiCompatGen = 0;
+  /** A slow listing of an old URL must not replace a newer one. */
+  private openAiCompatListGen = 0;
+  readonly openAiCompatSettings = computed(() => normalizeOpenAiCompatSettings(this.selectedModel()?.openAiCompat));
+  /** The connection as typed, since a test runs before Apply. */
+  private readonly openAiCompatEndpoint = computed((): OpenAiCompatEndpoint => {
+    const p = this.selectedProvider();
+    return {
+      baseUrl: p?.baseUrl ?? '',
+      apiKey: unwrapSecret(p?.apiKey),
+      headers: (p?.customHeaders ?? []).map((h) => ({ key: h.key, value: unwrapSecret(h.value) })),
+    };
+  });
+  /** True when the URL, key, headers or model changed after the last test. */
+  readonly openAiCompatTestStale = computed(
+    () =>
+      !!this.openAiCompatTestResult() &&
+      this.openAiCompatTestedFor() !== JSON.stringify([this.openAiCompatEndpoint(), this.selectedModel()?.model ?? '']),
   );
-  readonly lmStudioEmbeddingModelOptions = computed(() =>
-    this.lmStudioInventory().filter((c) => /embed/i.test(c.type)),
-  );
-  readonly lmStudioLoadedCards = computed(() =>
-    this.lmStudioInventory().filter((c) => c.state === 'loaded' || c.state === 'loading'),
-  );
+  /** Server that answered the last listing; null until one does. */
+  readonly lmStudioConnection = signal<LmStudioConnection | null>(null);
+  /** Model ids with a load or unload in flight. */
+  readonly lmStudioBusyIds = signal<ReadonlySet<string>>(new Set());
+  readonly lmStudioStatus = computed<LmStudioStatus>(() => {
+    if (this.lmStudioListInFlight()) {
+      return 'checking';
+    }
+    const connection = this.lmStudioConnection();
+    if (connection) {
+      return connection.baseUrl === this.selectedProvider()?.baseUrl ? 'connected' : 'stale';
+    }
+    return this.lmStudioInventoryError() ? 'offline' : 'idle';
+  });
+  readonly lmStudioSettings = computed(() => normalizeLmStudioSettings(this.selectedModel()?.lmStudio));
+  /** True when the chat model runs with settings other than the ones saved here. */
+  readonly lmStudioNeedsReload = computed(() => {
+    const running = this.lmStudioChatCard()?.runningConfig;
+    if (!running) {
+      return false;
+    }
+    const maxContext = this.lmStudioChatCard()?.max_context_length ?? 0;
+    return lmStudioRunningConfigDiffers(running, lmStudioLoadOptions(this.lmStudioSettings(), maxContext));
+  });
+  /** Inventory row for the selected chat model; null when this server does not list it. */
+  readonly lmStudioChatCard = computed(() => {
+    const id = this.selectedModel()?.model;
+    return this.lmStudioInventory().find((c) => c.id === id) ?? null;
+  });
   readonly llamacppManagedModelIds = signal<string[]>([]);
   readonly openRouterModels = signal<OpenRouterCatalogModel[]>([]);
   readonly openRouterModelsListInFlight = signal(false);
   readonly openRouterModelsListError = signal<string | null>(null);
-  /** ``GET /v1/models`` from embeddings base URL when it differs from chat (URL-only llama.cpp). */
-  readonly llamacppUrlEmbeddingModelIds = signal<string[]>([]);
   readonly llamacppModelsListError = signal<string | null>(null);
   readonly llamacppModelsListInFlight = signal(false);
   /** Optional Hugging Face id (`org/repo` or `org/repo:quant`) for managed local without a local GGUF. */
   readonly managedHfIdDraft = signal('');
-  readonly managedInventoryModels = computed(() => this.modelManagerCustomModels());
+  /**
+   * What the Local model picker offers: a separate head or a vision projector can't load as a main model. A hub row's file name
+   * is its folder, which says nothing about that.
+   */
+  readonly managedInventoryModels = computed(() =>
+    this.modelManagerCustomModels().filter((m) => {
+      const name = m.fileName || m.absolutePath;
+      return (
+        m.entryKind === 'hubRepo' ||
+        !(isMtpCompanionGgufFileName(name) || isDraftSidecarGgufFileName(name) || isMmprojGgufFileName(name))
+      );
+    }),
+  );
   /** Select value for the managed model picker (`gguf:…` / `hub:…` / `hf:…` / empty). */
   readonly managedPickerValue = computed(() =>
     managedPickerValueForCmd(this.selectedLlamaCppManaged().chatRunCommand, this.modelManagerCustomModels()),
   );
-  /** Max (``-c 0``) vs Custom, derived from the current chat command so the radios follow power-user edits. */
-  readonly managedContextMode = computed((): 'max' | 'custom' => {
-    const parsed = parseManagedLlamaContextSize(this.selectedLlamaCppManaged().chatRunCommand);
-    if (parsed === null || parsed === 0) {
-      return 'max';
-    }
-    return 'custom';
+  /** Picker inventory availability; an error or unfinished scan is not an empty inventory. */
+  readonly tutorialLocalModelsState = computed(() => {
+    if (this.localInventoryInflight() > 0 || this.modelManagerLocalLoading()) return 'loading';
+    const result = this.localInventoryResult();
+    if (result === 'unknown' || result === 'error') return result;
+    // An HF command (including the new-source placeholder) is not a downloaded local model.
+    return this.managedInventoryModels().length > 0 ? 'ready' : 'empty';
   });
-  private readonly llamaServerNctxByModel = toSignal(inject(ElectronService).llamaServerNctx$, {
-    initialValue: {} as Readonly<Record<string, number>>,
-  });
-  /** Token count shown in the Custom field: parsed ``-c`` when set, live ``n_ctx`` after start, otherwise the profile value. */
-  readonly managedCustomContextTokensDisplay = computed((): string => {
-    const parsed = parseManagedLlamaContextSize(this.selectedLlamaCppManaged().chatRunCommand);
-    if (parsed !== null && parsed > 0) {
-      return String(parsed);
-    }
-    const modelId = this.selectedModel()?.id;
-    const live = modelId ? this.llamaServerNctxByModel()[modelId] : undefined;
-    if (typeof live === 'number' && live > 0) {
-      return String(live);
-    }
-    const tokens = this.selectedModel()?.contextWindowTokens;
-    return tokens != null ? String(tokens) : '';
-  });
-  readonly managedNglMin = MANAGED_LLAMA_NGL_MIN;
-  readonly managedNglMax = MANAGED_LLAMA_NGL_MAX;
-  /** GPU layers from the chat command; 99 (``auto`` / ``--fit``) when ``-ngl`` is absent. */
-  readonly managedNglLayers = computed((): number => {
-    const parsed = parseManagedLlamaNgl(this.selectedLlamaCppManaged().chatRunCommand);
-    return parsed === null ? MANAGED_LLAMA_NGL_DEFAULT : parsed;
-  });
-  /** Custom ``--chat-template-file`` path; empty means use the GGUF template. */
-  readonly managedChatTemplateFile = computed(
-    (): string => parseManagedLlamaChatTemplateFile(this.selectedLlamaCppManaged().chatRunCommand) ?? '',
+  readonly tutorialLocalModelSelected = computed(() =>
+    this.managedInventoryModels().some((model) => this.managedInventoryOptionValue(model) === this.managedPickerValue()),
   );
-  readonly managedFlashAttnModes = MANAGED_LLAMA_FLASH_ATTN_MODES;
-  readonly managedCacheTypes = MANAGED_LLAMA_CACHE_TYPES;
-  readonly managedBatchMin = MANAGED_LLAMA_BATCH_MIN;
-  readonly managedBatchMax = MANAGED_LLAMA_BATCH_MAX;
-  /** ``-fa``; llama.cpp default is auto when the flag is absent. */
-  readonly managedFlashAttn = computed((): ManagedLlamaFlashAttn => {
-    return parseManagedLlamaFlashAttn(this.selectedLlamaCppManaged().chatRunCommand) ?? 'auto';
-  });
-  readonly managedNoMmproj = computed((): boolean =>
-    managedLlamaCommandHasNoMmproj(this.selectedLlamaCppManaged().chatRunCommand),
-  );
-  /** ``-b``; ``0`` means omit (llama.cpp default 2048). */
-  readonly managedBatchSize = computed((): number => {
-    return parseManagedLlamaBatchSize(this.selectedLlamaCppManaged().chatRunCommand) ?? 0;
-  });
-  /** ``-ub``; ``0`` means omit (llama.cpp default 512). */
-  readonly managedUbatchSize = computed((): number => {
-    return parseManagedLlamaUbatchSize(this.selectedLlamaCppManaged().chatRunCommand) ?? 0;
-  });
-  /** ``-ctk``; empty means omit (llama.cpp default f16). */
-  readonly managedCacheTypeK = computed((): ManagedLlamaCacheType | '' => {
-    return parseManagedLlamaCacheTypeK(this.selectedLlamaCppManaged().chatRunCommand) ?? '';
-  });
-  /** ``-ctv``; empty means omit (llama.cpp default f16). */
-  readonly managedCacheTypeV = computed((): ManagedLlamaCacheType | '' => {
-    return parseManagedLlamaCacheTypeV(this.selectedLlamaCppManaged().chatRunCommand) ?? '';
+  /**
+   * The tour's local-source steps show an example page when there is nothing real to point at, so
+   * nobody needs a model to see them. This only chooses a view; the page never touches the draft.
+   * Minimizing the tour gives the real editor back.
+   */
+  readonly tutorialShowsExample = computed(() => {
+    const cursor = this.tutorial.cursor();
+    if (this.tutorial.view() !== 'step' || this.tutorial.minimized() || cursor?.phaseId !== 'local-source') return false;
+    if (!['sources-model', 'sources-defaults', 'sources-advanced', 'sources-commands', 'sources-add-command', 'sources-vram'].includes(cursor.stepId)) return false;
+    const provider = this.selectedProvider();
+    // The overlay is already leading the way back to the source the user created.
+    const sourceId = this.tutorial.snapshot()?.progress.sourceId;
+    if (sourceId && provider?.id !== sourceId) return false;
+    if (!provider || !this.isManagedLlamacppSource(provider)) return true;
+    if (this.tutorialLocalModelSelected()) return false;
+    // With downloaded models to choose from, the step that asks for one keeps the real picker.
+    return !(cursor.stepId === 'sources-model' && this.tutorialLocalModelsState() === 'ready');
   });
   /** NVIDIA cards in CUDA index order (empty until NVML inventory returns). */
   readonly cudaGpus = signal<CudaGpuDevice[]>([]);
   readonly managedGpuOffloadMode = computed((): ManagedGpuOffloadMode =>
     parseManagedLlamaGpuOffload(this.selectedLlamaCppManaged().chatRunCommand).mode,
   );
-  readonly managedGgufSizeBytes = computed((): number | null => {
+  /** Path of the GGUF the chat command loads, when it names a local file. */
+  readonly managedGgufPath = computed((): string | null => {
     const sel = parseManagedLlamaModelSelection(this.selectedLlamaCppManaged().chatRunCommand);
-    if (sel?.kind !== 'gguf') {
+    return sel?.kind === 'gguf' ? sel.absolutePath : null;
+  });
+  /** What each card has allocated now, counting what `nvidia-smi` leaves out. */
+  readonly managedVramUsage = signal<readonly GpuVramCardUsage[]>([]);
+  /** On-disk size read from main. A hub repo's inventory size covers its whole folder, not this file. */
+  readonly managedGgufFileSize = signal<{ path: string; bytes: number } | null>(null);
+  readonly managedGgufSizeBytes = computed((): number | null => {
+    const path = this.managedGgufPath();
+    if (!path) {
       return null;
     }
-    const hit = this.modelManagerCustomModels().find((m) => m.absolutePath === sel.absolutePath);
+    const stat = this.managedGgufFileSize();
+    if (stat?.path === path) {
+      return stat.bytes;
+    }
+    const hit = this.modelManagerCustomModels().find((m) => m.absolutePath === path);
     return hit && Number.isFinite(hit.sizeBytes) ? hit.sizeBytes : null;
   });
+  /** GGUF headers read from main, by path. */
+  readonly managedGgufProfiles = signal<Readonly<Record<string, GgufProfile>>>({});
+  readonly managedGgufProfile = computed((): GgufProfile | null =>
+    this.managedGgufProfileAt(this.managedGgufPath()),
+  );
+  /** A separate MTP head that goes with the GGUF the chat command loads. */
+  readonly managedMtpCompanionPath = computed((): string | null => {
+    const path = this.managedGgufPath();
+    return path ? resolveMtpPathForManagedGguf(path, this.modelManagerCustomModels()) : null;
+  });
+  /** The MTP head the selected model can run on, once the headers have been read. */
+  readonly managedMtpHead = computed(() => {
+    const profile = this.managedGgufProfile();
+    const companionPath = this.managedMtpCompanionPath();
+    return profile ? managedMtpHead(profile, companionPath, this.managedGgufProfileAt(companionPath)) : null;
+  });
+  /** The local draft model the chat command names. */
+  readonly managedDraftModelPath = computed((): string | null =>
+    readLlamaFlagValue(this.selectedLlamaCppManaged().chatRunCommand, LOCAL_DRAFT_MODEL_FLAG_NAMES),
+  );
+  readonly managedDraftModelBytes = computed(
+    (): number | undefined => this.managedGgufProfileAt(this.managedDraftModelPath())?.tensorBytes,
+  );
   readonly managedGpuAdvice = computed(() => {
-    const parsedCtx = parseManagedLlamaContextSize(this.selectedLlamaCppManaged().chatRunCommand);
-    return recommendGpuOffload(this.cudaGpus(), this.managedGgufSizeBytes(), parsedCtx ?? 0);
+    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
+    const profile = this.managedGgufProfile();
+    return recommendGpuOffload(
+      this.cudaGpus(),
+      this.managedGgufSizeBytes(),
+      parseManagedLlamaContextSize(cmd) ?? 0,
+      this.managedVramUsage(),
+      managedLlamaKvCacheWeight(cmd),
+      profile ? { profile, command: cmd, companionHeadBytes: this.managedDraftModelBytes() } : null,
+    );
   });
   readonly managedGpuSplitRatioLabel = computed(() => {
     const gpus = this.cudaGpus();
@@ -617,13 +770,6 @@ export class SettingsStore {
       return '';
     }
     return gpus.map((g) => formatGpuVramGb(g.memoryTotalMb)).join(' : ');
-  });
-  readonly managedPrimaryGpuLabel = computed(() => {
-    const gpus = this.cudaGpus();
-    const advice = this.managedGpuAdvice();
-    const gpu =
-      (advice ? gpus.find((g) => g.cudaIndex === advice.primaryCudaIndex) : null) ?? gpus[0] ?? null;
-    return gpu ? this.cudaGpuLabel(gpu) : '';
   });
 
   readonly managedSelectedFamilyLabel = computed(() => {
@@ -652,24 +798,19 @@ export class SettingsStore {
       optimizationPresetsForProvider(c.provider).find((p) => p.id === c.optimizationPreset)?.summary ?? ''
     );
   });
-  readonly llamacppUrlModelsSummary = computed(() => {
-    const chat = this.llamacppManagedModelIds().length;
-    const emb = this.llamacppUrlEmbeddingModelIds().length;
-    const p = this.selectedProvider();
-    if (!p || p.provider !== 'llamacpp') {
-      return `${chat} models`;
-    }
-    const embUrl = (p.embeddingsBaseUrl ?? '').trim();
-    if (!embUrl || openAiV1BasesEquivalent(p.baseUrl, embUrl)) {
-      return `${chat} models`;
-    }
-    return `${chat} chat · ${emb} embedding`;
-  });
 
   private subscription: Subscription | null = null;
   private settingsSelectTabSubscription: Subscription | null = null;
   private hfDownloadSubscription: Subscription | null = null;
   private configSnapshot: AppConfig | null = null;
+  /** Moves with every change, so a save can tell whether anything changed while it ran. */
+  private dirtyRevision = 0;
+  /**
+   * True once the user toggled "Confirm before moving files and folders" in this window. While
+   * false, a `config-updated` broadcast (e.g. the dialog's "Don't ask again") wins, so a later
+   * Apply cannot write a stale value back over it.
+   */
+  private confirmMoveTouched = false;
 
   constructor(
     private electron: ElectronService,
@@ -728,37 +869,78 @@ export class SettingsStore {
     void this.electron.listSystemFonts().then((fonts: SystemFontInfo[]) => this.systemFonts.set(fonts));
     void this.electron.listCudaGpus().then((gpus) => this.cudaGpus.set(gpus));
 
-    this.hfDownloadSubscription = this.electron.hfDownloadProgress$.subscribe((e: HfDownloadProgressEvent) => {
-      const id = e.downloadId;
-      if (e.phase === 'queued') {
-        this.modelManagerHfDownloads.update((m) => ({
-          ...m,
-          [id]: { repoId: e.repoId, fileName: e.fileName, receivedBytes: 0, totalBytes: null },
-        }));
-      } else if (e.phase === 'progress') {
-        this.modelManagerHfDownloads.update((m) => {
-          const cur = m[id];
-          if (!cur) return m;
-          return { ...m, [id]: { ...cur, receivedBytes: e.receivedBytes, totalBytes: e.totalBytes } };
-        });
-      } else if (e.phase === 'done') {
-        this.modelManagerHfDownloads.update((m) => {
-          const next = { ...m };
-          delete next[id];
-          return next;
-        });
+    this.hfDownloadSubscription = this.electron.hfDownloadProgress$.subscribe((e: HfDownloadProgressEvent) =>
+      this.applyHfDownloadEvent(e),
+    );
+    // Subscribed first: main sends its reply after any event it has already sent, so the reply is
+    // the newer of the two and replaces what those events built.
+    void this.electron.modelManagerListHfDownloads().then((list) => {
+      this.modelManagerHfDownloads.set(
+        Object.fromEntries(
+          list.map((d): [HfDownloadId, HfDownloadEntry] => [
+            d.downloadId,
+            {
+              repoId: d.repoId,
+              fileName: d.fileName,
+              status: d.status,
+              receivedBytes: d.receivedBytes,
+              totalBytes: d.totalBytes,
+              ...(d.error ? { error: d.error } : {}),
+            },
+          ]),
+        ),
+      );
+    });
+  }
+
+  /** Folds one progress event from main into {@link modelManagerHfDownloads}. */
+  applyHfDownloadEvent(e: HfDownloadProgressEvent): void {
+    const id = e.downloadId;
+    const keep = (status: HfDownloadStatus): void =>
+      this.modelManagerHfDownloads.update((m) => ({
+        ...m,
+        [id]: {
+          repoId: e.repoId,
+          fileName: e.fileName,
+          status,
+          receivedBytes: e.receivedBytes,
+          totalBytes: e.totalBytes,
+          ...(status === 'error' && e.error ? { error: e.error } : {}),
+        },
+      }));
+    const drop = (): void =>
+      this.modelManagerHfDownloads.update((m) => {
+        const next = { ...m };
+        delete next[id];
+        return next;
+      });
+    switch (e.phase) {
+      case 'queued':
+      case 'progress':
+        keep('downloading');
+        break;
+      case 'paused':
+        keep('paused');
+        break;
+      case 'error':
+        // A failure that left no bytes behind has nothing to resume.
+        if (e.resumable) {
+          keep('error');
+        } else {
+          drop();
+        }
+        break;
+      case 'cancelled':
+        drop();
+        break;
+      case 'done':
+        drop();
         if (e.absolutePath) {
           this.modelManagerHfDownloaded.update((m) => ({ ...m, [id]: e.absolutePath as string }));
         }
         void this.refreshCustomModelCards();
-      } else if (e.phase === 'error' || e.phase === 'cancelled') {
-        this.modelManagerHfDownloads.update((m) => {
-          const next = { ...m };
-          delete next[id];
-          return next;
-        });
-      }
-    });
+        break;
+    }
   }
 
   ngOnDestroy(): void {
@@ -771,12 +953,8 @@ export class SettingsStore {
     this.subscription?.unsubscribe();
     this.settingsSelectTabSubscription?.unsubscribe();
     this.hfDownloadSubscription?.unsubscribe();
-    if (this.configSnapshot && this.settingsDirty()) {
-      void this.enqueuePersist();
-    } else {
-      // Nothing to save: make every window drop the live preview.
-      this.themes$.cancelPreview();
-    }
+    // Only Apply persists; closing the window discards unapplied edits and drops the live preview.
+    this.themes$.cancelPreview();
   }
 
   selectSettingsSubTab(tab: SettingsTab, id: string): void {
@@ -830,6 +1008,9 @@ export class SettingsStore {
             CHAT_CONTAINER_SIZE_OPTIONS.find((opt) => opt.value === this.chatContainerSize())?.label ?? 'Standard';
           return `${sizeLabel} · UI ${this.uiFontSizeRem()} · chat ${this.chatFontSizeRem()}rem`;
         }
+        if (id === 'behavior') {
+          return this.confirmMove() ? 'Confirm moves' : 'No move prompt';
+        }
         break;
       case 'tools':
         if (id === 'editTools') {
@@ -844,7 +1025,12 @@ export class SettingsStore {
         if (id === 'encoding') {
           return this.defaultWorkspaceEncoding();
         }
+        if (id === 'webTools') {
+          return `${this.screenshotRetention().retentionDays}d`;
+        }
         break;
+      case 'lsp':
+        return this.lspServerStatus(id);
       case 'monaco':
         return this.monacoSubTabSummary(id);
       case 'audio': {
@@ -912,9 +1098,25 @@ export class SettingsStore {
     }
   }
 
-  /** Persist dirty settings (if any), then close the settings window. */
-  async okSettings(): Promise<void> {
+  /** Close from the top-bar exit button; unapplied edits are discarded after a confirmation. */
+  async closeSettings(): Promise<void> {
     if (this.settingsSaveAction() !== null) {
+      return;
+    }
+    if (this.settingsDirty()) {
+      const proceed = (await this.themedConfirm.open(discardSettingsChangesPrompt())) === 'confirm';
+      if (!proceed) {
+        return;
+      }
+      this.settingsDirty.set(false);
+    }
+    this.themes$.cancelPreview();
+    this.electron.closeSettingsWindow();
+  }
+
+  /** Close the settings window once changes are applied; OK stays disabled while edits are pending. */
+  async okSettings(): Promise<void> {
+    if (this.settingsSaveAction() !== null || this.settingsDirty()) {
       return;
     }
     this.settingsSaveAction.set('ok');
@@ -1047,20 +1249,18 @@ export class SettingsStore {
     } else {
       this.clearLmStudioInventory();
     }
+    this.clearOpenAiCompatState();
+    if (p.provider === 'openai-compatible') {
+      void this.refreshOpenAiCompatModels();
+    }
     if (p.provider === 'llamacpp') {
-      if (isPinnedLlamaServerUrlProviderId(p.id)) {
-        void this.refreshLlamacppUrlModels();
-      } else {
-        this.llamacppUrlEmbeddingModelIds.set([]);
-        void this.refreshCustomModelCards();
-        void this.refreshLlamacppManagedModels();
-        const cmd = p.models[0]?.llamaCppManaged?.chatRunCommand ?? '';
-        const sel = parseManagedLlamaModelSelection(cmd);
-        this.managedHfIdDraft.set(sel?.kind === 'hf' ? sel.hfId : '');
-      }
+      void this.refreshCustomModelCards();
+      void this.refreshLlamacppManagedModels();
+      const cmd = p.models[0]?.llamaCppManaged?.chatRunCommand ?? '';
+      const sel = parseManagedLlamaModelSelection(cmd);
+      this.managedHfIdDraft.set(sel?.kind === 'hf' ? sel.hfId : '');
     } else {
       this.llamacppManagedModelIds.set([]);
-      this.llamacppUrlEmbeddingModelIds.set([]);
       this.llamacppModelsListError.set(null);
     }
     if (p.provider !== 'openrouter') {
@@ -1086,6 +1286,12 @@ export class SettingsStore {
     return this.selectedProvider()?.id === provider.id;
   }
 
+  /** Whether this row exists on disk, independent of any unapplied field edits. */
+  sourcePersistenceState(provider: LlmProviderConfig): 'loading' | 'draft' | 'persisted' {
+    const ids = this.persistedSourceIds();
+    return !ids ? 'loading' : ids.has(provider.id) ? 'persisted' : 'draft';
+  }
+
   async refreshLlamacppManagedModels(): Promise<void> {
     const p = this.selectedProvider();
     const m = this.selectedModel();
@@ -1102,54 +1308,12 @@ export class SettingsStore {
       const res = await this.electron.llamacppManagedListModels({ modelId: m.id, config: cfg });
       if (res.ok) {
         this.llamacppManagedModelIds.set(res.models);
-        this.llamacppUrlEmbeddingModelIds.set([]);
       } else {
         this.llamacppManagedModelIds.set([]);
-        this.llamacppUrlEmbeddingModelIds.set([]);
         this.llamacppModelsListError.set(res.error);
       }
     } catch (e) {
       this.llamacppManagedModelIds.set([]);
-      this.llamacppUrlEmbeddingModelIds.set([]);
-      this.llamacppModelsListError.set(e instanceof Error ? e.message : String(e));
-    } finally {
-      this.llamacppModelsListInFlight.set(false);
-    }
-  }
-
-  async refreshLlamacppUrlModels(): Promise<void> {
-    const p = this.selectedProvider();
-    if (!p || p.provider !== 'llamacpp') {
-      return;
-    }
-    this.llamacppModelsListInFlight.set(true);
-    this.llamacppModelsListError.set(null);
-    try {
-      const chatRes = await this.electron.llamacppOpenAiListModels({ baseUrl: p.baseUrl, apiKey: unwrapSecret(p.apiKey) || '' });
-      if (!chatRes.ok) {
-        this.llamacppManagedModelIds.set([]);
-        this.llamacppUrlEmbeddingModelIds.set([]);
-        this.llamacppModelsListError.set(chatRes.error);
-        return;
-      }
-      this.llamacppManagedModelIds.set(chatRes.models);
-
-      const embBase = (p.embeddingsBaseUrl ?? '').trim();
-      if (!embBase || openAiV1BasesEquivalent(p.baseUrl, embBase)) {
-        this.llamacppUrlEmbeddingModelIds.set([...chatRes.models]);
-        return;
-      }
-
-      const embRes = await this.electron.llamacppOpenAiListModels({ baseUrl: embBase, apiKey: unwrapSecret(p.apiKey || '') });
-      if (!embRes.ok) {
-        this.llamacppUrlEmbeddingModelIds.set([]);
-        this.llamacppModelsListError.set(`Chat OK; embeddings server: ${embRes.error}`);
-        return;
-      }
-      this.llamacppUrlEmbeddingModelIds.set(embRes.models);
-    } catch (e) {
-      this.llamacppManagedModelIds.set([]);
-      this.llamacppUrlEmbeddingModelIds.set([]);
       this.llamacppModelsListError.set(e instanceof Error ? e.message : String(e));
     } finally {
       this.llamacppModelsListInFlight.set(false);
@@ -1216,6 +1380,22 @@ export class SettingsStore {
     await this.refreshOpenRouterModels();
   }
 
+  /**
+   * Mirror a Claude model pick into the draft. Main already saved it (``anthropic:set-model``), so
+   * this does not mark Settings dirty; it only keeps this window's view current while dirty.
+   */
+  mirrorClaudeModel(model: AnthropicCatalogModel): void {
+    const profile = this.llmProviders().find((p) => p.provider === 'anthropic')?.models[0];
+    if (!profile) {
+      return;
+    }
+    this.applyLlmModelPatch(profile.id, {
+      model: model.id,
+      name: model.displayName,
+      contextWindowTokens: model.maxInputTokens || inferContextWindowTokens(model.id, 'anthropic'),
+    });
+  }
+
   isPinnedSource(providerId: string): boolean {
     return isPinnedLlmSourceId(providerId);
   }
@@ -1225,6 +1405,7 @@ export class SettingsStore {
     this.lmStudioListInFlight.set(false);
     this.lmStudioInventory.set([]);
     this.lmStudioInventoryError.set(null);
+    this.lmStudioConnection.set(null);
   }
 
   async refreshLmStudioInventory(): Promise<void> {
@@ -1247,9 +1428,11 @@ export class SettingsStore {
       }
       if (res.ok) {
         this.lmStudioInventory.set(res.models);
+        this.lmStudioConnection.set({ baseUrl: p.baseUrl, origin: res.origin, source: res.source });
         this.applyLmStudioLiveContextFromInventory();
       } else {
         this.lmStudioInventory.set([]);
+        this.lmStudioConnection.set(null);
         this.lmStudioInventoryError.set(res.error);
       }
     } catch (e) {
@@ -1257,6 +1440,7 @@ export class SettingsStore {
         return;
       }
       this.lmStudioInventory.set([]);
+      this.lmStudioConnection.set(null);
       this.lmStudioInventoryError.set(e instanceof Error ? e.message : String(e));
     } finally {
       if (gen === this.lmStudioListGen) {
@@ -1278,71 +1462,172 @@ export class SettingsStore {
     }
   }
 
-  lmStudioLoadDisabled(): boolean {
-    const p = this.selectedProvider();
-    const m = this.selectedModel();
-    if (!p || p.provider !== 'lmstudio' || !m) {
-      return true;
-    }
-    const main = (m.model || '').trim();
-    const emb = (p.embeddingsModel || '').trim();
-    const inv = this.lmStudioInventory();
-    const needLoad = (id: string) => {
-      const c = inv.find((x) => x.id === id);
-      return !c || (c.state !== 'loaded' && c.state !== 'loading');
-    };
-    const wantsMain = !!main && needLoad(main);
-    const wantsEmb = !!emb && needLoad(emb);
-    return !wantsMain && !wantsEmb;
+  updateOpenAiCompatSettings(changes: Partial<OpenAiCompatSettings>): void {
+    this.updateSelectedModel({ openAiCompat: { ...this.openAiCompatSettings(), ...changes } });
   }
 
-  async loadLmStudioSelectedModels(): Promise<void> {
-    const p = this.selectedProvider();
-    const m = this.selectedModel();
-    if (!p || p.provider !== 'lmstudio' || !m) {
+  private clearOpenAiCompatState(): void {
+    this.openAiCompatGen += 1;
+    this.openAiCompatModels.set([]);
+    this.openAiCompatListError.set(null);
+    this.openAiCompatListInFlight.set(false);
+    this.openAiCompatTestRunning.set(false);
+    this.openAiCompatTestResult.set(null);
+    this.openAiCompatApplied.set([]);
+  }
+
+  async refreshOpenAiCompatModels(): Promise<void> {
+    if (this.selectedProvider()?.provider !== 'openai-compatible') {
       return;
     }
-    const keys: string[] = [];
-    const main = (m.model || '').trim();
-    const emb = (p.embeddingsModel || '').trim();
-    if (main) {
-      keys.push(main);
-    }
-    if (emb && emb !== main) {
-      keys.push(emb);
-    }
-    const errors: string[] = [];
-    for (const k of keys) {
-      const r = await this.electron.lmStudioLoadModel({ baseUrl: p.baseUrl, model: k, apiKey: unwrapSecret(p.apiKey) });
-      if (!r.ok) {
-        errors.push(`${k}: ${r.error}`);
+    const gen = this.openAiCompatGen;
+    const list = ++this.openAiCompatListGen;
+    const current = () => gen === this.openAiCompatGen && list === this.openAiCompatListGen;
+    this.openAiCompatListInFlight.set(true);
+    this.openAiCompatListError.set(null);
+    try {
+      const res = await this.electron.openAiCompatListModels(this.openAiCompatEndpoint());
+      if (!current()) {
+        return;
+      }
+      this.openAiCompatModels.set(res.ok ? res.models : []);
+      this.openAiCompatListError.set(res.ok ? null : res.error);
+    } catch (e) {
+      if (current()) {
+        this.openAiCompatModels.set([]);
+        this.openAiCompatListError.set(e instanceof Error ? e.message : String(e));
+      }
+    } finally {
+      if (current()) {
+        this.openAiCompatListInFlight.set(false);
       }
     }
-    await this.refreshLmStudioInventory();
-    if (errors.length) {
-      this.lmStudioInventoryError.set(errors.join('; '));
+  }
+
+  /** Test the connection as typed, then set Compatibility to what the server turned out to accept. */
+  async runOpenAiCompatConnectionTest(): Promise<void> {
+    if (this.selectedProvider()?.provider !== 'openai-compatible' || this.openAiCompatTestRunning()) {
+      return;
+    }
+    const gen = this.openAiCompatGen;
+    const endpoint = this.openAiCompatEndpoint();
+    const model = this.selectedModel()?.model ?? '';
+    this.openAiCompatTestRunning.set(true);
+    this.openAiCompatApplied.set([]);
+    try {
+      const result = await this.electron.openAiCompatTest(endpoint, model);
+      if (gen !== this.openAiCompatGen || !result) {
+        return;
+      }
+      this.openAiCompatTestResult.set(result);
+      this.openAiCompatTestedFor.set(JSON.stringify([endpoint, model]));
+      this.applyOpenAiCompatSuggestions(result);
+      void this.refreshOpenAiCompatModels();
+    } finally {
+      if (gen === this.openAiCompatGen) {
+        this.openAiCompatTestRunning.set(false);
+      }
+    }
+  }
+
+  private applyOpenAiCompatSuggestions(result: OpenAiCompatTestResult): void {
+    const current = this.openAiCompatSettings();
+    const changed = (Object.keys(result.suggestions) as (keyof OpenAiCompatTestResult['suggestions'])[]).filter(
+      (key) => result.suggestions[key] !== current[key],
+    );
+    if (!changed.length) {
+      return;
+    }
+    const describe: Record<(typeof changed)[number], () => string> = {
+      tokensField: () => `output tokens field is ${result.suggestions.tokensField}`,
+      thinkingMethod: () => `thinking control is ${result.suggestions.thinkingMethod === 'none' ? 'off' : result.suggestions.thinkingMethod}`,
+      sendTemperature: () => `temperature ${result.suggestions.sendTemperature ? 'sent' : 'not sent'}`,
+      sendParallelToolCalls: () => `parallel_tool_calls ${result.suggestions.sendParallelToolCalls ? 'sent' : 'not sent'}`,
+      streamUsage: () => `token usage ${result.suggestions.streamUsage ? 'requested' : 'not requested'}`,
+    };
+    this.updateOpenAiCompatSettings(result.suggestions);
+    this.openAiCompatApplied.set(changed.map((key) => describe[key]()));
+  }
+
+  lmStudioModelBusy(id: string): boolean {
+    return this.lmStudioBusyIds().has(id);
+  }
+
+  private setLmStudioBusy(id: string, busy: boolean): void {
+    this.lmStudioBusyIds.update((ids) => {
+      const next = new Set(ids);
+      if (busy) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  }
+
+  updateLmStudioSettings(changes: Partial<LmStudioSettings>): void {
+    this.updateSelectedModel({ lmStudio: { ...this.lmStudioSettings(), ...changes } });
+  }
+
+  /** Load one model with the saved settings. */
+  async loadLmStudioModel(id: string): Promise<void> {
+    const p = this.selectedProvider();
+    if (!p || p.provider !== 'lmstudio' || !id || this.lmStudioModelBusy(id)) {
+      return;
+    }
+    const maxContext = this.lmStudioInventory().find((c) => c.id === id)?.max_context_length ?? 0;
+    this.setLmStudioBusy(id, true);
+    try {
+      const r = await this.electron.lmStudioLoadModel({
+        baseUrl: p.baseUrl,
+        model: id,
+        apiKey: unwrapSecret(p.apiKey),
+        options: lmStudioLoadOptions(this.lmStudioSettings(), maxContext),
+      });
+      await this.refreshLmStudioInventory();
+      if (!r.ok) {
+        this.lmStudioInventoryError.set(`${id}: ${r.error}`);
+      }
+    } finally {
+      this.setLmStudioBusy(id, false);
+    }
+  }
+
+  /** Apply changed load settings to the running chat model. */
+  async reloadLmStudioChatModel(): Promise<void> {
+    const card = this.lmStudioChatCard();
+    if (!card) {
+      return;
+    }
+    await this.unloadLmStudioCard(card);
+    if (!this.lmStudioInventoryError()) {
+      await this.loadLmStudioModel(card.id);
     }
   }
 
   async unloadLmStudioCard(card: LmStudioModelCard): Promise<void> {
     const p = this.selectedProvider();
-    if (!p || p.provider !== 'lmstudio' || !card.instanceId) {
+    if (!p || p.provider !== 'lmstudio' || !card.instanceId || this.lmStudioModelBusy(card.id)) {
       return;
     }
-    const r = await this.electron.lmStudioUnloadModel({
-      baseUrl: p.baseUrl,
-      instanceId: card.instanceId,
-      apiKey: unwrapSecret(p.apiKey),
-    });
-    await this.refreshLmStudioInventory();
-    if (!r.ok) {
-      this.lmStudioInventoryError.set(r.error);
+    this.setLmStudioBusy(card.id, true);
+    try {
+      const r = await this.electron.lmStudioUnloadModel({
+        baseUrl: p.baseUrl,
+        instanceId: card.instanceId,
+        apiKey: unwrapSecret(p.apiKey),
+      });
+      await this.refreshLmStudioInventory();
+      if (!r.ok) {
+        this.lmStudioInventoryError.set(r.error);
+      }
+    } finally {
+      this.setLmStudioBusy(card.id, false);
     }
   }
 
   addProvider(): void {
-    const idx = this.llmProviders().filter((p) => !isPinnedLlmSourceId(p.id)).length;
-    const nextProvider = this.buildNewLlamacppProvider(idx + 1);
+    const nextProvider = this.buildNewLlamacppProvider();
     this.llmProviders.update((p) => [...p, nextProvider]);
     const firstId = nextProvider.models[0]?.id ?? null;
     this.selectedModelId.set(firstId);
@@ -1350,6 +1635,17 @@ export class SettingsStore {
       void this.refreshLlamacppManagedModels();
     }
     this.markSettingsDirty();
+  }
+
+  /** A source row's remove button: a local model source asks first. */
+  async requestRemoveProvider(provider: LlmProviderConfig): Promise<void> {
+    if (this.isManagedLlamacppSource(provider)) {
+      const prompt = localSourceRemovePrompt(this.sourceDisplayName(provider));
+      if ((await this.themedConfirm.open(prompt)) !== 'confirm') {
+        return;
+      }
+    }
+    this.removeProvider(provider.id);
   }
 
   removeProvider(providerId: string): void {
@@ -1425,7 +1721,7 @@ export class SettingsStore {
     changes: Partial<
       Pick<
         LlmProviderConfig,
-        'name' | 'customName' | 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel' | 'embeddingsBaseUrl'
+        'name' | 'customName' | 'provider' | 'baseUrl' | 'apiKey' | 'embeddingsModel' | 'embeddingsBaseUrl' | 'customHeaders'
       >
     >,
   ): void {
@@ -1460,16 +1756,23 @@ export class SettingsStore {
       return;
     }
     let contextWindowTokens = inferContextWindowTokens(model, loc.provider.provider);
+    let name = model;
     if (loc.provider.provider === 'lmstudio') {
       const card = this.lmStudioInventory().find((c) => c.id === model);
       const live = card ? effectiveLmStudioContextTokens(card) : 0;
       if (live > 0) {
         contextWindowTokens = live;
       }
+      // LM Studio ids can be snapshot hashes, which mean nothing wherever the name is shown.
+      name = card?.displayName || model;
+    } else if (loc.provider.provider === 'openai-compatible') {
+      // Only a size the server reports replaces the one typed in; a model ID is no guide here.
+      contextWindowTokens =
+        this.openAiCompatModels().find((m) => m.id === model)?.contextLength ?? loc.model.contextWindowTokens;
     }
     this.applyLlmModelPatch(loc.model.id, {
       model,
-      name: model,
+      name,
       contextWindowTokens,
     });
     this.markSettingsDirty();
@@ -1488,15 +1791,22 @@ export class SettingsStore {
     return optimizationPresetsForProvider(provider);
   }
 
-  providerKindLabel(kind: LlmProviderConfig['provider']): string {
+  providerKindLabel(provider: LlmProviderConfig): string {
+    const kind = provider.provider;
     if (kind === 'lmstudio') {
       return 'LM Studio';
     }
+    if (kind === 'openai-compatible') {
+      return 'OpenAI-compatible';
+    }
     if (kind === 'llamacpp') {
-      return 'llama.cpp';
+      return this.isManagedLlamacppSource(provider) ? 'Local Model' : 'OpenAI-compatible';
     }
     if (kind === 'openrouter') {
       return 'OpenRouter';
+    }
+    if (kind === 'anthropic') {
+      return 'Anthropic';
     }
     return 'OpenAI';
   }
@@ -1646,6 +1956,20 @@ export class SettingsStore {
     });
   }
 
+  /** Save the chat command, keeping the profile's context size in step with its ``-c``. */
+  setManagedChatRunCommand(chatRunCommand: string): void {
+    const m = this.selectedModel();
+    if (!m) {
+      return;
+    }
+    const base = m.llamaCppManaged ?? defaultLlamaCppManaged();
+    const ctx = parseCustomManagedContextTokens(parseManagedLlamaContextSize(chatRunCommand) ?? '');
+    this.updateSelectedModel({
+      llamaCppManaged: { ...base, chatRunCommand },
+      ...(ctx === null ? {} : { contextWindowTokens: ctx }),
+    });
+  }
+
   openModelManagerTab(): void {
     this.selectTab('modelManager');
   }
@@ -1658,7 +1982,7 @@ export class SettingsStore {
     if (v.startsWith('gguf:')) {
       const absolutePath = v.slice('gguf:'.length);
       const fileName = absolutePath.split(/[/\\]/).pop() || absolutePath;
-      this.applyManagedModelSource({ kind: 'gguf', absolutePath, displayName: fileName });
+      this.applyManagedModelSource({ kind: 'gguf', absolutePath, displayName: fileName }, { keepCustomFlags: true });
       return;
     }
     if (v.startsWith('hub:')) {
@@ -1666,81 +1990,36 @@ export class SettingsStore {
       const entry = this.modelManagerCustomModels().find((m) => m.absolutePath === absolutePath);
       const localGguf = (entry?.ggufAbsolutePath || '').trim();
       if (localGguf) {
-        this.applyManagedModelSource({
-          kind: 'gguf',
-          absolutePath: localGguf,
-          displayName: entry?.fileName || localGguf.split(/[/\\]/).pop() || localGguf,
-        });
+        this.applyManagedModelSource(
+          {
+            kind: 'gguf',
+            absolutePath: localGguf,
+            displayName: entry?.fileName || localGguf.split(/[/\\]/).pop() || localGguf,
+          },
+          { keepCustomFlags: true },
+        );
         return;
       }
       const folderName = entry?.fileName || absolutePath.split(/[/\\]/).pop() || absolutePath;
-      this.applyManagedModelSource({
-        kind: 'hubRepo',
-        absolutePath,
-        folderName,
-        displayName: folderName,
-      });
+      this.applyManagedModelSource(
+        {
+          kind: 'hubRepo',
+          absolutePath,
+          folderName,
+          displayName: folderName,
+        },
+        { keepCustomFlags: true },
+      );
       return;
     }
     if (v.startsWith('hf:')) {
       const hfId = v.slice('hf:'.length);
       this.managedHfIdDraft.set(hfId);
-      this.applyManagedModelSource({ kind: 'hf', hfId });
+      this.applyManagedModelSource({ kind: 'hf', hfId }, { keepCustomFlags: true });
     }
   }
 
-  onManagedContextModeChange(mode: string): void {
-    if (mode === 'max') {
-      this.syncManagedChatContextFlag(0);
-      return;
-    }
-    if (mode !== 'custom') {
-      return;
-    }
-    const n =
-      parseCustomManagedContextTokens(this.managedCustomContextTokensDisplay()) ??
-      parseCustomManagedContextTokens(this.selectedModel()?.contextWindowTokens ?? '');
-    if (n === null) {
-      return;
-    }
-    this.updateSelectedModel({ contextWindowTokens: n });
-    this.syncManagedChatContextFlag(n);
-  }
-
-  onManagedCustomContextTokensChange(raw: string): void {
-    const n = parseCustomManagedContextTokens(raw);
-    if (n === null) {
-      return;
-    }
-    this.updateSelectedModel({ contextWindowTokens: n });
-    this.syncManagedChatContextFlag(n);
-  }
-
-  private syncManagedChatContextFlag(ctx: number): void {
-    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
-    if (!cmd.trim()) {
-      return;
-    }
-    this.patchLlamaCppManaged({
-      chatRunCommand: syncContextFlagInManagedChatCommand(cmd, ctx, detectShellQuotingPlatform()),
-    });
-  }
-
-  onManagedNglChange(raw: string | number): void {
-    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
-    if (Number.isNaN(n)) {
-      return;
-    }
-    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
-    if (!cmd.trim()) {
-      return;
-    }
-    this.patchLlamaCppManaged({
-      chatRunCommand: syncNglFlagInManagedChatCommand(cmd, n, detectShellQuotingPlatform()),
-    });
-  }
-
-  onManagedGpuOffloadChange(mode: ManagedGpuOffloadMode | string): void {
+  onManagedGpuOffloadChange(mode: ManagedGpuOffloadMode | string, cudaIndex?: number): void {
     if (mode !== 'auto' && mode !== 'single' && mode !== 'split') {
       return;
     }
@@ -1755,57 +2034,10 @@ export class SettingsStore {
           mode,
           this.cudaGpus(),
           detectShellQuotingPlatform(),
+          cudaIndex,
         ),
         detectShellQuotingPlatform(),
       ),
-    });
-  }
-
-  onManagedChatTemplateFileChange(raw: string): void {
-    this.syncManagedChatTemplateFile((raw || '').trim() || null);
-  }
-
-  async pickManagedChatTemplateFile(): Promise<void> {
-    const selected = await this.electron.openFileDialog({
-      filters: [
-        { name: 'Chat templates', extensions: ['jinja', 'json'] },
-        { name: 'All files', extensions: ['*'] },
-      ],
-    });
-    if (!selected) {
-      return;
-    }
-    this.syncManagedChatTemplateFile(selected);
-  }
-
-  clearManagedChatTemplateFile(): void {
-    this.syncManagedChatTemplateFile(null);
-  }
-
-  private syncManagedChatTemplateFile(templatePath: string | null): void {
-    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
-    if (!cmd.trim()) {
-      return;
-    }
-    this.patchLlamaCppManaged({
-      chatRunCommand: syncChatTemplateFileInManagedChatCommand(
-        cmd,
-        templatePath,
-        detectShellQuotingPlatform(),
-      ),
-    });
-  }
-
-  onManagedFlashAttnChange(raw: ManagedLlamaFlashAttn | string): void {
-    if (raw !== 'auto' && raw !== 'on' && raw !== 'off') {
-      return;
-    }
-    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
-    if (!cmd.trim()) {
-      return;
-    }
-    this.patchLlamaCppManaged({
-      chatRunCommand: syncFlashAttnInManagedChatCommand(cmd, raw, detectShellQuotingPlatform()),
     });
   }
 
@@ -1826,62 +2058,6 @@ export class SettingsStore {
         { noMmproj, mmprojPath },
         detectShellQuotingPlatform(),
       ),
-    });
-  }
-
-  onManagedBatchSizeChange(raw: string | number): void {
-    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
-    if (Number.isNaN(n)) {
-      return;
-    }
-    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
-    if (!cmd.trim()) {
-      return;
-    }
-    this.patchLlamaCppManaged({
-      chatRunCommand: syncBatchSizeInManagedChatCommand(cmd, n, detectShellQuotingPlatform()),
-    });
-  }
-
-  onManagedUbatchSizeChange(raw: string | number): void {
-    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
-    if (Number.isNaN(n)) {
-      return;
-    }
-    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
-    if (!cmd.trim()) {
-      return;
-    }
-    this.patchLlamaCppManaged({
-      chatRunCommand: syncUbatchSizeInManagedChatCommand(cmd, n, detectShellQuotingPlatform()),
-    });
-  }
-
-  onManagedCacheTypeKChange(raw: string): void {
-    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
-    if (!cmd.trim()) {
-      return;
-    }
-    const value = (raw || '').trim();
-    const cacheType = (MANAGED_LLAMA_CACHE_TYPES as readonly string[]).includes(value)
-      ? (value as ManagedLlamaCacheType)
-      : null;
-    this.patchLlamaCppManaged({
-      chatRunCommand: syncCacheTypeKInManagedChatCommand(cmd, cacheType, detectShellQuotingPlatform()),
-    });
-  }
-
-  onManagedCacheTypeVChange(raw: string): void {
-    const cmd = this.selectedLlamaCppManaged().chatRunCommand;
-    if (!cmd.trim()) {
-      return;
-    }
-    const value = (raw || '').trim();
-    const cacheType = (MANAGED_LLAMA_CACHE_TYPES as readonly string[]).includes(value)
-      ? (value as ManagedLlamaCacheType)
-      : null;
-    this.patchLlamaCppManaged({
-      chatRunCommand: syncCacheTypeVInManagedChatCommand(cmd, cacheType, detectShellQuotingPlatform()),
     });
   }
 
@@ -1929,33 +2105,47 @@ export class SettingsStore {
     this.applyManagedModelSource({ kind: 'hf', hfId: sel.hfId });
   }
 
+  /** "Use in Models" gets a source of its own, selected and active, so existing sources stay as they are. */
+  private activateNewLocalSourceForUse(): void {
+    this.addProvider();
+    const source = this.selectedProvider();
+    if (source) {
+      this.activateSource(source.id);
+    }
+  }
+
   useCustomModelInModels(model: ModelManagerFileEntry): void {
     this.selectTab('models');
-    const local = this.llmProviders().find((p) => isPinnedLlamaCppLocalProviderId(p.id));
-    if (local?.models[0]) {
-      this.selectedModelId.set(local.models[0].id);
-      this.activateSource(local.id);
-    }
+    this.activateNewLocalSourceForUse();
     const localGguf = (model.ggufAbsolutePath || '').trim();
     if (localGguf) {
-      this.applyManagedModelSource({
-        kind: 'gguf',
-        absolutePath: localGguf,
-        displayName: model.fileName,
-      });
+      this.applyManagedModelSource(
+        {
+          kind: 'gguf',
+          absolutePath: localGguf,
+          displayName: model.fileName,
+        },
+        { keepCustomFlags: true },
+      );
     } else if (model.entryKind === 'hubRepo') {
-      this.applyManagedModelSource({
-        kind: 'hubRepo',
-        absolutePath: model.absolutePath,
-        folderName: model.fileName,
-        displayName: model.fileName,
-      });
+      this.applyManagedModelSource(
+        {
+          kind: 'hubRepo',
+          absolutePath: model.absolutePath,
+          folderName: model.fileName,
+          displayName: model.fileName,
+        },
+        { keepCustomFlags: true },
+      );
     } else {
-      this.applyManagedModelSource({
-        kind: 'gguf',
-        absolutePath: model.absolutePath,
-        displayName: model.fileName,
-      });
+      this.applyManagedModelSource(
+        {
+          kind: 'gguf',
+          absolutePath: model.absolutePath,
+          displayName: model.fileName,
+        },
+        { keepCustomFlags: true },
+      );
     }
     void this.refreshCustomModelCards();
   }
@@ -1966,29 +2156,40 @@ export class SettingsStore {
       return;
     }
     this.selectTab('models');
-    const local = this.llmProviders().find((p) => isPinnedLlamaCppLocalProviderId(p.id));
-    if (local?.models[0]) {
-      this.selectedModelId.set(local.models[0].id);
-      this.activateSource(local.id);
-    }
+    this.activateNewLocalSourceForUse();
     this.managedHfIdDraft.set(id);
-    this.applyManagedModelSource({ kind: 'hf', hfId: id });
+    this.applyManagedModelSource({ kind: 'hf', hfId: id }, { keepCustomFlags: true });
   }
 
-  /** Toggle a HF search card open/closed; loads quant files on first expand. */
-  async toggleHfModelCard(repoId: string): Promise<void> {
+  /** Show a Hub repo in the detail panel; loads its quant files and details on first pick. */
+  selectHfModel(repoId: string): void {
     const id = (repoId || '').trim();
     if (!id) {
       return;
     }
-    const current = this.modelManagerHfExpandedId();
-    if (current === id) {
-      this.modelManagerHfExpandedId.set(null);
-      return;
+    this.modelManagerSelection.set({ kind: 'hf', id });
+    void this.loadHfFiles(id);
+    void this.loadHfDetails(id);
+  }
+
+  /** Show a local model; ``repoId`` (from a ``models--owner--name`` folder) also loads Hub details. */
+  selectLocalModel(model: ModelManagerFileEntry, repoId?: string | null): void {
+    this.modelManagerSelection.set({ kind: 'local', path: model.absolutePath });
+    if (repoId) {
+      void this.loadHfDetails(repoId);
     }
-    this.modelManagerHfExpandedId.set(id);
+  }
+
+  private isSelectedLocalModel(model: ModelManagerFileEntry): boolean {
+    const sel = this.modelManagerSelection();
+    return sel?.kind === 'local' && sel.path === model.absolutePath;
+  }
+
+  /** Quant files for a repo; cached per id, retried after an error. */
+  private async loadHfFiles(id: string): Promise<void> {
     const cached = this.modelManagerHfFilesByRepo()[id];
-    if (cached || this.modelManagerHfFilesBusyByRepo()[id]) {
+    const failed = Object.prototype.hasOwnProperty.call(this.modelManagerHfFilesErrorByRepo(), id);
+    if ((cached && !failed) || this.modelManagerHfFilesBusyByRepo()[id]) {
       return;
     }
     this.modelManagerHfFilesBusyByRepo.update((m) => ({ ...m, [id]: true }));
@@ -2002,9 +2203,6 @@ export class SettingsStore {
         id,
         token: this.modelManagerHfToken().trim(),
       });
-      if (this.modelManagerHfExpandedId() !== id) {
-        return;
-      }
       if (!res.ok) {
         this.modelManagerHfFilesErrorByRepo.update((m) => ({ ...m, [id]: res.error }));
         this.modelManagerHfFilesByRepo.update((m) => ({ ...m, [id]: [] }));
@@ -2026,6 +2224,30 @@ export class SettingsStore {
     }
   }
 
+  /** Repo details for the panel; cached per id, retried after an error. */
+  private async loadHfDetails(id: string): Promise<void> {
+    const cached = this.modelManagerHfDetailsById()[id];
+    if (cached?.ok || this.modelManagerHfDetailsBusyById()[id]) {
+      return;
+    }
+    this.modelManagerHfDetailsBusyById.update((m) => ({ ...m, [id]: true }));
+    try {
+      const res = await this.electron.modelManagerHfModelDetails({ id, token: this.modelManagerHfToken().trim() });
+      this.modelManagerHfDetailsById.update((m) => ({ ...m, [id]: res }));
+    } catch (e) {
+      this.modelManagerHfDetailsById.update((m) => ({
+        ...m,
+        [id]: { ok: false, error: e instanceof Error ? e.message : String(e) },
+      }));
+    } finally {
+      this.modelManagerHfDetailsBusyById.update((m) => {
+        const next = { ...m };
+        delete next[id];
+        return next;
+      });
+    }
+  }
+
   /** "Use in Models" for a specific quant/file from an expanded HF card. */
   useHfQuantInModels(repoId: string, file: HuggingFaceModelFile): void {
     const repo = (repoId || '').trim();
@@ -2035,16 +2257,15 @@ export class SettingsStore {
     const localPath = this.modelManagerHfDownloaded()[this.hfQuantDownloadId(repo, file)];
     if (localPath) {
       this.selectTab('models');
-      const local = this.llmProviders().find((p) => isPinnedLlamaCppLocalProviderId(p.id));
-      if (local?.models[0]) {
-        this.selectedModelId.set(local.models[0].id);
-        this.activateSource(local.id);
-      }
-      this.applyManagedModelSource({
-        kind: 'gguf',
-        absolutePath: localPath,
-        displayName: file.quant || file.fileName,
-      });
+      this.activateNewLocalSourceForUse();
+      this.applyManagedModelSource(
+        {
+          kind: 'gguf',
+          absolutePath: localPath,
+          displayName: file.fileName,
+        },
+        { keepCustomFlags: true },
+      );
       return;
     }
     const quant = (file.quant || '').trim();
@@ -2057,9 +2278,9 @@ export class SettingsStore {
     return `${repoId}/${file.fileName}`;
   }
 
-  /** Whether a quant is currently downloading (progress bar should be shown). */
-  isHfQuantDownloading(repoId: string, file: HuggingFaceModelFile): boolean {
-    return !!this.modelManagerHfDownloads()[this.hfQuantDownloadId(repoId, file)];
+  /** The running or stopped download of a quant; undefined when there is none. */
+  hfQuantDownload(repoId: string, file: HuggingFaceModelFile): HfDownloadEntry | undefined {
+    return this.modelManagerHfDownloads()[this.hfQuantDownloadId(repoId, file)];
   }
 
   /** Whether a quant finished downloading (Use in Models becomes primary action). */
@@ -2067,43 +2288,33 @@ export class SettingsStore {
     return !!this.modelManagerHfDownloaded()[this.hfQuantDownloadId(repoId, file)];
   }
 
-  /** Download progress 0..1 for a quant; 0 when total is unknown. */
-  hfQuantDownloadFraction(repoId: string, file: HuggingFaceModelFile): number {
-    const id = this.hfQuantDownloadId(repoId, file);
-    const d = this.modelManagerHfDownloads()[id];
-    if (!d || !d.totalBytes || d.totalBytes <= 0) {
-      return 0;
-    }
-    return Math.max(0, Math.min(1, d.receivedBytes / d.totalBytes));
-  }
-
-  /** Whole-number percent for the row's progress bar; null while the total size is unknown. */
-  hfQuantDownloadPercent(repoId: string, file: HuggingFaceModelFile): number | null {
-    const d = this.modelManagerHfDownloads()[this.hfQuantDownloadId(repoId, file)];
-    if (!d || !d.totalBytes || d.totalBytes <= 0) {
+  /** Percent for a download's progress bar, to one decimal; null while the total size is unknown. */
+  hfDownloadPercent(d: HfDownloadEntry): number | null {
+    if (!d.totalBytes || d.totalBytes <= 0) {
       return null;
     }
-    return Math.round(this.hfQuantDownloadFraction(repoId, file) * 1000) / 10;
+    return Math.round(Math.max(0, Math.min(1, d.receivedBytes / d.totalBytes)) * 1000) / 10;
   }
 
-  /** Human-readable progress label for a downloading quant. */
-  hfQuantDownloadLabel(repoId: string, file: HuggingFaceModelFile): string {
-    const id = this.hfQuantDownloadId(repoId, file);
-    const d = this.modelManagerHfDownloads()[id];
-    if (!d) {
-      return '';
-    }
+  /** Progress of a download in words: ``42% · 3.1 GB / 7.4 GB``, led by ``Paused`` or ``Failed`` when stopped. */
+  hfDownloadLabel(d: HfDownloadEntry): string {
     const pct = d.totalBytes && d.totalBytes > 0 ? Math.round((d.receivedBytes / d.totalBytes) * 100) : null;
     const recv = this.formatFileSize(d.receivedBytes);
     const total = d.totalBytes != null ? this.formatFileSize(d.totalBytes) : '?';
-    return pct != null ? `${pct}% · ${recv} / ${total}` : `${recv} / ${total}`;
+    const state = d.status === 'paused' ? 'Paused · ' : d.status === 'error' ? 'Failed · ' : '';
+    return `${state}${pct != null ? `${pct}% · ` : ''}${recv} / ${total}`;
   }
 
   /** Kick off a HF GGUF download into the configured custom models directory. */
-  async downloadHfQuant(repoId: string, file: HuggingFaceModelFile): Promise<void> {
+  downloadHfQuant(repoId: string, file: HuggingFaceModelFile): Promise<void> {
+    return this.startHfDownload(repoId, file?.fileName ?? '');
+  }
+
+  /** Start a download, or continue one that stopped with a partial file. */
+  async startHfDownload(repoId: string, fileName: string): Promise<void> {
     const repo = (repoId || '').trim();
-    const fileName = (file?.fileName || '').trim();
-    if (!repo || !fileName) {
+    const name = (fileName || '').trim();
+    if (!repo || !name) {
       return;
     }
     const customDir = (this.modelManagerCustomDir() || '').trim();
@@ -2111,8 +2322,7 @@ export class SettingsStore {
       this.modelManagerStatus.set('Set a custom models directory before downloading.');
       return;
     }
-    const downloadId = this.hfQuantDownloadId(repo, file);
-    if (this.modelManagerHfDownloads()[downloadId]) {
+    if (this.modelManagerHfDownloads()[`${repo}/${name}`]?.status === 'downloading') {
       return;
     }
     // The 'queued' progress event from the main process drives the bar; we do not
@@ -2121,28 +2331,24 @@ export class SettingsStore {
     // event legitimately created, hiding the bar while the download continues.
     const res = await this.electron.modelManagerDownloadHfFile({
       repoId: repo,
-      fileName,
+      fileName: name,
       customDir,
       token: this.modelManagerHfToken().trim(),
     });
-    // Progress events drive the bar; this resolves only at completion.
+    // Progress events drive the bar; this resolves only when the download ends or stops.
     if (!res.ok) {
       this.modelManagerStatus.set(res.error);
     }
   }
 
-  /** Cancel an in-flight HF quant download. */
-  cancelHfQuantDownload(repoId: string, file: HuggingFaceModelFile): void {
-    const id = this.hfQuantDownloadId(repoId, file);
-    void this.electron.modelManagerCancelHfDownload({ downloadId: id });
+  /** Stop a running download and keep what it has, to resume later. */
+  pauseHfDownload(downloadId: HfDownloadId): void {
+    void this.electron.modelManagerPauseHfDownload({ downloadId });
   }
 
-  /** Clear expanded-card state when a new search resets the results list. */
-  private resetHfCardExpansion(): void {
-    this.modelManagerHfExpandedId.set(null);
-    this.modelManagerHfFilesByRepo.set({});
-    this.modelManagerHfFilesBusyByRepo.set({});
-    this.modelManagerHfFilesErrorByRepo.set({});
+  /** Stop a download for good, running or not; its partial file is deleted. */
+  cancelHfDownload(downloadId: HfDownloadId): void {
+    void this.electron.modelManagerCancelHfDownload({ downloadId });
   }
 
   /** Human-readable file size for the quant list. */
@@ -2161,14 +2367,14 @@ export class SettingsStore {
     return `${value.toFixed(value >= 100 ? 0 : value >= 10 ? 1 : 2)} ${units[unit]}`;
   }
 
-  private applyManagedModelSource(source: ManagedLlamaModelSource): void {
+  private applyManagedModelSource(source: ManagedLlamaModelSource, opts: { keepCustomFlags?: boolean } = {}): void {
     const ensureLocal = (): LlmModelProfile | null => {
       const current = this.selectedModel();
       const p = this.selectedProvider();
-      if (current && p?.provider === 'llamacpp' && !this.isUrlOnlyLlamacpp()) {
+      if (current && p?.provider === 'llamacpp') {
         return current;
       }
-      const local = this.llmProviders().find((x) => isPinnedLlamaCppLocalProviderId(x.id));
+      const local = this.llmProviders().find((x) => this.isManagedLlamacppSource(x));
       if (!local?.models[0]) {
         return null;
       }
@@ -2181,7 +2387,20 @@ export class SettingsStore {
     }
     const hint = managedLlamaSourceHint(source);
     const preset = inferOptimizationPresetFromModelHint(hint);
-    const base = model.llamaCppManaged ?? defaultLlamaCppManaged();
+    const stored = model.llamaCppManaged ?? defaultLlamaCppManaged();
+    // What the last model's plan wrote doesn't come along: a tune may never land (OK during its read), and -hf gets none.
+    const storedSelection = parseManagedLlamaModelSelection(stored.chatRunCommand);
+    const sameModel =
+      source.kind === 'gguf' &&
+      storedSelection?.kind === 'gguf' &&
+      storedSelection.absolutePath === source.absolutePath.trim();
+    const base: typeof stored =
+      sameModel
+        ? stored
+        : {
+            chatRunCommand: withoutAutoTunedFlags(stored.chatRunCommand, stored.autoTuned),
+            embeddingRunCommand: stored.embeddingRunCommand,
+          };
     const existingCtx = parseManagedLlamaContextSize(base.chatRunCommand);
     const ctxForCmd = existingCtx === null || existingCtx === 0 ? 0 : existingCtx;
     const ctxForProfile =
@@ -2241,6 +2460,9 @@ export class SettingsStore {
       chatRunCommand = syncCacheTypeVInManagedChatCommand(chatRunCommand, prevCtv, platform);
     }
     chatRunCommand = promoteManagedSentinelNglToAuto(chatRunCommand, platform);
+    if (opts.keepCustomFlags) {
+      chatRunCommand = carryCustomLlamaFlags(prevCmd, chatRunCommand);
+    }
     const patch = optimizationPresetDefaultsPatch(preset) as Partial<LlmModelProfile>;
     this.applyLlmModelPatch(model.id, {
       ...patch,
@@ -2256,6 +2478,88 @@ export class SettingsStore {
       this.managedHfIdDraft.set(source.hfId);
     }
     this.markSettingsDirty();
+    const modelChanged =
+      JSON.stringify(parseManagedLlamaModelSelection(prevCmd)) !==
+      JSON.stringify(parseManagedLlamaModelSelection(chatRunCommand));
+    void this.tuneManagedCommandAfterPick(model.id, chatRunCommand, opts.keepCustomFlags ? prevCmd : '', modelChanged);
+  }
+
+  private managedGgufProfileAt(path: string | null): GgufProfile | null {
+    return path ? (this.managedGgufProfiles()[path] ?? null) : null;
+  }
+
+  /** Read a GGUF header for the estimates and checks. A failed read leaves an earlier one in place. */
+  async loadManagedGgufProfile(path: string | null): Promise<GgufProfile | null> {
+    if (!path) {
+      return null;
+    }
+    const profile = await this.electron.llamaServerGgufProfile({ path });
+    if (profile) {
+      this.managedGgufProfiles.update((profiles) => ({ ...profiles, [path]: profile }));
+    }
+    return profile;
+  }
+
+  /**
+   * The part of a pick that needs the GGUF header, which arrives after the pick is saved. A ``-hf`` model
+   * may not be on disk yet, so it gets none of this. ``previous`` is the command whose custom flags the
+   * pick carried over; empty when it dropped them. When the header can't be read, the last model's plan
+   * still comes out, and a plan for this same model stays.
+   */
+  private async tuneManagedCommandAfterPick(
+    modelId: string,
+    picked: string,
+    previous: string,
+    modelChanged: boolean,
+  ): Promise<void> {
+    const sel = parseManagedLlamaModelSelection(picked);
+    if (sel?.kind !== 'gguf') {
+      return;
+    }
+    const companionPath = resolveMtpPathForManagedGguf(sel.absolutePath, this.modelManagerCustomModels());
+    const projectorPath = parseManagedLlamaMmproj(picked);
+    const [profile, companion, usage, projectorBytes] = await Promise.all([
+      this.loadManagedGgufProfile(sel.absolutePath),
+      this.loadManagedGgufProfile(companionPath),
+      this.electron.llamaServerVramUsage(),
+      projectorPath ? this.electron.llamaServerGgufSize({ path: projectorPath }) : null,
+    ]);
+    this.managedVramUsage.set(usage);
+    const model = this.selectedModel();
+    const managed = model?.llamaCppManaged;
+    // The user may have picked or edited something else during the read.
+    if (model?.id !== modelId || managed?.chatRunCommand !== picked || (!profile && !modelChanged)) {
+      return;
+    }
+    const { command, autoTuned } = profile
+      ? tunePickedManagedChatCommand(
+          {
+            command: picked,
+            previous,
+            autoTuned: managed.autoTuned,
+            profile,
+            companionPath,
+            companion,
+            projectorBytes,
+            gpus: this.cudaGpus(),
+            usage,
+          },
+          detectShellQuotingPlatform(),
+        )
+      : { command: withoutAutoTunedFlags(picked, managed.autoTuned), autoTuned: undefined };
+    if (command === picked && JSON.stringify(autoTuned) === JSON.stringify(managed.autoTuned)) {
+      return;
+    }
+    this.updateSelectedModel({
+      contextWindowTokens:
+        parseCustomManagedContextTokens(parseManagedLlamaContextSize(command) ?? '') ??
+        inferContextWindowTokens(model.name, 'llamacpp'),
+      llamaCppManaged: {
+        chatRunCommand: command,
+        embeddingRunCommand: managed.embeddingRunCommand,
+        ...(autoTuned ? { autoTuned } : {}),
+      },
+    });
   }
 
   managedInventoryOptionValue(model: ModelManagerFileEntry): string {
@@ -2313,6 +2617,12 @@ export class SettingsStore {
     this.markSettingsDirty();
   }
 
+  /** Save the HF token now; main writes it to disk encrypted with the OS keychain when available. */
+  async saveHfToken(token: string): Promise<void> {
+    this.updateModelManagerConfig({ huggingFaceToken: token.trim() });
+    await this.applySettings();
+  }
+
   async pickModelManagerCustomDir(): Promise<void> {
     const selected = await this.electron.modelManagerPickCustomDir();
     if (!selected) {
@@ -2327,7 +2637,17 @@ export class SettingsStore {
     if (options?.clearStatus !== false) {
       this.modelManagerStatus.set('');
     }
+    void this.refreshSecretStorage();
     await this.refreshCustomModelCards();
+  }
+
+  /** Whether saved secrets are keychain-encrypted on this host, for the status badges. */
+  async refreshSecretStorage(): Promise<void> {
+    try {
+      this.modelManagerSecretStorage.set(await this.electron.modelManagerSecretStorage());
+    } catch {
+      this.modelManagerSecretStorage.set(null);
+    }
   }
 
   /**
@@ -2335,7 +2655,7 @@ export class SettingsStore {
    * command once inventory has a local projector. No-ops if Off or already pinned.
    */
   private syncManagedMmprojFromInventory(): void {
-    if (this.isUrlOnlyLlamacpp()) {
+    if (this.selectedProvider()?.provider === 'openai-compatible') {
       return;
     }
     const cmd = this.selectedLlamaCppManaged().chatRunCommand;
@@ -2367,17 +2687,23 @@ export class SettingsStore {
   }
 
   async refreshCustomModelCards(): Promise<void> {
+    const requestGen = ++this.localInventoryRequestGen;
     const dir = this.modelManagerCustomDir().trim();
     if (!dir) {
       this.modelManagerCustomModels.set([]);
+      this.localInventoryResult.set('ok');
       return;
     }
+    this.localInventoryInflight.update((n) => n + 1);
     this.modelManagerLocalLoading.set(true);
     const startedAt = Date.now();
     try {
       const res = await this.electron.modelManagerListCustomModels({ customDir: dir });
+      // An older scan must not overwrite a newer directory or its observed state.
+      if (requestGen !== this.localInventoryRequestGen) return;
       if (res.ok) {
         this.modelManagerCustomModels.set(res.models);
+        this.localInventoryResult.set(res.directoryMissing ? 'error' : 'ok');
         this.syncManagedMmprojFromInventory();
         if (res.directoryMissing) {
           this.modelManagerStatus.set(
@@ -2386,14 +2712,19 @@ export class SettingsStore {
         }
       } else {
         this.modelManagerCustomModels.set([]);
+        this.localInventoryResult.set('error');
         this.modelManagerStatus.set(res.error);
       }
+    } catch (error) {
+      if (requestGen === this.localInventoryRequestGen) this.localInventoryResult.set('error');
+      throw error;
     } finally {
       const elapsed = Date.now() - startedAt;
       if (elapsed < 350) {
         await new Promise<void>((resolve) => window.setTimeout(resolve, 350 - elapsed));
       }
-      this.modelManagerLocalLoading.set(false);
+      this.localInventoryInflight.update((n) => Math.max(0, n - 1));
+      this.modelManagerLocalLoading.set(this.localInventoryInflight() > 0);
     }
   }
 
@@ -2438,6 +2769,9 @@ export class SettingsStore {
         return;
       }
       this.modelManagerStatus.set(`Renamed to ${res.model?.fileName ?? nextName}.`);
+      if (res.model && this.isSelectedLocalModel(model)) {
+        this.modelManagerSelection.set({ kind: 'local', path: res.model.absolutePath });
+      }
       await this.refreshCustomModelCards();
     } finally {
       this.modelManagerBusy.set(false);
@@ -2470,6 +2804,9 @@ export class SettingsStore {
         return;
       }
       this.modelManagerStatus.set(`Deleted ${model.fileName}.`);
+      if (this.isSelectedLocalModel(model)) {
+        this.modelManagerSelection.set(null);
+      }
       await this.refreshCustomModelCards();
     } finally {
       this.modelManagerBusy.set(false);
@@ -2485,13 +2822,9 @@ export class SettingsStore {
       this.modelManagerHfTotalPages.set(0);
       this.modelManagerHfWindowStart.set(0);
       this.modelManagerHfHasMore.set(false);
-      this.resetHfCardExpansion();
       return;
     }
     this.modelManagerHfBusy.set(true);
-    if (nextPage === 0) {
-      this.resetHfCardExpansion();
-    }
     try {
       const limit = this.modelManagerHfPageSize;
       const res = await this.electron.modelManagerSearchHf({
@@ -2574,7 +2907,8 @@ export class SettingsStore {
 
   /** Reset all filters to their defaults. */
   resetHfFilters(): void {
-    this.modelManagerHfFileType.set('');
+    // Goes through the chip handler so a changed file type re-runs the Hub search.
+    this.onHfFileTypeChange(DEFAULT_HF_FILE_TYPE);
     this.modelManagerHfMinDownloads.set(0);
     this.modelManagerHfMinLikes.set(0);
   }
@@ -2884,6 +3218,23 @@ export class SettingsStore {
     if (changes.searxngBaseUrl !== undefined) {
       this.searxngBaseUrl.set((changes.searxngBaseUrl || '').trim());
     }
+    if (changes.webSearchProvider !== undefined) {
+      this.webSearchProvider.set(changes.webSearchProvider ?? 'auto');
+    }
+    if (changes.webSearchEngines !== undefined) {
+      this.webSearchEngines.set(normalizeWebSearchEngines(changes.webSearchEngines));
+    }
+    if (changes.webSearchUserAgent !== undefined) {
+      this.webSearchUserAgent.set((changes.webSearchUserAgent || '').trim());
+    }
+    if (changes.webSearchCooldownSeconds !== undefined) {
+      this.webSearchCooldownSeconds.set(changes.webSearchCooldownSeconds ?? 300);
+    }
+    if (changes.screenshotRetention !== undefined) {
+      this.screenshotRetention.set(normalizeScreenshotRetention({
+        ...this.screenshotRetention(), ...changes.screenshotRetention,
+      }));
+    }
     if (changes.extraUserPath !== undefined) {
       this.extraUserPath.set(changes.extraUserPath || '');
     }
@@ -2955,6 +3306,45 @@ export class SettingsStore {
     this.markSettingsDirty();
   }
 
+  onWebSearchProviderChange(value: string): void {
+    this.webSearchProvider.set(value === 'internal' || value === 'searxng' ? value : 'auto');
+    this.markSettingsDirty();
+  }
+
+  onWebSearchEngineToggle(id: string, enabled: boolean): void {
+    const current = new Set(this.webSearchEngines());
+    if (enabled) {
+      current.add(id);
+    } else {
+      current.delete(id);
+    }
+    this.webSearchEngines.set(normalizeWebSearchEngines([...current]));
+    this.markSettingsDirty();
+  }
+
+  onWebSearchUserAgentChange(value: string): void {
+    this.webSearchUserAgent.set((value || '').trim());
+    this.markSettingsDirty();
+  }
+
+  onWebSearchCooldownSecondsChange(raw: string | number): void {
+    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+    if (Number.isNaN(n)) {
+      return;
+    }
+    this.webSearchCooldownSeconds.set(Math.min(3600, Math.max(0, n)));
+    this.markSettingsDirty();
+  }
+
+  onScreenshotRetentionChange(key: keyof ScreenshotRetentionSettings, raw: string | number | null): void {
+    const value = typeof raw === 'number' ? raw : Number(raw);
+    if (!Number.isFinite(value) || raw === '' || raw === null) {
+      return;
+    }
+    this.screenshotRetention.set(normalizeScreenshotRetention({ ...this.screenshotRetention(), [key]: value }));
+    this.markSettingsDirty();
+  }
+
   onExtraUserPathChange(value: string): void {
     this.extraUserPath.set(value || '');
     this.markSettingsDirty();
@@ -2962,6 +3352,17 @@ export class SettingsStore {
 
   onEnableAgentFormattersChange(enabled: boolean): void {
     this.enableAgentFormatters.set(!!enabled);
+    this.markSettingsDirty();
+  }
+
+  onConfirmMoveChange(enabled: boolean): void {
+    this.confirmMove.set(!!enabled);
+    this.confirmMoveTouched = true;
+    this.markSettingsDirty();
+  }
+
+  onTutorialEnabledChange(enabled: boolean): void {
+    this.tutorialEnabledDraft.set(!!enabled);
     this.markSettingsDirty();
   }
 
@@ -2975,18 +3376,6 @@ export class SettingsStore {
     if (changes.targetRatio !== undefined) {
       this.contextCompressionTargetRatio.set(changes.targetRatio);
     }
-    if (changes.protectTailMessages !== undefined) {
-      this.contextCompressionProtectTail.set(changes.protectTailMessages);
-    }
-    if (changes.recentToolBodyMaxChars !== undefined) {
-      this.contextCompressionRecentToolChars.set(changes.recentToolBodyMaxChars);
-    }
-    if (changes.oldToolBodyMaxChars !== undefined) {
-      this.contextCompressionOldToolChars.set(changes.oldToolBodyMaxChars);
-    }
-    if (changes.systemReserveRatio !== undefined) {
-      this.contextCompressionSystemReserve.set(changes.systemReserveRatio);
-    }
     this.markSettingsDirty();
   }
 
@@ -2999,8 +3388,9 @@ export class SettingsStore {
     if (Number.isNaN(n)) return;
     const clamped = Math.min(0.95, Math.max(0.5, n));
     this.contextCompressionTriggerRatio.set(clamped);
-    if (this.contextCompressionTargetRatio() > clamped) {
-      this.contextCompressionTargetRatio.set(Math.min(clamped, 0.55));
+    const maxTarget = maxContextCompressionTarget(clamped);
+    if (this.contextCompressionTargetRatio() > maxTarget) {
+      this.contextCompressionTargetRatio.set(Math.min(maxTarget, 0.5));
     }
     this.markSettingsDirty();
   }
@@ -3008,37 +3398,9 @@ export class SettingsStore {
   onContextCompressionTargetRatioChange(raw: string | number): void {
     const n = typeof raw === 'number' ? raw : Number.parseFloat(String(raw));
     if (Number.isNaN(n)) return;
-    const maxTarget = this.contextCompressionTriggerRatio();
+    const maxTarget = maxContextCompressionTarget(this.contextCompressionTriggerRatio());
     const clamped = Math.min(maxTarget, Math.max(0.4, Math.min(0.9, n)));
     this.contextCompressionTargetRatio.set(clamped);
-    this.markSettingsDirty();
-  }
-
-  onContextCompressionProtectTailChange(raw: string | number): void {
-    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
-    if (Number.isNaN(n)) return;
-    this.contextCompressionProtectTail.set(Math.min(100, Math.max(8, n)));
-    this.markSettingsDirty();
-  }
-
-  onContextCompressionRecentToolCharsChange(raw: string | number): void {
-    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
-    if (Number.isNaN(n)) return;
-    this.contextCompressionRecentToolChars.set(Math.min(20_000, Math.max(200, n)));
-    this.markSettingsDirty();
-  }
-
-  onContextCompressionOldToolCharsChange(raw: string | number): void {
-    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
-    if (Number.isNaN(n)) return;
-    this.contextCompressionOldToolChars.set(Math.min(10_000, Math.max(100, n)));
-    this.markSettingsDirty();
-  }
-
-  onContextCompressionSystemReserveChange(raw: string | number): void {
-    const n = typeof raw === 'number' ? raw : Number.parseFloat(String(raw));
-    if (Number.isNaN(n)) return;
-    this.contextCompressionSystemReserve.set(Math.min(0.5, Math.max(0.1, n)));
     this.markSettingsDirty();
   }
 
@@ -3046,6 +3408,49 @@ export class SettingsStore {
     const merged = { ...this.monacoWorkspaceEditor(), ...patch };
     this.monacoWorkspaceEditor.set(normalizeMonacoWorkspaceEditorSettings(merged).settings);
     this.markSettingsDirty();
+  }
+
+  patchGdscriptLsp(patch: Partial<GdscriptLspSettings>): void {
+    this.lspServers.update((servers) => ({ ...servers, gdscript: { ...servers.gdscript, ...patch } }));
+    this.markSettingsDirty();
+  }
+
+  patchPythonLsp(patch: Partial<PythonLspSettings>): void {
+    this.lspServers.update((servers) => ({ ...servers, python: { ...servers.python, ...patch } }));
+    this.markSettingsDirty();
+  }
+
+  patchTypescriptLsp(patch: Partial<TypescriptLspSettings>): void {
+    this.lspServers.update((servers) => ({ ...servers, typescript: { ...servers.typescript, ...patch } }));
+    this.markSettingsDirty();
+  }
+
+  patchJavaLsp(patch: Partial<JavaLspSettings>): void {
+    this.lspServers.update((servers) => ({ ...servers, java: { ...servers.java, ...patch } }));
+    this.markSettingsDirty();
+  }
+
+  async refreshLspDependencies(): Promise<void> {
+    const res = await this.electron.depsList();
+    if (res.ok) {
+      this.lspDependencies.set(res.dependencies);
+    }
+  }
+
+  /** Install state of one language server, for the LSP tab's list. */
+  private lspServerStatus(id: string): string {
+    const server = LSP_SERVER_CATALOG.find((entry) => entry.id === id);
+    if (!server) {
+      return '';
+    }
+    if (!server.dependencyId) {
+      return 'Bundled';
+    }
+    const dep = this.lspDependencies().find((row) => row.id === server.dependencyId);
+    if (!dep) {
+      return '…';
+    }
+    return dep.state === 'installed' ? `Installed${dep.version ? ` · ${dep.version}` : ''}` : 'Not installed';
   }
 
   monacoEditorThemeLabel(id: MonacoWorkspaceEditorThemeId): string {
@@ -3165,12 +3570,12 @@ export class SettingsStore {
     return base;
   }
 
-  private buildNewLlamacppProvider(index: number): LlmProviderConfig {
+  private buildNewLlamacppProvider(): LlmProviderConfig {
     const defaults = this.getProviderDefaults('llamacpp');
     const firstModel = this.buildNewModel(1, 'llamacpp');
     return {
       id: crypto.randomUUID(),
-      name: `Llama Server ${index}`,
+      name: uniqueManagedLlamaSourceName(this.llmProviders().map((p) => p.name)),
       provider: 'llamacpp',
       baseUrl: defaults.baseUrl,
       apiKey: defaults.apiKey,
@@ -3324,19 +3729,36 @@ export class SettingsStore {
   }
 
   private markSettingsDirty(): void {
+    this.dirtyRevision += 1;
     this.settingsDirty.set(true);
   }
 
   private async enqueuePersist(): Promise<void> {
     // Theme file first so the saved `themeId` always points at an on-disk document.
     await this.themes$.persistIfDirty();
+    const revision = this.dirtyRevision;
     const next = this.buildConfigForPersist();
+    const tutorialEnabled = this.tutorialEnabledDraft();
     const saved = await this.electron.saveConfig(next);
     if (!saved) {
       return;
     }
+    if (tutorialEnabled !== null) {
+      // Tour progress is deliberately not part of a config save; a failure here leaves the window dirty.
+      await this.electron.setTutorialEnabled(tutorialEnabled);
+      if (this.tutorialEnabledDraft() === tutorialEnabled) {
+        this.tutorialEnabledDraft.set(null);
+      }
+    }
     this.configSnapshot = structuredClone(saved);
-    this.settingsDirty.set(false);
+    if (Array.isArray(saved.llmProviders)) {
+      this.persistedSourceIds.set(new Set(saved.llmProviders.map((provider) => provider.id)));
+    }
+    // A change made during the save, such as a plan landing, isn't in what was saved.
+    if (this.dirtyRevision === revision) {
+      this.settingsDirty.set(false);
+    }
+    this.confirmMoveTouched = false;
     this.themes$.afterPersist();
     // Disk-owned workspace registry may differ from the client payload; skip
     // forceFull hydrate so Apply does not re-list llama/HF models after save.
@@ -3393,17 +3815,19 @@ export class SettingsStore {
         exposeAllWorkspaceFiles: this.exposeAllWorkspaceFiles(),
         allowWebAccess: this.allowWebAccess(),
         searxngBaseUrl: this.searxngBaseUrl(),
+        webSearchProvider: this.webSearchProvider(),
+        webSearchEngines: this.webSearchEngines(),
+        webSearchUserAgent: this.webSearchUserAgent(),
+        webSearchCooldownSeconds: this.webSearchCooldownSeconds(),
+        screenshotRetention: normalizeScreenshotRetention(this.screenshotRetention()),
         extraUserPath: this.extraUserPath(),
         enableAgentFormatters: this.enableAgentFormatters(),
       },
+      confirmMove: this.confirmMove(),
       contextCompression: {
         enabled: this.contextCompressionEnabled(),
         triggerRatio: this.contextCompressionTriggerRatio(),
         targetRatio: this.contextCompressionTargetRatio(),
-        protectTailMessages: this.contextCompressionProtectTail(),
-        recentToolBodyMaxChars: this.contextCompressionRecentToolChars(),
-        oldToolBodyMaxChars: this.contextCompressionOldToolChars(),
-        systemReserveRatio: this.contextCompressionSystemReserve(),
       },
       modelManager: {
         customModelsDir: this.modelManagerCustomDir(),
@@ -3423,6 +3847,7 @@ export class SettingsStore {
           : null,
       })),
       monacoWorkspaceEditor: structuredClone(this.monacoWorkspaceEditor()),
+      lspServers: structuredClone(this.lspServers()),
     };
   }
 
@@ -3464,6 +3889,8 @@ export class SettingsStore {
   }
 
   private syncFromConfig(config: AppConfig, forceFull: boolean): void {
+    // Track persisted identities even when editable hydration is blocked by an unsaved draft.
+    this.persistedSourceIds.set(new Set(config.llmProviders.map((provider) => provider.id)));
     const blockEditableHydration = !forceFull && this.settingsDirty();
     if (blockEditableHydration) {
       this.workspaces.set(config.workspaces);
@@ -3477,6 +3904,12 @@ export class SettingsStore {
         this.configSnapshot.chatSidebarCollapsed = config.chatSidebarCollapsed;
         this.configSnapshot.chatExpandedToMainPanel = config.chatExpandedToMainPanel;
         this.configSnapshot.defaultHomePageOnStart = config.defaultHomePageOnStart;
+        this.configSnapshot.confirmMove = config.confirmMove;
+      }
+      // The move prompt's "Don't ask again" lands here while this window is dirty. Adopt it unless
+      // the user changed the toggle themselves, otherwise Apply would re-enable the prompt.
+      if (!this.confirmMoveTouched) {
+        this.confirmMove.set(config.confirmMove !== false);
       }
       this.themeId.set(resolveLegacyThemeId(config.themeId || DEFAULT_THEME_ID));
       const at = config.audioTranscription;
@@ -3505,12 +3938,15 @@ export class SettingsStore {
       this.monacoWorkspaceEditor.set(
         normalizeMonacoWorkspaceEditorSettings(config.monacoWorkspaceEditor ?? undefined).settings,
       );
+      this.lspServers.set(normalizeLspServersSettings(config.lspServers));
       this.modelManagerCustomDir.set(config.modelManager.customModelsDir);
       this.modelManagerHfToken.set(unwrapSecret(config.modelManager.huggingFaceToken));
       return;
     }
 
     this.configSnapshot = structuredClone(config);
+    this.confirmMoveTouched = false;
+    this.tutorialEnabledDraft.set(null);
     this.workspaces.set(config.workspaces);
 
     const currentWorkspace = config.workspaces.find((workspace) => workspace.id === config.currentWorkspaceId) ?? null;
@@ -3561,6 +3997,7 @@ export class SettingsStore {
     this.monacoWorkspaceEditor.set(
       normalizeMonacoWorkspaceEditorSettings(config.monacoWorkspaceEditor ?? undefined).settings,
     );
+    this.lspServers.set(normalizeLspServersSettings(config.lspServers));
 
     const wt = config.workspaceTools;
     this.editToolsMode.set(wt.editToolsMode === 'strict' ? 'strict' : 'standard');
@@ -3577,17 +4014,19 @@ export class SettingsStore {
     this.exposeAllWorkspaceFiles.set(!!(wt.exposeAllWorkspaceFiles ?? false));
     this.allowWebAccess.set(!!(wt.allowWebAccess ?? false));
     this.searxngBaseUrl.set((wt.searxngBaseUrl ?? '').trim());
+    this.webSearchProvider.set(wt.webSearchProvider ?? 'auto');
+    this.webSearchEngines.set(normalizeWebSearchEngines(wt.webSearchEngines));
+    this.webSearchUserAgent.set((wt.webSearchUserAgent ?? '').trim());
+    this.webSearchCooldownSeconds.set(wt.webSearchCooldownSeconds ?? 300);
+    this.screenshotRetention.set(normalizeScreenshotRetention(wt.screenshotRetention));
     this.extraUserPath.set(wt.extraUserPath ?? '');
     this.enableAgentFormatters.set(!!(wt.enableAgentFormatters ?? false));
+    this.confirmMove.set(config.confirmMove !== false);
 
     const cc = config.contextCompression ?? getDefaultContextCompression();
     this.contextCompressionEnabled.set(!!cc.enabled);
     this.contextCompressionTriggerRatio.set(cc.triggerRatio);
     this.contextCompressionTargetRatio.set(cc.targetRatio);
-    this.contextCompressionProtectTail.set(cc.protectTailMessages);
-    this.contextCompressionRecentToolChars.set(cc.recentToolBodyMaxChars);
-    this.contextCompressionOldToolChars.set(cc.oldToolBodyMaxChars);
-    this.contextCompressionSystemReserve.set(cc.systemReserveRatio);
 
     this.modelManagerCustomDir.set(config.modelManager.customModelsDir);
     this.modelManagerHfToken.set(unwrapSecret(config.modelManager.huggingFaceToken));
@@ -3608,16 +4047,13 @@ export class SettingsStore {
       this.clearLmStudioInventory();
     }
 
+    if (locAfter?.provider.provider === 'openai-compatible') {
+      void this.refreshOpenAiCompatModels();
+    }
     if (locAfter?.provider.provider === 'llamacpp' && locAfter.model) {
-      if (isPinnedLlamaServerUrlProviderId(locAfter.provider.id)) {
-        void this.refreshLlamacppUrlModels();
-      } else {
-        this.llamacppUrlEmbeddingModelIds.set([]);
-        void this.refreshLlamacppManagedModels();
-      }
+      void this.refreshLlamacppManagedModels();
     } else {
       this.llamacppManagedModelIds.set([]);
-      this.llamacppUrlEmbeddingModelIds.set([]);
       this.llamacppModelsListError.set(null);
     }
 

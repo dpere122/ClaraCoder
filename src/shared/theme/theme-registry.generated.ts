@@ -13,7 +13,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Clara's replies, including rendered markdown and code blocks.",
     selector: "[data-theme-group=\"chat.assistant-bubble\"]",
     component: "app/features/chat/chat-box",
-    tokens: ["--t-assistant-bg", "--t-assistant-border", "--t-assistant-fg", "--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-chat-bg", "--t-code-bg", "--t-code-inline-bg", "--t-code-text", "--t-danger", "--t-fg", "--t-glow", "--t-glow-soft", "--t-hljs-attr", "--t-hljs-class", "--t-hljs-comment", "--t-hljs-function", "--t-hljs-keyword", "--t-hljs-meta", "--t-hljs-name", "--t-hljs-number", "--t-hljs-operator", "--t-hljs-params", "--t-hljs-property", "--t-hljs-punctuation", "--t-hljs-selector", "--t-hljs-string", "--t-hljs-symbol", "--t-hljs-tag", "--t-hover-bg", "--t-log-level-warning", "--t-primary", "--t-secondary", "--t-surface-2", "--t-text-muted", "--t-tui-clara-frame", "--t-user-fg"],
+    tokens: ["--t-assistant-bg", "--t-assistant-border", "--t-assistant-fg", "--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-chat-bg", "--t-code-bg", "--t-code-inline-bg", "--t-code-text", "--t-danger", "--t-fg", "--t-glow", "--t-glow-soft", "--t-hljs-attr", "--t-hljs-class", "--t-hljs-comment", "--t-hljs-function", "--t-hljs-keyword", "--t-hljs-meta", "--t-hljs-name", "--t-hljs-number", "--t-hljs-operator", "--t-hljs-params", "--t-hljs-property", "--t-hljs-punctuation", "--t-hljs-selector", "--t-hljs-string", "--t-hljs-symbol", "--t-hljs-tag", "--t-hover-bg", "--t-log-level-warning", "--t-primary", "--t-secondary", "--t-surface", "--t-surface-2", "--t-text-muted", "--t-tui-clara-frame", "--t-user-fg"],
     supportsBackground: false,
   },
   {
@@ -101,7 +101,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Scrollable conversation panel behind the message bubbles.",
     selector: "[data-theme-group=\"chat.transcript\"]",
     component: "app/features/chat/chat-box",
-    tokens: ["--t-active-bg", "--t-assistant-bg", "--t-assistant-border", "--t-assistant-fg", "--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-caution", "--t-chat-bg", "--t-code-bg", "--t-code-inline-bg", "--t-code-text", "--t-composer-bg", "--t-confirm", "--t-danger", "--t-fg", "--t-font-mono", "--t-glow", "--t-glow-soft", "--t-hljs-attr", "--t-hljs-class", "--t-hljs-comment", "--t-hljs-function", "--t-hljs-keyword", "--t-hljs-meta", "--t-hljs-name", "--t-hljs-number", "--t-hljs-operator", "--t-hljs-params", "--t-hljs-property", "--t-hljs-punctuation", "--t-hljs-selector", "--t-hljs-string", "--t-hljs-symbol", "--t-hljs-tag", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-primary", "--t-process-c", "--t-secondary", "--t-success", "--t-surface-2", "--t-text-muted", "--t-user-fg"],
+    tokens: ["--t-active-bg", "--t-assistant-bg", "--t-assistant-border", "--t-assistant-fg", "--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-caution", "--t-chat-bg", "--t-code-bg", "--t-code-inline-bg", "--t-code-text", "--t-composer-bg", "--t-confirm", "--t-danger", "--t-fg", "--t-font-mono", "--t-glow", "--t-glow-soft", "--t-hljs-attr", "--t-hljs-class", "--t-hljs-comment", "--t-hljs-function", "--t-hljs-keyword", "--t-hljs-meta", "--t-hljs-name", "--t-hljs-number", "--t-hljs-operator", "--t-hljs-params", "--t-hljs-property", "--t-hljs-punctuation", "--t-hljs-selector", "--t-hljs-string", "--t-hljs-symbol", "--t-hljs-tag", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-primary", "--t-process-c", "--t-secondary", "--t-success", "--t-surface", "--t-surface-2", "--t-text-muted", "--t-user-fg"],
     supportsBackground: true,
     backgroundClear: [".chat-box"],
   },
@@ -124,7 +124,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Your messages in the transcript.",
     selector: "[data-theme-group=\"chat.user-bubble\"]",
     component: "app/features/chat/chat-box",
-    tokens: ["--t-assistant-bg", "--t-assistant-border", "--t-assistant-fg", "--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-chat-bg", "--t-code-bg", "--t-code-inline-bg", "--t-code-text", "--t-danger", "--t-fg", "--t-glow", "--t-glow-soft", "--t-hljs-attr", "--t-hljs-class", "--t-hljs-comment", "--t-hljs-function", "--t-hljs-keyword", "--t-hljs-meta", "--t-hljs-name", "--t-hljs-number", "--t-hljs-operator", "--t-hljs-params", "--t-hljs-property", "--t-hljs-punctuation", "--t-hljs-selector", "--t-hljs-string", "--t-hljs-symbol", "--t-hljs-tag", "--t-hover-bg", "--t-log-level-warning", "--t-primary", "--t-secondary", "--t-surface-2", "--t-text-muted", "--t-tui-user-frame", "--t-user-bg", "--t-user-border", "--t-user-fg"],
+    tokens: ["--t-assistant-bg", "--t-assistant-border", "--t-assistant-fg", "--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-chat-bg", "--t-code-bg", "--t-code-inline-bg", "--t-code-text", "--t-danger", "--t-fg", "--t-glow", "--t-glow-soft", "--t-hljs-attr", "--t-hljs-class", "--t-hljs-comment", "--t-hljs-function", "--t-hljs-keyword", "--t-hljs-meta", "--t-hljs-name", "--t-hljs-number", "--t-hljs-operator", "--t-hljs-params", "--t-hljs-property", "--t-hljs-punctuation", "--t-hljs-selector", "--t-hljs-string", "--t-hljs-symbol", "--t-hljs-tag", "--t-hover-bg", "--t-log-level-warning", "--t-primary", "--t-secondary", "--t-surface", "--t-surface-2", "--t-text-muted", "--t-tui-user-frame", "--t-user-bg", "--t-user-border", "--t-user-fg"],
     supportsBackground: false,
   },
   {
@@ -323,7 +323,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Settings window frame and title bar.",
     selector: "[data-theme-group=\"settings.window\"]",
     component: "app/features/settings/settings",
-    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-code-inline-bg", "--t-danger", "--t-edge-darkest", "--t-elev-shadow", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-muted", "--t-on-primary", "--t-primary", "--t-progress-fill", "--t-progress-track", "--t-success", "--t-text-muted", "--t-warn"],
+    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-code-inline-bg", "--t-danger", "--t-edge-darkest", "--t-elev-shadow", "--t-fg", "--t-font-mono", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-muted", "--t-on-primary", "--t-panel-bg", "--t-primary", "--t-progress-fill", "--t-progress-track", "--t-success", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -345,7 +345,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Home panel shown when no file is open.",
     selector: "[data-theme-group=\"shell.empty-state\"]",
     component: "app/features/shell/main-panel-empty-state",
-    tokens: ["--t-active-bg", "--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-danger", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-hover-bg", "--t-primary", "--t-text-muted"],
+    tokens: ["--t-active-bg", "--t-bg", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-danger", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-hover-bg", "--t-primary", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -356,7 +356,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Right-hand column containing the conversation hub and chat.",
     selector: "[data-theme-group=\"shell.sidebar\"]",
     component: "app/features/shell",
-    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-fg-muted", "--t-font", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-muted", "--t-primary", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text"],
+    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-fg-muted", "--t-font", "--t-font-mono", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-muted", "--t-primary", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -367,7 +367,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Main column that hosts file tabs, the editor grid, and the expanded chat overlay.",
     selector: "[data-theme-group=\"shell.stage\"]",
     component: "app/features/shell",
-    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-fg-muted", "--t-font", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-muted", "--t-primary", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text"],
+    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-fg-muted", "--t-font", "--t-font-mono", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-muted", "--t-primary", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -378,7 +378,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Bottom footer with model status and language-server chips.",
     selector: "[data-theme-group=\"shell.status-bar\"]",
     component: "app/features/shell",
-    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-fg-muted", "--t-font", "--t-font-mono", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-muted", "--t-primary", "--t-secondary", "--t-surface", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text"],
+    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-fg-muted", "--t-font", "--t-font-mono", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-log-level-error", "--t-log-level-warning", "--t-muted", "--t-primary", "--t-secondary", "--t-surface", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -400,18 +400,29 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Frameless window chrome: app title, menu buttons, and window controls.",
     selector: "[data-theme-group=\"shell.titlebar\"]",
     component: "app/features/shell",
-    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-fg-muted", "--t-font", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-muted", "--t-primary", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text"],
+    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-fg-muted", "--t-font", "--t-font-mono", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-muted", "--t-primary", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text", "--t-warn"],
+    supportsBackground: false,
+  },
+  {
+    id: "updater.window",
+    label: "Window",
+    category: "updater",
+    categoryLabel: "Updater",
+    description: "Updates window: version list, release notes, and install footer.",
+    selector: "[data-theme-group=\"updater.window\"]",
+    component: "app/features/updater/updater",
+    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-caution", "--t-code-bg", "--t-code-inline-bg", "--t-code-text", "--t-danger", "--t-error", "--t-fg", "--t-font", "--t-font-mono", "--t-heading", "--t-hover-bg", "--t-on-primary", "--t-primary", "--t-progress-fill", "--t-progress-track", "--t-selection-bg", "--t-success", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text", "--t-warn"],
     supportsBackground: false,
   },
   {
     id: "workspace.footer",
-    label: "Workspace footer",
+    label: "LLM source controls",
     category: "workspace",
     categoryLabel: "Workspace",
-    description: "Managed llama-server controls and workspace actions.",
+    description: "LLM source picker and managed llama-server controls in the status bar.",
     selector: "[data-theme-group=\"workspace.footer\"]",
-    component: "app/features/workspace/workspace",
-    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-danger", "--t-glow", "--t-hover-bg", "--t-primary", "--t-secondary", "--t-text-muted"],
+    component: "app/features/shell",
+    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-fg-muted", "--t-font", "--t-font-mono", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-muted", "--t-primary", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -422,7 +433,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Left column hosting the file tree.",
     selector: "[data-theme-group=\"workspace.panel\"]",
     component: "app/features/shell",
-    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-danger", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-fg-muted", "--t-font", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-muted", "--t-primary", "--t-secondary", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text"],
+    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-danger", "--t-edge-light", "--t-elev-shadow", "--t-fg", "--t-fg-muted", "--t-font", "--t-font-mono", "--t-glow", "--t-glow-soft", "--t-hover-bg", "--t-muted", "--t-primary", "--t-secondary", "--t-text-muted", "--t-titlebar-end", "--t-titlebar-start", "--t-titlebar-text", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -447,6 +458,7 @@ export const THEME_GROUP_CATEGORIES: readonly ThemeGroupCategoryDef[] = [
   { id: "hitl", label: "Review cards" },
   { id: "settings", label: "Settings window" },
   { id: "shell", label: "Shell & layout" },
+  { id: "updater", label: "Updater" },
   { id: "workspace", label: "Workspace" },
 ];
 
@@ -487,6 +499,7 @@ export type ThemeGroupId =
   | "shell.status-bar"
   | "shell.tab-strip"
   | "shell.titlebar"
+  | "updater.window"
   | "workspace.footer"
   | "workspace.panel"
   | "workspace.tree";

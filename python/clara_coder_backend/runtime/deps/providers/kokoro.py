@@ -83,11 +83,11 @@ def install(*, force: bool = False) -> dict:
     rt = python_runtime_provider.status()
     if rt['state'] != 'installed':
         PROGRESS.emit(DEP_ID, 'installing', message='Preparing Python runtime…')
-        python_runtime_provider.install(force=False)
+        python_runtime_provider.install(dep_id=DEP_ID)
 
     py = venv_python()
     if not py:
-        raise RuntimeError('Python runtime venv is missing; install Python runtime first.')
+        raise RuntimeError('Python runtime venv is missing after setup.')
 
     if not force and _marker_path().is_file():
         st = status()

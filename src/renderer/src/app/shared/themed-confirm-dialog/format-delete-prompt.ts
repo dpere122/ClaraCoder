@@ -50,6 +50,18 @@ export function workspaceRemovePrompt(name: string): ThemedConfirmOpenOptions {
   };
 }
 
+/** Copy for removing a local model source in settings (drops its setup, not the model files). */
+export function localSourceRemovePrompt(name: string): ThemedConfirmOpenOptions {
+  return {
+    title: 'Remove local model source?',
+    message: `Remove "${name}" from your sources?`,
+    detail: 'Its settings and run command go away when you click Apply. Model files on disk are not touched.',
+    cancelText: 'Cancel',
+    confirmText: 'Remove',
+    variant: 'warning',
+  };
+}
+
 /** Copy for deleting a managed runtime dependency from the Dependencies window. */
 export function dependencyDeletePrompt(args: {
   id: string;
@@ -57,10 +69,9 @@ export function dependencyDeletePrompt(args: {
   path: string | null;
 }): ThemedConfirmOpenOptions {
   const impact: Record<string, string> = {
-    'python-runtime':
-      "Clara's backend runs from this environment. Chat, tools, and indexing stop working until you reinstall it.",
     'llama-server': 'Managed local models stop working until you download llama-server again.',
     'java-lsp': 'Java diagnostics and navigation stop working until you download it again.',
+    gdls: 'GDScript diagnostics and navigation stop working until you download it again.',
   };
   const where = args.path ? ` Files under ${args.path} are removed.` : '';
   return {

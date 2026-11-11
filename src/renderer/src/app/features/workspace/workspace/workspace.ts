@@ -15,7 +15,6 @@ import { LucideAngularModule } from 'lucide-angular';
 import type { AppConfig, PythonInterpreterListItem, Workspace, WorkspaceFilesChangedMessage } from '@shared/index';
 import { lspServerKindForWorkspaceRelativePath, RUNTIME_VENV_INTERPRETER_ID } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
-import { ManagedLlamaControlsComponent } from '../../status/managed-llama-controls/managed-llama-controls';
 import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
 import { workspaceEntryDeletePrompt } from '../../../shared/themed-confirm-dialog/format-delete-prompt';
@@ -23,7 +22,8 @@ import { WorkspaceFileChangeStatusService } from '../../../core/workspace-file-c
 import { Subscription } from 'rxjs';
 import type { EditorOutlineSymbol } from '../editor-outline/editor-outline';
 import { WorkspaceOutlineDockComponent } from '../workspace-outline-dock/workspace-outline-dock';
-import { normalizePathSlashes } from '../../../utils/workspace-relative-path';
+import { normalizePathSlashes, workspaceRelativePathIfUnderRoot } from '../../../utils/workspace-relative-path';
+import { WorkspaceMonacoModelStore } from '../workspace-monaco/workspace-monaco-model-store';
 import {
   absolutePathsFromWorkspaceChangeEvent,
   collectExpandedPaths,
@@ -58,12 +58,13 @@ import {
 import { workspaceTreeTextHintsPython } from './workspace-python-hints';
 import {
   populateWorkspacePathDragData,
+  WORKSPACE_TREE_DRAG_IS_DIRECTORY_MIME,
   WORKSPACE_TREE_INTERNAL_MOVE_MIME,
 } from '../../chat/chat-context-bar/chat-context-file';
 
 @Component({
   selector: 'app-workspace',
-  imports: [LucideAngularModule, WorkspaceOutlineDockComponent, ManagedLlamaControlsComponent, PillSelectComponent],
+  imports: [LucideAngularModule, WorkspaceOutlineDockComponent, PillSelectComponent],
   templateUrl: './workspace.html',
   styleUrl: './workspace.css',
   encapsulation: ViewEncapsulation.None,
@@ -71,6 +72,7 @@ import {
 export class WorkspaceComponent implements OnDestroy {
   private readonly workspaceFileChangeStatus = inject(WorkspaceFileChangeStatusService);
   private readonly themedConfirm = inject(ThemedConfirmDialogService);
+  private readonly monacoStore = inject(WorkspaceMonacoModelStore);
 
   readonly workspaces = input<Workspace[]>([]);
   readonly currentWorkspaceId = input<string | null>(null);
@@ -80,7 +82,7 @@ export class WorkspaceComponent implements OnDestroy {
   readonly activeFileRelativePath = input<string | null>(null);
   /** Document outline symbols from the active Monaco tab. */
   readonly outlineSymbols = input<readonly EditorOutlineSymbol[]>([]);
-  /** Live app config from the shell; drives the managed llama-server Start/Stop controls in the footer. */
+  /** Live app config from the shell; drives the move confirmation. */
   readonly appConfig = input<AppConfig | null>(null);
   /** Relative path for the active outline (from Monaco). */
   readonly outlineRelativePath = input<string | null>(null);
@@ -91,6 +93,8 @@ export class WorkspaceComponent implements OnDestroy {
   readonly addToChatContext = output<{ absolutePath: string; isDirectory: boolean }>();
   /** User clicked a symbol in the outline panel — reveal in the editor. */
   readonly outlineSymbolReveal = output<{ relativePath: string; line: number; column: number }>();
+  /** User ticked "Don't ask again" on the move confirmation — persist the preference. */
+  readonly moveConfirmDisabled = output<void>();
 
   protected readonly flatTree = signal<FlatNode[]>([]);
   /** Flat tree with an inline pending-create row when the user is naming a new file/folder. */
@@ -171,6 +175,12 @@ export class WorkspaceComponent implements OnDestroy {
   protected readonly pythonInterpreterLoading = signal(false);
   protected readonly pythonInterpreterError = signal('');
   private pythonInterpreterLoadRequestId = 0;
+  /** Python env section; collapsed by default, its bar names the selection meanwhile. */
+  protected readonly pythonEnvExpanded = signal(false);
+  protected readonly pythonInterpreterSelectedLabel = computed(() => {
+    const id = this.pythonInterpreterSelectedId();
+    return this.pythonInterpreterRows().find((row) => row.id === id)?.label ?? '';
+  });
 
   /** From ``GET /lsp/status`` — whether the Python LSP subprocess for this session is running. */
   protected readonly lspPythonServerRunning = signal(false);
@@ -209,6 +219,7 @@ export class WorkspaceComponent implements OnDestroy {
   private treeInteractionSuppressUntil = 0;
   /** Skip one blur-driven commit while programmatically focusing the rename field. */
   private renameSkipBlurCommit = false;
+  private renameCommitInFlight = false;
   private renameBlurTimer: ReturnType<typeof setTimeout> | null = null;
   private renameFocusTimer: ReturnType<typeof setTimeout> | null = null;
   /** Skip one blur-driven commit while programmatically focusing the create field. */
@@ -232,6 +243,9 @@ export class WorkspaceComponent implements OnDestroy {
 
   private diskOpFallbackTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private static readonly DISK_OP_FALLBACK_RELOAD_MS = 2_000;
+
+  /** Normalized source paths with a move in flight (prompt open or `moveWorkspaceEntry` running). */
+  private readonly pendingMoveSources = new Set<string>();
 
   constructor(protected electron: ElectronService) {
     effect(() => {
@@ -356,6 +370,10 @@ export class WorkspaceComponent implements OnDestroy {
 
   /** Expose path normalizer to template for active file comparison. */
   protected normalizePathSlashes = normalizePathSlashes;
+
+  protected togglePythonEnv(): void {
+    this.pythonEnvExpanded.update((v) => !v);
+  }
 
   protected onOutlineSymbolReveal(sym: EditorOutlineSymbol): void {
     const rel = this.outlineRelativePath()?.trim() || this.activeFileRelativePath()?.trim();
@@ -1001,12 +1019,25 @@ export class WorkspaceComponent implements OnDestroy {
       if (normalizePathSlashes(parentDirectoryPath(internalSource)) === normalizePathSlashes(destParentDir)) {
         return;
       }
-      this.markDiskOpPending(internalSource, destParentDir);
-      const res = await this.electron.moveWorkspaceEntry(workspaceRoot, internalSource, destParentDir);
-      if (!res.ok) {
-        this.clearDiskOpPending(internalSource, destParentDir);
-        window.alert(res.error ?? 'Failed to move item.');
+      // One move per source at a time: a second drop (or a drop while the prompt is open) must not
+      // race the first `moveWorkspaceEntry` and surface a spurious ENOENT alert.
+      const sourceKey = normalizeTreeAbsolutePath(internalSource);
+      if (this.pendingMoveSources.has(sourceKey)) {
         return;
+      }
+      this.pendingMoveSources.add(sourceKey);
+      try {
+        if (!(await this.confirmMoveIfNeeded(internalSource, destParentDir, this.internalDragIsDirectory(event)))) {
+          return;
+        }
+        this.markDiskOpPending(internalSource, destParentDir);
+        const res = await this.electron.moveWorkspaceEntry(workspaceRoot, internalSource, destParentDir);
+        if (!res.ok) {
+          this.clearDiskOpPending(internalSource, destParentDir);
+          window.alert(res.error ?? 'Failed to move item.');
+        }
+      } finally {
+        this.pendingMoveSources.delete(sourceKey);
       }
       return;
     }
@@ -1021,6 +1052,57 @@ export class WorkspaceComponent implements OnDestroy {
       this.clearDiskOpPending(destParentDir);
       window.alert(res.error ?? 'Failed to import item(s).');
     }
+  }
+
+  /**
+   * Ask before moving a file or folder into another folder, unless the user disabled the prompt.
+   * Returns false when the user cancels the move.
+   *
+   * `isDirectory` comes from the drag payload; the tree lookup is only a fallback for drags that
+   * predate the flag (the source row may already be gone from `flatTree` by drop time).
+   */
+  private async confirmMoveIfNeeded(
+    sourceAbs: string,
+    destParentAbs: string,
+    isDirectory?: boolean | null,
+  ): Promise<boolean> {
+    if (this.appConfig()?.confirmMove === false) {
+      return true;
+    }
+    const kind = (isDirectory ?? this.isDirectoryPath(sourceAbs)) ? 'folder' : 'file';
+    const sourceName = workspaceFileBasename(sourceAbs);
+    const destName = workspaceFileBasename(destParentAbs);
+    const { result, checked } = await this.themedConfirm.openWithCheckbox({
+      title: `Move ${kind}?`,
+      message: `Move ${kind} "${sourceName}" into "${destName}"?`,
+      confirmText: 'Move',
+      cancelText: 'Cancel',
+      checkboxLabel: "Don't ask again",
+    });
+    if (result !== 'confirm') {
+      return false;
+    }
+    if (checked) {
+      this.moveConfirmDisabled.emit();
+    }
+    return true;
+  }
+
+  /** `isDirectory` recorded on the drag payload, or null when the drag did not carry it. */
+  private internalDragIsDirectory(event: DragEvent): boolean | null {
+    const raw = event.dataTransfer?.getData(WORKSPACE_TREE_DRAG_IS_DIRECTORY_MIME)?.trim();
+    if (raw === '1') {
+      return true;
+    }
+    if (raw === '0') {
+      return false;
+    }
+    return null;
+  }
+
+  private isDirectoryPath(absPath: string): boolean {
+    const norm = normalizePathSlashes(absPath);
+    return this.flatTree().some((node) => node.isDirectory && normalizePathSlashes(node.path) === norm);
   }
 
   onContextMenuRename(): void {
@@ -1088,7 +1170,8 @@ export class WorkspaceComponent implements OnDestroy {
 
   async commitInlineRename(): Promise<void> {
     const targetPath = this.inlineRenamePath();
-    if (!targetPath) {
+    // Enter then blur both commit; the second must not rename a file that already moved.
+    if (!targetPath || this.renameCommitInFlight) {
       return;
     }
     const ws = this.workspaces().find((w) => w.id === this.currentWorkspaceId());
@@ -1112,14 +1195,36 @@ export class WorkspaceComponent implements OnDestroy {
 
     const newAbsPath = joinTreeAbsolutePath(parentDirectoryPath(targetPath), trimmed);
     this.markDiskOpPending(targetPath, newAbsPath);
-    const res = await this.electron.renameWorkspaceEntry(ws.path, targetPath, trimmed);
-    if (!res.ok) {
-      this.clearDiskOpPending(targetPath, newAbsPath);
-      window.alert(res.error ?? 'Failed to rename.');
-      this.refocusRenameInput();
-      return;
+    this.renameCommitInFlight = true;
+    try {
+      const oldRel = workspaceRelativePathIfUnderRoot(ws.path, targetPath);
+      const newRel = workspaceRelativePathIfUnderRoot(ws.path, newAbsPath);
+      const sessionId = this.activeConversationId();
+      const edits =
+        oldRel && newRel ? await this.monacoStore.fetchFileRenameEdits(sessionId, oldRel, newRel) : null;
+      // That can take seconds on a cold language server; Escape in the meantime still cancels.
+      if (this.inlineRenamePath() !== targetPath) {
+        this.clearDiskOpPending(targetPath, newAbsPath);
+        return;
+      }
+      const res = await this.electron.renameWorkspaceEntry(ws.path, targetPath, trimmed);
+      if (!res.ok) {
+        // References are only rewritten after this point: a failed move leaves them correct.
+        this.clearDiskOpPending(targetPath, newAbsPath);
+        window.alert(res.error ?? 'Failed to rename.');
+        this.refocusRenameInput();
+        return;
+      }
+      if (oldRel && newRel) {
+        if (edits) {
+          await this.monacoStore.applyFileRenameEdits(ws.path, oldRel, newRel, edits);
+        }
+        this.monacoStore.notifyFileRenamed(sessionId, oldRel, newRel);
+      }
+      this.cancelInlineRename();
+    } finally {
+      this.renameCommitInFlight = false;
     }
-    this.cancelInlineRename();
   }
 
   private scheduleRenameInputFocus(): void {

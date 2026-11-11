@@ -4,12 +4,12 @@ node_modules/
 /release-pack-*
 /runtime-bundle/
 /vtsls-bundle/
-package-lock.json
 __pycache__/
 *.pyc
 *.egg-info/
 python/.venv/
-/docs/
+/docs/*
+!/docs/media/
 .venv/
 .clara/
 .nemo/
@@ -17,3 +17,6 @@ python/.venv/
 # Branch-specific smoke tests: only track the README, ignore everything else
 /tests/branch-smoke/*
 !/tests/branch-smoke/README.md
+# Godot editor and gdls caches (fixture project, dev checks)
+.gdls/
+.godot/

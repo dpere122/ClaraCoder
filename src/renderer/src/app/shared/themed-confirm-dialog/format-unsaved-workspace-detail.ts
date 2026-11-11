@@ -39,6 +39,16 @@ export function unsavedWorkspaceSwitchPrompt(paths: readonly string[]): ThemedCo
   };
 }
 
+/** Copy for closing the Settings window while edits have not been applied. */
+export function discardSettingsChangesPrompt(): ThemedConfirmOpenOptions {
+  return {
+    title: 'Discard changes?',
+    message: 'You have settings changes that have not been applied. Close Settings and discard them?',
+    cancelText: 'Keep editing',
+    confirmText: 'Discard',
+    variant: 'warning',
+  };
+}
 /** Copy for leaving a workspace while an agent response is still streaming. */
 export function activeStreamWorkspaceSwitchPrompt(count: number): ThemedConfirmOpenOptions {
   const detail =

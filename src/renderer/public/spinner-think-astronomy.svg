@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none" role="img" aria-labelledby="spinnerTitle">
+  <title id="spinnerTitle">Thinking</title>
+  <style>
+    .star {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: twinkle 2.4s ease-in-out infinite;
+    }
+    .s2 { animation-delay: 0.6s; }
+    .s3 { animation-delay: 1.2s; }
+    .s4 { animation-delay: 1.8s; }
+    .glint {
+      animation: breathe 4s ease-in-out infinite;
+    }
+
+    @keyframes twinkle {
+      0%, 100% { opacity: 0.25; transform: scale(0.6); }
+      50% { opacity: 1; transform: scale(1); }
+    }
+    @keyframes breathe {
+      0%, 100% { opacity: 0.35; }
+      50% { opacity: 0.9; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .star, .glint { animation: none; }
+      .star { opacity: 0.8; }
+    }
+  </style>
+
+  <defs>
+    <radialGradient id="ccPlanet" cx="27" cy="27" r="13" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#c9a96e" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#c9a96e" stop-opacity="0.05"/>
+    </radialGradient>
+    <filter id="ccGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="1.2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Twinkling background stars. -->
+  <path class="star" d="M11 9l0.9 2.2 2.2 0.9-2.2 0.9L11 15.2l-0.9-2.2-2.2-0.9 2.2-0.9z" fill="#d8c8a0"/>
+  <path class="star s2" d="M53 13l0.7 1.7 1.7 0.7-1.7 0.7L53 17.8l-0.7-1.7-1.7-0.7 1.7-0.7z" fill="#a8b89a"/>
+  <path class="star s3" d="M51 49l0.9 2.2 2.2 0.9-2.2 0.9L51 55.2l-0.9-2.2-2.2-0.9 2.2-0.9z" fill="#d8c8a0"/>
+  <path class="star s4" d="M12 48l0.7 1.7 1.7 0.7-1.7 0.7L12 52.8l-0.7-1.7-1.7-0.7 1.7-0.7z" fill="#a8b89a"/>
+
+  <g transform="rotate(-18 32 32)">
+    <!-- Moon's orbit, faint. -->
+    <ellipse cx="32" cy="32" rx="25" ry="8.5" stroke="#a8b89a" stroke-opacity="0.18" stroke-width="1.2" stroke-dasharray="1.5 3"/>
+
+    <!-- Far half of the ring and the moon when it passes behind the planet. -->
+    <path d="M14 32A18 5 0 0 1 50 32" stroke="#c9a96e" stroke-opacity="0.45" stroke-width="2"/>
+    <circle r="2.3" fill="#7eb5a6" filter="url(#ccGlow)">
+      <animateMotion dur="4s" repeatCount="indefinite" path="M57 32A25 8.5 0 1 1 7 32A25 8.5 0 1 1 57 32"/>
+      <animate attributeName="opacity" dur="4s" repeatCount="indefinite" calcMode="discrete" keyTimes="0;0.5" values="0;1"/>
+    </circle>
+  </g>
+
+  <!-- Planet -->
+  <circle cx="32" cy="32" r="10" fill="#191c17"/>
+  <circle cx="32" cy="32" r="10" fill="url(#ccPlanet)" stroke="#c9a96e" stroke-width="2"/>
+  <path class="glint" d="M25.5 29.5a7.5 7.5 0 0 1 5-4.6" stroke="#d8c8a0" stroke-width="1.5" stroke-linecap="round"/>
+
+  <g transform="rotate(-18 32 32)">
+    <!-- Near half of the ring and the moon crossing in front. -->
+    <path d="M50 32A18 5 0 0 1 14 32" stroke="#c9a96e" stroke-width="2.2"/>
+    <circle r="2.3" fill="#7eb5a6" filter="url(#ccGlow)">
+      <animateMotion dur="4s" repeatCount="indefinite" path="M57 32A25 8.5 0 1 1 7 32A25 8.5 0 1 1 57 32"/>
+      <animate attributeName="opacity" dur="4s" repeatCount="indefinite" calcMode="discrete" keyTimes="0;0.5" values="1;0"/>
+    </circle>
+  </g>
+</svg>

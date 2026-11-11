@@ -12,7 +12,7 @@ import type {
   SubagentStartedEvent,
   TurnEditedFile,
 } from '@shared/index';
-import { PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID, SecretValue } from '@shared/index';
+import { SecretValue } from '@shared/index';
 import { ElectronService } from '../../core/electron.service';
 import { TtsPlaybackService } from '../../core/tts-playback.service';
 import { ConversationSessionService } from './conversation-session.service';
@@ -23,7 +23,7 @@ function localLlamaConfig(modelId = 'local-model'): AppConfig {
     activeLlmModelId: modelId,
     llmProviders: [
       {
-        id: PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
+        id: 'local-source',
         name: 'Local llama.cpp',
         provider: 'llamacpp',
         baseUrl: '',
@@ -85,6 +85,7 @@ function mockElectron(overrides: Partial<{
   const electron = {
     chunk$: chunkSubject.asObservable(),
     toolReadChunk$: new Subject().asObservable(),
+    backgroundCommandOpen$: new Subject().asObservable(),
     toolExecChunk$: new Subject().asObservable(),
     toolExecComplete$: new Subject().asObservable(),
     appendConversationFileJournal: vi.fn(async () => ({ ok: true })),

@@ -10,7 +10,10 @@ import {
   effectiveLmStudioContextTokens,
   flattenLlmProvidersToConnections,
   lmStudioOpenAiBaseUrlToRestOrigin,
+  normalizeWebSearchEngines,
 } from '../../shared';
+import { normalizeLspServersSettings, type LspServersSettings } from '../../shared/lsp-settings';
+import { mainState } from '../state';
 import { unwrapSecret } from '../../shared/types/app-config';
 import { ensurePythonReady } from './server';
 import { pythonControlFetch } from './http-client';
@@ -19,10 +22,15 @@ import { readWorkspaceSystemPromptText } from '../workspace/system-prompt';
 import {
   getAllCachedChatTemplateReasoning,
   getAllCachedLlamaServerNctx,
+  setCachedChatTemplateReasoning,
   setCachedLlamaServerNctx,
 } from '../chat-template-reasoning-cache';
 import { lmStudioListModels } from '../lm-studio-client';
+import { lmStudioReasoningCaps, normalizeLmStudioSettings } from '../../shared/lm-studio-ipc';
+import { normalizeOpenAiCompatSettings, openAiCompatBaseUrl } from '../../shared/openai-compat';
 import { refreshOpenRouterReasoningCaps } from '../openrouter-reasoning';
+import { refreshAnthropicReasoningCaps } from '../anthropic-models';
+import { getAnthropicApiKey } from '../anthropic-key-store';
 
 /**
  * OAuth fields Python needs. The refresh token stays in Electron, which is the only refresher
@@ -90,7 +98,7 @@ export function normalizeBindAllHostToLocalhost(url: string): string {
     const raw = hasUrlScheme(s) ? s : `http://${s}`;
     const u = new URL(raw);
     const h = u.hostname.toLowerCase();
-    if (h !== '0.0.0.0' && h !== '::') {
+    if (h !== '0.0.0.0' && h !== '[::]') {
       return s;
     }
     u.hostname = '127.0.0.1';
@@ -172,7 +180,7 @@ export function embeddingsConfiguredForWire(_c: LlmConnectionConfig): boolean {
   return false;
 }
 
-function chatTemplateReasoningWire(
+export function chatTemplateReasoningWire(
   caps: ChatTemplateReasoningCaps | undefined,
 ): Record<string, unknown> | undefined {
   if (!caps) {
@@ -181,6 +189,8 @@ function chatTemplateReasoningWire(
   return {
     enableThinking: caps.enableThinking,
     reasoningEffortValues: caps.reasoningEffortValues == null ? null : [...caps.reasoningEffortValues],
+    ...(caps.adaptiveThinking !== undefined ? { adaptiveThinking: caps.adaptiveThinking } : {}),
+    ...(caps.vision !== undefined ? { vision: caps.vision } : {}),
   };
 }
 
@@ -194,9 +204,11 @@ function connectionToRuntimeWire(
   const resolvedBase = c.provider === 'llamacpp' && llamaOverride ? llamaOverride.baseUrl : c.baseUrl;
   const normalizedHost = normalizeBindAllHostToLocalhost(resolvedBase);
   const baseUrl =
-    c.provider === 'lmstudio' || c.provider === 'llamacpp' || c.provider === 'openrouter'
-      ? ensureOpenAiV1Base(normalizedHost)
-      : normalizedHost;
+    c.provider === 'openai-compatible'
+      ? (openAiCompatBaseUrl(normalizedHost) ?? normalizedHost)
+      : c.provider === 'lmstudio' || c.provider === 'llamacpp' || c.provider === 'openrouter'
+        ? ensureOpenAiV1Base(normalizedHost)
+        : normalizedHost;
   const rawEmbeddingsBase =
     c.provider === 'llamacpp' && llamaOverride
       ? (llamaOverride.embeddingsBaseUrl || '').trim() || (c.embeddingsBaseUrl ?? '').trim()
@@ -238,8 +250,24 @@ function connectionToRuntimeWire(
     embeddingsEnabled: embeddingsEnabledForWire(c, llamaOverride),
     embeddingsConfigured: embeddingsConfiguredForWire(c),
     contextWindowTokens,
+    idleTtlSeconds: lmStudioIdleTtlSeconds(c),
+    ...(c.provider === 'openai-compatible'
+      ? {
+          openAiCompat: normalizeOpenAiCompatSettings(c.openAiCompat),
+          customHeaders: Object.fromEntries((c.customHeaders ?? []).filter((h) => h.key.trim()).map((h) => [h.key.trim(), unwrapSecret(h.value)])),
+        }
+      : {}),
     ...(chatTemplateReasoning ? { chatTemplateReasoning } : {}),
   };
+}
+
+/** Sent only when LM Studio does the loading; it ignores the value on a model Clara already loaded. */
+function lmStudioIdleTtlSeconds(c: LlmConnectionConfig): number {
+  if (c.provider !== 'lmstudio') {
+    return 0;
+  }
+  const settings = normalizeLmStudioSettings(c.lmStudio);
+  return settings.autoLoad ? 0 : settings.idleTtlSeconds;
 }
 
 /**
@@ -316,6 +344,10 @@ async function refreshLmStudioLiveNctx(config: AppConfig): Promise<void> {
           if (n > 0) {
             setCachedLlamaServerNctx(row.id, n);
           }
+          // Only v1 reports capabilities; see refreshLmStudioReasoningForConnection.
+          if (card && res.source === 'v1') {
+            setCachedChatTemplateReasoning(row.id, lmStudioReasoningCaps(card));
+          }
         }
       } catch {
         /* LM Studio unreachable — keep persisted contextWindowTokens */
@@ -324,23 +356,60 @@ async function refreshLmStudioLiveNctx(config: AppConfig): Promise<void> {
   );
 }
 
+/** LSP settings the sidecar last accepted; ``null`` before the first sync, when it runs no servers yet. */
+let lastAppliedLspSettings: LspServersSettings | null = null;
+
+/** Servers whose settings changed: ``/runtime-config`` restarts exactly these before it replies. */
+export function changedLspServerIds(previous: LspServersSettings | null, next: LspServersSettings): string[] {
+  if (!previous) {
+    return [];
+  }
+  return (Object.keys(next) as Array<keyof LspServersSettings>).filter(
+    (id) => JSON.stringify(previous[id]) !== JSON.stringify(next[id]),
+  );
+}
+
+/**
+ * Tell the editor which servers restarted with new settings. Open editors otherwise keep the
+ * restarted server's old inlay hints until the text changes, since nothing asks for them again.
+ */
+function notifyLspSettingsApplied(servers: string[]): void {
+  const win = mainState.mainWindow;
+  if (servers.length === 0 || !win || win.isDestroyed()) {
+    return;
+  }
+  try {
+    win.webContents.send('lsp-settings-applied', { servers });
+  } catch {
+    // The window can close between the check and the send.
+  }
+}
+
 async function postRuntimeConfigToPython(
   config: AppConfig,
   llamaManagedEndpoints?: Record<string, LlamaManagedRuntimeEndpoints>,
 ): Promise<void> {
   try {
-    await Promise.all([refreshLmStudioLiveNctx(config), refreshOpenRouterReasoningCaps(config)]);
+    await Promise.all([
+      refreshLmStudioLiveNctx(config),
+      refreshOpenRouterReasoningCaps(config),
+      refreshAnthropicReasoningCaps(config),
+    ]);
     const flat = flattenLlmProvidersToConnections(config.llmProviders);
     const reasoningById = getAllCachedChatTemplateReasoning();
     const nCtxById = getAllCachedLlamaServerNctx();
-    const connections = flat.map((c) =>
-      connectionToRuntimeWire(
+    // The Claude key is never in config; main's keychain store hands it to the sidecar here only.
+    const anthropicKey = flat.some((c) => c.provider === 'anthropic') ? await getAnthropicApiKey() : '';
+    const connections = flat.map((c) => {
+      const wire = connectionToRuntimeWire(
         c,
         c.provider === 'llamacpp' ? llamaManagedEndpoints?.[c.id] : undefined,
         reasoningById[c.id],
         nCtxById[c.id],
-      ),
-    );
+      );
+      return c.provider === 'anthropic' ? { ...wire, apiKey: anthropicKey } : wire;
+    });
+    const lsp = normalizeLspServersSettings(config.lspServers);
     const response = await pythonControlFetch('/runtime-config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -363,6 +432,10 @@ async function postRuntimeConfigToPython(
           exposeAllWorkspaceFiles: config.workspaceTools.exposeAllWorkspaceFiles ?? false,
           allowWebAccess: config.workspaceTools.allowWebAccess ?? false,
           searxngBaseUrl: (config.workspaceTools.searxngBaseUrl ?? '').trim(),
+          webSearchProvider: config.workspaceTools.webSearchProvider ?? 'auto',
+          webSearchEngines: normalizeWebSearchEngines(config.workspaceTools.webSearchEngines),
+          webSearchUserAgent: (config.workspaceTools.webSearchUserAgent ?? '').trim(),
+          webSearchCooldownSeconds: config.workspaceTools.webSearchCooldownSeconds ?? 300,
           extraUserPath: config.workspaceTools.extraUserPath ?? '',
           enableAgentFormatters: config.workspaceTools.enableAgentFormatters ?? false,
         },
@@ -370,11 +443,8 @@ async function postRuntimeConfigToPython(
           enabled: config.contextCompression.enabled,
           triggerRatio: config.contextCompression.triggerRatio,
           targetRatio: config.contextCompression.targetRatio,
-          protectTailMessages: config.contextCompression.protectTailMessages,
-          recentToolBodyMaxChars: config.contextCompression.recentToolBodyMaxChars,
-          oldToolBodyMaxChars: config.contextCompression.oldToolBodyMaxChars,
-          systemReserveRatio: config.contextCompression.systemReserveRatio,
         },
+        lsp,
         huggingFaceToken: unwrapSecret(config.modelManager?.huggingFaceToken ?? ''),
         mcpServers: wireMcpServers(config),
         activeWorkspacePath: activeWorkspacePath(config),
@@ -385,6 +455,9 @@ async function postRuntimeConfigToPython(
       const detail = await response.text();
       throw new Error(`Runtime config sync failed (${response.status}): ${detail}`);
     }
+    const restarted = changedLspServerIds(lastAppliedLspSettings, lsp);
+    lastAppliedLspSettings = lsp;
+    notifyLspSettingsApplied(restarted);
   } catch (err) {
     console.error('Failed to sync runtime config to Python:', err);
   }

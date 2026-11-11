@@ -36,7 +36,7 @@ describe('MainPanelEmptyStateComponent', () => {
     expect(host.querySelector('h1.home__title')?.textContent?.trim()).toBe('Clara Coder');
     expect(host.textContent).not.toContain('> Clara Coder_');
     const actions = Array.from(host.querySelectorAll('.home__action')).map((el) => el.textContent?.trim());
-    expect(actions).toEqual(['Add workspace…', 'Models', 'Dependencies']);
+    expect(actions).toEqual(['Add workspace…', 'Sources', 'Model Manager', 'Dependencies']);
     expect(Array.from(host.querySelectorAll('.home__heading')).map((el) => el.textContent?.trim())).toEqual([
       'Start',
       'Runtime',
@@ -66,7 +66,7 @@ describe('MainPanelEmptyStateComponent', () => {
   it('offers to add a model source when none are configured', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
     const events: string[] = [];
-    fixture.componentInstance.openModelManager.subscribe(() => events.push('models'));
+    fixture.componentInstance.openSources.subscribe(() => events.push('sources'));
     fixture.componentRef.setInput('hasWorkspace', false);
     fixture.detectChanges();
 
@@ -75,7 +75,22 @@ describe('MainPanelEmptyStateComponent', () => {
       | null;
     expect(link?.textContent).toContain('Add a model source');
     link?.click();
-    expect(events).toEqual(['models']);
+    expect(events).toEqual(['sources']);
+  });
+
+  it('opens the Sources settings from the Runtime heading cog', () => {
+    const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
+    const events: string[] = [];
+    fixture.componentInstance.openSources.subscribe(() => events.push('sources'));
+    fixture.componentRef.setInput('hasWorkspace', false);
+    fixture.detectChanges();
+
+    const cog = (fixture.nativeElement as HTMLElement).querySelector(
+      '.home__heading-action',
+    ) as HTMLButtonElement | null;
+    expect(cog?.getAttribute('aria-label')).toBe('Open source settings');
+    cog?.click();
+    expect(events).toEqual(['sources']);
   });
 
   it('renders recent workspaces with their path and emits openWorkspace on click', () => {
@@ -231,10 +246,11 @@ describe('MainPanelEmptyStateComponent', () => {
     expect(changes).toEqual([false]);
   });
 
-  it('emits addWorkspace, openModelManager and openDependencies from the Start actions', () => {
+  it('emits addWorkspace, openSources, openModelManager and openDependencies from the Start actions', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
     const events: string[] = [];
     fixture.componentInstance.addWorkspace.subscribe(() => events.push('add'));
+    fixture.componentInstance.openSources.subscribe(() => events.push('sources'));
     fixture.componentInstance.openModelManager.subscribe(() => events.push('models'));
     fixture.componentInstance.openDependencies.subscribe(() => events.push('deps'));
     fixture.componentRef.setInput('hasWorkspace', false);
@@ -244,7 +260,50 @@ describe('MainPanelEmptyStateComponent', () => {
       (fixture.nativeElement as HTMLElement).querySelectorAll('.home__action'),
     ) as HTMLButtonElement[];
     actions.forEach((button) => button.click());
-    expect(events).toEqual(['add', 'models', 'deps']);
+    expect(events).toEqual(['add', 'sources', 'models', 'deps']);
+  });
+
+  it('exposes unique, interactive Home tutorial targets without opening a workspace', () => {
+    const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
+    const events: string[] = [];
+    fixture.componentInstance.addWorkspace.subscribe(() => events.push('workspace'));
+    fixture.componentInstance.openSources.subscribe(() => events.push('sources'));
+    fixture.componentInstance.openModelManager.subscribe(() => events.push('models'));
+    fixture.componentInstance.openDependencies.subscribe(() => events.push('dependencies'));
+    fixture.componentRef.setInput('hasWorkspace', false);
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    for (const name of ['home-start', 'home-add-workspace', 'home-sources', 'home-model-manager', 'home-dependencies']) {
+      expect(host.querySelectorAll(`[data-tutorial="${name}"]`)).toHaveLength(1);
+    }
+    expect(events).toEqual([]);
+    (host.querySelector('[data-tutorial="home-sources"]') as HTMLButtonElement).click();
+    (host.querySelector('[data-tutorial="home-model-manager"]') as HTMLButtonElement).click();
+    (host.querySelector('[data-tutorial="home-dependencies"]') as HTMLButtonElement).click();
+    expect(events).toEqual(['sources', 'models', 'dependencies']);
+    expect(fixture.componentInstance.hasWorkspace()).toBe(false);
+  });
+
+  it('flags the Dependencies action while core dependencies are missing', () => {
+    const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
+    fixture.componentRef.setInput('hasWorkspace', false);
+    fixture.detectChanges();
+
+    const deps = () =>
+      Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('.home__action')).find((el) =>
+        el.textContent?.includes('Dependencies'),
+      ) as HTMLButtonElement;
+    expect(deps().classList).not.toContain('home__action--attention');
+    expect(deps().querySelector('.home__action-alert')).toBeNull();
+
+    fixture.componentRef.setInput('missingDependencies', 'Not downloaded: llama-server');
+    fixture.detectChanges();
+    expect(deps().classList).toContain('home__action--attention');
+    expect(deps().title).toBe('Not downloaded: llama-server');
+    expect(deps().querySelector('.home__action-alert')?.getAttribute('aria-label')).toBe(
+      'Not downloaded: llama-server',
+    );
   });
 
   it('offers to join the main window\'s workspace first in Start when one is given (bridge tab)', () => {
@@ -261,7 +320,8 @@ describe('MainPanelEmptyStateComponent', () => {
     expect(actions.map((el) => el.textContent?.trim())).toEqual([
       'Join main window: Alpha',
       'Add workspace…',
-      'Models',
+      'Sources',
+      'Model Manager',
       'Dependencies',
     ]);
     expect(actions[0].getAttribute('title')).toContain('C:/tmp/alpha');

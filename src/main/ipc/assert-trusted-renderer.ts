@@ -11,7 +11,7 @@ function isOwnedAppWindow(sender: WebContents, win: BrowserWindow | null): boole
   return !!win && !win.isDestroyed() && sender === win.webContents;
 }
 
-/** Main, settings, health, or dependencies window — trusted app-owned UI surfaces. */
+/** Main, settings, health, dependencies, or updater window — trusted app-owned UI surfaces. */
 export function isTrustedAppRenderer(sender: WebContents): boolean {
   if (isTrustedMainRenderer(sender)) {
     return true;
@@ -19,7 +19,8 @@ export function isTrustedAppRenderer(sender: WebContents): boolean {
   return (
     isOwnedAppWindow(sender, mainState.settingsWindow) ||
     isOwnedAppWindow(sender, mainState.healthWindow) ||
-    isOwnedAppWindow(sender, mainState.dependenciesWindow)
+    isOwnedAppWindow(sender, mainState.dependenciesWindow) ||
+    isOwnedAppWindow(sender, mainState.updaterWindow)
   );
 }
 

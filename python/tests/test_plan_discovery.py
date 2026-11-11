@@ -184,3 +184,12 @@ def test_discovery_summary_passed_to_planner_markdown(mock_llm: MagicMock) -> No
 
 def test_plan_discovery_execute_label_is_stable() -> None:
     assert PLAN_DISCOVERY_EXECUTE_LABEL == 'plan_discovery'
+
+
+def test_discovery_prompts_offer_read_only_subagents() -> None:
+    for prompt in (
+        build_freeform_discovery_prompt('Add plane sounds'),
+        build_followup_discovery_prompt('Add plane sounds', resolved_answers='A: yes'),
+    ):
+        assert 'spawn_subagent' in prompt
+        assert 'read-only here' in prompt

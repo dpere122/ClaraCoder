@@ -485,3 +485,27 @@ def test_clean_plan_path_strips_prose_formatting() -> None:
     assert clean_plan_path('.github/workflows/ci.yml') == '.github/workflows/ci.yml'
     assert clean_plan_path(r'src\x\y.ts') == 'src/x/y.ts'
     assert clean_plan_path('178`') == ''
+
+
+def test_subagent_step_detail_round_trips_through_markdown() -> None:
+    doc = _sample_doc(
+        action_steps=[
+            ActionStep(id='step-1', goal='Implement handler', files_touched=['src/a.ts'], subagent='handler'),
+            ActionStep(id='step-2', goal='Add tests'),
+        ]
+    )
+    md = render_build_plan_md(doc)
+    assert '  - **Sub-agent:** handler' in md
+    parsed = parse_build_plan_md(md)
+    assert [s.subagent for s in parsed.action_steps] == ['handler', '']
+    assert [s['subagent'] for s in parse_action_steps(md)] == ['handler', '']
+
+
+def test_subagent_detail_accepts_model_spellings_and_drops_none() -> None:
+    md = (
+        '# Build Plan: X\n\n## Action Steps\n'
+        '- [ ] Sounds\n  - **Subagent:** `plane-audio`\n'
+        '- [ ] Model\n  - **Sub-agent:** none\n'
+    )
+    assert [s['subagent'] for s in parse_action_steps(md)] == ['plane-audio', '']
+    assert ActionStep(id='step-1', goal='g', subagent='main agent').subagent == ''

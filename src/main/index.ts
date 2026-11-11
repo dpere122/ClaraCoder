@@ -24,6 +24,7 @@ import { configureAppDataDir } from './paths';
 import { captureIpcForBrowserBridge, startBrowserBridge } from './dev/browser-bridge';
 import { rearmMcpOAuthRefresh } from './mcp-oauth-refresh';
 import { startSubagentEventPump, stopSubagentEventPump } from './ipc/handlers/subagent-events';
+import { startScreenshotMaintenance, stopScreenshotMaintenance } from './web/screenshot-maintenance';
 
 /**
  * Chromium GPU process often segfaults on Linux Wayland when Vulkan is enabled.
@@ -88,6 +89,7 @@ registerAllIpc();
 app
   .whenReady()
   .then(async () => {
+    startScreenshotMaintenance();
     // Show UI immediately — packaged Linux launches used to sit dark for up to ~60s
     // while waitForPython polled a sidecar that had already crashed (missing venv deps).
     registerNemoTtsStreamProtocol();
@@ -157,6 +159,7 @@ app.on('will-quit', () => {
     killAllWorkspacePtySessions();
     clearWorkspaceWatcher();
     stopSubagentEventPump();
+    stopScreenshotMaintenance();
     stopPythonSidecar();
   } catch (err) {
     console.error('[Main] will-quit cleanup failed:', err);

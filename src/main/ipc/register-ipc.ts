@@ -15,15 +15,20 @@ import { registerHealthWindowIpc } from '../windows/health-window';
 import { registerWindowChromeIpc } from './handlers/window-chrome';
 import { registerLlamaServerIpc } from './handlers/llama-server';
 import { registerLmStudioIpc } from './handlers/lm-studio';
+import { registerOpenAiCompatIpc } from './handlers/openai-compat';
 import { registerOpenRouterIpc } from './handlers/openrouter';
+import { registerAnthropicIpc } from './handlers/anthropic';
 import { registerLspStatusIpc } from './handlers/lsp-status';
 import { registerLspEditorExtendedIpc } from './handlers/lsp-editor-extended-ipc';
 import { registerLspDiagnosticsWatchIpc } from './handlers/lsp-diagnostics-watch';
 import { registerModelManagerIpc } from './handlers/model-manager';
 import { registerListSystemFontsIpc } from './handlers/list-system-fonts';
 import { registerDependenciesIpc } from './handlers/dependencies';
+import { registerLspSettingsIpc } from './handlers/lsp-settings';
 import { registerThemesIpc } from './handlers/themes';
 import { registerMcpIpc } from './handlers/mcp';
+import { registerUpdaterIpc } from './handlers/updater';
+import { registerScreenshotRetentionIpc } from './handlers/screenshot-retention';
 
 /** Registers all `ipcMain` handlers used by the preload `electronAPI` surface. */
 export function registerAllIpc(): void {
@@ -31,10 +36,13 @@ export function registerAllIpc(): void {
   registerChatIpc();
   registerLlamaServerIpc();
   registerLmStudioIpc();
+  registerOpenAiCompatIpc();
   registerOpenRouterIpc();
+  registerAnthropicIpc();
   registerModelManagerIpc();
   registerDependenciesIpc();
   registerLspStatusIpc();
+  registerLspSettingsIpc();
   registerLspEditorExtendedIpc();
   registerLspDiagnosticsWatchIpc();
   registerWindowChromeIpc();
@@ -53,4 +61,6 @@ export function registerAllIpc(): void {
   registerListSystemFontsIpc();
   registerThemesIpc();
   registerMcpIpc();
+  registerUpdaterIpc();
+  registerScreenshotRetentionIpc();
 }

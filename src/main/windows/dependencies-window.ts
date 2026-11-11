@@ -10,6 +10,7 @@ import {
 } from '../utils/harden-browser-window';
 import {
   attachBrowserWindowRevealFallbacks,
+  returnFocusToParentOnClose,
   settingsWindowParentOptions,
 } from '../utils/reveal-browser-window';
 
@@ -23,7 +24,7 @@ function rendererIndexHtml(): string {
 
 /**
  * Non-modal Dependencies manager (`#/dependencies`). Theme + install UI for
- * Python runtime, llama-server, Java LSP, Kokoro, and Whisper.
+ * llama-server, Java LSP, Kokoro, and Whisper.
  */
 export function createDependenciesWindow(): void {
   const mainWindow = mainState.mainWindow;
@@ -55,6 +56,7 @@ export function createDependenciesWindow(): void {
   hardenBrowserWindow(dw);
   dw.removeMenu();
   attachBrowserWindowRevealFallbacks(dw);
+  returnFocusToParentOnClose(dw, mainWindow);
 
   if (DEV_SERVER_URL) {
     dw.loadURL(`${DEV_SERVER_URL}/#/dependencies`);

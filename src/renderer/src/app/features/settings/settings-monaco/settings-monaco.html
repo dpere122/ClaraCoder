@@ -203,16 +203,6 @@
                 <label class='toggle-row'>
                   <input
                     type='checkbox'
-                    [ngModel]='s.monacoWorkspaceEditor().glyphMargin'
-                    (ngModelChange)='s.patchMonaco({ glyphMargin: $event })'
-                  />
-                  <span>Glyph margin</span>
-                </label>
-              </div>
-              <div class='field'>
-                <label class='toggle-row'>
-                  <input
-                    type='checkbox'
                     [ngModel]='s.monacoWorkspaceEditor().folding'
                     (ngModelChange)='s.patchMonaco({ folding: $event })'
                   />

@@ -116,6 +116,13 @@ class ActionStep(BaseModel):
         description='Command or check to run to verify the step (e.g. `pytest tests/x`).',
     )
     risks: list[str] = Field(default_factory=list, description='Risks or caveats for this step.')
+    subagent: str = Field(
+        default='',
+        description=(
+            'Short label of the sub-agent the executor hands this step to (e.g. "plane-audio"); '
+            'empty when the main agent does it.'
+        ),
+    )
 
     @field_validator('files_touched', mode='before')
     @classmethod
@@ -123,6 +130,11 @@ class ActionStep(BaseModel):
         items = value if isinstance(value, list) else [value] if value else []
         cleaned = [clean_plan_path(item) for item in items]
         return [p for p in cleaned if p]
+
+    @field_validator('subagent', mode='before')
+    @classmethod
+    def _clean_subagent(cls, value: object) -> str:
+        return _clean_subagent_label(str(value or ''))
 
 
 class BuildPlanModel(BaseModel):
@@ -277,6 +289,8 @@ def _render_action_step(step: ActionStep, step_num: int) -> list[str]:
     if step.risks:
         lines.append('  - **Risks:**')
         lines.extend(f'    - {item.strip()}' for item in step.risks if item.strip())
+    if step.subagent.strip():
+        lines.append(f'  - **Sub-agent:** {step.subagent.strip()}')
     return lines
 
 
@@ -577,6 +591,7 @@ def parse_build_plan_md(md_text: str) -> BuildPlanModel:
                 acceptance_criteria=[str(c) for c in (row.get('acceptance_criteria') or []) if str(c).strip()],
                 verification=str(row.get('verification') or '').strip(),
                 risks=[str(r) for r in (row.get('risks') or []) if str(r).strip()],
+                subagent=str(row.get('subagent') or '').strip(),
             )
         )
 
@@ -774,6 +789,15 @@ def read_build_plan_text(
 
 _ACTION_STEP_DETAIL_KEY_RE = re.compile(r'^-\s*\*\*([^*:]+):\*\*\s*(.*)$')
 
+#: Spellings models use for the step's sub-agent detail (rendered as ``**Sub-agent:**``).
+_SUBAGENT_DETAIL_KEYS = frozenset({'sub-agent', 'subagent', 'sub agent'})
+
+
+def _clean_subagent_label(value: str) -> str:
+    """The label alone: no backticks or quotes, and "none" / "main agent" mean no sub-agent."""
+    label = value.strip().strip('`"\'').strip()
+    return '' if label.lower() in ('', 'none', 'no', 'n/a', '-', 'main', 'main agent') else label
+
 
 def _merge_action_step_details(step: dict[str, Any], detail_lines: list[str]) -> None:
     """Fold nested ``**Key:**`` detail bullets into an enriched step dict."""
@@ -812,6 +836,8 @@ def _merge_action_step_details(step: dict[str, Any], detail_lines: list[str]) ->
             current_list_key = 'risks'
             if rest:
                 step['risks'].append(rest)
+        elif key in _SUBAGENT_DETAIL_KEYS:
+            step['subagent'] = _clean_subagent_label(rest)
 
 
 def parse_action_steps(md_text: str) -> list[dict[str, Any]]:
@@ -852,6 +878,7 @@ def parse_action_steps(md_text: str) -> list[dict[str, Any]]:
                 'acceptance_criteria': [],
                 'verification': '',
                 'risks': [],
+                'subagent': '',
             }
             current_id = None
             continue

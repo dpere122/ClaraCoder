@@ -4,6 +4,8 @@ import {
   LLM_REASONING_EFFORT_OPTIONS,
   LLM_THINKING_MODE_OPTIONS,
   formatChatTemplateReasoningSummary,
+  llmComposerEffortOptions,
+  llmComposerEffortValue,
   llmEffortControlVisible,
   llmEffortSelectOptionsFromCaps,
   llmThinkingControlVisible,
@@ -147,6 +149,19 @@ describe('parseLlamaServerPropsReasoning', () => {
     expect(r.templateBytes).toBe(0);
     expect(r.caps).toEqual({ enableThinking: false, reasoningEffortValues: null });
   });
+
+  it('reads modalities.vision from /props JSON', () => {
+    const props = (vision: boolean) => ({ chat_template: PLAIN_CHATML, modalities: { vision, audio: false } });
+    expect(parseLlamaServerPropsReasoning(props(false)).caps.vision).toBe(false);
+    expect(parseLlamaServerPropsReasoning(props(true)).caps.vision).toBe(true);
+  });
+
+  it('leaves vision out when /props does not report it', () => {
+    for (const modalities of [undefined, null, 'vision', {}, { vision: 'false' }]) {
+      const r = parseLlamaServerPropsReasoning({ chat_template: PLAIN_CHATML, modalities });
+      expect(r.caps).not.toHaveProperty('vision');
+    }
+  });
 });
 
 describe('parseLlamaServerPropsNctx', () => {
@@ -229,6 +244,22 @@ describe('llm thinking/effort visibility from caps', () => {
   it('falls back to the generic effort list when caps are absent', () => {
     expect(llmEffortSelectOptionsFromCaps(undefined)).toBe(LLM_REASONING_EFFORT_OPTIONS);
     expect(LLM_THINKING_MODE_OPTIONS.map((o) => o.value)).toEqual(['default', 'on', 'off']);
+  });
+
+  it('offers the composer only the scanned efforts, without Default or on/off', () => {
+    const caps = { enableThinking: true, reasoningEffortValues: ['xhigh', 'medium', 'low'] };
+    expect(llmComposerEffortOptions(caps).map((o) => o.value)).toEqual(['xhigh', 'medium', 'low']);
+    expect(llmComposerEffortOptions(undefined)).toEqual([]);
+    expect(llmComposerEffortOptions({ enableThinking: true, reasoningEffortValues: null })).toEqual([]);
+  });
+
+  it('keeps a saved composer effort only when it is offered', () => {
+    const opts = llmComposerEffortOptions({ enableThinking: false, reasoningEffortValues: ['low', 'medium', 'xhigh'] });
+    expect(llmComposerEffortValue(opts, 'xhigh')).toBe('xhigh');
+    expect(llmComposerEffortValue(opts, '')).toBe('medium');
+    expect(llmComposerEffortValue(opts, 'on')).toBe('medium');
+    expect(llmComposerEffortValue(llmComposerEffortOptions({ enableThinking: false, reasoningEffortValues: ['high'] }), '')).toBe('high');
+    expect(llmComposerEffortValue([], 'low')).toBe('');
   });
 
   it('falls back to low/medium/xhigh for the Qwen preset when caps are absent', () => {

@@ -3,6 +3,28 @@
  * No Node or Electron imports — safe to import from any compilation unit.
  */
 export type { Workspace, MenuFileCommand, MenuFileCommandAction } from './types/workspace';
+export type {
+  TutorialClaimResult,
+  TutorialCursor,
+  TutorialPhaseDefinition,
+  TutorialPhaseId,
+  TutorialPhaseResolution,
+  TutorialProgress,
+  TutorialSnapshot,
+  TutorialStepId,
+  TutorialTransition,
+  TutorialTransitionResult,
+  TutorialWindow,
+} from './types/tutorial';
+export {
+  TUTORIAL_PHASE_REGISTRY,
+  TUTORIAL_PROGRESS_SCHEMA_VERSION,
+  applyTutorialTransition,
+  createDefaultTutorialProgress,
+  isTutorialPhaseResolved,
+  isTutorialProgressSupported,
+  normalizeTutorialProgress,
+} from './types/tutorial';
 export {
   NO_WORKSPACE_SYSTEM_PROMPT_ID,
   isNoWorkspaceSystemPromptId,
@@ -44,6 +66,8 @@ export type {
   ManagedLlamaFlashAttn,
   ManagedLlamaModelFamily,
   ManagedLlamaModelSource,
+  ManagedMtpHead,
+  PickedManagedModelFacts,
 } from './managed-llama-model-pick';
 export {
   CONTEXT_FIT_PRESET_LIST,
@@ -57,14 +81,19 @@ export {
   buildManagedLlamaChatCommand,
   classifyHubSnapshotGgufPaths,
   ensureManagedLlamaDefaultServerFlags,
+  ensureManagedLlamaFitContextFloor,
   ensureManagedLlamaGemmaReasoningFormat,
   formatReadyDefaultsSummary,
   hubCacheFolderToHfId,
   hubSnapshotManagedPaths,
   inferModelFamilyFromHint,
   inferOptimizationPresetFromModelHint,
+  isDraftSidecarGgufFileName,
   isMmprojGgufFileName,
+  isMtpCompanionGgufFileName,
   languageGgufStem,
+  limitManagedLlamaCacheRam,
+  managedMtpHead,
   mmprojNameMatchesLanguage,
   isQwenFamily,
   managedLlamaCommandHasCacheRam,
@@ -92,6 +121,7 @@ export {
   resolveMmprojPathForManagedGguf,
   resolveMmprojPathForManagedSelection,
   resolveMmprojPathForManagedSource,
+  resolveMtpPathForManagedGguf,
   resolveSiblingMmprojFromInventory,
   suggestContextWindowTokens,
   syncBatchSizeInManagedChatCommand,
@@ -101,21 +131,45 @@ export {
   syncFlashAttnInManagedChatCommand,
   syncManagedVisionProjectorInChatCommand,
   syncMmprojFlagInManagedChatCommand,
+  syncMtpDraftInManagedChatCommand,
   syncNglFlagInManagedChatCommand,
   syncNoHostFlagInManagedChatCommand,
   syncNoMmprojFlagInManagedChatCommand,
   syncUbatchSizeInManagedChatCommand,
+  tunePickedManagedChatCommand,
+  withoutAutoTunedFlags,
 } from './managed-llama-model-pick';
-export type { CudaGpuDevice, GpuOffloadAdvice, ManagedGpuOffloadMode, ParsedGpuOffload } from './managed-llama-gpu-split';
+export type {
+  CudaGpuDevice,
+  GgufProfile,
+  GpuOffloadAdvice,
+  GpuVramCardEstimate,
+  GpuVramCardUsage,
+  GpuVramLevel,
+  ManagedGpuOffloadMode,
+  ManagedLlamaSizing,
+  ManagedLlamaTuningPlan,
+  ParsedGpuOffload,
+  ProfileEstimateOptions,
+  TensorSplitSlider,
+} from './managed-llama-gpu-split';
 export {
   cudaDeviceListArg,
+  estimateProfileMb,
   formatGpuVramGb,
+  ggufProfileAllowsQuantizedCache,
   parseManagedLlamaGpuOffload,
+  planManagedLlamaTuning,
   recommendGpuOffload,
+  estimateManagedLlamaVram,
+  managedLlamaKvCacheWeight,
+  overcommittedCards,
   shortCudaGpuName,
   syncGpuOffloadInManagedChatCommand,
   syncGpuOffloadFromParsed,
+  syncTensorSplitSliderInManagedChatCommand,
   tensorSplitForGpus,
+  tensorSplitSliderForCommand,
 } from './managed-llama-gpu-split';
 export type {
   EmbeddingsLoadStatus,
@@ -192,6 +246,8 @@ export {
   LLM_REASONING_EFFORT_OPTIONS,
   LLM_QWEN_REASONING_EFFORT_OPTIONS,
   LLM_THINKING_MODE_OPTIONS,
+  llmComposerEffortOptions,
+  llmComposerEffortValue,
   llmEffortControlVisible,
   llmEffortSelectOptionsFromCaps,
   llmReasoningSelectChange,
@@ -232,6 +288,7 @@ export {
   shouldOpenHomePageOnStart,
   defaultMonacoWorkspaceEditorSettings,
   getDefaultContextCompression,
+  maxContextCompressionTarget,
   normalizeMonacoWorkspaceEditorSettings,
   normalizeWorkspaceMonacoScrollByWorkspaceId,
   normalizeWorkspaceOpenTabsByWorkspaceId,
@@ -246,7 +303,37 @@ export {
   unwrapSecret,
   createEmptyMcpServer,
 } from './types/app-config';
+export {
+  CTX_FLAG_NAMES,
+  HF_FLAG_NAMES,
+  llamaCommandUsesDraftMtp,
+  LOCAL_DRAFT_MODEL_FLAG_NAMES,
+  MODEL_FLAG_NAMES,
+  readLlamaFlagValue,
+} from './llama-command-tokens';
 export type { LlamaCppEmbeddingManagedLegacy, LlamaCppManagedLegacy, ShellQuotingPlatform } from './llama-cpp-managed';
+export type {
+  LlamaAddedFlag,
+  LlamaAnalyzeOptions,
+  LlamaCommandAnalysis,
+  LlamaCommandEntry,
+  LlamaFlagCatalog,
+  LlamaFlagChange,
+  LlamaFlagSpec,
+  LlamaFlagStatus,
+} from './llama-run-command';
+export {
+  analyzeLlamaRunCommand,
+  appendLlamaFlag,
+  buildManagedChatStartCommand,
+  carryCustomLlamaFlags,
+  diffLlamaCommands,
+  normalizeLlamaCommandInput,
+  parseLlamaServerHelp,
+  preferredLlamaFlagName,
+  removeLlamaEntry,
+  setLlamaEntryValue,
+} from './llama-run-command';
 export {
   appendChatTemplateFileFlags,
   appendJinjaFlagToManagedChatCommand,
@@ -254,6 +341,8 @@ export {
   argvToShellCommandLine,
   buildLlamaServerArgv,
   DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND,
+  DEFAULT_MANAGED_LLAMA_SOURCE_NAME,
+  uniqueManagedLlamaSourceName,
   defaultLlamaCppManaged,
   detectShellQuotingPlatform,
   isLegacyLlamaCppManagedShape,
@@ -284,19 +373,28 @@ export {
 } from './types/llm-presets';
 export { defaultLlmModelId, inferContextWindowTokens, isGemmaFamily, resolveContextWindowTokens } from './model-context';
 export {
-  PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   PINNED_LM_STUDIO_PROVIDER_ID,
   PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
+  DEFAULT_URL_SOURCE_NAME,
   PINNED_OPENROUTER_PROVIDER_ID,
+  PINNED_ANTHROPIC_PROVIDER_ID,
   OPENROUTER_DEFAULT_BASE_URL,
   isPinnedLmStudioProviderId,
-  isPinnedLlamaCppLocalProviderId,
   isPinnedLlamaServerUrlProviderId,
   isPinnedOpenRouterProviderId,
+  isPinnedAnthropicProviderId,
   isPinnedLlmSourceId,
 } from './llm-provider-ids';
 export { lmStudioOpenAiBaseUrlToRestOrigin } from './lm-studio-url';
-export type { LmStudioModelCard, LmStudioListModelsResult, LmStudioMutationResult } from './lm-studio-ipc';
+export type {
+  LmStudioLoadOptions,
+  LmStudioModelCard,
+  LmStudioListModelsResult,
+  LmStudioMutationResult,
+  LmStudioRunningConfig,
+  LmStudioSettings,
+} from './lm-studio-ipc';
+export type { LlmSourcePingResult } from './llm-source-ping-ipc';
 export type {
   OpenRouterCatalogModel,
   OpenRouterListModelsResult,
@@ -304,7 +402,25 @@ export type {
   OpenRouterReasoningInfo,
 } from './openrouter-ipc';
 export { openRouterReasoningCaps, openRouterSourceLabel } from './openrouter-ipc';
-export { coerceLmStudioContextTokens, effectiveLmStudioContextTokens } from './lm-studio-ipc';
+export type {
+  AnthropicCatalogModel,
+  AnthropicKeyStorage,
+  AnthropicListModelsResult,
+  AnthropicSetKeyResult,
+  AnthropicSetModelResult,
+  AnthropicStatus,
+} from './anthropic-ipc';
+export { anthropicReasoningCaps, anthropicSourceLabel, ANTHROPIC_EFFORT_ORDER } from './anthropic-ipc';
+export {
+  DEFAULT_LM_STUDIO_SETTINGS,
+  LM_STUDIO_PLACEHOLDER_API_KEY,
+  coerceLmStudioContextTokens,
+  effectiveLmStudioContextTokens,
+  lmStudioLoadOptions,
+  lmStudioReasoningCaps,
+  lmStudioRunningConfigDiffers,
+  normalizeLmStudioSettings,
+} from './lm-studio-ipc';
 export type {
   ChatStructuredContentPart,
   ConversationMeta,
@@ -408,6 +524,7 @@ export {
   isStoppedToolCall,
   isSubagentSpawnCall,
   plural,
+  isRunCommandLaneRunning,
   runCommandIdFromReport,
   runCommandLaneId,
   formatThoughtDuration,
@@ -415,11 +532,14 @@ export {
   TOOL_PILL_SLOW_MS,
   toolPillGroupLabel,
   activityHeadline,
-  toolPillSlowestMs,
+  toolCallsRunMs,
   toolPillLabel,
   toolPillMeta,
   toolPillsGroupTogether,
   toolPillFamily,
+  isAwaitingApprovalText,
+  isDeclinedToolCall,
+  isQuietCommandLane,
   toolOutcomeNotes,
   toolPillVerb,
   toolTargetFromRunningDetail,
@@ -490,9 +610,28 @@ export type { HitlTrailArtifact, HitlTrailItem, HitlTrailKind } from './hitl-tra
 export type { LspDashboardServerEntry, LspDashboardStatus, LspLifecyclePhase } from './types/lsp-dashboard';
 export type { LspEditorDiagnostic, LspEditorDiagnosticsPayload } from './types/lsp-editor-diagnostics';
 export { lspServerKindForWorkspaceRelativePath } from './lsp-file-policy';
+export type {
+  GdscriptDiagnosticsProfile,
+  GdscriptLspSettings,
+  LspServerCatalogEntry,
+  LspServersSettings,
+} from './lsp-settings';
+export { LSP_SERVER_CATALOG, defaultLspServersSettings, normalizeLspServersSettings } from './lsp-settings';
+export type {
+  LspEditorFeature,
+  LspEditorFeatureResponse,
+  LspEditorFeatureResults,
+  LspFileRenameIpc,
+  LspWireColor,
+  LspWireInlayHint,
+  LspWireLocation,
+  LspWireRange,
+  LspWireTextEdit,
+} from './lsp-editor-features';
 export type { LspServerKind } from './lsp-file-policy';
 export {
   LSP_EXTENSION_TO_SERVER,
+  LSP_EXTENDED_FEATURE_MONACO_LANGUAGE_IDS,
   LSP_MONACO_LANGUAGE_IDS,
   LSP_SEMANTIC_LEGEND_PREFETCH_SERVER_IDS,
   LSP_SEMANTIC_LEGEND_SERVER_IDS,
@@ -557,6 +696,9 @@ export {
 export type {
   HuggingFaceModelFile,
   HuggingFaceModelSearchItem,
+  HuggingFaceModelDetails,
+  HuggingFaceOwnerInfo,
+  ModelManagerHfDetailsResult,
   ModelManagerEntryKind,
   ModelManagerFileEntry,
   ModelManagerHfFilesResult,
@@ -566,7 +708,10 @@ export type {
   HfDownloadId,
   HfDownloadPhase,
   HfDownloadProgressEvent,
+  HfDownloadSnapshot,
+  HfDownloadStatus,
   ModelManagerDownloadHfResult,
+  SecretStorageMode,
 } from './types/model-manager';
 export type {
   DependencyActionResult,
@@ -589,6 +734,29 @@ export {
   LLAMA_SERVER_VARIANT_LABELS,
   defaultDependencyCatalog,
   dependencyComponents,
-  pythonPackageUrl,
   whisperModelSource,
 } from './types/dependencies';
+
+export type { WebSearchEngineOption } from './web-search-engines';
+export {
+  WEB_SEARCH_ENGINES,
+  WEB_SEARCH_ENGINE_IDS,
+  normalizeWebSearchEngines,
+} from './web-search-engines';
+export type {
+  OpenAiCompatCheck,
+  OpenAiCompatCheckStatus,
+  OpenAiCompatEndpoint,
+  OpenAiCompatListResult,
+  OpenAiCompatModel,
+  OpenAiCompatSettings,
+  OpenAiCompatTestResult,
+  OpenAiCompatThinkingMethod,
+  OpenAiCompatTokensField,
+} from './openai-compat';
+export {
+  DEFAULT_OPENAI_COMPAT_SETTINGS,
+  normalizeOpenAiCompatSettings,
+  openAiCompatBaseUrl,
+  parseOpenAiCompatExtraBody,
+} from './openai-compat';

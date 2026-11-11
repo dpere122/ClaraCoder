@@ -3,6 +3,22 @@
  * Runs listener setup once in the constructor; all methods no-op or resolve empty when not in Electron.
  */
 import { Injectable, NgZone } from '@angular/core';
+import type { ScreenshotAssetStatus, ScreenshotStorageStats } from '@shared/screenshot-retention';
+import type {
+  LspEditorFeature,
+  LspEditorFeatureResponse,
+  LspFileRenameIpc,
+  LspWireLocation,
+  LspWireTextEdit,
+} from '@shared/lsp-editor-features';
+import {
+  createDefaultTutorialProgress,
+  type TutorialClaimResult,
+  type TutorialSnapshot,
+  type TutorialTransition,
+  type TutorialTransitionResult,
+  type TutorialWindow,
+} from '@shared/types/tutorial';
 import { Observable, Subject, BehaviorSubject } from 'rxjs';
 import { mergeStreamBatchQueue, type StreamBatchItem } from './stream-batch';
 import type {
@@ -25,21 +41,35 @@ import type {
   LlamaServerStartResult,
   LlamaServerStatusResult,
   EmbeddingsStatusResult,
+  GgufProfile,
+  GpuVramCardUsage,
+  LlamaFlagCatalog,
   LlamacppManagedListModelsResult,
   OpenRouterListModelsResult,
+  AnthropicListModelsResult,
+  AnthropicSetModelResult,
+  AnthropicStatus,
   ChatTemplateReasoningCaps,
+  LlmSourcePingResult,
   LmStudioListModelsResult,
+  LmStudioLoadOptions,
+  OpenAiCompatEndpoint,
+  OpenAiCompatListResult,
+  OpenAiCompatTestResult,
   LmStudioMutationResult,
   LlmStatus,
   MenuFileCommand,
   McpHostStatus,
+  ModelManagerHfDetailsResult,
   ModelManagerHfFilesResult,
   ModelManagerHfSearchResult,
   ModelManagerListModelsResult,
   ModelManagerMutationResult,
   ModelManagerDownloadHfResult,
+  SecretStorageMode,
   HfDownloadId,
   HfDownloadProgressEvent,
+  HfDownloadSnapshot,
   MaybeAutoTitleResult,
   PlanConfirmPayload,
   AgentQuestionPayload,
@@ -106,6 +136,7 @@ const FALLBACK_APP_CONFIG: AppConfig = {
     exposeAllWorkspaceFiles: false,
     allowWebAccess: false,
     searxngBaseUrl: '',
+    webSearchProvider: 'auto',
     extraUserPath: '',
     enableAgentFormatters: false,
   },
@@ -361,6 +392,12 @@ export interface LspSemanticTokensFullPayload {
   data: number[];
   resultId: string | null;
 }
+
+const ANTHROPIC_API_UNAVAILABLE: AnthropicListModelsResult = {
+  ok: false,
+  error: 'API not available',
+  status: { configured: false, storage: 'none', keyHint: '', models: [] } satisfies AnthropicStatus,
+};
 
 @Injectable({ providedIn: 'root' })
 export class ElectronService {
@@ -1136,7 +1173,7 @@ export class ElectronService {
 
   readAbsoluteFile(
     absolutePath: string,
-  ): Promise<{ ok: boolean; content?: string; path?: string; error?: string }> {
+  ): Promise<{ ok: boolean; content?: string; path?: string; error?: string; readOnly?: boolean }> {
     return (
       this.api?.readAbsoluteFile?.(absolutePath) ??
       Promise.resolve({ ok: false, error: 'API not available' })
@@ -1323,6 +1360,11 @@ export class ElectronService {
     return this.api?.modelManagerPickCustomDir() ?? Promise.resolve(null);
   }
 
+  /** How the Hugging Face token (and other config secrets) are stored on disk; null outside Electron. */
+  modelManagerSecretStorage(): Promise<SecretStorageMode | null> {
+    return this.api?.modelManagerSecretStorage() ?? Promise.resolve(null);
+  }
+
   modelManagerListCustomModels(payload: { customDir: string }): Promise<ModelManagerListModelsResult> {
     return (
       this.api?.modelManagerListCustomModels(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
@@ -1359,6 +1401,13 @@ export class ElectronService {
     );
   }
 
+  modelManagerHfModelDetails(payload: { id: string; token?: string }): Promise<ModelManagerHfDetailsResult> {
+    return (
+      this.api?.modelManagerHfModelDetails(payload) ??
+      Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
   modelManagerListHfFiles(payload: { id: string; token?: string }): Promise<ModelManagerHfFilesResult> {
     return (
       this.api?.modelManagerListHfFiles(payload) ??
@@ -1382,6 +1431,18 @@ export class ElectronService {
     return (
       this.api?.modelManagerCancelHfDownload(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
     );
+  }
+
+  /** Stops a running download and keeps its partial file for a later resume. */
+  modelManagerPauseHfDownload(payload: { downloadId: HfDownloadId }): Promise<{ ok: true } | { ok: false; error: string }> {
+    return (
+      this.api?.modelManagerPauseHfDownload?.(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  /** Downloads main is running or holding a partial file for, whichever window started them. */
+  modelManagerListHfDownloads(): Promise<HfDownloadSnapshot[]> {
+    return this.api?.modelManagerListHfDownloads?.() ?? Promise.resolve([]);
   }
 
   async setWorkspaceContext(
@@ -1511,6 +1572,53 @@ export class ElectronService {
     return this.api?.saveConfig(config) ?? Promise.resolve(structuredClone(config));
   }
 
+  /** Tutorial events are separate from config-updated so they never replace dirty Settings drafts. */
+  getTutorialSnapshot(): Promise<TutorialSnapshot> {
+    return this.api?.getTutorialSnapshot?.() ?? Promise.resolve({
+      progress: createDefaultTutorialProgress(), ownerId: null, requestedWindow: null,
+    });
+  }
+
+  transitionTutorial(transition: TutorialTransition): Promise<TutorialTransitionResult> {
+    return this.api?.transitionTutorial?.(transition) ?? this.getTutorialSnapshot().then((snapshot) => ({ applied: false, snapshot }));
+  }
+
+  claimTutorial(window: TutorialWindow): Promise<TutorialClaimResult> {
+    return this.api?.claimTutorial?.(window) ?? this.getTutorialSnapshot().then((snapshot) => ({ acquired: false, snapshot }));
+  }
+
+  releaseTutorial(requestedWindow?: TutorialWindow): Promise<TutorialSnapshot> {
+    return this.api?.releaseTutorial?.(requestedWindow) ?? this.getTutorialSnapshot();
+  }
+
+  setTutorialEnabled(enabled: boolean): Promise<TutorialTransitionResult> {
+    return this.api?.setTutorialEnabled?.(enabled) ?? this.getTutorialSnapshot().then((snapshot) => ({ applied: false, snapshot }));
+  }
+
+  onTutorialUpdated(callback: (snapshot: TutorialSnapshot) => void): () => void {
+    return this.api?.onTutorialUpdated?.((snapshot) => this.zone.run(() => callback(snapshot))) ?? (() => {});
+  }
+
+  getScreenshotStorageStats(): Promise<{ ok: true; stats: ScreenshotStorageStats } | { ok: false; error: string }> {
+    return this.api?.getScreenshotStorageStats?.() ?? Promise.resolve({ ok: false, error: 'Screenshot storage is unavailable outside the desktop app.' });
+  }
+
+  runScreenshotCleanup(): Promise<{ ok: true; stats: ScreenshotStorageStats } | { ok: false; error: string }> {
+    return this.api?.runScreenshotCleanup?.() ?? Promise.resolve({ ok: false, error: 'Screenshot cleanup is unavailable outside the desktop app.' });
+  }
+
+  clearScreenshots(): Promise<{ ok: true; stats: ScreenshotStorageStats } | { ok: false; error: string }> {
+    return this.api?.clearScreenshots?.() ?? Promise.resolve({ ok: false, error: 'Screenshot storage is unavailable outside the desktop app.' });
+  }
+
+  getScreenshotAssetStatus(url: string): Promise<ScreenshotAssetStatus> {
+    return this.api?.getScreenshotAssetStatus?.(url) ?? Promise.resolve({ state: 'missing' });
+  }
+
+  onScreenshotAssetsChanged(callback: () => void): () => void {
+    return this.api?.onScreenshotAssetsChanged?.(() => this.zone.run(callback)) ?? (() => {});
+  }
+
   setLastActiveConversation(workspaceKey: string, conversationId: string): Promise<AppConfig> {
     return (
       this.api?.setLastActiveConversation(workspaceKey, conversationId) ??
@@ -1544,6 +1652,13 @@ export class ElectronService {
         ...structuredClone(FALLBACK_APP_CONFIG),
         healthMonitor: { ...FALLBACK_APP_CONFIG.healthMonitor, ...patch },
       })
+    );
+  }
+
+  setConfirmMove(enabled: boolean): Promise<AppConfig> {
+    return (
+      this.api?.setConfirmMove(enabled) ??
+      Promise.resolve({ ...structuredClone(FALLBACK_APP_CONFIG), confirmMove: enabled !== false })
     );
   }
 
@@ -1649,6 +1764,32 @@ export class ElectronService {
     this.patchLlamaServerNctx(modelId, nCtx != null && nCtx > 0 ? nCtx : undefined);
   }
 
+  llamaServerFlagCatalog(): Promise<{ ok: true; catalog: LlamaFlagCatalog } | { ok: false; error: string }> {
+    return this.api?.llamaServerFlagCatalog() ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  llamaServerVramUsage(): Promise<GpuVramCardUsage[]> {
+    return this.api?.llamaServerVramUsage?.() ?? Promise.resolve([]);
+  }
+
+  llamaServerGgufSize(payload: { path: string }): Promise<number | null> {
+    return this.api?.llamaServerGgufSize?.(payload) ?? Promise.resolve(null);
+  }
+
+  llamaServerGgufProfile(payload: { path: string }): Promise<GgufProfile | null> {
+    return this.api?.llamaServerGgufProfile?.(payload) ?? Promise.resolve(null);
+  }
+
+  llamaServerTotalRam(): Promise<number | null> {
+    return this.api?.llamaServerTotalRam?.() ?? Promise.resolve(null);
+  }
+
+  llamaServerLaunchedCommand(payload: {
+    modelId: string;
+  }): Promise<{ ok: true; command: string | null } | { ok: false; error: string }> {
+    return this.api?.llamaServerLaunchedCommand(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
   llamacppManagedListModels(payload: {
     modelId: string;
     config: AppConfig;
@@ -1656,6 +1797,11 @@ export class ElectronService {
     return (
       this.api?.llamacppManagedListModels(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
     );
+  }
+
+  /** Can the selected (non-managed) chat source take a request right now? */
+  llmSourcePing(payload: { modelId: string; config: AppConfig }): Promise<LlmSourcePingResult> {
+    return this.api?.llmSourcePing(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
   }
 
   llamacppOpenAiListModels(payload: { baseUrl: string; apiKey: string }): Promise<LlamacppManagedListModelsResult> {
@@ -1668,11 +1814,33 @@ export class ElectronService {
     return this.api?.openRouterListModels(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
   }
 
+  anthropicStatus(payload?: { refresh?: boolean }): Promise<AnthropicListModelsResult> {
+    return this.api?.anthropicStatus(payload) ?? Promise.resolve(ANTHROPIC_API_UNAVAILABLE);
+  }
+
+  /** Hands the key to main, which checks it, encrypts it, and keeps it; it is not returned. */
+  anthropicSetApiKey(payload: { apiKey: string }): Promise<AnthropicListModelsResult> {
+    return this.api?.anthropicSetApiKey(payload) ?? Promise.resolve(ANTHROPIC_API_UNAVAILABLE);
+  }
+
+  anthropicClearApiKey(): Promise<AnthropicListModelsResult> {
+    return this.api?.anthropicClearApiKey() ?? Promise.resolve(ANTHROPIC_API_UNAVAILABLE);
+  }
+
+  anthropicSetModel(payload: { modelId: string }): Promise<AnthropicSetModelResult> {
+    return this.api?.anthropicSetModel(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
   lmStudioListModels(payload: { baseUrl: string; apiKey?: string }): Promise<LmStudioListModelsResult> {
     return this.api?.lmStudioListModels(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
   }
 
-  lmStudioLoadModel(payload: { baseUrl: string; model: string; apiKey?: string }): Promise<LmStudioMutationResult> {
+  lmStudioLoadModel(payload: {
+    baseUrl: string;
+    model: string;
+    apiKey?: string;
+    options?: LmStudioLoadOptions;
+  }): Promise<LmStudioMutationResult> {
     return this.api?.lmStudioLoadModel(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
   }
 
@@ -1682,6 +1850,14 @@ export class ElectronService {
     apiKey?: string;
   }): Promise<LmStudioMutationResult> {
     return this.api?.lmStudioUnloadModel(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  openAiCompatListModels(endpoint: OpenAiCompatEndpoint): Promise<OpenAiCompatListResult> {
+    return this.api?.openAiCompatListModels({ endpoint }) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  openAiCompatTest(endpoint: OpenAiCompatEndpoint, model: string): Promise<OpenAiCompatTestResult | null> {
+    return this.api?.openAiCompatTest({ endpoint, model }) ?? Promise.resolve(null);
   }
 
   openSettingsWindow(tab?: string): void {
@@ -2230,6 +2406,72 @@ export class ElectronService {
     );
   }
 
+  lspEditorFeature<F extends LspEditorFeature>(
+    sessionId: string,
+    relativePath: string,
+    feature: F,
+    params: Record<string, unknown>,
+    documentText: string,
+    skipDocumentSync = false,
+  ): Promise<LspEditorFeatureResponse<F>> {
+    return (
+      this.api?.lspEditorFeature?.(sessionId, relativePath, feature, params, documentText, skipDocumentSync) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspWorkspaceSymbols(
+    sessionId: string,
+    server: string,
+    query: string,
+  ): Promise<{ ok: true; symbols: LspWireLocation[] } | { ok: false; error: string }> {
+    return (
+      this.api?.lspWorkspaceSymbols?.(sessionId, server, query) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspWillRenameFiles(
+    sessionId: string,
+    files: LspFileRenameIpc[],
+  ): Promise<{ ok: true; changes: Record<string, LspWireTextEdit[]> } | { ok: false; error: string }> {
+    return (
+      this.api?.lspWillRenameFiles?.(sessionId, files) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspDidRenameFiles(sessionId: string, files: LspFileRenameIpc[]): Promise<{ ok: true } | { ok: false; error: string }> {
+    return (
+      this.api?.lspDidRenameFiles?.(sessionId, files) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorSemanticTokensDelta(
+    sessionId: string,
+    relativePath: string,
+    previousResultId: string,
+    documentText: string,
+    skipDocumentSync = false,
+  ): Promise<
+    | {
+        ok: true;
+        payload: {
+          legend: { tokenTypes: string[]; tokenModifiers: string[] };
+          resultId: string | null;
+          edits: unknown[];
+          data?: number[];
+        };
+      }
+    | { ok: false; error: string }
+  > {
+    return (
+      this.api?.lspEditorSemanticTokensDelta?.(sessionId, relativePath, previousResultId, documentText, skipDocumentSync) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
   lspDiagnosticsWatchStart(sessionId: string, relativePath: string): void {
     this.api?.lspDiagnosticsWatchStart?.(sessionId, relativePath);
   }
@@ -2251,6 +2493,11 @@ export class ElectronService {
     };
   }
 
+  /** Language servers that restarted with new settings after Settings → Apply. */
+  onLspSettingsApplied(callback: (servers: string[]) => void): () => void {
+    return this.api?.onLspSettingsApplied?.((payload) => this.zone.run(() => callback(payload.servers ?? []))) ?? (() => {});
+  }
+
   healthLogsRecent(limit: number): Promise<HealthLogRecord[]> {
     return this.api?.healthLogsRecent(limit).then((r) => r.records) ?? Promise.resolve([]);
   }
@@ -2269,6 +2516,29 @@ export class ElectronService {
 
   closeHealthWindow(): void {
     this.api?.closeHealthWindow();
+  }
+
+  /** The active workspace's own basedpyright config (``pyrightconfig.json`` or a pyproject table), if any. */
+  lspPythonProjectConfig(): Promise<{
+    ok: boolean;
+    error?: string;
+    workspacePath: string;
+    config: import('@shared/lsp-settings').PythonProjectConfigInfo | null;
+  }> {
+    return (
+      this.api?.lspPythonProjectConfig() ??
+      Promise.resolve({ ok: false, error: 'No Electron API', workspacePath: '', config: null })
+    );
+  }
+
+  /** Which of these Java folders have no Java executable, so the Java server would refuse to start. */
+  lspJavaCheckJdks(
+    jdkHome: string,
+    runtimes: string[],
+  ): Promise<{ ok: true; check: import('@shared/lsp-settings').JavaJdkCheck } | { ok: false; error: string }> {
+    return (
+      this.api?.lspJavaCheckJdks(jdkHome, runtimes) ?? Promise.resolve({ ok: false, error: 'No Electron API' })
+    );
   }
 
   depsList(): Promise<{
@@ -2324,6 +2594,53 @@ export class ElectronService {
     };
     this.api?.onDepsProgress?.(handler);
     return () => this.api?.offDepsProgress?.(handler);
+  }
+
+  appVersion(): Promise<string> {
+    return this.api?.appVersion?.() ?? Promise.resolve('');
+  }
+
+  updaterListReleases(force = false): Promise<import('@shared/app-updater').AppReleaseListResult> {
+    return (
+      this.api?.updaterListReleases(force) ??
+      Promise.resolve({ ok: false, currentVersion: '', releases: [], error: 'No Electron API' })
+    );
+  }
+
+  updaterGetState(): Promise<import('@shared/app-updater').AppUpdateState | null> {
+    return this.api?.updaterGetState() ?? Promise.resolve(null);
+  }
+
+  updaterDownload(version: string): Promise<import('@shared/app-updater').AppUpdateActionResult> {
+    return this.api?.updaterDownload(version) ?? Promise.resolve({ ok: false, error: 'No Electron API' });
+  }
+
+  updaterCancel(): Promise<import('@shared/app-updater').AppUpdateActionResult> {
+    return this.api?.updaterCancel() ?? Promise.resolve({ ok: false, error: 'No Electron API' });
+  }
+
+  updaterInstallNow(): Promise<import('@shared/app-updater').AppUpdateActionResult> {
+    return this.api?.updaterInstallNow() ?? Promise.resolve({ ok: false, error: 'No Electron API' });
+  }
+
+  updaterInstallOnQuit(): Promise<import('@shared/app-updater').AppUpdateActionResult> {
+    return this.api?.updaterInstallOnQuit() ?? Promise.resolve({ ok: false, error: 'No Electron API' });
+  }
+
+  openUpdaterWindow(): void {
+    this.api?.openUpdaterWindow();
+  }
+
+  closeUpdaterWindow(): void {
+    this.api?.closeUpdaterWindow();
+  }
+
+  onUpdaterState(callback: (state: import('@shared/app-updater').AppUpdateState) => void): () => void {
+    const handler = (_event: unknown, state: import('@shared/app-updater').AppUpdateState) => {
+      this.zone.run(() => callback(state));
+    };
+    this.api?.onUpdaterState?.(handler);
+    return () => this.api?.offUpdaterState?.(handler);
   }
 
   windowMinimize(): void {

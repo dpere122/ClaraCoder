@@ -114,7 +114,7 @@ describe('buildContextCapacitySnapshot', () => {
       streamingParts: [{ streamTag: 'tool', label: 'read', text: 'z'.repeat(800) }],
       workspaceContextText: '',
       measuredPromptTokens: 20_000,
-      // Baseline as if captured when the stream was larger; UI estimate can stay high after checkpoint compaction.
+      // Baseline as if captured when the stream was larger; UI estimate can stay high after compaction.
       measuredBaselineFallbackTokens: 50_000,
     });
 

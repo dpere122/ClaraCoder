@@ -2,10 +2,16 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Subject } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Workspace } from '@shared/index';
+import { lucideAppProviders } from '../../../lucide-setup';
 import { ElectronService } from '../../../core/electron.service';
 import { WorkspaceFileChangeStatusService } from '../../../core/workspace-file-change-status.service';
 import { ThemedConfirmDialogService } from '../../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
-import type { FileNode } from './workspace-tree';
+import { WorkspaceMonacoModelStore } from '../workspace-monaco/workspace-monaco-model-store';
+import {
+  WORKSPACE_TREE_DRAG_IS_DIRECTORY_MIME,
+  WORKSPACE_TREE_INTERNAL_MOVE_MIME,
+} from '../../chat/chat-context-bar/chat-context-file';
+import type { FileNode, FlatNode } from './workspace-tree';
 import { WorkspaceComponent } from './workspace';
 
 const WS_PATH = '/tmp/ws';
@@ -53,6 +59,116 @@ type CreateSignals = {
 function createSignals(component: WorkspaceComponent): CreateSignals {
   return component as unknown as CreateSignals;
 }
+
+describe('WorkspaceComponent.commitInlineRename', () => {
+  const EDITS = { 'src/bar.gd': [] };
+  let fixture: ComponentFixture<WorkspaceComponent>;
+  let component: WorkspaceComponent;
+  let order: string[];
+  let store: {
+    fetchFileRenameEdits: ReturnType<typeof vi.fn>;
+    applyFileRenameEdits: ReturnType<typeof vi.fn>;
+    notifyFileRenamed: ReturnType<typeof vi.fn>;
+  };
+  let renameWorkspaceEntry: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    order = [];
+    store = {
+      fetchFileRenameEdits: vi.fn(async () => {
+        order.push('fetch');
+        return EDITS;
+      }),
+      applyFileRenameEdits: vi.fn(async () => {
+        order.push('apply');
+      }),
+      notifyFileRenamed: vi.fn(() => {
+        order.push('notify');
+      }),
+    };
+    renameWorkspaceEntry = vi.fn(async () => {
+      order.push('rename');
+      return { ok: true };
+    });
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [WorkspaceComponent],
+      providers: [
+        { provide: ThemedConfirmDialogService, useValue: { open: vi.fn() } },
+        { provide: WorkspaceFileChangeStatusService, useValue: { showFileName: vi.fn(), clear: vi.fn() } },
+        { provide: WorkspaceMonacoModelStore, useValue: store },
+        {
+          provide: ElectronService,
+          useValue: {
+            isElectron: false,
+            workspaceChanged$: new Subject<string | null>().asObservable(),
+            workspaceFilesChanged$: new Subject<never>().asObservable(),
+            llamaServerLifecycle$: new Subject<never>().asObservable(),
+            llamaServerProcessExit$: new Subject<never>().asObservable(),
+            readDirectory: vi.fn().mockResolvedValue([]),
+            renameWorkspaceEntry,
+          },
+        },
+      ],
+    })
+      .overrideComponent(WorkspaceComponent, { set: { template: '', imports: [] } })
+      .compileComponents();
+
+    fixture = TestBed.createComponent(WorkspaceComponent);
+    component = fixture.componentInstance;
+    fixture.componentRef.setInput('workspaces', [sampleWorkspace()]);
+    fixture.componentRef.setInput('currentWorkspaceId', 'ws-1');
+    fixture.componentRef.setInput('activeConversationId', 'conv-1');
+    const signals = component as unknown as {
+      inlineRenamePath: { set: (v: string | null) => void };
+      inlineRenameOriginalName: { set: (v: string) => void };
+      inlineRenameDraft: { set: (v: string) => void };
+    };
+    signals.inlineRenamePath.set(FOO_FILE);
+    signals.inlineRenameOriginalName.set('foo.ts');
+    signals.inlineRenameDraft.set('renamed.ts');
+    vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fixture.destroy();
+  });
+
+  it('asks for edits before the move and applies them after it', async () => {
+    await component.commitInlineRename();
+    expect(order).toEqual(['fetch', 'rename', 'apply', 'notify']);
+    expect(store.fetchFileRenameEdits).toHaveBeenCalledExactlyOnceWith('conv-1', 'src/foo.ts', 'src/renamed.ts');
+    expect(store.applyFileRenameEdits).toHaveBeenCalledExactlyOnceWith(WS_PATH, 'src/foo.ts', 'src/renamed.ts', EDITS);
+  });
+
+  it('leaves references alone when the move fails', async () => {
+    renameWorkspaceEntry.mockResolvedValue({ ok: false, error: 'locked' });
+    await component.commitInlineRename();
+    expect(store.applyFileRenameEdits).not.toHaveBeenCalled();
+    expect(store.notifyFileRenamed).not.toHaveBeenCalled();
+    expect(window.alert).toHaveBeenCalledWith('locked');
+  });
+
+  it('renames once when blur commits while Enter is still waiting on the server', async () => {
+    const first = component.commitInlineRename();
+    const second = component.commitInlineRename();
+    await Promise.all([first, second]);
+    expect(renameWorkspaceEntry).toHaveBeenCalledTimes(1);
+    expect(store.fetchFileRenameEdits).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not rename when Escape arrives while waiting on the server', async () => {
+    let answer!: (value: unknown) => void;
+    store.fetchFileRenameEdits.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    const commit = component.commitInlineRename();
+    component.cancelInlineRename();
+    answer(EDITS);
+    await commit;
+    expect(renameWorkspaceEntry).not.toHaveBeenCalled();
+    expect(store.applyFileRenameEdits).not.toHaveBeenCalled();
+  });
+});
 
 describe('WorkspaceComponent.beginCreateFromMenu', () => {
   let fixture: ComponentFixture<WorkspaceComponent>;
@@ -147,5 +263,285 @@ describe('WorkspaceComponent.beginCreateFromMenu', () => {
     component.beginCreateFromMenu('folder');
     await flushPendingCreate();
     expect(signals.pendingCreate()).toEqual({ kind: 'folder', parentDir: SRC_DIR });
+  });
+});
+
+describe('WorkspaceComponent Python env section', () => {
+  type EnvAccess = {
+    pythonWorkspaceTreeHints: { set: (v: boolean) => void };
+    pythonInterpreterRows: { set: (rows: { id: string; label: string }[]) => void };
+    pythonInterpreterSelectedId: { set: (id: string) => void };
+    pythonInterpreterError: { set: (message: string) => void };
+  };
+
+  function setup(): { fixture: ComponentFixture<WorkspaceComponent>; root: HTMLElement; env: EnvAccess } {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [WorkspaceComponent],
+      providers: [
+        ...lucideAppProviders,
+        { provide: ThemedConfirmDialogService, useValue: { open: vi.fn(), openWithCheckbox: vi.fn() } },
+        { provide: WorkspaceFileChangeStatusService, useValue: { showFileName: vi.fn(), clear: vi.fn() } },
+        {
+          provide: ElectronService,
+          useValue: {
+            isElectron: true,
+            workspaceChanged$: new Subject<string | null>().asObservable(),
+            workspaceFilesChanged$: new Subject<never>().asObservable(),
+            readDirectory: vi.fn().mockResolvedValue([]),
+          },
+        },
+      ],
+    });
+    const fixture = TestBed.createComponent(WorkspaceComponent);
+    fixture.componentRef.setInput('currentWorkspaceId', 'ws-1');
+    // Set after the first pass: without a conversation, the load effects clear these once.
+    fixture.detectChanges();
+    const env = fixture.componentInstance as unknown as EnvAccess;
+    env.pythonWorkspaceTreeHints.set(true);
+    env.pythonInterpreterRows.set([{ id: 'venv', label: '.venv (3.12)' }]);
+    env.pythonInterpreterSelectedId.set('venv');
+    fixture.detectChanges();
+    return { fixture, root: fixture.nativeElement as HTMLElement, env };
+  }
+
+  const bar = (root: HTMLElement) => root.querySelector('.workspace-env__bar') as HTMLButtonElement;
+
+  it('starts collapsed and names the selected env on its bar', () => {
+    const { fixture, root } = setup();
+    expect(bar(root).getAttribute('aria-expanded')).toBe('false');
+    expect(root.querySelector('.workspace-env app-pill-select')).toBeNull();
+    expect(root.querySelector('.workspace-env__selected')?.textContent).toBe('.venv (3.12)');
+    fixture.destroy();
+  });
+
+  it('expands and collapses from its bar', () => {
+    const { fixture, root } = setup();
+    bar(root).click();
+    fixture.detectChanges();
+    expect(bar(root).getAttribute('aria-expanded')).toBe('true');
+    expect(root.querySelector('.workspace-env app-pill-select')).toBeTruthy();
+    expect(root.querySelector('.workspace-env__selected')).toBeNull();
+    bar(root).click();
+    fixture.detectChanges();
+    expect(root.querySelector('.workspace-env app-pill-select')).toBeNull();
+    fixture.destroy();
+  });
+
+  it('keeps an error visible while collapsed', () => {
+    const { fixture, root, env } = setup();
+    env.pythonInterpreterError.set('Could not switch env');
+    fixture.detectChanges();
+    expect(root.querySelector('.workspace-interpreter-error')?.textContent).toBe('Could not switch env');
+    fixture.destroy();
+  });
+});
+
+describe('WorkspaceComponent.confirmMoveIfNeeded', () => {
+  let fixture: ComponentFixture<WorkspaceComponent>;
+  let component: WorkspaceComponent;
+  const openWithCheckbox = vi.fn();
+
+  type MoveGuard = {
+    confirmMoveIfNeeded: (source: string, dest: string, isDirectory?: boolean | null) => Promise<boolean>;
+  };
+  type TreeAccess = { flatTree: { set: (nodes: FlatNode[]) => void } };
+
+  function dirNode(path: string): FlatNode {
+    return { name: 'src', path, isDirectory: true, expanded: true, depth: 0, hasChildren: true };
+  }
+
+  function fileNode(path: string): FlatNode {
+    return { name: 'foo.ts', path, isDirectory: false, expanded: false, depth: 0, hasChildren: false };
+  }
+
+  beforeEach(async () => {
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [WorkspaceComponent],
+      providers: [
+        { provide: ThemedConfirmDialogService, useValue: { open: vi.fn(), openWithCheckbox } },
+        { provide: WorkspaceFileChangeStatusService, useValue: { showFileName: vi.fn(), clear: vi.fn() } },
+        {
+          provide: ElectronService,
+          useValue: {
+            isElectron: false,
+            workspaceChanged$: new Subject<string | null>().asObservable(),
+            workspaceFilesChanged$: new Subject<never>().asObservable(),
+            llamaServerLifecycle$: new Subject<never>().asObservable(),
+            llamaServerProcessExit$: new Subject<never>().asObservable(),
+            readDirectory: vi.fn().mockResolvedValue([]),
+          },
+        },
+      ],
+    })
+      .overrideComponent(WorkspaceComponent, { set: { template: '', imports: [] } })
+      .compileComponents();
+
+    fixture = TestBed.createComponent(WorkspaceComponent);
+    component = fixture.componentInstance;
+    openWithCheckbox.mockReset();
+  });
+
+  afterEach(() => {
+    fixture.destroy();
+  });
+
+  it('prompts for files and returns false when cancelled', async () => {
+    fixture.componentRef.setInput('appConfig', { confirmMove: true } as never);
+    (component as unknown as TreeAccess).flatTree.set([fileNode(FOO_FILE)]);
+    openWithCheckbox.mockResolvedValue({ result: 'cancel', checked: false });
+
+    const ok = await (component as unknown as MoveGuard).confirmMoveIfNeeded(FOO_FILE, SRC_DIR);
+
+    expect(ok).toBe(false);
+    expect(openWithCheckbox).toHaveBeenCalledOnce();
+    expect(openWithCheckbox.mock.calls[0][0]).toMatchObject({ title: 'Move file?' });
+  });
+
+  it('prompts for folders and returns false when cancelled', async () => {
+    fixture.componentRef.setInput('appConfig', { confirmMove: true } as never);
+    (component as unknown as TreeAccess).flatTree.set([dirNode(SRC_DIR)]);
+    openWithCheckbox.mockResolvedValue({ result: 'cancel', checked: false });
+
+    const ok = await (component as unknown as MoveGuard).confirmMoveIfNeeded(SRC_DIR, '/tmp/ws/dest');
+
+    expect(ok).toBe(false);
+    expect(openWithCheckbox).toHaveBeenCalledOnce();
+    expect(openWithCheckbox.mock.calls[0][0]).toMatchObject({ title: 'Move folder?' });
+  });
+
+  it('trusts the drag payload over the tree when the source row is gone', async () => {
+    fixture.componentRef.setInput('appConfig', { confirmMove: true } as never);
+    (component as unknown as TreeAccess).flatTree.set([]);
+    openWithCheckbox.mockResolvedValue({ result: 'cancel', checked: false });
+
+    await (component as unknown as MoveGuard).confirmMoveIfNeeded(SRC_DIR, '/tmp/ws/dest', true);
+
+    expect(openWithCheckbox.mock.calls[0][0]).toMatchObject({ title: 'Move folder?' });
+  });
+
+  it('falls back to the tree when the drag payload has no directory flag', async () => {
+    fixture.componentRef.setInput('appConfig', { confirmMove: true } as never);
+    (component as unknown as TreeAccess).flatTree.set([dirNode(SRC_DIR)]);
+    openWithCheckbox.mockResolvedValue({ result: 'cancel', checked: false });
+
+    await (component as unknown as MoveGuard).confirmMoveIfNeeded(SRC_DIR, '/tmp/ws/dest', null);
+
+    expect(openWithCheckbox.mock.calls[0][0]).toMatchObject({ title: 'Move folder?' });
+  });
+
+  it('emits moveConfirmDisabled when the box is ticked', async () => {
+    fixture.componentRef.setInput('appConfig', { confirmMove: true } as never);
+    (component as unknown as TreeAccess).flatTree.set([dirNode(SRC_DIR)]);
+    openWithCheckbox.mockResolvedValue({ result: 'confirm', checked: true });
+    const emitted = vi.fn();
+    component.moveConfirmDisabled.subscribe(emitted);
+
+    const ok = await (component as unknown as MoveGuard).confirmMoveIfNeeded(SRC_DIR, '/tmp/ws/dest');
+
+    expect(ok).toBe(true);
+    expect(emitted).toHaveBeenCalledOnce();
+  });
+
+  it('skips the prompt when the preference is disabled', async () => {
+    fixture.componentRef.setInput('appConfig', { confirmMove: false } as never);
+    (component as unknown as TreeAccess).flatTree.set([dirNode(SRC_DIR)]);
+
+    const ok = await (component as unknown as MoveGuard).confirmMoveIfNeeded(SRC_DIR, '/tmp/ws/dest');
+
+    expect(ok).toBe(true);
+    expect(openWithCheckbox).not.toHaveBeenCalled();
+  });
+});
+
+describe('WorkspaceComponent.performTreeDrop', () => {
+  const DEST_DIR = '/tmp/ws/dest';
+  let fixture: ComponentFixture<WorkspaceComponent>;
+  let component: WorkspaceComponent;
+  const openWithCheckbox = vi.fn();
+  const moveWorkspaceEntry = vi.fn();
+
+  type DropAccess = { performTreeDrop: (event: DragEvent, root: string, dest: string) => Promise<void> };
+
+  function dropEvent(source: string, isDirectory: boolean): DragEvent {
+    const data = new Map<string, string>([
+      [WORKSPACE_TREE_INTERNAL_MOVE_MIME, source],
+      [WORKSPACE_TREE_DRAG_IS_DIRECTORY_MIME, isDirectory ? '1' : '0'],
+    ]);
+    return {
+      dataTransfer: {
+        types: [WORKSPACE_TREE_INTERNAL_MOVE_MIME],
+        files: [],
+        getData: (type: string) => data.get(type) ?? '',
+      },
+    } as unknown as DragEvent;
+  }
+
+  beforeEach(async () => {
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [WorkspaceComponent],
+      providers: [
+        { provide: ThemedConfirmDialogService, useValue: { open: vi.fn(), openWithCheckbox } },
+        { provide: WorkspaceFileChangeStatusService, useValue: { showFileName: vi.fn(), clear: vi.fn() } },
+        {
+          provide: ElectronService,
+          useValue: {
+            isElectron: false,
+            workspaceChanged$: new Subject<string | null>().asObservable(),
+            workspaceFilesChanged$: new Subject<never>().asObservable(),
+            llamaServerLifecycle$: new Subject<never>().asObservable(),
+            llamaServerProcessExit$: new Subject<never>().asObservable(),
+            readDirectory: vi.fn().mockResolvedValue([]),
+            moveWorkspaceEntry,
+          },
+        },
+      ],
+    })
+      .overrideComponent(WorkspaceComponent, { set: { template: '', imports: [] } })
+      .compileComponents();
+
+    fixture = TestBed.createComponent(WorkspaceComponent);
+    component = fixture.componentInstance;
+    openWithCheckbox.mockReset();
+    moveWorkspaceEntry.mockReset();
+    moveWorkspaceEntry.mockResolvedValue({ ok: true });
+  });
+
+  afterEach(() => {
+    fixture.destroy();
+  });
+
+  it('does not move when the prompt is cancelled', async () => {
+    fixture.componentRef.setInput('appConfig', { confirmMove: true } as never);
+    openWithCheckbox.mockResolvedValue({ result: 'cancel', checked: false });
+
+    await (component as unknown as DropAccess).performTreeDrop(dropEvent(FOO_FILE, false), WS_PATH, DEST_DIR);
+
+    expect(moveWorkspaceEntry).not.toHaveBeenCalled();
+  });
+
+  it('moves once and ignores a second drop of the same source while the first is in flight', async () => {
+    fixture.componentRef.setInput('appConfig', { confirmMove: false } as never);
+    const drop = component as unknown as DropAccess;
+
+    await Promise.all([
+      drop.performTreeDrop(dropEvent(FOO_FILE, false), WS_PATH, DEST_DIR),
+      drop.performTreeDrop(dropEvent(FOO_FILE, false), WS_PATH, DEST_DIR),
+    ]);
+
+    expect(moveWorkspaceEntry).toHaveBeenCalledOnce();
+    expect(moveWorkspaceEntry).toHaveBeenCalledWith(WS_PATH, FOO_FILE, DEST_DIR);
+  });
+
+  it('allows a later move of the same source once the first settles', async () => {
+    fixture.componentRef.setInput('appConfig', { confirmMove: false } as never);
+    const drop = component as unknown as DropAccess;
+
+    await drop.performTreeDrop(dropEvent(FOO_FILE, false), WS_PATH, DEST_DIR);
+    await drop.performTreeDrop(dropEvent(FOO_FILE, false), WS_PATH, DEST_DIR);
+
+    expect(moveWorkspaceEntry).toHaveBeenCalledTimes(2);
   });
 });

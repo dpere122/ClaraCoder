@@ -46,7 +46,7 @@ function groupsCss(): string {
 describe('theme-dom', () => {
   it('applyBuiltInThemeSync paints the dark built-in before bootstrap', () => {
     applyBuiltInThemeSync(document);
-    expect(document.documentElement.getAttribute('data-theme-id')).toBe('default');
+    expect(document.documentElement.getAttribute('data-theme-id')).toBe('clara-dark');
     expect(document.documentElement.getAttribute('data-theme-mode')).toBe('dark');
     expect(document.documentElement.getAttribute('data-bs-theme')).toBe('dark');
     expect(tokensCss()).toContain(`--t-bg: ${DEFAULT_THEME.tokens['--t-bg']};`);
@@ -118,7 +118,7 @@ describe('ThemeEngineService', () => {
   it('paints the default theme on construction and stamps a revision', () => {
     const engine = TestBed.inject(ThemeEngineService);
     TestBed.tick();
-    expect(engine.applied().id).toBe('default');
+    expect(engine.applied().id).toBe('clara-dark');
     expect(engine.revision()).toBeGreaterThan(0);
     expect(document.documentElement.getAttribute('data-theme-revision')).toBe(String(engine.revision()));
     expect(tokensCss()).toContain(':root {');
@@ -134,7 +134,15 @@ describe('ThemeEngineService', () => {
     // `woodland` from the mocked loadConfig → clara-dark.
     expect(engine.activeThemeId()).toBe('clara-dark');
     expect(listThemes).toHaveBeenCalled();
-    expect(engine.library().map((t) => t.id)).toEqual(['default', 'clara-dark', 'clara-light', 'neon']);
+    expect(engine.library().map((t) => t.id)).toEqual([
+      'clara-dark',
+      'clara-dark-cadmium-lantern',
+      'clara-dark-cadmium-orange',
+      'clara-light',
+      'clara-light-iris',
+      'clara-light-ochre',
+      'neon',
+    ]);
 
     configSubject.next({ themeId: 'classical' } as AppConfig);
     TestBed.tick();
@@ -152,7 +160,9 @@ describe('ThemeEngineService', () => {
     expect(css).toContain('[data-theme-group="chat.transcript"] {\n  --t-bg: #101010;\n}');
     expect(css).toContain('background-image: url("clara-theme://asset/neon/wall.png");');
     expect(css).toContain('[data-theme-group="chat.transcript"] .chat-box {\n  background-color: transparent !important;');
-    expect(groupsCss()).toContain('[data-theme-group="chat.transcript"] .msg-bubble { border-radius: 0; }');
+    expect(groupsCss()).toContain(
+      '@scope ([data-theme-group="chat.transcript"]) {\n:scope .msg-bubble { border-radius: 0; }\n}',
+    );
     // Monaco surface has an overlay → editor background goes transparent.
     expect(engine.monacoTheme()?.colors['editor.background']).toBe('#00000000');
 
@@ -189,7 +199,15 @@ describe('ThemeEngineService', () => {
   it('setLibrary keeps built-ins first and de-duplicates them', () => {
     const engine = TestBed.inject(ThemeEngineService);
     engine.setLibrary([neon, { ...CLARA_DARK_THEME }]);
-    expect(engine.library().map((t) => t.id)).toEqual(['default', 'clara-dark', 'clara-light', 'neon']);
+    expect(engine.library().map((t) => t.id)).toEqual([
+      'clara-dark',
+      'clara-dark-cadmium-lantern',
+      'clara-dark-cadmium-orange',
+      'clara-light',
+      'clara-light-iris',
+      'clara-light-ochre',
+      'neon',
+    ]);
     expect(engine.findTheme('neon')?.name).toBe('Neon');
   });
 });

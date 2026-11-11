@@ -19,10 +19,21 @@ export interface WorkspaceWatcherState {
   exposeAllConfirmed: boolean;
   watchers: FSWatcher[];
   debounceTimer: NodeJS.Timeout | null;
-  /** Debounced watch batch; last kind wins per path within a batch. */
+  /** Debounced watch batch: one kind per path, see {@link batchedChangeKind}. */
   pendingChanges: Map<string, WorkspaceChangeKind>;
   syncVersion: number;
   lastTree: string;
   lastSyncedAt: string | null;
   recentChanges: WorkspaceChangeRecord[];
+}
+
+/**
+ * The kind a path has in a watch batch: the last one, except that writing a file just created leaves it new.
+ * A plain new file arrives as created then updated, and what is new is what the frozen prompt tree needs told.
+ */
+export function batchedChangeKind(
+  previous: WorkspaceChangeKind | undefined,
+  next: WorkspaceChangeKind,
+): WorkspaceChangeKind {
+  return previous === 'created' && next === 'updated' ? 'created' : next;
 }

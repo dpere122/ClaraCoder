@@ -33,6 +33,7 @@ from clara_coder_backend.lang_agent.streaming import (
 )
 from clara_coder_backend.logging.llm_interaction_logging import (
     coerce_messages_for_log,
+    log_llm_call_stats,
     log_llm_chat_request_from_event_input,
     log_llm_chat_response,
 )
@@ -42,6 +43,7 @@ from clara_coder_backend.llm.gemma_output import (
     gemma_content_needs_parsing,
     strip_gemma_channel_markup,
 )
+from clara_coder_backend.llm.langchain_compat import output_was_truncated
 from clara_coder_backend.llm.messages import final_assistant_text, reasoning_sidecar_text, stringify_content
 from clara_coder_backend.llm.model_tuning import (
     gemma_enable_thinking_for_llm,
@@ -71,6 +73,8 @@ class AwaitingApprovalCall(NamedTuple):
 class GraphStreamState:
     """Mutable per-stream counters for SSE event mapping."""
 
+    #: Between ``on_chat_model_start`` and its end: tool entries seen meanwhile are previews, nothing runs yet.
+    model_call_open: bool = False
     pending_tool_runs: dict[str, tuple[str, dict[str, Any]]] = field(default_factory=dict)
     #: ``time.monotonic()`` at ``on_tool_start`` per run id, for the call's duration on its finished status.
     tool_started_at: dict[str, float] = field(default_factory=dict)
@@ -105,6 +109,9 @@ class GraphStreamState:
     #: OpenAI-style streamed tool calls for the current LLM step, keyed by ``tool_call_chunks[].index``.
     native_tool_drafts: dict[int | str, NativeToolCallDraft] = field(default_factory=dict)
     native_preview_seq: int = 0
+    #: Keeps preview ids unique across the streams of one turn (plan discovery then execution, nested
+    #: specialists): the renderer keys tool rows by status id, so a repeated id overwrites an earlier row.
+    preview_id_tag: str = field(default_factory=lambda: uuid.uuid4().hex[:6])
 
 
 #: Re-announce a streaming native tool call each time its argument buffer grows by this many chars.
@@ -112,6 +119,10 @@ NATIVE_TOOL_PREVIEW_STEP_CHARS = 1024
 
 #: Below this many streamed argument chars the size hint is omitted (path / query alone is enough).
 NATIVE_TOOL_PREVIEW_SIZE_MIN_CHARS = 512
+
+#: Detail of a tool-call row whose call never reached its tool (a guard answered it, or it never parsed).
+_PREVIEW_NOT_RUN = 'Not run'
+_PREVIEW_CUT_OFF = 'Not run: reply hit the output limit'
 
 
 def _tool_batch_key(state: GraphStreamState, stream_tag: str | None) -> str:
@@ -205,6 +216,7 @@ def _on_chat_model_start(
     # LangGraph ``astream_events`` v2 also emits nested ``on_chat_model_start`` for
     # ChatOpenAI under the agent wrapper. A second start must not rebuild the splitter
     # (that dropped post-tool ``start_in_channel``) or emit a duplicate Thinking row.
+    state.model_call_open = True
     if state.gemma_step_started:
         log_llm_chat_request_from_event_input(
             data.get('input'),
@@ -364,7 +376,7 @@ def _emit_gemma_native_tool_previews(
                 target['args'] = args
             continue
         state.gemma_preview_seq += 1
-        preview_id = f'gemma-tool-preview-{state.gemma_preview_seq}'
+        preview_id = f'gemma-tool-preview-{state.preview_id_tag}-{state.gemma_preview_seq}'
         state.gemma_native_previews.append(
             {'id': preview_id, 'name': name, 'args': args, 'consumed': False}
         )
@@ -482,7 +494,7 @@ def _emit_native_tool_call_previews(
             if not clean_name:
                 continue
             state.native_preview_seq += 1
-            preview_id = f'native-tool-preview-{state.native_preview_seq}'
+            preview_id = f'native-tool-preview-{state.preview_id_tag}-{state.native_preview_seq}'
             draft = NativeToolCallDraft(preview_id=preview_id, name=clean_name)
             if isinstance(args_delta, str):
                 draft.args_text = args_delta
@@ -520,20 +532,19 @@ def _emit_native_tool_call_previews(
     return lines
 
 
-def _gemma_preview_complete_line(
+def _gemma_preview_not_run_line(
     item: dict[str, Any],
     *,
     agent_role: str | None,
     stream_tag: str | None,
+    detail: str = _PREVIEW_NOT_RUN,
 ) -> str:
-    name = str(item.get('name') or 'tool')
-    args = item.get('args') if isinstance(item.get('args'), dict) else {}
     return sse_line(
         status_event(
             str(item['id']),
-            name,
-            detail=tool_running_detail(name, args),
-            state='complete',
+            str(item.get('name') or 'tool'),
+            detail=detail,
+            state='error',
             source='tool',
             agent_role=agent_role,
             stream_tag=stream_tag,
@@ -589,7 +600,7 @@ def _finalize_gemma_preview_named(
     item['consumed'] = True
     preview_id = str(item['id'])
     state.pending_tool_runs.pop(preview_id, None)
-    return [_gemma_preview_complete_line(item, agent_role=agent_role, stream_tag=stream_tag)]
+    return [_gemma_preview_not_run_line(item, agent_role=agent_role, stream_tag=stream_tag)]
 
 
 def finalize_unconsumed_gemma_previews(
@@ -597,8 +608,9 @@ def finalize_unconsumed_gemma_previews(
     *,
     agent_role: str | None,
     stream_tag: str | None,
+    detail: str = _PREVIEW_NOT_RUN,
 ) -> list[str]:
-    """Complete leftover native-tool peeks so the UI does not stay on running."""
+    """Close leftover tool-call rows: no tool event bound them, so their calls did not run."""
     lines: list[str] = []
     for item in state.gemma_native_previews:
         if item.get('consumed'):
@@ -606,7 +618,7 @@ def finalize_unconsumed_gemma_previews(
         item['consumed'] = True
         preview_id = str(item['id'])
         state.pending_tool_runs.pop(preview_id, None)
-        lines.append(_gemma_preview_complete_line(item, agent_role=agent_role, stream_tag=stream_tag))
+        lines.append(_gemma_preview_not_run_line(item, agent_role=agent_role, stream_tag=stream_tag, detail=detail))
     return lines
 
 
@@ -772,10 +784,19 @@ def _on_chat_model_end(
 ) -> list[str]:
     raw = data.get('output')
     msg = raw if isinstance(raw, AIMessage) else None
+    state.model_call_open = False
     state.gemma_step_started = False
     if msg is None:
         return []
     lines: list[str] = []
+    if output_was_truncated(msg):
+        # The compaction guard discards this reply, so none of its calls will run. Ahead of the flush,
+        # whose cancelled peek for an unclosed Gemma tag would close the row without saying why.
+        lines.extend(
+            finalize_unconsumed_gemma_previews(
+                state, agent_role=agent_role, stream_tag=stream_tag, detail=_PREVIEW_CUT_OFF
+            )
+        )
     if state.gemma_split_for_step:
         flush_main, flush_reason = state.gemma_splitter.flush()
         lines.extend(
@@ -841,6 +862,7 @@ def _on_chat_model_end(
         stream_chunks=state.stream_chunks,
         stream_chars=state.stream_chars,
     )
+    log_llm_call_stats(msg, context=llm_log_context, llm_step=state.llm_step)
     usage_payload = _token_usage_payload(msg)
     if usage_payload is not None:
         if state.step_first_token_at is not None:
@@ -848,7 +870,8 @@ def _on_chat_model_end(
             usage_payload['generation_ms'] = round((time.monotonic() - state.step_first_token_at) * 1000)
         lines.insert(0, sse_line(usage_payload))
     if not has_tool_calls:
-        if record_model_end_final_text:
+        # Text cut off at the output limit is not the answer, even with no tool calls.
+        if record_model_end_final_text and not output_was_truncated(msg):
             state.last_final_text = final_assistant_text(msg)
     return lines
 
@@ -947,6 +970,43 @@ def _on_tool_end(
         )
     )
     return lines
+
+
+def _on_tool_error(
+    ev: dict[str, Any],
+    data: dict[str, Any],
+    state: GraphStreamState,
+    *,
+    agent_role: str | None,
+    stream_tag: str | None,
+) -> list[str]:
+    """The tool raised or its arguments failed the schema: no ``on_tool_end`` follows, and the row must not stay running.
+
+    The tool node still answers the call with the error, which is how the model hears of it.
+    """
+    name = str(ev.get('name') or 'tool')
+    run_id = str(ev.get('run_id') or '')
+    if _tool_event_seen(state, phase='end', name=name, run_id=run_id):
+        return []
+    state.pending_tool_runs.pop(run_id, None)
+    started_at = state.tool_started_at.pop(run_id, None)
+    duration_ms = round((time.monotonic() - started_at) * 1000) if started_at is not None else None
+    state.gemma_resume_in_thought = True
+    error = data.get('error')
+    detail = f'{type(error).__name__}: {error}' if isinstance(error, BaseException) else 'Tool failed'
+    log_llm_tool_output(name, '', ok=False, run_id=run_id or None, agent_role=agent_role, error_detail=detail)
+    return [
+        sse_tool_finished(
+            _status_id_for_tool_run(state, run_id) or name,
+            name,
+            '',
+            ok=False,
+            error_detail=detail,
+            agent_role=agent_role,
+            stream_tag=stream_tag,
+            duration_ms=duration_ms,
+        )
+    ]
 
 
 def _on_subagent_started(
@@ -1094,6 +1154,8 @@ def sse_lines_for_graph_event(
         return _on_tool_start(ev, data, state, agent_role=agent_role, stream_tag=stream_tag)
     if et == 'on_tool_end':
         return _on_tool_end(ev, data, state, agent_role=agent_role, stream_tag=stream_tag)
+    if et == 'on_tool_error':
+        return _on_tool_error(ev, data, state, agent_role=agent_role, stream_tag=stream_tag)
     if et == 'on_custom_event' and ev.get('name') == SUBAGENT_STARTED_EVENT:
         return _on_subagent_started(ev, data, state, agent_role=agent_role, stream_tag=stream_tag)
     if et == 'agent_nudge' or (et == 'on_custom_event' and ev.get('name') == 'agent_nudge'):

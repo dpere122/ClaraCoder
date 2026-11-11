@@ -12,6 +12,7 @@ import {
 } from '../utils/harden-browser-window';
 import {
   attachBrowserWindowRevealFallbacks,
+  returnFocusToParentOnClose,
   settingsWindowParentOptions,
 } from '../utils/reveal-browser-window';
 
@@ -62,6 +63,7 @@ export function createHealthWindow(): void {
   hardenBrowserWindow(hw);
   hw.removeMenu();
   attachBrowserWindowRevealFallbacks(hw);
+  returnFocusToParentOnClose(hw, mainWindow);
 
   if (DEV_SERVER_URL) {
     hw.loadURL(`${DEV_SERVER_URL}/#/health`);

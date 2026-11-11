@@ -30,7 +30,7 @@
         />
       } @else {
         <app-aux-stream-tool-part
-          [part]="item.part"
+          [part]="chipLayout.timedLanes.get(index) ?? item.part"
           [live]="live()"
           [compactDetails]="planPanelVisible()"
           [class.stream-turn-feed__settle]="settling.has(index)"
@@ -88,6 +88,7 @@
           <div class="stream-turn-feed__markdown">
             <div
               class="assistant-md"
+              appCaptureImages
               [class.streaming-live-md]="live()"
               [innerHTML]="item.text | markdown: markdownLayoutPass()"
             ></div>
@@ -104,27 +105,31 @@
       @let open = isActivityOpen($index, members);
       @let working = activity.working.has($index);
       @let summary = activitySummaries().get($index);
+      @let step = activityLiveStep(open, members);
+      @let name = activityName(step, working, open, summary);
       <div
         class="stream-turn-feed__activity"
         [class.stream-turn-feed__activity--open]="open"
         [class.stream-turn-feed__settle]="live()"
       >
-        <app-stream-tool-pill
-          [name]="activityName(working, summary)"
-          [nameTitle]="summary?.title ?? ''"
-          [icons]="activityGlyphs().get($index) ?? []"
-          [meta]="activityMeta(activityBaseMeta(working, summary), open, members)"
-          [duration]="summary?.duration ?? ''"
-          durationTitle="Time spent thinking and running tools"
-          [state]="working ? 'running' : summary?.failed ? 'error' : 'complete'"
-          [expandable]="true"
-          [expanded]="open"
-          [live]="live()"
-          [shimmer]="working && live()"
-          [spinner]="!open && spinnerHost() === 'pill' && activityHostsPreview(members)"
-          [spinnerKind]="hostedSpinnerGlyph()"
-          (toggle)="toggleActivity($index, members)"
-        />
+        @if (name) {
+          <app-stream-tool-pill
+            [name]="name"
+            [nameTitle]="summary?.title ?? ''"
+            [icons]="activityGlyphs().get($index) ?? []"
+            [meta]="activityMeta(step, summary)"
+            [duration]="summary?.duration ?? ''"
+            durationTitle="Time spent thinking and running tools"
+            [state]="step ? 'running' : summary?.failed ? 'error' : 'complete'"
+            [expandable]="true"
+            [expanded]="open"
+            [live]="live()"
+            [shimmer]="!!step && spinnerHost() === 'pill'"
+            [spinner]="!!step && spinnerHost() === 'pill'"
+            [spinnerKind]="hostedSpinnerGlyph()"
+            (toggle)="toggleActivity($index, members)"
+          />
+        }
         @if (!open && previewShowsBody() && activityHostsPreview(members)) {
           <!-- The streaming reasoning / nudge box stays in view under a closed block. -->
           <ng-container *ngTemplateOutlet="entry; context: { $implicit: items()[previewIndex()], index: previewIndex() }" />

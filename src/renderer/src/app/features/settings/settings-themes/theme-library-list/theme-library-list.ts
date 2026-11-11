@@ -18,10 +18,6 @@ export class ThemeLibraryList {
     return SWATCH_TOKENS.map((name) => theme.tokens[name] ?? base[name] ?? 'transparent');
   }
 
-  protected groupCount(theme: ClaraThemeDocument): number {
-    return Object.keys(theme.groups).length;
-  }
-
   protected isSelected(theme: ClaraThemeDocument): boolean {
     return this.s.selectedId() === theme.id;
   }

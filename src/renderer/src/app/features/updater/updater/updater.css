@@ -1,0 +1,459 @@
+:host {
+  display: block;
+  height: 100%;
+  font-size: 12.5px;
+  font-family: var(--t-font);
+}
+
+/*
+ * Updates window: a draggable handle, then a fixed-height body split into the version list (its
+ * own scroll) and the selected release (notes scroll on their own), and a sticky install footer.
+ * Only theme catalog tokens are read, so every theme styles it without new fields; the
+ * --upd-* locals below just pick which token each part uses.
+ */
+.upd-shell {
+  --upd-accent: var(--t-primary);
+  --upd-beta: var(--t-caution, var(--t-warn));
+  --upd-current: var(--t-success);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: var(--t-bg);
+  color: var(--t-fg);
+}
+
+/* ---- Window handle ------------------------------------------------------- */
+
+.upd-handle {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 8px 8px 16px;
+  border-bottom: 1px solid var(--t-border-subtle);
+  background: linear-gradient(180deg, var(--t-titlebar-start), var(--t-titlebar-end));
+  color: var(--t-titlebar-text);
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.upd-handle__titles {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.upd-handle__titles h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--t-heading, var(--t-fg));
+}
+
+.upd-handle__current {
+  color: var(--t-text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.upd-icon-btn {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--t-titlebar-text);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.upd-icon-btn:hover:not(:disabled) {
+  background: var(--t-hover-bg);
+  border-color: var(--t-border);
+}
+
+.upd-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.upd-close-btn:hover:not(:disabled) {
+  background: var(--t-danger);
+  border-color: var(--t-danger);
+  color: var(--t-on-primary, var(--t-bg));
+}
+
+.upd-spin {
+  animation: upd-spin 0.9s linear infinite;
+}
+
+@keyframes upd-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Body ---------------------------------------------------------------- */
+
+.upd-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.upd-list-pane {
+  flex: 0 0 240px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--t-border-subtle);
+  background: var(--t-bg-surface, var(--t-bg));
+}
+
+.upd-beta-toggle {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--t-border-subtle);
+  color: var(--t-fg);
+  cursor: pointer;
+}
+
+.upd-beta-toggle input {
+  margin: 0;
+  accent-color: var(--upd-accent);
+}
+
+.upd-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.upd-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    'version badges'
+    'date date';
+  align-items: center;
+  gap: 2px 8px;
+  width: 100%;
+  padding: 7px 14px;
+  border: none;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--t-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.upd-item:hover {
+  background: var(--t-hover-bg);
+}
+
+.upd-item:focus-visible {
+  outline: 1px solid var(--upd-accent);
+  outline-offset: -1px;
+}
+
+.upd-item.is-selected {
+  border-left-color: var(--upd-accent);
+  background: var(--t-active-bg, var(--t-selection-bg));
+}
+
+.upd-item__version {
+  grid-area: version;
+  font-family: var(--t-font-mono, var(--t-font));
+  font-weight: 600;
+}
+
+.upd-item__badges {
+  grid-area: badges;
+  display: inline-flex;
+  gap: 4px;
+}
+
+.upd-item__date {
+  grid-area: date;
+  color: var(--t-text-muted);
+  font-size: 11.5px;
+}
+
+.upd-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+}
+
+.upd-badge--current {
+  color: var(--upd-current);
+}
+
+.upd-badge--beta {
+  color: var(--upd-beta);
+}
+
+/* ---- Selected release ---------------------------------------------------- */
+
+.upd-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 18px 0;
+}
+
+.upd-detail__head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.upd-detail__titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.upd-detail__titles h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-family: var(--t-font-mono, var(--t-font));
+  font-size: 16px;
+  color: var(--t-heading, var(--t-fg));
+}
+
+.upd-detail__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  color: var(--t-text-muted);
+  font-size: 12px;
+}
+
+.upd-detail__meta a,
+:host ::ng-deep .upd-notes__body a {
+  color: var(--upd-accent);
+}
+
+.upd-actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: 6px;
+}
+
+.upd-btn {
+  flex-shrink: 0;
+  min-height: 26px;
+  padding: 0 14px;
+  border: 1px solid var(--t-border);
+  background: transparent;
+  color: var(--t-fg);
+  font-family: var(--t-font);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.upd-btn:hover:not(:disabled) {
+  background: var(--t-hover-bg);
+}
+
+.upd-btn:focus-visible {
+  outline: 1px solid var(--upd-accent);
+  outline-offset: 1px;
+}
+
+.upd-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.upd-btn--primary {
+  border-color: var(--upd-accent);
+  background: var(--upd-accent);
+  color: var(--t-on-primary, var(--t-bg-deep));
+  font-weight: 600;
+}
+
+.upd-btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--upd-accent) 85%, var(--t-fg));
+}
+
+.upd-btn--caution {
+  border-color: var(--upd-beta);
+  color: var(--upd-beta);
+}
+
+.upd-btn--small {
+  min-height: 22px;
+  padding: 0 8px;
+  font-size: 11.5px;
+}
+
+.upd-progress {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.upd-progress__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--t-text-muted);
+}
+
+.upd-progress__pct {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--t-fg);
+}
+
+.upd-progress__bar {
+  width: 100%;
+  height: 6px;
+  appearance: none;
+  border: none;
+  background: var(--t-progress-track, var(--t-border-subtle));
+  color: var(--t-progress-fill, var(--upd-accent));
+}
+
+.upd-progress__bar::-webkit-progress-bar {
+  background: var(--t-progress-track, var(--t-border-subtle));
+}
+
+.upd-progress__bar::-webkit-progress-value {
+  background: var(--t-progress-fill, var(--upd-accent));
+}
+
+.upd-alert {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 7px 10px;
+  border-left: 2px solid var(--t-border);
+  background: color-mix(in srgb, var(--t-fg) 5%, transparent);
+  color: var(--t-fg);
+}
+
+.upd-alert--error {
+  border-left-color: var(--t-error);
+  background: color-mix(in srgb, var(--t-error) 10%, transparent);
+}
+
+.upd-notes {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -18px;
+  padding: 4px 18px 18px;
+  border-top: 1px solid var(--t-border-subtle);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.upd-notes__body {
+  line-height: 1.55;
+}
+
+/* Release notes are bound with [innerHTML], which component style scoping doesn't reach. */
+
+:host ::ng-deep .upd-notes__body :is(h1, h2, h3, h4) {
+  margin: 14px 0 6px;
+  font-size: 13.5px;
+  color: var(--t-heading, var(--t-fg));
+}
+
+:host ::ng-deep .upd-notes__body :is(ul, ol) {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+}
+
+:host ::ng-deep .upd-notes__body li {
+  margin: 2px 0;
+}
+
+:host ::ng-deep .upd-notes__body :is(code, pre) {
+  font-family: var(--t-font-mono, monospace);
+  background: var(--t-code-inline-bg, var(--t-code-bg));
+  color: var(--t-code-text, var(--t-fg));
+}
+
+:host ::ng-deep .upd-notes__body code {
+  padding: 0 3px;
+}
+
+:host ::ng-deep .upd-notes__body pre {
+  padding: 8px 10px;
+  overflow-x: auto;
+  background: var(--t-code-bg);
+}
+
+:host ::ng-deep .upd-notes__body img {
+  max-width: 100%;
+}
+
+.upd-empty {
+  margin: 0;
+  padding: 12px 14px;
+  color: var(--t-text-muted);
+  line-height: 1.45;
+}
+
+.upd-empty--center {
+  margin: auto;
+}
+
+/* ---- Sticky install footer ----------------------------------------------- */
+
+.upd-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid color-mix(in srgb, var(--upd-accent) 45%, var(--t-border-subtle));
+  background: var(--t-bg-deep, var(--t-bg));
+}
+
+.upd-footer__copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.upd-footer__copy span {
+  color: var(--t-text-muted);
+}

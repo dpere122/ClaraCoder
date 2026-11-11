@@ -1,24 +1,38 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron';
-import { promises as fs, type WriteStream } from 'fs';
+import { dialog, ipcMain } from 'electron';
+import { promises as fs } from 'fs';
 import { homedir } from 'os';
 import path = require('path');
 import {
   hubSnapshotManagedPaths,
+  isDraftSidecarGgufFileName,
+  isMmprojGgufFileName,
+  isMtpCompanionGgufFileName,
   type HfDownloadId,
-  type HfDownloadProgressEvent,
+  type HfDownloadSnapshot,
   type HuggingFaceModelFile,
   type HuggingFaceModelSearchItem,
   type ModelManagerDownloadHfResult,
   type ModelManagerFileEntry,
+  type ModelManagerHfDetailsResult,
   type ModelManagerHfFilesResult,
   type ModelManagerHfSearchResult,
   type ModelManagerListModelsResult,
   type ModelManagerMutationResult,
+  type SecretStorageMode,
 } from '../../../shared';
+import { secretStorageMode } from '../../config/load-save';
+import { defaultOpenFileDialogPath, dialogFolderOption, rememberDialogFolder } from '../../utils/dialog-folder';
+import {
+  cancelHfDownload,
+  cancelHfDownloadsUnder,
+  listHfDownloads,
+  pauseHfDownload,
+  startHfDownload,
+} from '../../hf-download-tracker';
 import { mainState } from '../../state';
 import { isBlobLikeFileName, looksLikeHubRepoLayout } from '../../utils/hub-repo-layout';
 import { assertTrustedAppRenderer } from '../assert-trusted-renderer';
-import { downloadHfGgufToHubCache } from './hf-hub-download';
+import { fetchHfModelDetails } from './hf-model-details';
 
 const MODEL_EXTENSIONS = new Set(['.gguf', '.ggml']);
 
@@ -93,36 +107,6 @@ function normalizeModelManagerPath(p: string): string {
 
 function normalizeAbs(p: string): string {
   return normalizeModelManagerPath(p);
-}
-
-/** In-flight HF GGUF downloads keyed by {@link HfDownloadId}. */
-interface InFlightDownload {
-  downloadId: HfDownloadId;
-  repoId: string;
-  fileName: string;
-  abort: AbortController;
-  writeStream: WriteStream | null;
-  receivedBytes: number;
-  /** Timestamp (ms) of the last broadcast progress event, for throttling. */
-  lastProgressBroadcastMs: number;
-}
-
-const inFlightDownloads = new Map<HfDownloadId, InFlightDownload>();
-
-function makeDownloadId(repoId: string, fileName: string): HfDownloadId {
-  return `${repoId}/${fileName}`;
-}
-
-/** Broadcast a download progress event to every live BrowserWindow (main + settings). */
-function broadcastHfDownloadProgress(payload: HfDownloadProgressEvent): void {
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (win.isDestroyed()) continue;
-    try {
-      win.webContents.send('model-manager:hf-download-progress', payload);
-    } catch {
-      /* window gone */
-    }
-  }
 }
 
 function isWithinRoot(root: string, target: string): boolean {
@@ -354,6 +338,19 @@ async function findHubModelGgufPaths(hubDir: string): Promise<string[]> {
   return [...byReal.values()];
 }
 
+/**
+ * True when a hub folder's only blobs are downloads that have not finished. Such a folder is a
+ * download in progress, not a model, and the download list shows it.
+ */
+async function holdsOnlyPartialDownloads(hubDir: string): Promise<boolean> {
+  try {
+    const blobs = await fs.readdir(path.join(hubDir, 'blobs'));
+    return blobs.length > 0 && blobs.every((name) => name.endsWith('.incomplete'));
+  } catch {
+    return false;
+  }
+}
+
 async function listHubRepoFoldersAtDepthOne(
   parentDir: string,
   source: 'custom' | 'cache',
@@ -393,8 +390,11 @@ async function listHubRepoFoldersAtDepthOne(
     if (!(await isHubRepoLayoutDir(full))) {
       continue;
     }
-    const { sizeBytes, modifiedMs } = await computeHubFolderStats(full);
     const snapshotGgufs = await findHubModelGgufPaths(full);
+    if (!snapshotGgufs.length && (await holdsOnlyPartialDownloads(full))) {
+      continue;
+    }
+    const { sizeBytes, modifiedMs } = await computeHubFolderStats(full);
     out.push({
       fileName: name,
       absolutePath: full,
@@ -555,9 +555,19 @@ export function registerModelManagerIpc(): void {
     }
     const mw = mainState.mainWindow;
     if (!mw) return null;
-    const result = await dialog.showOpenDialog(mw, { properties: ['openDirectory'] });
-    if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0] ?? null;
+    const result = await dialog.showOpenDialog(mw, {
+      properties: ['openDirectory'],
+      ...dialogFolderOption(defaultOpenFileDialogPath()),
+    });
+    const picked = result.canceled ? undefined : result.filePaths[0];
+    if (!picked) return null;
+    rememberDialogFolder(picked);
+    return picked;
+  });
+
+  ipcMain.handle('model-manager:secret-storage', (event): SecretStorageMode => {
+    assertTrustedAppRenderer(event);
+    return secretStorageMode();
   });
 
   ipcMain.handle(
@@ -677,6 +687,7 @@ export function registerModelManagerIpc(): void {
         }
         const st = await fs.lstat(modelPath);
         if (st.isDirectory()) {
+          await cancelHfDownloadsUnder(modelPath);
           await fs.rm(modelPath, { recursive: true, force: true });
         } else {
           await fs.unlink(modelPath);
@@ -787,6 +798,23 @@ export function registerModelManagerIpc(): void {
   );
 
   ipcMain.handle(
+    'model-manager:hf-model-details',
+    async (event, payload: { id: string; token?: string }): Promise<ModelManagerHfDetailsResult> => {
+      try {
+        assertTrustedAppRenderer(event);
+      } catch {
+        return { ok: false as const, error: 'Untrusted IPC sender' };
+      }
+      try {
+        const details = await fetchHfModelDetails(String(payload?.id || ''), String(payload?.token || ''));
+        return { ok: true, details };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      }
+    },
+  );
+
+  ipcMain.handle(
     'model-manager:list-hf-files',
     async (
       event,
@@ -870,15 +898,27 @@ export function registerModelManagerIpc(): void {
         }
 
         const files: HuggingFaceModelFile[] = ggufFiles
-          .map((fileName) => {
+          .map((fileName): HuggingFaceModelFile => {
             const base = fileName.slice(0, -5); // strip ".gguf"
             return {
               fileName,
               quant: parseGgufQuant(base),
               sizeBytes: sizeByName.get(fileName) ?? null,
+              ...(isMtpCompanionGgufFileName(fileName)
+                ? { role: 'mtp' as const }
+                : isDraftSidecarGgufFileName(fileName)
+                  ? { role: 'draft' as const }
+                  : isMmprojGgufFileName(fileName)
+                    ? { role: 'mmproj' as const }
+                    : {}),
             };
           })
-          .sort((a, b) => quantRank(a.quant) - quantRank(b.quant) || a.fileName.localeCompare(b.fileName));
+          .sort(
+            (a, b) =>
+              Number(!!a.role) - Number(!!b.role) ||
+              quantRank(a.quant) - quantRank(b.quant) ||
+              a.fileName.localeCompare(b.fileName),
+          );
 
         return { ok: true, files };
       } catch (e) {
@@ -911,89 +951,24 @@ export function registerModelManagerIpc(): void {
       if (!customDir) {
         return { ok: false, error: 'No custom models directory configured.' };
       }
-      const downloadId = makeDownloadId(repoId, fileName);
-      if (inFlightDownloads.has(downloadId)) {
-        return { ok: false, error: 'This quant is already downloading.' };
+      const ensured = await ensureModelsDirExists(customDir);
+      if (!ensured.ok) {
+        return { ok: false, error: `Could not create models directory: ${ensured.error}` };
       }
+      // Also resumes: a partial file left by a paused or failed download is continued.
+      return startHfDownload({ repoId, fileName, customDir, token: String(payload?.token || '').trim() });
+    },
+  );
 
-      const token = String(payload?.token || '').trim();
-      {
-        const ensured = await ensureModelsDirExists(customDir);
-        if (!ensured.ok) {
-          return { ok: false, error: `Could not create models directory: ${ensured.error}` };
-        }
-      }
-
-      const abort = new AbortController();
-      const entry: InFlightDownload = {
-        downloadId,
-        repoId,
-        fileName,
-        abort,
-        writeStream: null,
-        receivedBytes: 0,
-        lastProgressBroadcastMs: 0,
-      };
-      inFlightDownloads.set(downloadId, entry);
-
-      broadcastHfDownloadProgress({
-        downloadId,
-        repoId,
-        fileName,
-        phase: 'queued',
-        receivedBytes: 0,
-        totalBytes: null,
-      });
-
+  ipcMain.handle(
+    'model-manager:pause-hf-download',
+    async (event, payload: { downloadId: HfDownloadId }): Promise<{ ok: true } | { ok: false; error: string }> => {
       try {
-        const result = await downloadHfGgufToHubCache({
-          repoId,
-          fileName,
-          customDir,
-          token,
-          abort,
-          onWriteStream: (stream) => {
-            entry.writeStream = stream;
-          },
-          onProgress: (receivedBytes, totalBytes) => {
-            entry.receivedBytes = receivedBytes;
-            entry.lastProgressBroadcastMs = Date.now();
-            broadcastHfDownloadProgress({
-              downloadId,
-              repoId,
-              fileName,
-              phase: 'progress',
-              receivedBytes,
-              totalBytes,
-            });
-          },
-        });
-        entry.receivedBytes = result.receivedBytes;
-        if (!result.ok) {
-          broadcastHfDownloadProgress({
-            downloadId,
-            repoId,
-            fileName,
-            phase: result.aborted ? 'cancelled' : 'error',
-            receivedBytes: result.receivedBytes,
-            totalBytes: null,
-            ...(result.aborted ? {} : { error: result.error }),
-          });
-          return { ok: false, error: result.error };
-        }
-        broadcastHfDownloadProgress({
-          downloadId,
-          repoId,
-          fileName,
-          phase: 'done',
-          receivedBytes: result.receivedBytes,
-          totalBytes: result.totalBytes ?? result.receivedBytes,
-          absolutePath: result.absolutePath,
-        });
-        return { ok: true, absolutePath: result.absolutePath };
-      } finally {
-        inFlightDownloads.delete(downloadId);
+        assertTrustedAppRenderer(event);
+      } catch {
+        return { ok: false as const, error: 'Untrusted IPC sender' };
       }
+      return pauseHfDownload(String(payload?.downloadId || '').trim());
     },
   );
 
@@ -1005,24 +980,18 @@ export function registerModelManagerIpc(): void {
       } catch {
         return { ok: false as const, error: 'Untrusted IPC sender' };
       }
-      const id = String(payload?.downloadId || '').trim();
-      const entry = inFlightDownloads.get(id);
-      if (!entry) {
-        return { ok: false, error: 'No active download for that id.' };
-      }
-      try {
-        entry.abort.abort();
-        } catch {
-          /* ignore */
-        }
-        try {
-          entry.writeStream?.destroy();
-        } catch {
-          /* ignore */
-        }
-      return { ok: true };
+      return cancelHfDownload(String(payload?.downloadId || '').trim());
     },
   );
+
+  ipcMain.handle('model-manager:list-hf-downloads', async (event): Promise<HfDownloadSnapshot[]> => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return [];
+    }
+    return listHfDownloads();
+  });
 }
 
 /**

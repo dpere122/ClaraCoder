@@ -45,7 +45,7 @@ describe('progressView', () => {
   });
 
   it('falls back to a log percentage outside downloads', () => {
-    const view = progressView({ depId: 'python-runtime', phase: 'installing' }, undefined, 40);
+    const view = progressView({ depId: 'kokoro', phase: 'installing' }, undefined, 40);
     expect(view).toEqual({ phase: 'Installing', percent: 40, detail: '' });
   });
 });

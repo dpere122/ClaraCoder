@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from clara_coder_backend.domain import SessionState
+from clara_coder_backend.domain import RuntimePythonLspConfig, SessionState
 from clara_coder_backend.runtime.python_env import (
     deduce_venv_root_from_interpreter,
     resolve_python_workspace_root,
@@ -70,19 +70,42 @@ def python_interpreter_path_for_workspace(session: SessionState, workspace_root:
     return None
 
 
-def build_python_initialization_options(session: SessionState, workspace_root: Path) -> dict[str, Any]:
-    """basedpyright settings for ``initialize`` / ``workspace/configuration``."""
+def _python_lsp_settings() -> RuntimePythonLspConfig:
+    # Imported here: ``session.state`` pulls in most of the backend.
+    from clara_coder_backend.session.state import runtime_config
 
-    opts: dict[str, Any] = {
-        'basedpyright': {
-            'analysis': {
-                'diagnosticMode': 'openFilesOnly',
-                'typeCheckingMode': 'standard',
-                'autoSearchPaths': True,
-                'useLibraryCodeForTypes': True,
-            }
-        }
+    return runtime_config.lsp.python
+
+
+def build_python_initialization_options(
+    session: SessionState,
+    workspace_root: Path,
+    settings: RuntimePythonLspConfig | None = None,
+) -> dict[str, Any]:
+    """basedpyright settings for ``initialize`` / ``workspace/configuration``.
+
+    ``settings`` defaults to Settings → LSP → Python. A project ``pyrightconfig.json`` or
+    ``[tool.basedpyright]`` / ``[tool.pyright]`` table still wins for ``typeCheckingMode`` (and
+    ``extraPaths`` when it sets them); the diagnostic scope, inlay hints and auto-imports apply either way.
+    """
+
+    s = settings if settings is not None else _python_lsp_settings()
+    analysis: dict[str, Any] = {
+        'diagnosticMode': s.diagnostic_mode,
+        'typeCheckingMode': s.type_checking_mode,
+        'autoSearchPaths': True,
+        'useLibraryCodeForTypes': True,
+        'autoImportCompletions': s.auto_import_completions,
+        'inlayHints': {
+            'variableTypes': s.inlay_variable_types,
+            'callArgumentNames': s.inlay_call_argument_names,
+            'functionReturnTypes': s.inlay_function_return_types,
+            'genericTypes': s.inlay_generic_types,
+        },
     }
+    if s.extra_paths:
+        analysis['extraPaths'] = list(s.extra_paths)
+    opts: dict[str, Any] = {'basedpyright': {'analysis': analysis}}
     python_path = python_interpreter_path_for_workspace(session, workspace_root)
     if python_path:
         opts['python'] = {'pythonPath': python_path}

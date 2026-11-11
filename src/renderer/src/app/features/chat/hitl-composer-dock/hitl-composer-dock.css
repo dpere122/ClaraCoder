@@ -8,6 +8,9 @@ app-hitl-composer-dock {
 
 app-hitl-composer-dock .hitl-composer-dock {
   display: grid;
+  /* `auto` columns floor at min-content, so a long nowrap chip (the User-Agent) widened the
+     whole dock past the composer. `minmax(0, 1fr)` lets the column shrink to the composer. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 0fr;
   transition: grid-template-rows 0.28s ease;
 }
@@ -39,6 +42,10 @@ app-hitl-composer-dock .hitl-composer-dock--open .hitl-composer-dock__panel {
 
 app-hitl-composer-dock .hitl-composer-dock__card + .hitl-composer-dock__card {
   margin-top: 0.65rem;
+}
+
+app-hitl-composer-dock .hitl-composer-dock__card {
+  min-width: 0;
 }
 
 /* A card a sub-agent raised: names who is asking (the answer goes to that sub-agent). */

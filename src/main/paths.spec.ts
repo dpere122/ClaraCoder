@@ -30,11 +30,13 @@ vi.mock('electron', () => electronMock);
 
 import {
   BUNDLED_RUNTIME_MANIFEST_FILE,
+  expectedRequirementsHash,
   getBundledPythonExecutable,
   getBundledRuntimeDir,
   getPythonExecutable,
   getRuntimePythonDir,
   isUsablePythonVenv,
+  isolatedVenvStaleReason,
   pythonVenvUnusableReason,
   readBundledRuntimeManifest,
   venvBelongsToBundledRuntime,
@@ -107,6 +109,37 @@ describe('isUsablePythonVenv', () => {
     root = mkdtempSync(path.join(tmpdir(), 'clara-venv-'));
     writeFileSync(path.join(root, 'pyvenv.cfg'), 'version = 3.12.11\n');
     expect(isUsablePythonVenv(root)).toBe(true);
+  });
+});
+
+describe('isolatedVenvStaleReason', () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(path.join(tmpdir(), 'clara-venv-'));
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('ignores overlay venvs (core packages come from the base interpreter)', () => {
+    writeFileSync(path.join(root, 'pyvenv.cfg'), 'include-system-site-packages = true\n');
+    expect(isolatedVenvStaleReason(root)).toBeNull();
+  });
+
+  it('flags an isolated venv whose requirements hash is missing or old', () => {
+    const expected = expectedRequirementsHash();
+    writeFileSync(path.join(root, 'pyvenv.cfg'), 'include-system-site-packages = false\n');
+    if (!expected) {
+      expect(isolatedVenvStaleReason(root)).toBeNull();
+      return;
+    }
+    expect(isolatedVenvStaleReason(root)).toContain('out of date');
+    writeFileSync(path.join(root, '.clara-requirements-hash'), 'old\n');
+    expect(isolatedVenvStaleReason(root)).toContain('out of date');
+    writeFileSync(path.join(root, '.clara-requirements-hash'), `${expected}\n`);
+    expect(isolatedVenvStaleReason(root)).toBeNull();
   });
 });
 

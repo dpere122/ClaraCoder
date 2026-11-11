@@ -10,7 +10,7 @@
       </header>
 
       <div class="home__columns">
-        <div class="home__col home__col--main">
+        <div class="home__col home__col--main" data-tutorial="home-start">
           <section class="home__section" aria-labelledby="home-start">
             <h2 class="home__heading" id="home-start">Start</h2>
             <ul class="home__list">
@@ -28,28 +28,50 @@
                 </li>
               }
               <li>
-                <button type="button" class="home__action" (click)="addWorkspace.emit()">
+                <button type="button" class="home__action" data-tutorial="home-add-workspace" (click)="addWorkspace.emit()">
                   <lucide-icon name="folder-plus" [size]="15" />
                   <span>Add workspace…</span>
                 </button>
               </li>
               <li>
-                <button type="button" class="home__action" (click)="openModelManager.emit()">
-                  <lucide-icon name="cpu" [size]="15" />
-                  <span>Models</span>
+                <button type="button" class="home__action" data-tutorial="home-sources" (click)="openSources.emit()">
+                  <lucide-icon name="server" [size]="15" />
+                  <span>Sources</span>
                 </button>
               </li>
               <li>
-                <button type="button" class="home__action" (click)="openDependencies.emit()">
+                <button type="button" class="home__action" data-tutorial="home-model-manager" (click)="openModelManager.emit()">
+                  <lucide-icon name="cpu" [size]="15" />
+                  <span>Model Manager</span>
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  class="home__action"
+                  data-tutorial="home-dependencies"
+                  [class.home__action--attention]="missingDependencies()"
+                  [attr.title]="missingDependencies() || null"
+                  (click)="openDependencies.emit()"
+                >
                   <lucide-icon name="package" [size]="15" />
                   <span>Dependencies</span>
+                  @if (missingDependencies()) {
+                    <lucide-icon
+                      name="triangle-alert"
+                      [size]="14"
+                      class="home__action-alert"
+                      role="img"
+                      [attr.aria-label]="missingDependencies()"
+                    />
+                  }
                 </button>
               </li>
             </ul>
           </section>
 
           @if (favoriteWorkspaces().length > 0) {
-            <section class="home__section" aria-labelledby="home-favorites">
+            <section class="home__section home__section--scroll" aria-labelledby="home-favorites">
               <h2 class="home__heading" id="home-favorites">Favorites</h2>
               <ul
                 class="home__list home__list--rows"
@@ -89,7 +111,7 @@
           }
 
           @if (recentOnlyWorkspaces().length > 0) {
-            <section class="home__section" aria-labelledby="home-recent">
+            <section class="home__section home__section--scroll" aria-labelledby="home-recent">
               <h2 class="home__heading" id="home-recent">Recent</h2>
               <ul class="home__list home__list--rows">
                 @for (ws of recentOnlyWorkspaces(); track ws.id) {
@@ -124,13 +146,24 @@
 
         <div class="home__col home__col--side">
           <section class="home__section" aria-labelledby="home-runtime">
-            <h2 class="home__heading" id="home-runtime">Runtime</h2>
+            <div class="home__heading-row">
+              <h2 class="home__heading" id="home-runtime">Runtime</h2>
+              <button
+                type="button"
+                class="home__heading-action"
+                title="Source settings"
+                aria-label="Open source settings"
+                (click)="openSources.emit()"
+              >
+                <lucide-icon name="settings" [size]="14" />
+              </button>
+            </div>
             <div class="home__runtime">
               <div class="home__runtime-source">
                 <span class="home__runtime-label">Source</span>
                 <app-managed-llama-controls class="home__runtime-controls" [appConfig]="appConfig()" />
                 @if (!hasSources()) {
-                  <button type="button" class="home__link" (click)="openModelManager.emit()">Add a model source…</button>
+                  <button type="button" class="home__link" (click)="openSources.emit()">Add a model source…</button>
                 }
               </div>
               <app-llama-status-indicator layout="rows" [appConfig]="appConfig()" />

@@ -1,4 +1,15 @@
+import {
+  argvToShellCommandLine,
+  detectShellQuotingPlatform,
+  hasLlamaFlag,
+  readLlamaFlagValue,
+  shellQuoteArg,
+  upsertLlamaFlag,
+  type ShellQuotingPlatform,
+} from './llama-command-tokens';
 import type { LlamaCppManaged } from './types/app-config';
+
+export { argvToShellCommandLine, detectShellQuotingPlatform, shellQuoteArg, type ShellQuotingPlatform };
 
 /** @internal Pre-2-command persisted shape; used only for one-time config migration. */
 export interface LlamaCppEmbeddingManagedLegacy {
@@ -32,31 +43,6 @@ export interface LlamaCppManagedLegacy {
   embedding: LlamaCppEmbeddingManagedLegacy;
 }
 
-export type ShellQuotingPlatform = 'win32' | 'posix';
-
-export function detectShellQuotingPlatform(): ShellQuotingPlatform {
-  const proc = (globalThis as { process?: { platform?: string } }).process;
-  if (proc?.platform === 'win32') {
-    return 'win32';
-  }
-  return 'posix';
-}
-
-/** One argv token safe for ``cmd.exe`` or POSIX shells when joined with spaces. */
-export function shellQuoteArg(arg: string, platform: ShellQuotingPlatform): string {
-  if (!/[\s"'`$\\|&;<>()%^]/.test(arg)) {
-    return arg;
-  }
-  if (platform === 'win32') {
-    return `"${arg.replace(/"/g, '""')}"`;
-  }
-  return `'${arg.replace(/'/g, `'\"'\"'`)}'`;
-}
-
-export function argvToShellCommandLine(argv: string[], platform: ShellQuotingPlatform): string {
-  return argv.map((a) => shellQuoteArg(a, platform)).join(' ');
-}
-
 export function defaultLlamaCppManaged(): LlamaCppManaged {
   return {
     chatRunCommand: '',
@@ -64,15 +50,27 @@ export function defaultLlamaCppManaged(): LlamaCppManaged {
   };
 }
 
-const PORT_TOKEN = '{{PORT}}';
+/** Fallback name of a managed local llama-server source before it has a model or custom name. */
+export const DEFAULT_MANAGED_LLAMA_SOURCE_NAME = 'Local Model';
+
+/** {@link DEFAULT_MANAGED_LLAMA_SOURCE_NAME}, numbered (``Local Model 2``…) when ``taken`` has it. */
+export function uniqueManagedLlamaSourceName(taken: readonly string[]): string {
+  const used = new Set(taken);
+  let name = DEFAULT_MANAGED_LLAMA_SOURCE_NAME;
+  for (let n = 2; used.has(name); n++) {
+    name = `${DEFAULT_MANAGED_LLAMA_SOURCE_NAME} ${n}`;
+  }
+  return name;
+}
+
+export const PORT_TOKEN = '{{PORT}}';
 /** Baseline managed chat command template used in defaults and Settings placeholders. */
 export const DEFAULT_MANAGED_LLAMA_CHAT_RUN_COMMAND =
   'llama-server --host 127.0.0.1 --port {{PORT}} --jinja --no-webui -np 1 -hf org/model:Q4_0';
 
 /** True when a managed chat command already includes ``--jinja``. */
 export function managedLlamaCommandHasJinja(command: string): boolean {
-  // ``\b`` is unreliable before ``--`` (hyphen is not ``\w``), so match long options as tokens.
-  return /(?:^|[\s"'])--jinja(?:\s|$)/i.test(command);
+  return hasLlamaFlag(command, ['--jinja']);
 }
 
 /**
@@ -351,40 +349,16 @@ export function migrateLegacyLlamaCppManagedToCommands(
   return { chatRunCommand, embeddingRunCommand };
 }
 
-/** Parse ``--host`` from a substituted command line (first occurrence). */
+/** Parse ``--host`` from a substituted command line (the last one is the one used). */
 export function parseHostFromLlamaCommand(command: string): string {
-  const m = /--host\s+(?:"([^"]+)"|'([^']+)'|(\S+))/.exec(command);
-  const h = (m?.[1] ?? m?.[2] ?? m?.[3] ?? '').trim();
-  return h || '127.0.0.1';
+  return (readLlamaFlagValue(command, ['--host']) ?? '').trim() || '127.0.0.1';
 }
 
-function unquoteChatTemplatePath(raw: string): string {
-  const t = raw.trim();
-  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
-    return t.slice(1, -1);
-  }
-  return t;
-}
-
-const CHAT_TEMPLATE_FILE_RE =
-  /(?:^|[\s"'])--chat-template-file(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/i;
-const CHAT_TEMPLATE_FILE_REPLACE_RE =
-  /(^|[\s"'])(--chat-template-file(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+))/i;
-const CHAT_TEMPLATE_FILE_STRIP_RE =
-  /\s*--chat-template-file(?:\s+|=)(?:"[^"]+"|'[^']+'|\S+)/gi;
+const CHAT_TEMPLATE_FILE_FLAG_NAMES = ['--chat-template-file'];
 
 /** Parse ``--chat-template-file`` from a managed chat command. Empty / absent → ``null`` (use GGUF). */
 export function parseManagedLlamaChatTemplateFile(cmd: string): string | null {
-  const t = (cmd || '').trim();
-  if (!t) {
-    return null;
-  }
-  const m = CHAT_TEMPLATE_FILE_RE.exec(t);
-  if (!m) {
-    return null;
-  }
-  const filePath = unquoteChatTemplatePath(m[1] ?? m[2] ?? m[3] ?? '');
-  return filePath || null;
+  return readLlamaFlagValue(cmd, CHAT_TEMPLATE_FILE_FLAG_NAMES) || null;
 }
 
 /**
@@ -396,24 +370,8 @@ export function syncChatTemplateFileInManagedChatCommand(
   templatePath: string | null,
   platform: ShellQuotingPlatform = detectShellQuotingPlatform(),
 ): string {
-  const trimmed = (cmd || '').trim();
-  if (!trimmed) {
-    return trimmed;
-  }
   const filePath = (templatePath || '').trim();
-  if (!filePath) {
-    CHAT_TEMPLATE_FILE_STRIP_RE.lastIndex = 0;
-    return trimmed.replace(CHAT_TEMPLATE_FILE_STRIP_RE, '').replace(/\s{2,}/g, ' ').trim();
-  }
-  const quoted = shellQuoteArg(filePath, platform);
-  const replaced = trimmed.replace(
-    CHAT_TEMPLATE_FILE_REPLACE_RE,
-    (_full, lead: string) => `${lead}--chat-template-file ${quoted}`,
-  );
-  if (replaced !== trimmed) {
-    return replaced;
-  }
-  return `${trimmed} --chat-template-file ${quoted}`;
+  return upsertLlamaFlag(cmd, CHAT_TEMPLATE_FILE_FLAG_NAMES, '--chat-template-file', filePath || null, platform);
 }
 
 /**
@@ -427,8 +385,7 @@ export function appendChatTemplateFileFlags(
   platform: ShellQuotingPlatform,
 ): string {
   const cmd = chatRunCommand.trim();
-  // ``\b`` is unreliable before ``--`` (hyphen is not ``\w``), so match long options as tokens.
-  if (/(?:^|[\s"'])--chat-template-file(?:\s|=|$)/i.test(cmd)) {
+  if (hasLlamaFlag(cmd, CHAT_TEMPLATE_FILE_FLAG_NAMES)) {
     return appendJinjaFlagToManagedChatCommand(chatRunCommand);
   }
   const quoted = shellQuoteArg(templatePath, platform);

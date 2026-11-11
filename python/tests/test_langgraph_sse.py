@@ -11,7 +11,11 @@ import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
 from clara_coder_backend.domain import RuntimeConnection
-from clara_coder_backend.lang_agent.langgraph_sse import GraphStreamState, sse_lines_for_graph_event
+from clara_coder_backend.lang_agent.langgraph_sse import (
+    GraphStreamState,
+    finalize_unconsumed_gemma_previews,
+    sse_lines_for_graph_event,
+)
 
 
 def _gemma_connection(*, thinking_mode: str = 'on') -> RuntimeConnection:
@@ -1024,7 +1028,7 @@ def test_chat_model_stream_previews_write_tool_before_native_block_closes(
 
 
 @patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
-def test_chat_model_end_completes_unclosed_write_preview(mock_conn: MagicMock) -> None:
+def test_chat_model_end_marks_unclosed_write_preview_not_run(mock_conn: MagicMock) -> None:
     mock_conn.return_value = _gemma_connection()
     state = GraphStreamState()
     kwargs = _sse_kwargs()
@@ -1055,13 +1059,12 @@ def test_chat_model_end_completes_unclosed_write_preview(mock_conn: MagicMock) -
         for ln in end_lines
         if '"type": "status"' in ln and _sse_json(ln)['status']['id'] == preview_id
     ]
-    assert done
-    assert done[0]['state'] == 'complete'
+    assert [(row['state'], row['detail']) for row in done] == [('error', 'Not run')]
     assert preview_id not in state.pending_tool_runs
 
 
 @patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
-def test_chat_model_end_completes_closed_unparseable_write_preview(mock_conn: MagicMock) -> None:
+def test_chat_model_end_marks_closed_unparseable_write_preview_not_run(mock_conn: MagicMock) -> None:
     mock_conn.return_value = _gemma_connection()
     state = GraphStreamState()
     kwargs = _sse_kwargs()
@@ -1095,9 +1098,114 @@ def test_chat_model_end_completes_closed_unparseable_write_preview(mock_conn: Ma
         for ln in end_lines
         if '"type": "status"' in ln and _sse_json(ln)['status']['id'] == preview_id
     ]
-    assert done
-    assert done[0]['state'] == 'complete'
+    assert [(row['state'], row['detail']) for row in done] == [('error', 'Not run')]
     assert preview_id not in state.pending_tool_runs
+
+
+def _preview_rows(lines: list[str], preview_id: str) -> list[tuple[str, str]]:
+    """``(state, detail)`` of each status this row got."""
+    rows = [_sse_json(ln)['status'] for ln in lines if '"type": "status"' in ln]
+    return [(row['state'], row['detail']) for row in rows if row['id'] == preview_id]
+
+
+_CUT_OFF_ROW = ('error', 'Not run: reply hit the output limit')
+_WRITE_ARGS = {'relative_path': 'a.py', 'content': 'x'}
+
+
+@patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
+def test_cut_off_reply_marks_unclosed_write_preview_not_run(mock_conn: MagicMock) -> None:
+    """The splitter's flush closes this row too, but only this path knows why."""
+    mock_conn.return_value = _gemma_connection()
+    state = GraphStreamState()
+    kwargs = _sse_kwargs()
+    named = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_stream',
+            'data': {
+                'chunk': AIMessageChunk(
+                    content='<|tool_call>call:write_workspace_file{relative_path:<|"|>a.ts<|"|>,content:<|"|>x',
+                ),
+            },
+        },
+        state,
+        **kwargs,
+    )
+    preview_id = [_sse_json(ln)['status']['id'] for ln in named if '"type": "status"' in ln][0]
+    end_lines = sse_lines_for_graph_event(
+        {
+            'event': 'on_chat_model_end',
+            'data': {'output': AIMessage(content='', response_metadata={'finish_reason': 'length'})},
+        },
+        state,
+        **kwargs,
+    )
+    assert _preview_rows(end_lines, preview_id) == [_CUT_OFF_ROW]
+    assert preview_id not in state.pending_tool_runs
+
+
+def _step_start() -> dict[str, object]:
+    return {'event': 'on_chat_model_start', 'data': {'input': {'messages': [HumanMessage(content='hi')]}}}
+
+
+def _stream_write_call(state: GraphStreamState, kwargs: dict[str, object]) -> str:
+    """A model step streaming a whole write call on the native channel; returns its row's id."""
+    sse_lines_for_graph_event(_step_start(), state, **kwargs)
+    chunk = _native_tool_chunk(index=0, name='write_workspace_file', args=json.dumps(_WRITE_ARGS))
+    sse_lines_for_graph_event({'event': 'on_chat_model_stream', 'data': {'chunk': chunk}}, state, **kwargs)
+    return next(iter(state.native_tool_drafts.values())).preview_id
+
+
+def _write_reply(**fields: object) -> dict[str, object]:
+    call = {'name': 'write_workspace_file', 'args': _WRITE_ARGS, 'id': 'c1'}
+    return {'event': 'on_chat_model_end', 'data': {'output': AIMessage(content='', tool_calls=[call], **fields)}}
+
+
+def test_cut_off_reply_marks_native_preview_not_run_though_its_call_parsed() -> None:
+    """The guard strips every call of a cut-off reply, whole or partial."""
+    state = GraphStreamState()
+    kwargs = _sse_kwargs()
+    preview_id = _stream_write_call(state, kwargs)
+    end_lines = sse_lines_for_graph_event(_write_reply(response_metadata={'finish_reason': 'length'}), state, **kwargs)
+    assert _preview_rows(end_lines, preview_id) == [_CUT_OFF_ROW]
+    # Closed once: the next step finds nothing left to close.
+    assert _preview_rows(sse_lines_for_graph_event(_step_start(), state, **kwargs), preview_id) == []
+
+
+def test_next_model_start_marks_a_preview_no_tool_bound_not_run() -> None:
+    """A guard answered the call itself: no tool event came, so nothing ran."""
+    state = GraphStreamState()
+    kwargs = _sse_kwargs()
+    preview_id = _stream_write_call(state, kwargs)
+    # The reply ended normally: the row waits for the tool event that may bind it.
+    assert _preview_rows(sse_lines_for_graph_event(_write_reply(), state, **kwargs), preview_id) == []
+    start_lines = sse_lines_for_graph_event(_step_start(), state, **kwargs)
+    assert _preview_rows(start_lines, preview_id) == [('error', 'Not run')]
+    assert preview_id not in state.pending_tool_runs
+
+
+def test_turn_end_marks_a_preview_no_tool_bound_not_run() -> None:
+    state = GraphStreamState()
+    kwargs = _sse_kwargs()
+    preview_id = _stream_write_call(state, kwargs)
+    sse_lines_for_graph_event(_write_reply(), state, **kwargs)
+    lines = finalize_unconsumed_gemma_previews(state, agent_role=None, stream_tag='agent')
+    assert _preview_rows(lines, preview_id) == [('error', 'Not run')]
+    assert finalize_unconsumed_gemma_previews(state, agent_role=None, stream_tag='agent') == []
+
+
+def test_a_preview_bound_to_a_tool_run_ends_with_that_run() -> None:
+    state = GraphStreamState()
+    kwargs = _sse_kwargs()
+    preview_id = _stream_write_call(state, kwargs)
+    sse_lines_for_graph_event(_write_reply(), state, **kwargs)
+    run = {'name': 'write_workspace_file', 'run_id': 'lg-run'}
+    lines = [
+        *sse_lines_for_graph_event({'event': 'on_tool_start', **run, 'data': {'input': _WRITE_ARGS}}, state, **kwargs),
+        *sse_lines_for_graph_event({'event': 'on_tool_end', **run, 'data': {'output': 'Created'}}, state, **kwargs),
+        *sse_lines_for_graph_event(_step_start(), state, **kwargs),
+        *finalize_unconsumed_gemma_previews(state, agent_role=None, stream_tag='agent'),
+    ]
+    assert [row[0] for row in _preview_rows(lines, preview_id)] == ['running', 'complete']
 
 
 @patch('clara_coder_backend.lang_agent.langgraph_sse.get_active_connection')
@@ -1377,6 +1485,22 @@ def test_native_tool_call_chunks_parallel_calls_get_distinct_previews() -> None:
     assert [_sse_json(ln)['status']['id'] for ln in bound_b if '"type": "status"' in ln] == [rows[1]['id']]
 
 
+def test_native_tool_previews_stay_distinct_across_streams_of_one_turn() -> None:
+    """Plan discovery then execution each stream with a fresh state; the renderer keys rows by id."""
+    kwargs = _sse_kwargs()
+    event = {
+        'event': 'on_chat_model_stream',
+        'data': {'chunk': _native_tool_chunk(index=0, name='read_workspace_file', args='', call_id='c1')},
+    }
+    ids = []
+    for state in (GraphStreamState(), GraphStreamState()):
+        lines = sse_lines_for_graph_event(event, state, **kwargs)
+        ids += [_sse_json(ln)['status']['id'] for ln in lines if '"type": "status"' in ln]
+    assert len(ids) == 2
+    assert all(i.startswith('native-tool-preview-') for i in ids)
+    assert ids[0] != ids[1]
+
+
 def _stream_line_kinds(lines: list[str]) -> list[tuple[str, str]]:
     kinds: list[tuple[str, str]] = []
     for ln in lines:
@@ -1426,7 +1550,7 @@ def test_native_tool_preview_follows_prose_tail_in_the_same_chunk() -> None:
     assert _stream_line_kinds(lines) == [('chunk', ' spawn code.'), ('status', 'search_workspace')]
 
 
-def test_native_preview_reset_per_llm_step_and_completed_when_no_tool_calls() -> None:
+def test_native_preview_reset_per_llm_step_and_not_run_when_no_tool_calls() -> None:
     state = GraphStreamState()
     kwargs = _sse_kwargs()
     sse_lines_for_graph_event(
@@ -1451,7 +1575,7 @@ def test_native_preview_reset_per_llm_step_and_completed_when_no_tool_calls() ->
         for ln in end_lines
         if '"type": "status"' in ln and _sse_json(ln)['status']['id'] == preview_id
     ]
-    assert done and done[0]['state'] == 'complete'
+    assert [(row['state'], row['detail']) for row in done] == [('error', 'Not run')]
     assert preview_id not in state.pending_tool_runs
 
     sse_lines_for_graph_event(

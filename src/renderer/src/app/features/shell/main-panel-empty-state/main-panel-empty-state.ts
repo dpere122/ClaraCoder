@@ -33,10 +33,13 @@ export class MainPanelEmptyStateComponent {
   /** Dev bridge tab only: the workspace the app's main window has open, offered as "Join". */
   readonly mainWindowWorkspace = input<Workspace | null>(null);
   readonly joinMainWindow = output<void>();
+  /** Names core dependencies that still need downloading; non-empty flags the Dependencies action. */
+  readonly missingDependencies = input('');
   readonly addWorkspace = output<void>();
   readonly openWorkspace = output<string>();
   readonly toggleFavorite = output<string>();
   readonly reorderFavorites = output<string[]>();
+  readonly openSources = output<void>();
   readonly openModelManager = output<void>();
   readonly openDependencies = output<void>();
   readonly defaultHomePageChange = output<boolean>();

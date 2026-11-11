@@ -22,6 +22,11 @@ from clara_coder_backend.config import (
     CLARA_FASTEMBED_THREADS,
 )
 from clara_coder_backend.runtime.deps.paths import get_runtime_dir
+from clara_coder_backend.workspace_index.thread_priority import (
+    lower_thread_priority,
+    native_thread_ids,
+    python_thread_ids,
+)
 
 logger = logging.getLogger('clara.workspace_index.fastembed')
 
@@ -129,7 +134,7 @@ def _load_text_embedding(model_name: str, cache_dir: Path) -> Any:
     except ImportError as exc:
         raise RuntimeError(
             'CPU embeddings require fastembed and onnxruntime in the Clara Python runtime. '
-            'Open Dependencies and update Python runtime, or pip install fastembed onnxruntime.'
+            'Reinstall Clara Coder, or pip install fastembed onnxruntime.'
         ) from exc
 
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -147,6 +152,7 @@ def _load_text_embedding(model_name: str, cache_dir: Path) -> Any:
             cache_dir,
         )
     logger.debug('onnxruntime version=%s', getattr(onnxruntime, '__version__', 'unknown'))
+    threads_before = native_thread_ids()
     engine = TextEmbedding(
         model_name=model_name,
         cache_dir=str(cache_dir),
@@ -155,11 +161,17 @@ def _load_text_embedding(model_name: str, cache_dir: Path) -> Any:
         cuda=False,
         enable_cpu_mem_arena=False,
     )
+    # Indexing a workspace keeps these busy for minutes, so they yield to the desktop. Only ONNX's
+    # pool threads: the calling thread holds the GIL between batches, and starving it would stall
+    # the backend's event loop behind low-priority work. A load can download for minutes, so other
+    # Python threads started meanwhile are left out too.
+    lowered = lower_thread_priority(native_thread_ids() - threads_before - python_thread_ids())
     logger.info(
-        'CPU FastEmbed model=%s ready cache_dir=%s onnx_threads=%s',
+        'CPU FastEmbed model=%s ready cache_dir=%s onnx_threads=%s low_priority_threads=%s',
         model_name,
         cache_dir,
         _ONNX_INTRA_OP_THREADS,
+        lowered,
     )
     return engine
 
@@ -363,7 +375,7 @@ def build_fastembed_embedding() -> tuple[BaseEmbedding | None, str]:
         return (
             None,
             f'Semantic index unavailable (CPU FastEmbed {type(exc).__name__}: {exc}). '
-            'Install fastembed/onnxruntime in the Clara Python runtime (Dependencies).',
+            'Install fastembed/onnxruntime in the Clara Python runtime (reinstall Clara Coder).',
         )
     logger.info('Using CPU FastEmbed embeddings (primary) model=%s cache_dir=%s', model_name, cache_dir)
     return embed, ''

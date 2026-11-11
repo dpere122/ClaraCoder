@@ -34,6 +34,24 @@ import {
   buildManagedLlamaSpawnEnv,
 } from './llama-server-manager';
 
+/**
+ * Windows only lets admins or Developer Mode users create file symlinks (and a junction cannot
+ * point at a file), so the symlink test is skipped where the OS refuses. CI runners can make them.
+ */
+function canCreateFileSymlinks(): boolean {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'clara-symlink-probe-'));
+  try {
+    const target = path.join(dir, 'target');
+    writeFileSync(target, '');
+    symlinkSync(target, path.join(dir, 'link'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 describe('resolveAllowedManagedLlamaServerBinary', () => {
   beforeEach(() => {
     tempBinDir = mkdtempSync(path.join(os.tmpdir(), 'clara-bin-'));
@@ -71,7 +89,7 @@ describe('resolveAllowedManagedLlamaServerBinary', () => {
     expect(r.ok).toBe(false);
   });
 
-  it('rejects a symlink inside runtime/bin that points outside', () => {
+  it.skipIf(!canCreateFileSymlinks())('rejects a symlink inside runtime/bin that points outside', () => {
     const target = path.join(os.tmpdir(), 'outside-evil');
     writeFileSync(target, '#!/bin/sh\n');
     const link = path.join(tempBinDir, 'llama-server');
@@ -102,9 +120,11 @@ describe('managedLlamaCommandToSpawnArgv (tokenizer + allowlist)', () => {
     rmSync(tempBinDir, { recursive: true, force: true });
   });
 
+  // The binary is quoted, as in real commands: the temp dir can hold a character the tokenizer
+  // rejects in an unquoted token (CI runners use the 8.3 name `C:\Users\RUNNER~1\...`).
   it('accepts a valid command and resolves the allowlisted binary', () => {
     const bin = path.join(tempBinDir, 'llama-server');
-    const r = managedLlamaCommandToSpawnArgv(`${bin} -m model.gguf -c 2048`);
+    const r = managedLlamaCommandToSpawnArgv(`"${bin}" -m model.gguf -c 2048`);
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(path.basename(r.bin)).toBe('llama-server');
@@ -117,7 +137,7 @@ describe('managedLlamaCommandToSpawnArgv (tokenizer + allowlist)', () => {
     const outside = path.join(os.tmpdir(), 'evil-bin');
     writeFileSync(outside, '#!/bin/sh\n');
     try {
-      const r = managedLlamaCommandToSpawnArgv(`${outside} http://x.evil`);
+      const r = managedLlamaCommandToSpawnArgv(`"${outside}" http://x.evil`);
       expect(r.ok).toBe(false);
     } finally {
       rmSync(outside, { force: true });

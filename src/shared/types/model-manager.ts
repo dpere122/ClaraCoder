@@ -1,5 +1,8 @@
 export type ModelManagerEntryKind = 'file' | 'hubRepo';
 
+/** Where saved secrets land on disk: OS-keychain ciphertext, or the mode-0600 plaintext fallback. */
+export type SecretStorageMode = 'keychain' | 'plaintext';
+
 export interface ModelManagerFileEntry {
   fileName: string;
   absolutePath: string;
@@ -13,7 +16,7 @@ export interface ModelManagerFileEntry {
   /**
    * Snapshot language GGUF inside a hub repo folder when exactly one non-mmproj
    * model file is present. Used so Settings can emit ``-m`` instead of ``-hf``.
-   * Projector files named ``*mmproj*`` do not count against this.
+   * Projector files named ``*mmproj*``, MTP heads named ``mtp-*`` and draft heads do not count against this.
    */
   ggufAbsolutePath?: string;
   /**
@@ -21,6 +24,8 @@ export interface ModelManagerFileEntry {
    * pick among several). Auto writes this as ``--mmproj`` on ``-m`` commands.
    */
   mmprojAbsolutePath?: string;
+  /** Snapshot MTP head GGUF when the hub folder has one, for ``--spec-draft-model``. */
+  mtpAbsolutePath?: string;
 }
 
 export type ModelManagerListModelsResult =
@@ -53,6 +58,50 @@ export type ModelManagerHfSearchResult =
     }
   | { ok: false; error: string };
 
+/** Public profile of a Hugging Face org or user (uploader, or the base model's provider). */
+export interface HuggingFaceOwnerInfo {
+  name: string;
+  fullname: string;
+  kind: 'org' | 'user';
+  /** Avatar inlined as a ``data:`` URL by main (the renderer CSP blocks remote images); null when unavailable. */
+  avatarDataUrl: string | null;
+  verified: boolean;
+  numModels: number | null;
+  numFollowers: number | null;
+  /** Short profile blurb; empty when the owner has none. */
+  details: string;
+}
+
+/** Repo facts for the Model Manager detail panel, from ``/api/models/{id}`` plus owner profiles. */
+export interface HuggingFaceModelDetails {
+  id: string;
+  author: string;
+  downloads: number;
+  likes: number;
+  createdAt: string;
+  lastModified: string;
+  license: string;
+  /** ``base_model`` card entries, e.g. ``Qwen/Qwen3.8-27B``. */
+  baseModels: string[];
+  pipelineTag: string;
+  architecture: string;
+  /** Parameter count from the GGUF header; null when HF did not parse one. */
+  parameterCount: number | null;
+  contextLength: number | null;
+  /** Bytes the repo uses on the Hub (all files). */
+  storageBytes: number | null;
+  gated: boolean;
+  private: boolean;
+  tags: string[];
+  uploader: HuggingFaceOwnerInfo | null;
+  /** Owner of the first base model when it differs from the uploader; null otherwise. */
+  provider: HuggingFaceOwnerInfo | null;
+}
+
+export type ModelManagerHfDetailsResult =
+  | { ok: true; details: HuggingFaceModelDetails }
+  | { ok: false; error: string };
+
 /** A single downloadable GGUF file (quant variant) discovered for a Hugging Face repo. */
 export interface HuggingFaceModelFile {
   /** Repo-relative file path, e.g. ``model-Q4_K_M.gguf``. */
@@ -61,6 +110,8 @@ export interface HuggingFaceModelFile {
   quant: string;
   /** File size in bytes when the HF tree API exposed it; null when unknown. */
   sizeBytes: number | null;
+  /** Set for a separate MTP or draft head, which works beside a model and can't load as one. */
+  role?: 'mtp' | 'draft' | 'mmproj';
 }
 
 export type ModelManagerHfFilesResult =
@@ -70,8 +121,11 @@ export type ModelManagerHfFilesResult =
 /** Stable id for a single HF quant download: ``${repoId}/${fileName}``. */
 export type HfDownloadId = string;
 
-/** Phase of an in-flight Hugging Face GGUF download streamed to the renderer. */
-export type HfDownloadPhase = 'queued' | 'progress' | 'done' | 'error' | 'cancelled';
+/**
+ * Phase of a Hugging Face GGUF download streamed to the renderer. ``paused`` keeps the partial file
+ * for a later resume and ``cancelled`` deletes it.
+ */
+export type HfDownloadPhase = 'queued' | 'progress' | 'paused' | 'done' | 'error' | 'cancelled';
 
 /** Progress event for a Hugging Face GGUF download, sent main → renderer. */
 export interface HfDownloadProgressEvent {
@@ -87,6 +141,23 @@ export interface HfDownloadProgressEvent {
   /** Absolute path of the finished file (only meaningful for ``done``). */
   absolutePath?: string;
   /** Human-readable error message (only meaningful for ``error``). */
+  error?: string;
+  /** On ``error``: the partial file was kept, so the download stays listed and can be resumed. */
+  resumable?: boolean;
+}
+
+/** ``downloading`` covers the wait before the first byte; the other two are stopped and resumable. */
+export type HfDownloadStatus = 'downloading' | 'paused' | 'error';
+
+/** A download main is running or holding a partial file for, as listed to a window that just opened. */
+export interface HfDownloadSnapshot {
+  downloadId: HfDownloadId;
+  repoId: string;
+  fileName: string;
+  status: HfDownloadStatus;
+  receivedBytes: number;
+  totalBytes: number | null;
+  /** Why it stopped (only for ``error``). */
   error?: string;
 }
 

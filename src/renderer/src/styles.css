@@ -8,6 +8,13 @@
  * theme font when unset.
  */
 
+/* Curly quotes only, for UI fonts that draw them a full em wide (see `applyAppFontOverrides`). */
+@font-face {
+  font-family: 'Clara Narrow Quotes';
+  src: local('Segoe UI'), local('Helvetica Neue'), local('Arial'), local('DejaVu Sans');
+  unicode-range: U+2018-2019, U+201C-201D;
+}
+
 /* Lucide (lucide-angular): align with text and inherit theme color */
 lucide-icon {
   display: inline-flex;
@@ -204,9 +211,8 @@ app-conversation-manager .conv-context-menu {
   border-radius: var(--chat-radius) !important;
 }
 
-/* Managed llama-server row in the workspace footer: Start/Stop, settings. */
+/* Managed llama-server Start/Stop, and the workspace settings cog. */
 app-managed-llama-controls .managed-llama-controls__btn,
-app-workspace .workspace-footer-model-row .workspace-icon-btn,
 app-workspace .workspace-tree-cog {
   border-radius: 999px !important;
 }
@@ -246,7 +252,11 @@ app-pill-select .pill-select__option,
 .settings-window .model-manager-accordion > summary,
 .settings-window .model-card__header-btn,
 .settings-window .model-quant-row,
-.settings-window .lm-loaded-card,
+.settings-window .lms-alert,
+.settings-window .lms-tile,
+.settings-window .lms-running,
+.settings-window .lms-suggest,
+.settings-window .lms-panel,
 .settings-window .cache-location-loading,
 .settings-window .settings-voice-device-select,
 .settings-window .settings-voice-threshold button,
@@ -261,16 +271,20 @@ app-pill-select .pill-select__option,
 }
 
 .settings-window .pill,
+.settings-window .lms-badge,
+.settings-window .lms-meter,
+.settings-window .lms-meter > span,
 .settings-window .section-count,
 .settings-window .models-sources__count,
 .settings-window .settings-field-hint code,
+.settings-window .tll__swatches,
 .settings-window .source-row__remove {
   border-radius: var(--chat-radius-sm) !important;
 }
 
-/* Floating markdown Edit | Preview pill over the Monaco editor. */
-app-workspace-monaco .workspace-monaco-md-toggle,
-app-workspace-monaco .workspace-monaco-md-toggle__btn {
+/* Markdown Edit | Preview pill on the editor tab strip. */
+.workspace-monaco-md-toggle,
+.workspace-monaco-md-toggle__btn {
   border-radius: 999px !important;
 }
 
@@ -1035,9 +1049,9 @@ html app-message-box .composer-input-wrap .form-control:focus {
   outline-offset: -1px;
 }
 
-html app-message-box .composer-input-wrap .form-control--multiline {
-  padding-top: 0.1rem;
-  padding-bottom: 0.1rem;
+html app-message-box .composer-entry-row .composer-input-wrap .composer-field {
+  padding-top: 0.22rem;
+  padding-bottom: 0.22rem;
   line-height: 1.35;
 }
 
@@ -1065,6 +1079,7 @@ html app-message-box .composer-entry-row .composer-prompt {
   border-radius: var(--chat-radius) !important;
 }
 
+html app-message-box .composer-entry-row .btn-send,
 html app-message-box .composer-entry-row .btn-abort {
   padding: 0.2rem 0.6rem;
   min-width: 2.15rem;

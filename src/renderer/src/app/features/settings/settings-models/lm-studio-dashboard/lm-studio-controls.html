@@ -1,0 +1,229 @@
+<div class='lms-controls'>
+  <div class='lms-controls__side'>
+    <section class='lms-panel'>
+      <div class='lms-panel__head'>
+        <h5>Load settings</h5>
+        <span class='lms-muted'>Used each time Clara loads the model</span>
+      </div>
+
+      <div class='lms-control-grid'>
+        <label class='field'>
+          <span>Context length</span>
+          <app-pill-select
+            [options]='contextOptions()'
+            [value]='contextValue()'
+            (valueChange)="onIntSetting('contextLength', $event)"
+          />
+          <small class='lms-hint'>How much conversation fits in memory. Larger uses more VRAM.</small>
+        </label>
+        <label class='field'>
+          <span>Parallel requests</span>
+          <app-pill-select
+            [options]='parallelOptions'
+            [value]='String(s.lmStudioSettings().parallel)'
+            (valueChange)="onIntSetting('parallel', $event)"
+          />
+          <small class='lms-hint'>How many requests LM Studio handles at once. Clara runs its own sub-agents one at a time here.</small>
+        </label>
+        <label class='field'>
+          <span>Eval batch size</span>
+          <app-pill-select
+            [options]='batchOptions'
+            [value]='String(s.lmStudioSettings().evalBatchSize)'
+            (valueChange)="onIntSetting('evalBatchSize', $event)"
+          />
+          <small class='lms-hint'>Tokens read per step. Higher reads prompts faster and uses more memory.</small>
+        </label>
+      </div>
+
+      <div class='lms-toggle-grid'>
+        <label class='lms-toggle'>
+          <input
+            type='checkbox'
+            [ngModel]='s.lmStudioSettings().flashAttention'
+            (ngModelChange)='s.updateLmStudioSettings({ flashAttention: $event })'
+          />
+          <span>
+            <strong>Flash attention</strong>
+            <small class='lms-hint'>Can use less memory and run faster.</small>
+          </span>
+        </label>
+        <label class='lms-toggle'>
+          <input
+            type='checkbox'
+            [ngModel]='s.lmStudioSettings().offloadKvCacheToGpu'
+            (ngModelChange)='s.updateLmStudioSettings({ offloadKvCacheToGpu: $event })'
+          />
+          <span>
+            <strong>Keep KV cache on the GPU</strong>
+            <small class='lms-hint'>Faster. Turn off to keep it in RAM if VRAM runs out.</small>
+          </span>
+        </label>
+      </div>
+
+      @if (card()?.runningConfig; as running) {
+        <div class='lms-running' [class.lms-running--stale]='s.lmStudioNeedsReload()'>
+          <div class='lms-running__facts'>
+            <strong>{{ s.lmStudioNeedsReload() ? 'Running with different settings' : 'Running with these settings' }}</strong>
+            <span class='lms-muted'>
+              {{ formatTokens(running.contextLength) }} context
+              @if (running.parallel) { · {{ running.parallel }} parallel }
+              @if (running.evalBatchSize) { · batch {{ running.evalBatchSize.toLocaleString() }} }
+              @if (running.flashAttention !== undefined) { · flash attention {{ running.flashAttention ? 'on' : 'off' }} }
+              @if (running.offloadKvCacheToGpu !== undefined) { · KV cache in {{ running.offloadKvCacheToGpu ? 'VRAM' : 'RAM' }} }
+            </span>
+          </div>
+          @if (s.lmStudioNeedsReload()) {
+            <button
+              type='button'
+              class='action-button action-button--primary'
+              [disabled]='s.lmStudioModelBusy(card()!.id)'
+              (click)='s.reloadLmStudioChatModel()'
+            >
+              <lucide-icon name='rotate-ccw' [size]='12' />
+              {{ s.lmStudioModelBusy(card()!.id) ? 'Reloading…' : 'Reload' }}
+            </button>
+          }
+        </div>
+      }
+
+      <hr class='settings-divider' />
+
+      <label class='lms-toggle'>
+        <input
+          type='checkbox'
+          [ngModel]='s.lmStudioSettings().autoLoad'
+          (ngModelChange)='s.updateLmStudioSettings({ autoLoad: $event })'
+        />
+        <span>
+          <strong>Load with these settings when you send a message</strong>
+          <small class='lms-hint'>
+            @if (s.lmStudioSettings().autoLoad) {
+              If the model isn't loaded, Clara loads it first. It stays loaded until you unload it.
+            } @else {
+              If the model isn't loaded, LM Studio loads it with its own settings, not the ones above.
+            }
+          </small>
+        </span>
+      </label>
+      @if (!s.lmStudioSettings().autoLoad) {
+        <label class='field lms-idle'>
+          <span>Unload after idle</span>
+          <app-pill-select
+            [options]='idleOptions'
+            [value]='String(s.lmStudioSettings().idleTtlSeconds)'
+            (valueChange)="onIntSetting('idleTtlSeconds', $event)"
+          />
+          <small class='lms-hint'>LM Studio only does this for models it loaded itself.</small>
+        </label>
+      }
+    </section>
+
+    <ng-content />
+  </div>
+
+  @if (connection(); as c) {
+    <section class='lms-panel'>
+      <div class='lms-panel__head'>
+        <h5>Response settings</h5>
+        <span class='lms-muted'>Sent with every message, no reload needed</span>
+      </div>
+
+      <div class='lms-control-grid lms-control-grid--two'>
+        <label class='field'>
+          <span>Clara profile</span>
+          <app-pill-select
+            [options]='profileOptions()'
+            [value]='c.optimizationPreset'
+            (valueChange)='s.onOptimizationPresetChange($event)'
+          />
+          <small class='lms-hint'>{{ s.readyDefaultsSummary() }}</small>
+        </label>
+        @if (thinkingOptions().length > 1) {
+          <label class='field'>
+            <span>Thinking</span>
+            <app-pill-select
+              [options]='thinkingOptions()'
+              [value]='thinkingValue()'
+              (valueChange)='onThinkingChange($event)'
+            />
+            <small class='lms-hint'>The options this model reports. Off answers much faster.</small>
+          </label>
+        }
+      </div>
+
+      @if (suggestedProfile(); as suggested) {
+        <div class='lms-suggest'>
+          <span>This model matches the {{ suggested.label }} profile.</span>
+          <button type='button' class='action-button action-button--compact' (click)='s.onOptimizationPresetChange(suggested.id)'>
+            Use it
+          </button>
+        </div>
+      }
+
+      <label class='field'>
+        <span>Temperature <b class='lms-value'>{{ c.temperature }}</b></span>
+        <input
+          type='range'
+          min='0'
+          max='1'
+          step='0.05'
+          aria-label='Temperature'
+          [ngModel]='c.temperature'
+          (ngModelChange)='s.onTemperatureChange($event)'
+        />
+        <small class='lms-hint'>Lower is more predictable, higher is more varied.</small>
+      </label>
+
+      <div class='lms-control-grid lms-control-grid--tight'>
+        <label class='field'>
+          <span>Max output</span>
+          <input type='number' min='0' max='200000' step='256' placeholder='0' [ngModel]='c.maxOutputTokens' (ngModelChange)='s.onMaxOutputTokensChange($event)' />
+          <small class='lms-hint'>0 means 24,576 per reply.</small>
+        </label>
+        <label class='field'>
+          <span>Top P</span>
+          <input type='number' min='0' max='1' step='0.01' placeholder='Not set' [ngModel]='c.topP' (ngModelChange)='s.onOptionalTopPChange($event)' />
+          <small class='lms-hint'>0–1</small>
+        </label>
+        <label class='field'>
+          <span>Top K</span>
+          <input type='number' min='1' max='256' step='1' placeholder='Not set' [ngModel]='c.topK' (ngModelChange)='s.onOptionalTopKChange($event)' />
+          <small class='lms-hint'>1–256</small>
+        </label>
+        <label class='field'>
+          <span>Min P</span>
+          <input type='number' min='0' max='1' step='0.01' placeholder='Not set' [ngModel]='c.minP' (ngModelChange)='s.onOptionalMinPChange($event)' />
+          <small class='lms-hint'>0–1</small>
+        </label>
+        <label class='field'>
+          <span>Repeat penalty</span>
+          <input type='number' min='0.01' max='4' step='0.05' placeholder='Not set' [ngModel]='c.repeatPenalty' (ngModelChange)='s.onOptionalRepeatPenaltyChange($event)' />
+          <small class='lms-hint'>0.01–4</small>
+        </label>
+        <label class='field'>
+          <span>Presence penalty</span>
+          <input type='number' min='-2' max='2' step='0.05' placeholder='Not set' [ngModel]='c.presencePenalty' (ngModelChange)='s.onOptionalPresencePenaltyChange($event)' />
+          <small class='lms-hint'>−2–2</small>
+        </label>
+      </div>
+
+      <label class='lms-toggle'>
+        <input
+          type='checkbox'
+          [ngModel]='c.parallelToolCalls'
+          (ngModelChange)='s.updateSelectedModel({ parallelToolCalls: $event })'
+        />
+        <span>
+          <strong>Parallel tool calls</strong>
+          <small class='lms-hint'>Asks the model to batch several tool calls in one reply.</small>
+        </span>
+      </label>
+
+      <button type='button' class='action-button lms-reset' (click)='s.onOptimizationPresetChange(c.optimizationPreset)'>
+        <lucide-icon name='rotate-ccw' [size]='12' />
+        Reset to profile values
+      </button>
+    </section>
+  }
+</div>

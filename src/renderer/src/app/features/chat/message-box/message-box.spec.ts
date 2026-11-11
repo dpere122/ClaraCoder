@@ -1,5 +1,5 @@
 import { signal } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { type ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { BehaviorSubject, Subject } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,9 +8,9 @@ import type {
   ConversationMessage,
   LlamaServerLifecycleEvent,
   LlamaServerStatusResult,
+  LlmSourcePingResult,
 } from '@shared/index';
 import {
-  PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
   PINNED_LM_STUDIO_PROVIDER_ID,
   SecretValue,
 } from '@shared/index';
@@ -25,7 +25,7 @@ function localLlamaConfig(modelId = 'local-model'): AppConfig {
     activeLlmModelId: modelId,
     llmProviders: [
       {
-        id: PINNED_LLAMA_CPP_LOCAL_PROVIDER_ID,
+        id: 'local-source',
         name: 'Local llama.cpp',
         provider: 'llamacpp',
         baseUrl: '',
@@ -98,12 +98,18 @@ describe('MessageBox', () => {
     }),
   );
 
+  const llmSourcePing = vi.fn(async (): Promise<LlmSourcePingResult> => ({ ok: true }));
+
   const sessionMessages = signal<ConversationMessage[]>([]);
+  const pendingIds = signal<Set<string>>(new Set());
   const liveRates = signal<Record<string, LiveGenerationRate>>({});
   const drainingIds = signal<ReadonlySet<string>>(new Set());
 
   beforeEach(() => {
     sessionMessages.set([]);
+    pendingIds.set(new Set());
+    llmSourcePing.mockReset();
+    llmSourcePing.mockResolvedValue({ ok: true });
     drainingIds.set(new Set());
     liveRates.set({});
     llamaServerStatus.mockReset();
@@ -126,6 +132,7 @@ describe('MessageBox', () => {
             llamaServerLifecycle$: lifecycleSubject.asObservable(),
             llamaServerProcessExit$: processExitSubject.asObservable(),
             llamaServerStatus,
+            llmSourcePing,
             refreshChatTemplateReasoning: vi.fn(async () => null),
           },
         },
@@ -135,6 +142,7 @@ describe('MessageBox', () => {
             activeConversationId: signal('conv-1'),
             messages: sessionMessages,
             drainingConversationIds: drainingIds,
+            pendingIds,
           },
         },
         { provide: GenerationRateService, useValue: { live: liveRates } },
@@ -176,7 +184,111 @@ describe('MessageBox', () => {
     expect(send.disabled).toBe(false);
   });
 
-  it('keeps Send enabled for a non-llama source with a resolvable connection', async () => {
+  describe('a running llama-server missing health checks', () => {
+    const missing = {
+      ok: true,
+      running: true,
+      modelId: 'local-model',
+      chat: { port: 8080, health: 'error' },
+    } as LlamaServerStatusResult;
+    const healthy = { ...missing, chat: { port: 8080, health: 'ok' } } as LlamaServerStatusResult;
+
+    async function setup(): Promise<{ fixture: ComponentFixture<MessageBox>; send: HTMLButtonElement }> {
+      const fixture = TestBed.createComponent(MessageBox);
+      fixture.componentRef.setInput('appConfig', localLlamaConfig());
+      fixture.detectChanges();
+      await flush();
+      fixture.detectChanges();
+      const send = (fixture.nativeElement as HTMLElement).querySelector('.btn-send') as HTMLButtonElement;
+      return { fixture, send };
+    }
+
+    async function reprobe(fixture: ComponentFixture<MessageBox>): Promise<void> {
+      window.dispatchEvent(new Event('focus'));
+      await flush();
+      fixture.detectChanges();
+    }
+
+    it('stays on after one miss: the server may only be busy', async () => {
+      llamaServerStatus.mockResolvedValue(missing);
+      const { send } = await setup();
+      expect(send.disabled).toBe(false);
+    });
+
+    it('locks after a second miss in a row, and unlocks when it answers again', async () => {
+      llamaServerStatus.mockResolvedValue(missing);
+      const { fixture, send } = await setup();
+      await reprobe(fixture);
+      expect(send.disabled).toBe(true);
+      expect(send.title).toBe("The local llama-server isn't responding");
+
+      llamaServerStatus.mockResolvedValue(healthy);
+      await reprobe(fixture);
+      expect(send.disabled).toBe(false);
+    });
+
+    it('does not count separated misses as a row', async () => {
+      llamaServerStatus.mockResolvedValue(missing);
+      const { fixture, send } = await setup();
+      llamaServerStatus.mockResolvedValue(healthy);
+      await reprobe(fixture);
+      llamaServerStatus.mockResolvedValue(missing);
+      await reprobe(fixture);
+      expect(send.disabled).toBe(false);
+    });
+
+    it('does not count misses during a turn, when the server is expected to be busy', async () => {
+      llamaServerStatus.mockResolvedValue(healthy);
+      const { fixture, send } = await setup();
+      llamaServerStatus.mockResolvedValue(missing);
+      pendingIds.set(new Set(['conv-2']));
+      fixture.detectChanges();
+      await flush();
+      fixture.detectChanges();
+      await reprobe(fixture);
+      expect(send.disabled).toBe(false);
+    });
+
+    it('keeps the reason when only the embedding server exits', async () => {
+      llamaServerStatus.mockResolvedValue(missing);
+      const { fixture, send } = await setup();
+      await reprobe(fixture);
+
+      processExitSubject.next({ modelId: 'local-model', stream: 'embed', code: 1, signal: null });
+      fixture.detectChanges();
+      expect(send.disabled).toBe(true);
+      expect(send.title).toBe("The local llama-server isn't responding");
+    });
+
+    it('lets a lifecycle event win over a status probe that was already out', async () => {
+      llamaServerStatus.mockResolvedValue(healthy);
+      const { fixture, send } = await setup();
+      let answer: (result: LlamaServerStatusResult) => void = () => undefined;
+      llamaServerStatus.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+      window.dispatchEvent(new Event('focus'));
+
+      lifecycleSubject.next({ phase: 'stopped', modelId: 'local-model' });
+      answer(healthy);
+      await flush();
+      fixture.detectChanges();
+
+      expect(send.disabled).toBe(true);
+      expect(send.title).toBe('Start the local llama-server to send');
+    });
+  });
+
+  it('does not ping a managed llama-server: its status and lifecycle events cover it', async () => {
+    const fixture = TestBed.createComponent(MessageBox);
+    fixture.componentRef.setInput('appConfig', localLlamaConfig());
+    fixture.detectChanges();
+    await flush();
+
+    expect(llmSourcePing).not.toHaveBeenCalled();
+  });
+
+  it('holds Send until the selected source answers its first ping', async () => {
+    let answer: (result: LlmSourcePingResult) => void = () => undefined;
+    llmSourcePing.mockReturnValue(new Promise((resolve) => (answer = resolve)));
     const fixture = TestBed.createComponent(MessageBox);
     fixture.componentRef.setInput('appConfig', openaiConfig());
     fixture.detectChanges();
@@ -184,7 +296,281 @@ describe('MessageBox', () => {
     fixture.detectChanges();
 
     const send = (fixture.nativeElement as HTMLElement).querySelector('.btn-send') as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    expect(send.title).toBe('Checking the connection…');
+
+    answer({ ok: true });
+    await flush();
+    fixture.detectChanges();
     expect(send.disabled).toBe(false);
+    expect(send.title).toBe('Send message');
+  });
+
+  it('blocks Send and Enter with the ping error when the source is unreachable', async () => {
+    const error = "Can't reach LM Studio at http://127.0.0.1:1234";
+    llmSourcePing.mockResolvedValue({ ok: false, error });
+    const fixture = TestBed.createComponent(MessageBox);
+    const sent: string[] = [];
+    fixture.componentInstance.messageSent.subscribe((text) => sent.push(text));
+    fixture.componentRef.setInput('appConfig', openaiConfig());
+    fixture.componentInstance.composerDraft.set('hello');
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const send = root.querySelector('.btn-send') as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    expect(send.title).toBe(error);
+    expect((root.querySelector('textarea.form-control') as HTMLTextAreaElement).placeholder).toBe(error);
+
+    fixture.componentInstance.send();
+    expect(sent).toEqual([]);
+    expect(fixture.componentInstance.composerDraft()).toBe('hello');
+  });
+
+  it('unlocks when the window regains focus and the source came back', async () => {
+    llmSourcePing.mockResolvedValue({ ok: false, error: 'down' });
+    const fixture = TestBed.createComponent(MessageBox);
+    fixture.componentRef.setInput('appConfig', openaiConfig());
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    const send = (fixture.nativeElement as HTMLElement).querySelector('.btn-send') as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+
+    llmSourcePing.mockResolvedValue({ ok: true });
+    window.dispatchEvent(new Event('focus'));
+    await flush();
+    fixture.detectChanges();
+    expect(send.disabled).toBe(false);
+  });
+
+  it('does not ping on focus during a turn, and re-checks when it ends', async () => {
+    const fixture = TestBed.createComponent(MessageBox);
+    fixture.componentRef.setInput('appConfig', openaiConfig());
+    fixture.detectChanges();
+    await flush();
+    pendingIds.set(new Set(['conv-2']));
+    fixture.detectChanges();
+    await flush();
+    llmSourcePing.mockClear();
+
+    window.dispatchEvent(new Event('focus'));
+    await flush();
+    expect(llmSourcePing).not.toHaveBeenCalled();
+
+    pendingIds.set(new Set());
+    fixture.detectChanges();
+    await flush();
+    expect(llmSourcePing).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps checking a locked source during a turn, so it can unlock', async () => {
+    llmSourcePing.mockResolvedValue({ ok: false, error: 'down' });
+    const fixture = TestBed.createComponent(MessageBox);
+    fixture.componentRef.setInput('appConfig', openaiConfig());
+    fixture.detectChanges();
+    await flush();
+    pendingIds.set(new Set(['conv-2']));
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    const send = (fixture.nativeElement as HTMLElement).querySelector('.btn-send') as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+
+    llmSourcePing.mockResolvedValue({ ok: true });
+    window.dispatchEvent(new Event('focus'));
+    await flush();
+    fixture.detectChanges();
+    expect(send.disabled).toBe(false);
+  });
+
+  it('does not lock on a ping missed mid-turn, but does if it still fails when the turn ends', async () => {
+    const fixture = TestBed.createComponent(MessageBox);
+    fixture.componentRef.setInput('appConfig', openaiConfig());
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    const send = (fixture.nativeElement as HTMLElement).querySelector('.btn-send') as HTMLButtonElement;
+
+    llmSourcePing.mockResolvedValue({ ok: false, error: 'down' });
+    pendingIds.set(new Set(['conv-2']));
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    expect(llmSourcePing).toHaveBeenCalledTimes(2);
+    expect(send.disabled).toBe(false);
+
+    pendingIds.set(new Set());
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    expect(send.disabled).toBe(true);
+    expect(send.title).toBe('down');
+  });
+
+  it('forgets the last answer when the source changes, but not on an unrelated config change', async () => {
+    const fixture = TestBed.createComponent(MessageBox);
+    const cfg = openaiConfig();
+    fixture.componentRef.setInput('appConfig', cfg);
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    const send = (fixture.nativeElement as HTMLElement).querySelector('.btn-send') as HTMLButtonElement;
+    expect(send.disabled).toBe(false);
+
+    llmSourcePing.mockReturnValue(new Promise(() => undefined));
+    fixture.componentRef.setInput('appConfig', { ...cfg });
+    fixture.detectChanges();
+    expect(send.disabled).toBe(false);
+
+    const provider = cfg.llmProviders[0];
+    fixture.componentRef.setInput('appConfig', {
+      ...cfg,
+      llmProviders: [{ ...provider, baseUrl: 'http://other/v1' }],
+    });
+    fixture.detectChanges();
+    expect(send.disabled).toBe(true);
+  });
+
+  describe('entry field', () => {
+    async function setup(draft: string): Promise<{
+      fixture: ComponentFixture<MessageBox>;
+      field: HTMLTextAreaElement;
+      sent: string[];
+      press: (init: KeyboardEventInit) => KeyboardEvent;
+    }> {
+      const fixture = TestBed.createComponent(MessageBox);
+      const sent: string[] = [];
+      fixture.componentInstance.messageSent.subscribe((text) => sent.push(text));
+      fixture.componentRef.setInput('appConfig', openaiConfig());
+      fixture.componentInstance.composerDraft.set(draft);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      await flush();
+      fixture.detectChanges();
+      const field = (fixture.nativeElement as HTMLElement).querySelector('textarea.form-control') as HTMLTextAreaElement;
+      const press = (init: KeyboardEventInit): KeyboardEvent => {
+        const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...init });
+        field.dispatchEvent(event);
+        fixture.detectChanges();
+        return event;
+      };
+      return { fixture, field, sent, press };
+    }
+
+    it('shows an arrow instead of the SEND label, and names the button for screen readers', async () => {
+      const { fixture } = await setup('');
+      const send = (fixture.nativeElement as HTMLElement).querySelector('.btn-send') as HTMLButtonElement;
+      expect(send.textContent?.trim()).toBe('');
+      expect(send.querySelector('lucide-icon[name="arrow-up"], .send-icon')).toBeTruthy();
+      expect(send.getAttribute('aria-label')).toBe('Send message');
+    });
+
+    it('is one textarea from the start, so long text can wrap', async () => {
+      const { fixture, field } = await setup('');
+      expect((fixture.nativeElement as HTMLElement).querySelector('input.form-control')).toBeNull();
+      expect(field.classList.contains('composer-field--expanded')).toBe(false);
+    });
+
+    it('sends on Enter while collapsed', async () => {
+      const { field, sent, press } = await setup('hello');
+      expect(press({}).defaultPrevented).toBe(true);
+      expect(sent).toEqual(['hello']);
+      expect(field.classList.contains('composer-field--expanded')).toBe(false);
+    });
+
+    it.each([{ ctrlKey: true }, { shiftKey: true }])(
+      'expands on %o without adding a line, sending, or moving the caret',
+      async (modifier) => {
+        const { fixture, field, sent, press } = await setup('some draft text');
+        field.setSelectionRange(4, 4);
+
+        expect(press(modifier).defaultPrevented).toBe(true);
+
+        expect(sent).toEqual([]);
+        expect(fixture.componentInstance.composerDraft()).toBe('some draft text');
+        expect(field.value).toBe('some draft text');
+        expect(field.selectionStart).toBe(4);
+        expect(field.classList.contains('composer-field--expanded')).toBe(true);
+        expect((fixture.nativeElement as HTMLElement).querySelector('textarea.form-control')).toBe(field);
+      },
+    );
+
+    it('does not run on from expanding into sending when the chord is held', async () => {
+      const { field, sent, press } = await setup('half a thought');
+      press({ ctrlKey: true });
+      expect(press({ ctrlKey: true, repeat: true }).defaultPrevented).toBe(true);
+      expect(sent).toEqual([]);
+      expect(field.classList.contains('composer-field--expanded')).toBe(true);
+    });
+
+    it('does not re-expand from a held chord after sending', async () => {
+      const { field, sent, press } = await setup('hello');
+      press({ ctrlKey: true });
+      press({ ctrlKey: true });
+      press({ ctrlKey: true, repeat: true });
+      expect(sent).toEqual(['hello']);
+      expect(field.classList.contains('composer-field--expanded')).toBe(false);
+    });
+
+    it('expands an empty entry without putting a line in it', async () => {
+      const { fixture, field, press } = await setup('');
+      press({ ctrlKey: true });
+      expect(fixture.componentInstance.composerDraft()).toBe('');
+      expect(field.classList.contains('composer-field--expanded')).toBe(true);
+    });
+
+    it.each([{ ctrlKey: true }, { shiftKey: true }])('once expanded, sends on %o and collapses', async (modifier) => {
+      const { field, sent, press } = await setup('hello');
+      press({ ctrlKey: true });
+      press(modifier);
+      expect(sent).toEqual(['hello']);
+      expect(field.classList.contains('composer-field--expanded')).toBe(false);
+    });
+
+    it('once expanded, leaves plain Enter to the textarea for a real new line', async () => {
+      const { sent, press } = await setup('hello');
+      press({ ctrlKey: true });
+      expect(press({}).defaultPrevented).toBe(false);
+      expect(sent).toEqual([]);
+    });
+
+    it('expands by itself for a draft that already has lines', async () => {
+      const { field } = await setup('two\nlines');
+      expect(field.classList.contains('composer-field--expanded')).toBe(true);
+    });
+
+    it('collapses from the prompt button, joining any lines', async () => {
+      const { fixture, field } = await setup('two\nlines');
+      ((fixture.nativeElement as HTMLElement).querySelector('.composer-prompt') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(fixture.componentInstance.composerDraft()).toBe('two lines');
+      expect(field.classList.contains('composer-field--expanded')).toBe(false);
+    });
+  });
+
+  it('says how to get out of a full context on Send and in both composer fields', async () => {
+    const fixture = TestBed.createComponent(MessageBox);
+    fixture.componentRef.setInput('appConfig', openaiConfig());
+    fixture.componentRef.setInput('contextBlocked', true);
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const hint = 'Context full: turn on context compaction in Settings or start a new conversation';
+    const send = root.querySelector('.btn-send') as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    expect(send.title).toBe(hint);
+    expect((root.querySelector('textarea.form-control') as HTMLTextAreaElement).placeholder).toBe(hint);
+
+    fixture.componentInstance.composerDraft.set('two\nlines');
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    expect((root.querySelector('textarea.form-control') as HTMLTextAreaElement).placeholder).toBe(hint);
   });
 
   it('shows the live tok/s while loading and the last saved turn dimmed afterwards', async () => {

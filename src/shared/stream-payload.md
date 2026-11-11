@@ -55,7 +55,7 @@ narrow the variant.
 | `final_text` | `text: string` | Terminal, non-streamed text to append after the stream closes. |
 | `clear_primary_stream` | _(none)_ | Instructs the UI to clear the primary stream buffer. |
 | `promote_primary_to_nudge` | _(none)_ | Retags live primary (`agent`) prose as a nudge preview because the graph is jumping back to the model. |
-| `context_compressed` | `tokensBefore`, `tokensAfter`, `toolMessagesCompacted`, `toolRoundsDropped` (all `number`) | Context window compaction event. |
+| `context_compressed` | `tokensBefore`, `tokensAfter`, `toolMessagesCompacted`, `toolRoundsDropped` (all `number`) | Older messages left what the model sees. `tokensBefore` and `tokensAfter` are absolute estimates of the full prompt; the context meter takes `tokensAfter` as its new reading. |
 | `subagent_started` | `conversationId`, `name`, `task`, `parentConversationId?`, `parentTurnId?`, `statusId?`, `background?` | The main agent's `spawn_subagent` call started a sub-agent. Sent before any of its events. Main creates the sub-agent's conversation row from it. |
 | `subagent_event` | `conversationId`, `payload: ParsedAgentStreamPayload \| null` | One event of a sub-agent's own stream, including its `file_journal` rows (journaled under the parent turn). `payload` is `null` (dropped) when the wrapped event is invalid or itself a `subagent_*` event. |
 | `subagent_finished` | `conversationId`, `outcome: 'completed' \| 'aborted' \| 'error'` | The sub-agent's turn ended (sent once, after all its events). Unknown outcomes read as `error`. |
@@ -214,7 +214,7 @@ noted) and lists the wire fields each branch reads.
 | `final_text` | `final_text` | `text` |
 | `clear_primary_stream` | `clear_primary_stream` | _(none)_ |
 | `promote_primary_to_nudge` | `promote_primary_to_nudge` | _(none)_ |
-| `context_compressed` | `context_compressed` | `tokens_before`/`tokensBefore`, `tokens_after`/`tokensAfter`, `tool_messages_compacted`/`toolMessagesCompacted`, `tool_rounds_dropped`/`toolRoundsDropped` |
+| `context_compressed` | `context_compressed` | `tokens_before`/`tokensBefore`, `tokens_after`/`tokensAfter` (absolute full-prompt estimates), `tool_messages_compacted`/`toolMessagesCompacted`, `tool_rounds_dropped`/`toolRoundsDropped` |
 | `subagent_started` | `subagent_started` | `conversation_id`, `parent_conversation_id`, `parent_turn_id`, `name`, `task`, `status_id`, `background` |
 | `subagent_event` | `subagent_event` | `conversation_id`, `payload` (object, parsed with `parseAgentStreamValue`) |
 | `subagent_finished` | `subagent_finished` | `conversation_id`, `outcome` |

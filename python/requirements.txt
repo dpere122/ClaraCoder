@@ -11,15 +11,19 @@ langgraph>=1.1,<2
 langgraph-checkpoint-sqlite>=3.0,<4
 aiosqlite>=0.22,<1
 langchain-openai>=1.1,<2
+# Claude source: ChatAnthropic on the official anthropic SDK.
+langchain-anthropic>=1.7,<2
 soundfile>=0.12,<0.14
 diff-match-patch>=20241021
-pypdf>=6.9,<7
-pillow>=10.4,<12
-black>=26,<27
+pypdf>=6.21.4,<7
+pillow>=13,<14; python_version >= "3.11"
+# Pillow 13 needs Python 3.11; 3.10 stays on the last line that supports it.
+pillow>=12.3,<13; python_version < "3.11"
+black>=26.10.1,<27
 basedpyright>=1.29,<1.40
 llama-index-core>=0.14,<0.15
 llama-index-embeddings-openai>=0.5,<0.7
-fastembed>=0.7.4,<0.8
+fastembed>=0.9.1,<0.10
 mcp>=1.12,<2
 onnxruntime>=1.17,<2
 numpy>=1.26,<3

@@ -4,6 +4,8 @@ import type { GpuInfo } from '../../shared';
 /** DXGI adapter info, extended with the PCI vendor id used to route to a vendor pipeline. */
 export interface DxgiGpuInfo extends GpuInfo {
   vendorId: number | null;
+  /** Adapter LUID as Windows counters write it: ``0x<high>_0x<low>``. */
+  luid: string;
 }
 
 export const NVIDIA_VENDOR_ID = 0x10de;
@@ -38,6 +40,7 @@ const DESC_SIZE = 304;
 const DESC_DESCRIPTION_BYTES = 256;
 const DESC_VENDOR_ID_OFFSET = 256;
 const DESC_DEDICATED_OFFSET = 272;
+const DESC_LUID_OFFSET = 296;
 /** Out-param slots are GC-managed Buffers (``koffi.alloc`` is an unfreed ``calloc``). */
 const POINTER_SIZE = 8;
 
@@ -67,6 +70,11 @@ function init(): void {
 
 function vtableMethod(vtable: bigint, index: number): bigint {
   return koffi.decode(vtable + BigInt(index) * BigInt(8), 'void *') as bigint;
+}
+
+function formatLuid(high: number, low: number): string {
+  const hex = (n: number): string => `0x${n.toString(16).padStart(8, '0')}`;
+  return `${hex(high)}_${hex(low)}`;
 }
 
 export function enumerateGpus(): DxgiGpuInfo[] {
@@ -108,6 +116,7 @@ export function enumerateGpus(): DxgiGpuInfo[] {
           utilPercent: null,
           memoryUsedMb: null,
           memoryTotalMb: dedicated > BigInt(0) ? Math.round(Number(dedicated) / 1048576) : null,
+          luid: formatLuid(desc.readUInt32LE(DESC_LUID_OFFSET + 4), desc.readUInt32LE(DESC_LUID_OFFSET)),
         });
       }
 

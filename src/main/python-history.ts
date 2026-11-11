@@ -21,6 +21,17 @@ function assistantHistoryContent(text: string, endedEarly: TurnEndedEarly | unde
   return text.trim() ? `${text}\n\n${marker}` : marker;
 }
 
+/** `context_tokens` of a `/load` response that kept the conversation's checkpoint, else 0. */
+export function keptCheckpointContextTokens(body: unknown): number {
+  if (!body || typeof body !== 'object') {
+    return 0;
+  }
+  const { kept_checkpoint: kept, context_tokens: tokens } = body as Record<string, unknown>;
+  return kept === true && typeof tokens === 'number' && Number.isFinite(tokens) && tokens > 0
+    ? Math.floor(tokens)
+    : 0;
+}
+
 /** User/assistant rows of a saved transcript in the shape Python `/load` takes. */
 export function pythonHistoryFromMessages(messages: ConversationFile['messages']): PythonHistoryMessage[] {
   const out: PythonHistoryMessage[] = [];

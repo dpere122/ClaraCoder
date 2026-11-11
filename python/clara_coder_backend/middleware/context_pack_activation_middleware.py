@@ -24,6 +24,7 @@ def _prepend_to_tool_message(tm: ToolMessage, prefix_merged_content: Any) -> Too
         content=prefix_merged_content,
         tool_call_id=str(getattr(tm, 'tool_call_id', '') or ''),
         name=str(getattr(tm, 'name', '') or ''),
+        status=tm.status,
     )
 
 

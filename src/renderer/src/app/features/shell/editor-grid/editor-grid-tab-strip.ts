@@ -11,8 +11,10 @@ import {
   input,
   output,
   signal,
+  type TemplateRef,
   viewChild,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import {
   CdkDrag,
   CdkDragHandle,
@@ -48,7 +50,7 @@ export interface EditorGridTabStripPointer {
 @Component({
   selector: 'app-editor-grid-tab-strip',
   standalone: true,
-  imports: [CdkDropList, CdkDrag, CdkDragHandle, LucideAngularModule],
+  imports: [NgTemplateOutlet, CdkDropList, CdkDrag, CdkDragHandle, LucideAngularModule],
   templateUrl: './editor-grid-tab-strip.html',
   styleUrl: './editor-grid-tab-strip.css',
 })
@@ -62,6 +64,8 @@ export class EditorGridTabStripComponent {
   readonly focused = input(false);
   readonly unsavedKeys = input<ReadonlySet<string>>(new Set());
   readonly detachedKeys = input<ReadonlySet<string>>(new Set());
+  /** Controls pinned to the right end of the strip; the tabs end before them. */
+  readonly actions = input<TemplateRef<unknown> | null>(null);
 
   readonly tabSelect = output<string>();
   readonly tabClose = output<string>();

@@ -192,6 +192,8 @@ class LoadRequest(BaseModel):
     session_id: str
     #: Each item should include ``role`` and either ``content`` or ``message`` / structured fields.
     messages: list[dict[str, Any]]
+    #: Reopening an unchanged conversation: keep a checkpoint whose sync row matches ``messages``.
+    keep_matching_checkpoint: bool = False
 
 
 class ClearRequest(BaseModel):
@@ -279,6 +281,21 @@ class TtsRequest(BaseModel):
         return v
 
 
+class OpenAiCompatRequest(BaseModel):
+    """What an ``openai-compatible`` server accepts; see ``OpenAiCompatSettings`` in the app."""
+
+    tokensField: Literal['max_tokens', 'max_completion_tokens'] = 'max_tokens'
+    thinkingMethod: Literal['none', 'reasoning_effort', 'reasoning', 'chat_template_kwargs'] = 'none'
+    sendTemperature: bool = True
+    sendParallelToolCalls: bool = True
+    streamUsage: bool = True
+    nonStandardSampling: bool = False
+    frequencyPenalty: float | None = Field(default=None, ge=-2.0, le=2.0)
+    seed: int | None = None
+    stop: list[str] = Field(default_factory=list)
+    extraBody: str = ''
+
+
 class ChatTemplateReasoningCapsRequest(BaseModel):
     """Live reasoning caps, not a persisted setting: a llama-server Jinja scan (Electron ``GET /props``)
     or, for OpenRouter, the model catalog's ``reasoning`` block (``enableThinking`` = can be turned off).
@@ -286,6 +303,10 @@ class ChatTemplateReasoningCapsRequest(BaseModel):
 
     enableThinking: bool = False
     reasoningEffortValues: list[str] | None = None
+    # Claude only: the Models API says the model accepts ``thinking: {type: "adaptive"}``.
+    adaptiveThinking: bool = False
+    # llama-server only: ``modalities.vision`` from ``GET /props``; None when the server does not say.
+    vision: bool | None = None
 
 
 class RuntimeConnectionRequest(BaseModel):
@@ -293,7 +314,7 @@ class RuntimeConnectionRequest(BaseModel):
 
     id: str
     name: str
-    provider: Literal['openai', 'lmstudio', 'llamacpp', 'openrouter']
+    provider: Literal['openai', 'lmstudio', 'llamacpp', 'openai-compatible', 'openrouter', 'anthropic']
     baseUrl: str = ''
     model: str
     apiKey: str = ''
@@ -331,6 +352,19 @@ class RuntimeConnectionRequest(BaseModel):
         ge=0,
         le=10_000_000,
         validation_alias=AliasChoices('contextWindowTokens', 'context_window_tokens'),
+    )
+    openAiCompat: OpenAiCompatRequest | None = Field(
+        default=None,
+        validation_alias=AliasChoices('openAiCompat', 'open_ai_compat'),
+    )
+    customHeaders: dict[str, str] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices('customHeaders', 'custom_headers'),
+    )
+    idleTtlSeconds: int = Field(
+        default=0,
+        ge=0,
+        validation_alias=AliasChoices('idleTtlSeconds', 'idle_ttl_seconds'),
     )
     chatTemplateReasoning: ChatTemplateReasoningCapsRequest | None = Field(
         default=None,
@@ -437,6 +471,26 @@ class RuntimeToolsRequest(BaseModel):
         validation_alias=AliasChoices('searxngBaseUrl', 'searxng_base_url'),
     )
 
+    webSearchProvider: str = Field(
+        default='auto',
+        validation_alias=AliasChoices('webSearchProvider', 'web_search_provider'),
+    )
+
+    webSearchEngines: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices('webSearchEngines', 'web_search_engines'),
+    )
+
+    webSearchUserAgent: str = Field(
+        default='',
+        validation_alias=AliasChoices('webSearchUserAgent', 'web_search_user_agent'),
+    )
+
+    webSearchCooldownSeconds: int = Field(
+        default=300,
+        validation_alias=AliasChoices('webSearchCooldownSeconds', 'web_search_cooldown_seconds'),
+    )
+
     extraUserPath: str = Field(
         default='',
         validation_alias=AliasChoices('extraUserPath', 'extra_user_path'),
@@ -479,6 +533,47 @@ class RuntimeToolsRequest(BaseModel):
             return ''
         return str(v).strip().rstrip('/')
 
+    @field_validator('webSearchProvider', mode='before')
+    @classmethod
+    def _normalize_web_search_provider(cls, v: Any) -> Any:
+        if v is None:
+            return 'auto'
+        text = str(v).strip().lower()
+        return text if text in ('auto', 'internal', 'searxng') else 'auto'
+
+    @field_validator('webSearchEngines', mode='before')
+    @classmethod
+    def _normalize_web_search_engines(cls, v: Any) -> Any:
+        # Imported here so the schema module stays free of a tools import at load time.
+        from clara_coder_backend.tools.metasearch.engines import ENGINE_NAMES
+
+        if v is None:
+            return []
+        if isinstance(v, str):
+            v = [v]
+        if not isinstance(v, (list, tuple)):
+            return []
+        wanted = {str(item).strip().lower() for item in v if isinstance(item, str)}
+        return [name for name in ENGINE_NAMES if name in wanted]
+
+    @field_validator('webSearchUserAgent', mode='before')
+    @classmethod
+    def _normalize_web_search_user_agent(cls, v: Any) -> Any:
+        if v is None:
+            return ''
+        text = str(v).strip()
+        if len(text) > 512 or any(ord(ch) < 32 or ord(ch) == 127 for ch in text):
+            return ''
+        return text
+
+    @field_validator('webSearchCooldownSeconds', mode='before')
+    @classmethod
+    def _normalize_web_search_cooldown(cls, v: Any) -> Any:
+        try:
+            value = int(v)
+        except (TypeError, ValueError):
+            return 300
+        return min(max(value, 0), 3600)
     @field_validator('extraUserPath', mode='before')
     @classmethod
     def _normalize_extra_user_path(cls, v: Any) -> Any:
@@ -488,15 +583,11 @@ class RuntimeToolsRequest(BaseModel):
 
 
 class RuntimeContextCompressionRequest(BaseModel):
-    """LangGraph checkpoint compaction settings from Settings → Tools."""
+    """Context compaction settings from Settings → Tools."""
 
-    enabled: bool = False
-    triggerRatio: float = Field(default=0.70, ge=0.5, le=0.95)
-    targetRatio: float = Field(default=0.55, ge=0.4, le=0.90)
-    protectTailMessages: int = Field(default=24, ge=8, le=100)
-    recentToolBodyMaxChars: int = Field(default=2000, ge=200, le=20_000)
-    oldToolBodyMaxChars: int = Field(default=400, ge=100, le=10_000)
-    systemReserveRatio: float = Field(default=0.25, ge=0.1, le=0.5)
+    enabled: bool = True
+    triggerRatio: float = Field(default=0.8, ge=0.5, le=0.95)
+    targetRatio: float = Field(default=0.5, ge=0.4, le=0.90)
 
     @field_validator('enabled', mode='before')
     @classmethod
@@ -551,6 +642,89 @@ class McpOAuthTokensUpdateRequest(BaseModel):
     oauth: McpOAuthTokensRequest
 
 
+class RuntimeGdscriptLspRequest(BaseModel):
+    """Settings → LSP → Godot."""
+
+    godotBinaryPath: str = ''
+    allowEngineApiDump: bool = False
+    diagnosticsProfile: Literal['godot', 'strict', 'off'] = 'godot'
+    inlayTypeHints: bool = True
+    inlayParameterHints: bool = True
+    formatterCommand: str = ''
+    formatterArgs: str = ''
+
+
+class RuntimePythonLspRequest(BaseModel):
+    """Settings → LSP → Python."""
+
+    typeCheckingMode: Literal['off', 'basic', 'standard', 'strict', 'recommended', 'all'] = 'standard'
+    diagnosticMode: Literal['openFilesOnly', 'workspace'] = 'openFilesOnly'
+    inlayVariableTypes: bool = True
+    inlayCallArgumentNames: bool = True
+    inlayFunctionReturnTypes: bool = True
+    inlayGenericTypes: bool = False
+    autoImportCompletions: bool = True
+    extraPaths: list[str] = Field(default_factory=list)
+
+
+class RuntimeTypescriptLspRequest(BaseModel):
+    """Settings → LSP → TypeScript / JavaScript."""
+
+    useWorkspaceTsdk: bool = False
+    validateJavaScript: bool = True
+    checkJs: bool = False
+    inlayParameterNames: Literal['none', 'literals', 'all'] = 'none'
+    inlayParameterTypes: bool = False
+    inlayVariableTypes: bool = False
+    inlayPropertyDeclarationTypes: bool = False
+    inlayFunctionReturnTypes: bool = False
+    inlayEnumMemberValues: bool = False
+    autoImportCompletions: bool = True
+    importModuleSpecifier: Literal['shortest', 'relative', 'non-relative', 'project-relative'] = 'shortest'
+    quoteStyle: Literal['auto', 'single', 'double'] = 'auto'
+
+
+class RuntimeJavaRuntimeRequest(BaseModel):
+    """One JDK projects can compile against, e.g. ``JavaSE-17``."""
+
+    name: str
+    path: str
+
+
+class RuntimeJavaLspRequest(BaseModel):
+    """Settings → LSP → Java."""
+
+    jdkHome: str = ''
+    maxHeap: Literal['512M', '1G', '2G', '4G', '8G'] = '1G'
+    runtimes: list[RuntimeJavaRuntimeRequest] = Field(default_factory=list)
+    importMaven: bool = True
+    importGradle: bool = True
+    projectMetadataAtRoot: bool = True
+    mavenUserSettings: str = ''
+    updateBuildConfiguration: Literal['automatic', 'disabled'] = 'automatic'
+    autobuild: bool = True
+    inlayParameterNames: Literal['none', 'literals', 'all'] = 'literals'
+    inlayVariableTypes: bool = False
+    inlayParameterTypes: bool = False
+    inlayFormatParameters: bool = False
+    referencesCodeLens: bool = True
+    implementationCodeLens: Literal['none', 'types', 'methods', 'all'] = 'none'
+    signatureHelp: bool = True
+    guessMethodArguments: Literal['off', 'insertParameterNames', 'insertBestGuessedArguments'] = 'insertParameterNames'
+    formatEnabled: bool = True
+    formatOnType: bool = False
+    formatComments: bool = True
+    formatterSettingsPath: str = ''
+    formatterProfile: str = ''
+
+
+class RuntimeLspRequest(BaseModel):
+    gdscript: RuntimeGdscriptLspRequest = Field(default_factory=RuntimeGdscriptLspRequest)
+    python: RuntimePythonLspRequest = Field(default_factory=RuntimePythonLspRequest)
+    typescript: RuntimeTypescriptLspRequest = Field(default_factory=RuntimeTypescriptLspRequest)
+    java: RuntimeJavaLspRequest = Field(default_factory=RuntimeJavaLspRequest)
+
+
 class RuntimeConfigRequest(BaseModel):
     """Full settings payload from the UI; replaces in-memory runtime_config."""
 
@@ -560,6 +734,7 @@ class RuntimeConfigRequest(BaseModel):
     host: RuntimeHostRequest | None = None
     tools: RuntimeToolsRequest | None = None
     contextCompression: RuntimeContextCompressionRequest | None = None
+    lsp: RuntimeLspRequest | None = None
     huggingFaceToken: str = ''
     mcpServers: list[McpServerRequest] = Field(default_factory=list)
     activeWorkspacePath: str = ''

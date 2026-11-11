@@ -25,15 +25,15 @@ export const LLM_OPTIMIZATION_PRESET_LIST: readonly LlmOptimizationPresetMeta[] 
     summary: 'Qwen prompt hints, vision tool, and sampling.',
     description:
       'For Qwen-class models (e.g. Qwen 3.5 27B via LM Studio): Extra system prompt hints, and `read_workspace_image` for workspace PNG/JPEG/GIF/WebP/BMP. Managed llama-server uses the GGUF Jinja chat template (--jinja) unless you set a custom --chat-template-file in Advanced.',
-    providers: ['openai', 'lmstudio', 'llamacpp', 'openrouter'],
+    providers: ['openai', 'lmstudio', 'llamacpp', 'openai-compatible', 'openrouter'],
   },
   {
     id: 'gemma',
     label: 'Gemma (local)',
     summary: 'Thinking on/off and recommended sampling.',
     description:
-      'For Google Gemma 3/4 via LM Studio or llama.cpp: boolean thinking (on/off) maps to llama-server enable_thinking, applies recommended sampling onto the connection (temp 1 / top_p 0.95 / top_k 64), max output 0 means no Clara-side cap, managed llama-server uses the GGUF Jinja chat template (--jinja) and --reasoning-format none unless you set those in Advanced (so <|channel>thought streams live into the reasoning panel instead of buffering), and channel output is split into the reasoning stream in the UI. Does not use OpenAI-style reasoning_effort tiers. Note: the server’s loaded context length (n_ctx) caps prompt plus completion.',
-    providers: ['lmstudio', 'llamacpp'],
+      'For Google Gemma 3/4 via LM Studio or llama.cpp: boolean thinking (on/off) maps to llama-server enable_thinking, applies recommended sampling onto the connection (temp 1 / top_p 0.95 / top_k 64), max output 0 means a limit of 24576 tokens per reply, managed llama-server uses the GGUF Jinja chat template (--jinja) and --reasoning-format none unless you set those in Advanced (so <|channel>thought streams live into the reasoning panel instead of buffering), and channel output is split into the reasoning stream in the UI. Does not use OpenAI-style reasoning_effort tiers. Note: the server’s loaded context length (n_ctx) caps prompt plus completion.',
+    providers: ['lmstudio', 'llamacpp', 'openai-compatible'],
   },
 ] as const;
 

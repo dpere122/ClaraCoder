@@ -1,0 +1,163 @@
+@if (tour.view(); as view) {
+  <!-- Keep the live region mounted while hidden so the first announcement is a change. -->
+  <div class='tutorial-announcement' aria-live='polite' aria-atomic='true'>
+    @if (view === 'step' && tour.descriptor(); as step) {
+      @if (sourceRecovery() === 'lost') {
+        Your source draft is no longer available. Return to Add source, or skip this phase.
+      } @else {
+        {{ step.title }}. {{ step.body }}
+        @if (step.stepId === 'engine-install') { {{ installStatus() }} }
+        @if (targetState() === 'missing') { {{ step.unavailableHint || 'The target is not available. Retry or continue.' }} }
+        @if (targetState() === 'offscreen') { The target is outside the visible area. }
+        {{ targetDetail() }}
+      }
+    } @else if (view === 'invitation') {
+      An optional Clara Coder tour is available.
+    } @else if (view === 'handoff' || view === 'recovery') {
+      Resume the tour in {{ destinationLabel() }}.
+    } @else if (view === 'unsupported') {
+      This saved tour step needs a newer version. Your progress was kept.
+    } @else if (view === 'issue') {
+      Could not open the tour. {{ tour.message() }}
+    }
+  </div>
+
+  @if (view !== 'hidden') {
+    @if (highlight(); as box) {
+      <div
+        class='tutorial-highlight'
+        aria-hidden='true'
+        [style.left.px]='box.left'
+        [style.top.px]='box.top'
+        [style.width.px]='box.width'
+        [style.height.px]='box.height'
+      ></div>
+    }
+
+    <section
+      class='tutorial-card'
+      role='region'
+      [attr.aria-label]='minimized() ? "Minimized Clara tour" : null'
+      [attr.aria-labelledby]='minimized() ? null : "tutorial-title"'
+      [attr.aria-describedby]='minimized() ? null : "tutorial-description"'
+      [class.tutorial-card--minimized]='minimized()'
+      [class.tutorial-card--skipping]='skippingStep()'
+      [class.tutorial-card--refade]='cardFadeFlip()'
+      [style.left.px]='panelPosition().x'
+      [style.top.px]='panelPosition().y'
+    >
+      @if (minimized()) {
+        <button type='button' class='tutorial-button tutorial-show' (click)='toggleMinimized()'>Show tour</button>
+      }
+      <div class='tutorial-card__content' [hidden]='minimized()'>
+        <button type='button' class='tutorial-minimize' aria-label='Minimize tour' (click)='toggleMinimized()'>Minimize</button>
+        @if (view === 'step' && tour.descriptor()?.complete) {
+          <lucide-icon class='tutorial-complete-icon' name='check' [size]='40' aria-hidden='true' />
+        } @else {
+          <app-tutorial-mascot />
+        }
+      @switch (view) {
+        @case ('invitation') {
+          <p class='tutorial-eyebrow'>A quick tour</p>
+          <h2 id='tutorial-title' tabindex='-1'>Welcome to Clara Coder</h2>
+          <p id='tutorial-description'>Take a quick look around and, if you like, see how to run AI on your own computer. Anything you have open stays open, and you can skip any part.</p>
+          <div class='tutorial-actions'>
+            <button type='button' class='tutorial-button tutorial-button--primary' [disabled]='tour.busy()' (click)='performAction("start")'>Start tour</button>
+            <button type='button' class='tutorial-button' [disabled]='tour.busy()' (click)='performAction("later")'>Later</button>
+          </div>
+          <button type='button' class='tutorial-link' [disabled]='tour.busy()' (click)='performAction("dismissAll")'>Don't show this tour again</button>
+        }
+        @case ('step') {
+          @if (tour.descriptor(); as step) {
+            <p class='tutorial-eyebrow'>{{ phaseLabel(step) }}</p>
+            @if (sourceRecovery() === 'lost') {
+              <h2 id='tutorial-title' tabindex='-1'>Source draft unavailable</h2>
+              <p id='tutorial-description'>The source you created is no longer available. An unapplied draft may have been discarded when Settings closed. Return to Add source to create one again, or skip this phase.</p>
+              <div class='tutorial-actions'>
+                <button type='button' class='tutorial-button tutorial-button--primary' [disabled]='tour.busy()' (click)='performAction("recoverSource")'>Return to Add source</button>
+                <button type='button' class='tutorial-button' [disabled]='tour.busy()' (click)='performAction("skipPhase")'>Skip this phase</button>
+              </div>
+            } @else {
+              <h2 id='tutorial-title' tabindex='-1'>{{ step.title }}</h2>
+              <p id='tutorial-description'>{{ step.body }}</p>
+              @if (step.details) {
+                <!-- Tracked by step so a section opened on one step does not stay open on the next. -->
+                @for (item of [step]; track item.stepId) {
+                  <details class='tutorial-details'>
+                    <summary>More technical details</summary>
+                    <p>{{ item.details }}</p>
+                  </details>
+                }
+              }
+              @if (step.stepId === 'engine-install' && installStatus()) {
+                <p class='tutorial-status'>{{ installStatus() }}</p>
+              }
+              @if (targetState() === 'missing') {
+                <p class='tutorial-status'>{{ step.unavailableHint || 'This target is not available right now. Retry, continue, or skip this phase.' }}</p>
+              } @else if (targetState() === 'offscreen') {
+                <p class='tutorial-status'>The target is outside the visible area. Show it, retry, or continue.</p>
+              }
+              @if (targetDetail()) {
+                <p class='tutorial-status'>{{ targetDetail() }}</p>
+              }
+              @if (step.wiki) {
+                <p class='tutorial-llama'>
+                  <span class='tutorial-llama__mark' aria-hidden='true' style="--tutorial-llama-icon: url('llama-cpp-icon.svg')"></span>
+                  <a class='tutorial-wiki' href='https://github.com/ggml-org/llama.cpp/wiki' target='_blank' rel='noopener noreferrer'>llama.cpp wiki ↗</a>
+                </p>
+              }
+              <div class='tutorial-actions'>
+                <button type='button' class='tutorial-button tutorial-button--primary' [disabled]='tour.busy()' (click)='performAction("advance")'>{{ nextLabel(step) }}</button>
+                @if (targetState() === 'offscreen') {
+                  <button type='button' class='tutorial-button' (click)='showTarget()'>Show target</button>
+                }
+                @if (step.targets?.length) {
+                  <button type='button' class='tutorial-button' (click)='retryTarget()'>Retry target</button>
+                }
+              </div>
+              @if (!step.complete) {
+                <div class='tutorial-secondary-actions'>
+                  <button type='button' class='tutorial-link' [disabled]='tour.busy()' (click)='performAction("skipPhase")'>Skip this phase</button>
+                  <button type='button' class='tutorial-link' [disabled]='tour.busy()' (click)='performAction("dismissAll")'>Dismiss remaining tour</button>
+                </div>
+              }
+            }
+          }
+        }
+        @case ('handoff') {
+          <p class='tutorial-eyebrow'>Tour paused at another window</p>
+          <h2 id='tutorial-title' tabindex='-1'>Continue in {{ destinationLabel() }}</h2>
+          <p id='tutorial-description'>Your progress is saved. Open or return to that window to continue; your workspace and Settings draft will not be changed.</p>
+          <div class='tutorial-actions'>
+            <button type='button' class='tutorial-button tutorial-button--primary' [disabled]='tour.busy()' (click)='performAction("handoff")'>Continue in {{ destinationLabel() }}</button>
+            <button type='button' class='tutorial-button' [disabled]='tour.busy()' (click)='performAction("later")'>Later</button>
+          </div>
+        }
+        @case ('recovery') {
+          <p class='tutorial-eyebrow'>Waiting for another window</p>
+          <h2 id='tutorial-title' tabindex='-1'>Continue in {{ destinationLabel() }}</h2>
+          <p id='tutorial-description'>If the window did not open, reopen it below. Closing a window never dismisses your progress.</p>
+          <div class='tutorial-actions'>
+            <button type='button' class='tutorial-button tutorial-button--primary' (click)='tour.reopenRequested()'>Reopen {{ destinationLabel() }}</button>
+          </div>
+        }
+        @case ('unsupported') {
+          <p class='tutorial-eyebrow'>Saved tour progress</p>
+          <h2 id='tutorial-title' tabindex='-1'>This step needs a newer version</h2>
+          <p id='tutorial-description'>Your saved progress was kept. Open the version that created it to continue.</p>
+          <button type='button' class='tutorial-button' [disabled]='tour.busy()' (click)='performAction("later")'>Later</button>
+        }
+        @case ('issue') {
+          <p class='tutorial-eyebrow'>Tour unavailable</p>
+          <h2 id='tutorial-title' tabindex='-1'>Could not open the tour</h2>
+          <p id='tutorial-description'>{{ tour.message() }}</p>
+          <button type='button' class='tutorial-button tutorial-button--primary' (click)='performAction("refresh")'>Retry</button>
+        }
+      }
+      @if (view !== 'issue' && tour.message()) {
+        <p class='tutorial-error' role='status'>{{ tour.message() }}</p>
+      }
+      </div>
+    </section>
+  }
+}

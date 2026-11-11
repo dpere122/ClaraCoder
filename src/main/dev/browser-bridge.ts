@@ -13,7 +13,7 @@
  * (`X-Clara-Bridge-Instance` on `/events`), and a tab that sees it change reloads itself, as the
  * Electron windows do. Delete the file to rotate the token; old tabs then get a 401.
  *
- * A tab acts as the app window its route belongs to (`#/settings`, `#/dependencies`, `#/health`,
+ * A tab acts as the app window its route belongs to (`#/settings`, `#/dependencies`, `#/health`, `#/updater`,
  * anything else the main window), named by the `X-Clara-Bridge-Window` header. Calls run as that
  * window: handlers see its `webContents` as `event.sender`, so trust checks pass and the tab has
  * that window's full privileges. A satellite tab first opens the real window (`POST /window`) and
@@ -55,6 +55,7 @@ import { getAppDataDir } from '../paths';
 import { mainState } from '../state';
 import { createDependenciesWindow } from '../windows/dependencies-window';
 import { createHealthWindow } from '../windows/health-window';
+import { createUpdaterWindow } from '../windows/updater-window';
 import { createSettingsWindow, parseSettingsWindowTab } from '../windows/settings-window';
 
 type InvokeHandler = (event: IpcMainInvokeEvent, ...args: any[]) => unknown;
@@ -227,6 +228,8 @@ function appWindow(win: BrowserBridgeWindow): BrowserWindow | null {
       return mainState.dependenciesWindow;
     case 'health':
       return mainState.healthWindow;
+    case 'updater':
+      return mainState.updaterWindow;
   }
 }
 
@@ -248,6 +251,9 @@ function openAppWindow(win: BrowserBridgeWindow, tab: string | undefined): void 
       break;
     case 'health':
       createHealthWindow();
+      break;
+    case 'updater':
+      createUpdaterWindow();
       break;
   }
   mirrorWindowSends();

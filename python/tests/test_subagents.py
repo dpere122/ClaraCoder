@@ -11,6 +11,7 @@ import asyncio
 import json
 import re
 from collections.abc import AsyncIterator, Callable
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -22,6 +23,7 @@ from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResu
 from clara_coder_backend.composer import stream_agent_reply
 from clara_coder_backend.domain import SessionState
 from clara_coder_backend.hitl.tool_registry import worker_tools_and_map
+from clara_coder_backend.lang_agent import graph as graph_module
 from clara_coder_backend.lang_agent import subagents
 from clara_coder_backend.lang_agent.subagent_bus import SUBAGENT_BUS
 from clara_coder_backend.lang_agent.subagents import (
@@ -278,6 +280,100 @@ async def test_tool_sets_bind_the_subagent_tools_for_main_chat_only() -> None:
         assert family | {'propose_theme'} <= names(apply_mode, main, True)
         assert not family & names(apply_mode, main, False)
         assert not (family | {'propose_theme'}) & names(apply_mode, child, True)
+
+
+async def test_spawn_follows_the_spawning_streams_mode_not_the_composer_toggle(
+    parent_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Plan discovery streams read-only and plan execution as Editor, whatever the toolbar says."""
+    from clara_coder_backend.tools import spawn_subagent as spawn_module
+
+    sid, parent = parent_session
+    started: list[subagents.SubagentRun] = []
+
+    def fake_start(run: subagents.SubagentRun) -> asyncio.Task:
+        started.append(run)
+        return asyncio.get_running_loop().create_future()  # type: ignore[return-value]
+
+    monkeypatch.setattr(spawn_module, 'start_subagent', fake_start)
+    token = state.current_session_id.set(sid)
+    try:
+        for stream_mode in (False, True):
+            parent.worker_apply_mode = stream_mode
+            parent.last_stream_apply_mode = not stream_mode
+            await spawn_module.spawn_subagent_tool.coroutine(
+                task='look around', name=f'scout-{stream_mode}', tool_call_id='c1', config={}, background=True
+            )
+    finally:
+        state.current_session_id.reset(token)
+        for run in started:
+            subagents.forget_subagent_run(run)
+    assert [run.apply_mode for run in started] == [False, True]
+
+
+async def test_spawn_from_a_read_only_stream_stays_read_only_while_an_editor_stream_overlaps(
+    parent_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``worker_apply_mode`` is session-wide; the spawning stream's own mode wins."""
+    from clara_coder_backend.tools import spawn_subagent as spawn_module
+
+    sid, parent = parent_session
+    started: list[subagents.SubagentRun] = []
+
+    def fake_start(run: subagents.SubagentRun) -> asyncio.Task:
+        started.append(run)
+        return asyncio.get_running_loop().create_future()  # type: ignore[return-value]
+
+    monkeypatch.setattr(spawn_module, 'start_subagent', fake_start)
+    parent.worker_apply_mode = True  # Another stream in the session runs as Editor.
+    sid_token = state.current_session_id.set(sid)
+    mode_token = state.current_stream_apply_mode.set(False)
+    try:
+        await spawn_module.spawn_subagent_tool.coroutine(
+            task='look around', name='scout', tool_call_id='c1', config={}, background=True
+        )
+    finally:
+        state.current_stream_apply_mode.reset(mode_token)
+        state.current_session_id.reset(sid_token)
+        for run in started:
+            subagents.forget_subagent_run(run)
+    assert [run.apply_mode for run in started] == [False]
+
+
+async def test_plan_discovery_subagents_are_read_only_and_report_into_the_summary(
+    checkpoints, parent_session, bus, use_model
+) -> None:
+    from clara_coder_backend.plan.plan_execute import _stream_plan_discovery_phase
+
+    sid, parent = parent_session
+    parent.last_stream_apply_mode = True  # Editor on in the toolbar: discovery must still be read-only
+    write = _call('w1', 'write_workspace_file', relative_path='notes.txt', content='hi\n')
+    use_model(
+        ScriptedChatModel(
+            scripts={
+                'parent': [
+                    AIMessage(content='', tool_calls=[_spawn('s1', 'scout', 'map the audio code')]),
+                    AIMessage(content='Relevant files: audio.ts (scout).'),
+                ],
+                'scout': [AIMessage(content='', tool_calls=[write]), AIMessage(content='audio.ts plays sounds.')],
+            }
+        )
+    )
+    summary: list[str] = ['']
+    token = state.current_session_id.set(sid)
+    try:
+        lines = [
+            line
+            async for line in _stream_plan_discovery_phase(parent, 'add plane sounds', session_id=sid, summary_out=summary)
+        ]
+    finally:
+        state.current_session_id.reset(token)
+
+    assert bus.finished('scout') == 'completed'
+    assert not (Path(parent.workspace_path) / 'notes.txt').exists()
+    assert 'audio.ts plays sounds.' in bus.child_text('scout')
+    assert summary == ['Relevant files: audio.ts (scout).']
+    assert _pill(lines, 'spawn_subagent')
 
 
 async def test_subagent_prompt_has_role_block() -> None:
@@ -859,6 +955,56 @@ async def test_stop_subagent_tool_stops_it_and_returns_its_partial_report(
     assert not any(REPORTS_ARRIVED_HEADER in t for t in _texts(model.views()[-1]))
 
 
+async def test_report_of_a_subagent_the_harness_stopped_says_it_did_not_finish(
+    checkpoints, parent_session, bus, use_model, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A step limit is no report: "send a message to continue" cannot apply to a child, and its output would be lost."""
+    monkeypatch.setattr(graph_module, 'MAX_AGENT_STEPS', 40)
+    sid, _parent = parent_session
+    findings = [
+        AIMessage(content=f'Finding {number} in the API.', tool_calls=[_call(f'c{number}', 'list_workspace_directory')])
+        for number in range(20)
+    ]
+    model = use_model(
+        ScriptedChatModel(
+            scripts={
+                'parent': [
+                    AIMessage(content='', tool_calls=[_spawn('s1', 'worker', 'Audit the API.')]),
+                    AIMessage(content='Parent done.'),
+                ],
+                'worker': findings,
+            }
+        )
+    )
+
+    await asyncio.wait_for(_run_turn(sid, 'go', apply_mode=False), timeout=20)
+
+    result = next(str(m.content) for m in model.views()[-1] if m.type == 'tool' and m.tool_call_id == 's1')
+    assert result.startswith(
+        'Sub-agent `worker` did not finish. The harness stopped it with this notice to the user: '
+        '"Stopped: this turn reached the step limit. Send a message to continue from here." '
+        'It cannot be continued; start a new sub-agent for what is left. Its partial output:'
+    )
+    assert 'Finding 0 in the API.' in result
+    assert bus.finished('worker') == 'completed'
+
+
+async def test_report_of_a_harness_stop_quotes_its_notice_and_not_the_answer_before_it() -> None:
+    parent = SessionState()
+    run = _fake_run('p', parent, 'c1', 'worker')
+    run.finish = 'completed'
+    run.outcome.mark_completed(final_text='ignored', partial_text='The answer so far.')
+    run.child.harness_final_text = 'The answer so far.\n\n[Cut off at the output limit.]'
+
+    report = subagents.subagent_report(run)
+
+    assert 'this notice to the user: "[Cut off at the output limit.]" It cannot be continued' in report
+    assert report.count('The answer so far.') == 1
+    # A turn the model ended itself is a report as ever.
+    run.child.harness_final_text = ''
+    assert subagents.subagent_report(run) == 'Sub-agent `worker` finished. Its report:\n\nignored'
+
+
 async def test_disposing_a_subagent_conversation_drops_its_report(checkpoints, parent_session, bus, use_model) -> None:
     """A restore deletes the sub-agents of the turns it removed: their rolled-back work must not come back."""
     from clara_coder_backend.routes.session import dispose_session
@@ -1006,7 +1152,6 @@ async def test_continue_turn_builds_its_input_from_the_waiting_reports(monkeypat
 
     monkeypatch.setattr('clara_coder_backend.composer.build_llm', MagicMock())
     monkeypatch.setattr('clara_coder_backend.composer.stream_single_agent_langgraph', fake_stream)
-    monkeypatch.setattr('clara_coder_backend.composer.maybe_compact_outer_checkpoint', AsyncMock(return_value=None))
     try:
         parent.subagent_pending_reports['c1'] = SubagentReport('c1', 'scout', 'Sub-agent `scout` finished. X', 'completed')
         await _run_turn(sid, 'ignored', continue_with_subagent_results=True)
@@ -1084,7 +1229,10 @@ async def test_load_keeps_running_subagents_and_their_reports(bus, monkeypatch) 
     from clara_coder_backend.routes.session import load_session
     from clara_coder_backend.session.schemas import LoadRequest
 
-    monkeypatch.setattr('clara_coder_backend.routes.session.delete_outer_threads_for_session', AsyncMock())
+    # Returns None: no checkpoint kept, so the stashed spawn results go.
+    monkeypatch.setattr(
+        'clara_coder_backend.routes.session.delete_outer_threads_for_session', AsyncMock(return_value=None)
+    )
     parent = state.get_session('load-parent')
     child = fork_subagent_session('load-parent', parent, 'load-child', 'scout')
     task = asyncio.get_running_loop().create_task(child.abort_event.wait())

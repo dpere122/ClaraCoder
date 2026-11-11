@@ -11,7 +11,7 @@ import {
   resolveExistingOrResolvedPath,
   resolveSafeWorkspacePath,
 } from '../../utils/workspace-safe-path';
-import { getEditorDetachedSnapshotsDir } from '../../paths';
+import { getEditorDetachedSnapshotsDir, getGdlsStubCacheDir } from '../../paths';
 import { mainState } from '../../state';
 import { emitWorkspaceFilesChanged } from '../../workspace/emit-files-changed';
 
@@ -65,6 +65,11 @@ async function resolveContainedAbsoluteFilePath(absolutePath: string): Promise<s
     return resolveSafeWorkspacePath(root, rel || '.');
   }
   throw new Error('Path is outside registered workspaces');
+}
+
+/** Generated engine API pages (go-to-definition on ``Node2D``): readable, never writable. */
+function isGdlsEnginePage(absolutePath: string): boolean {
+  return isAbsolutePathWithinWorkspaceRoot(path.resolve(getGdlsStubCacheDir()), path.resolve(absolutePath.trim()));
 }
 
 function dialogParent() {
@@ -240,6 +245,9 @@ export function registerWorkspaceEditorSnapshotIpc(): void {
     }
     let abs: string;
     try {
+      if (isGdlsEnginePage(absolutePath)) {
+        return { ok: false as const, error: 'Engine API pages are read-only.' };
+      }
       abs = await resolveContainedAbsoluteFilePath(absolutePath);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -276,8 +284,10 @@ export function registerWorkspaceEditorSnapshotIpc(): void {
       return { ok: false as const, error: 'No path.' };
     }
     let abs: string;
+    let readOnly = false;
     try {
-      abs = await resolveContainedAbsoluteFilePath(absolutePath);
+      readOnly = isGdlsEnginePage(absolutePath);
+      abs = readOnly ? path.resolve(absolutePath.trim()) : await resolveContainedAbsoluteFilePath(absolutePath);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       return { ok: false as const, error: msg };
@@ -294,7 +304,7 @@ export function registerWorkspaceEditorSnapshotIpc(): void {
       if (buf.includes(0)) {
         return { ok: false as const, error: 'Binary file not supported.' };
       }
-      return { ok: true as const, content: buf.toString('utf8'), path: abs };
+      return { ok: true as const, content: buf.toString('utf8'), path: abs, readOnly };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       return { ok: false as const, error: msg };

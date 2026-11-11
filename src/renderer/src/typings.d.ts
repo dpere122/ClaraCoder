@@ -532,6 +532,13 @@ declare global {
     notifySettingsWindowReady: () => void;
     closeSettingsWindow: () => void;
     onActiveConversationChanged: (callback: (event: unknown, conversationId: string) => void) => void;
+    /** What the app's own main window has open (not a dev bridge tab acting as it). */
+    getMainWindowView: () => Promise<{ workspaceId: string | null; conversationId: string | null; conversationsRevision: number; composer: { mode: string; autoApply: boolean; admin: boolean; conversationId: string | null } | null } | null>;
+    /** Report this renderer's composer mode / Auto Run / Admin (main keeps the app window's). */
+    noteMainWindowComposer: (composer: { mode: string; autoApply: boolean; admin: boolean; conversationId: string | null }) => void;
+    onMainWindowViewChanged: (
+      callback: (event: unknown, view: { workspaceId: string | null; conversationId: string | null; conversationsRevision: number; composer: { mode: string; autoApply: boolean; admin: boolean; conversationId: string | null } | null }) => void,
+    ) => void;
     onConversationWorkspaceChanged: (
       callback: (event: unknown, data: { id: string; workspacePath: string }) => void,
     ) => void;

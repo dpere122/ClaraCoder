@@ -30,6 +30,9 @@ export class MainPanelEmptyStateComponent {
   readonly defaultHomePage = input(false);
   /** Drives the Runtime panel (source picker, Start/Stop, model and embeddings status). */
   readonly appConfig = input<AppConfig | null>(null);
+  /** Dev bridge tab only: the workspace the app's main window has open, offered as "Join". */
+  readonly mainWindowWorkspace = input<Workspace | null>(null);
+  readonly joinMainWindow = output<void>();
   /** Names core dependencies that still need downloading; non-empty flags the Dependencies action. */
   readonly missingDependencies = input('');
   readonly addWorkspace = output<void>();

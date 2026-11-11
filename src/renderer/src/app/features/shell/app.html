@@ -287,6 +287,8 @@
               [recentWorkspaces]='workspaces()'
               [defaultHomePage]='defaultHomePageOnStart()'
               [appConfig]='appConfig()'
+              [mainWindowWorkspace]='mainWindowWorkspace()'
+              (joinMainWindow)='onJoinMainWindow()'
               [missingDependencies]='coreDependenciesAlert()'
               (addWorkspace)='onAddWorkspace()'
               (openWorkspace)='onWorkspaceChanged($event)'

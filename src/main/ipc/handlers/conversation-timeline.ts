@@ -31,6 +31,7 @@ import {
   markConversationsDeleted,
   upsertConversation,
 } from '../../conversations-db';
+import { noteMainWindowConversationsChanged } from '../../main-window-view';
 import { pythonHistoryFromMessages } from '../../python-history';
 import { ensurePythonReady } from '../../python/server';
 import { pythonControlFetch } from '../../python/http-client';
@@ -265,6 +266,9 @@ export function registerConversationTimelineIpc(): void {
       upsertConversation(conv);
       deleteConversationFileJournalForUserIds(conversationId, [...invertIds]);
       deleteChildConversations(childIds);
+      if (childIds.length > 0) {
+        noteMainWindowConversationsChanged(event);
+      }
       await resyncPythonHistory(conversationId, nextMessages);
 
       return {

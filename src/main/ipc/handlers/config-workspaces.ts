@@ -24,6 +24,7 @@ import {
 } from '../../../shared/types/tutorial';
 import { FIRST_THEME_ID } from '../../constants';
 import { mainState } from '../../state';
+import { noteMainWindowView } from '../../main-window-view';
 import { loadConfig, loadTutorialProgress, mergeSettingsConfigSave, setTutorialEnabled, updateConfig, updateTutorialProgress } from '../../config/load-save';
 import { getLlamaManagedRuntimeOverrides } from '../../llama-server-manager';
 import {
@@ -715,6 +716,8 @@ export function registerConfigWorkspacesIpc(): void {
     if (id && !reconciled.config.workspaces.some((workspace) => workspace.id === id)) {
       return;
     }
+    // Its conversation is recorded when the window loads one.
+    noteMainWindowView(event, { workspaceId: id, conversationId: null });
     if (id === reconciled.config.currentWorkspaceId) {
       return;
     }

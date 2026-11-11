@@ -5,6 +5,12 @@ import { promises as fs } from 'fs';
 import type { ConversationFile } from '../../../shared';
 import { FIRST_THEME_ID } from '../../constants';
 import { mainState } from '../../state';
+import {
+  getMainWindowView,
+  noteMainWindowConversationsChanged,
+  noteMainWindowView,
+  parseMainWindowComposer,
+} from '../../main-window-view';
 import { ensurePythonReady } from '../../python/server';
 import { pythonControlFetch } from '../../python/http-client';
 import { getWorkspaceConversationsDir } from '../../paths';
@@ -91,10 +97,12 @@ export function registerConversationsIpc(): void {
         // A sub-agent conversation is only viewed. Its parent stays the active conversation, so
         // workspace and prompt syncs keep going to the session that can still take a turn, and
         // Python (which owns the sub-agent's live session) is not resynced.
+        noteMainWindowView(event, { workspaceId: conv.workspaceId ?? null, conversationId: id });
         return conv;
       }
 
       mainState.activeConversationId = id;
+      noteMainWindowView(event, { workspaceId: conv.workspaceId ?? null, conversationId: id });
       const sw = mainState.settingsWindow;
       if (sw && !sw.isDestroyed()) {
         sw.webContents.send('active-conversation-changed', id);
@@ -146,6 +154,7 @@ export function registerConversationsIpc(): void {
       await fs.mkdir(getWorkspaceConversationsDir(conv.workspaceId), { recursive: true });
     }
     upsertConversation(conv);
+    noteMainWindowConversationsChanged(event);
   });
 
   ipcMain.handle('delete-conversation', async (event, id: string, _workspaceId?: string | null) => {
@@ -177,6 +186,7 @@ export function registerConversationsIpc(): void {
     for (const deletedId of ids) {
       forgetConversationRenderer(deletedId);
     }
+    noteMainWindowConversationsChanged(event);
   });
 
   ipcMain.handle('rename-conversation', async (event, id: string, title: string, _workspaceId?: string | null) => {
@@ -189,6 +199,7 @@ export function registerConversationsIpc(): void {
     const updatedAt = new Date().toISOString();
     updateConversationTitleAndLock(id, title, updatedAt);
     console.log('[Main] Rename successful (SQLite)');
+    noteMainWindowConversationsChanged(event);
   });
 
   ipcMain.handle('maybe-auto-title-conversation', async (event, id: string) => {
@@ -230,6 +241,7 @@ export function registerConversationsIpc(): void {
       if (!changed) {
         return { ok: false as const, reason: 'locked' as const };
       }
+      noteMainWindowConversationsChanged(event);
       return { ok: true as const, title: safe, updatedAt };
     } catch (err) {
       console.error('[Main] maybe-auto-title failed:', err);
@@ -268,6 +280,8 @@ export function registerConversationsIpc(): void {
       await fs.mkdir(getWorkspaceConversationsDir(workspaceId), { recursive: true });
     }
     upsertConversation(conv);
+    // After the row exists, so a joined bridge tab that relists finds it.
+    noteMainWindowView(event, { workspaceId, conversationId: id }, { conversationsChanged: true });
 
     // Persist first and return so the renderer spinner is not gated on Python.
     // After managed llama-server starts, the sidecar can sit on control routes until
@@ -301,5 +315,26 @@ export function registerConversationsIpc(): void {
       return null;
     }
     return mainState.activeConversationId;
+  });
+
+  ipcMain.on('note-main-window-composer', (event, raw: unknown) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return;
+    }
+    const composer = parseMainWindowComposer(raw);
+    if (composer) {
+      noteMainWindowView(event, { composer });
+    }
+  });
+
+  ipcMain.handle('get-main-window-view', (event) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return null;
+    }
+    return getMainWindowView();
   });
 }

@@ -27,9 +27,9 @@ const outDir = path.join(root, 'runtime-bundle', 'python');
 const force = process.argv.includes('--force');
 const writeLock = process.argv.includes('--write-lock');
 
-/** Pinned: CPython 3.12.11 from python-build-standalone 20250630 (Kokoro-friendly). */
-const RELEASE = '20250630';
-const PY_VER = '3.12.11';
+/** Pinned: CPython 3.12.16 from python-build-standalone 20261026 (Kokoro-friendly). */
+const RELEASE = '20261026';
+const PY_VER = '3.12.16';
 const MANIFEST_NAME = '.clara-runtime-manifest.json';
 
 const CORE_SMOKE_IMPORTS =
@@ -37,16 +37,16 @@ const CORE_SMOKE_IMPORTS =
 
 /** SHA256 from release SHA256SUMS — fail closed if download/cache mismatches. */
 export const EXPECTED_SHA256 = {
-  'cpython-3.12.11+20250630-aarch64-apple-darwin-install_only_stripped.tar.gz':
-    '52f103b1bae4105c8c3ba415fbfb992fc80672795c58262b96719efde97c49d9',
-  'cpython-3.12.11+20250630-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz':
-    '117b1d2daa96486005827dd50029fecd61e99141396583ea8e57733f7cf0abad',
-  'cpython-3.12.11+20250630-x86_64-apple-darwin-install_only_stripped.tar.gz':
-    '5e7229d72ec588b77f753ee043fcefe62f89190e84b8b43d20b1be4b4e6e8540',
-  'cpython-3.12.11+20250630-x86_64-pc-windows-msvc-install_only_stripped.tar.gz':
-    '91f7196d5d103eb3d1214f74606144adb326f0770d80c636cb11b96670477736',
-  'cpython-3.12.11+20250630-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz':
-    '358ad7bf46260a2e1b31726adc62dc04258c7ea7469352e155ffdea0f168499e',
+  'cpython-3.12.16+20261026-aarch64-apple-darwin-install_only_stripped.tar.gz':
+    '353d5f1b4fd2715e7053f12f068435d5bbad16b91e057006b5d01e0925709a7e',
+  'cpython-3.12.16+20261026-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz':
+    'bb4b6392670c5d3f93876996fcaa19858a4a413a0c7720144c18b0d6f1f0db2d',
+  'cpython-3.12.16+20261026-x86_64-apple-darwin-install_only_stripped.tar.gz':
+    '37c38fda76fec1fbf310adcbafb7f0d96af13b5511bf8ea954c3aa8eec185734',
+  'cpython-3.12.16+20261026-x86_64-pc-windows-msvc-install_only_stripped.tar.gz':
+    '1f2ab53880fc67ea323398c6388e05af28addc99a8e389209f08a51fdff4b149',
+  'cpython-3.12.16+20261026-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz':
+    'ce4f6d0a6cfdb3bed6e44c2f9affd85943c76a42e25ad3a259002f31d6fb8a20',
 };
 
 function targetTriple() {

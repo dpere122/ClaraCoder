@@ -97,6 +97,7 @@ export function registerConversationsIpc(): void {
         // A sub-agent conversation is only viewed. Its parent stays the active conversation, so
         // workspace and prompt syncs keep going to the session that can still take a turn, and
         // Python (which owns the sub-agent's live session) is not resynced.
+        noteMainWindowView(event, { workspaceId: conv.workspaceId ?? null, conversationId: id });
         return conv;
       }
 

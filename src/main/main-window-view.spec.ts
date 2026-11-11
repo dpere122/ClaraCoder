@@ -55,22 +55,42 @@ describe('main window view', () => {
   });
 
   it("keeps the window's composer (mode, Auto Run, Admin) and ignores a bridge tab's", () => {
-    const composer = parseMainWindowComposer({ mode: 'plan', autoApply: true, admin: false });
-    expect(composer).toEqual({ mode: 'plan', autoApply: true, admin: false });
+    const composer = parseMainWindowComposer({ mode: 'plan', autoApply: true, admin: false, conversationId: 'conv-java' });
+    expect(composer).toEqual({ mode: 'plan', autoApply: true, admin: false, conversationId: 'conv-java' });
 
     noteMainWindowView(appWindow, { composer: composer! });
-    noteMainWindowView(bridgeTab, { composer: { mode: 'ask', autoApply: false, admin: true } });
+    noteMainWindowView(bridgeTab, {
+      composer: { mode: 'ask', autoApply: false, admin: true, conversationId: 'conv-clara' },
+    });
 
-    expect(getMainWindowView().composer).toEqual({ mode: 'plan', autoApply: true, admin: false });
+    expect(getMainWindowView().composer).toEqual({
+      mode: 'plan',
+      autoApply: true,
+      admin: false,
+      conversationId: 'conv-java',
+    });
   });
 
   it('rejects a malformed composer report', () => {
     expect(parseMainWindowComposer({ mode: 'yolo', autoApply: true, admin: true })).toBeNull();
     expect(parseMainWindowComposer(null)).toBeNull();
-    expect(parseMainWindowComposer({ mode: 'ask', autoApply: 'yes', admin: 1 })).toEqual({
+    expect(parseMainWindowComposer({ mode: 'ask', autoApply: 'yes', admin: 1, conversationId: 7 })).toEqual({
       mode: 'ask',
       autoApply: false,
       admin: false,
+      conversationId: null,
     });
+  });
+
+  it('keeps the conversation the Admin value belongs to when the window switches conversation', () => {
+    noteMainWindowView(appWindow, {
+      composer: { mode: 'agent', autoApply: false, admin: true, conversationId: 'conv-a' },
+    });
+    // The window opens another conversation before its renderer reports that one's Admin.
+    noteMainWindowView(appWindow, { conversationId: 'conv-b' });
+
+    const stale = getMainWindowView();
+    expect(stale.conversationId).toBe('conv-b');
+    expect(stale.composer).toMatchObject({ admin: true, conversationId: 'conv-a' });
   });
 });

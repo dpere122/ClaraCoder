@@ -235,8 +235,11 @@ export interface MainWindowView {
   conversationId: string | null;
   /** Bumped when the main window creates, saves, renames or deletes a conversation. */
   conversationsRevision: number;
-  /** Its composer mode, Auto Run and Admin (model and effort are config, which tabs already get). */
-  composer: { mode: string; autoApply: boolean; admin: boolean } | null;
+  /**
+   * Its composer mode, Auto Run and Admin (model and effort are config, which tabs already get).
+   * `admin` belongs to the composer's own `conversationId`, which can trail the view's.
+   */
+  composer: { mode: string; autoApply: boolean; admin: boolean; conversationId: string | null } | null;
 }
 
 export interface AcceptCommandMessage {
@@ -1555,7 +1558,7 @@ export class ElectronService {
   }
 
   /** Report the composer mode, Auto Run and Admin; main keeps the app window's for bridge tabs. */
-  noteMainWindowComposer(composer: { mode: string; autoApply: boolean; admin: boolean }): void {
+  noteMainWindowComposer(composer: { mode: string; autoApply: boolean; admin: boolean; conversationId: string | null }): void {
     this.api?.noteMainWindowComposer?.(composer);
   }
 

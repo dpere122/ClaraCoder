@@ -5,8 +5,13 @@ import { mainState } from './state';
 export interface MainWindowComposer {
   mode: ComposerRunMode;
   autoApply: boolean;
-  /** Admin elevation of the window's current conversation. */
+  /** Admin elevation of {@link conversationId}. */
   admin: boolean;
+  /**
+   * The conversation `admin` was read for. The view's own `conversationId` changes first when the
+   * window switches conversation, so `admin` must not be applied to any other conversation.
+   */
+  conversationId: string | null;
 }
 
 /** The workspace and conversation the app's own main window has open. */
@@ -65,7 +70,12 @@ export function parseMainWindowComposer(raw: unknown): MainWindowComposer | null
   if (!c || !COMPOSER_RUN_MODES.includes(c.mode as ComposerRunMode)) {
     return null;
   }
-  return { mode: c.mode as ComposerRunMode, autoApply: c.autoApply === true, admin: c.admin === true };
+  return {
+    mode: c.mode as ComposerRunMode,
+    autoApply: c.autoApply === true,
+    admin: c.admin === true,
+    conversationId: typeof c.conversationId === 'string' && c.conversationId ? c.conversationId : null,
+  };
 }
 
 export function getMainWindowView(): MainWindowView {

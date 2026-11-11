@@ -793,10 +793,19 @@ export class App implements OnInit, OnDestroy {
 
     effect(() => {
       // Main keeps the app window's composer (not a bridge tab's) for tabs that join that window.
+      const conversationId = this.activeConversationId();
+      const granted = this.adminElevationGranted();
+      // Right after a conversation switch `granted` can still be the previous conversation's (the
+      // effect above has not run yet); the stored value is what it is about to become.
+      const admin =
+        conversationId === this.lastAdminElevationConversationId
+          ? granted
+          : (this.adminElevationByConversation.get(conversationId ?? '') ?? false);
       this.electron.noteMainWindowComposer({
         mode: this.composerMode(),
         autoApply: this.autoApplyMode(),
-        admin: this.adminElevationGranted(),
+        admin,
+        conversationId,
       });
     });
 
@@ -2036,7 +2045,11 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  /** Mirror the main window's mode and Auto Run, and its Admin when both are on its conversation. */
+  /**
+   * Mirror the main window's mode and Auto Run, and its Admin when this tab is on the conversation
+   * that Admin value was read for. The view names a newly opened conversation before the window
+   * reports its Admin, so the view's own conversation id is not enough.
+   */
   private applyMainWindowComposer(view: MainWindowView): void {
     const composer = view.composer;
     if (!composer || !(COMPOSER_RUN_MODES as readonly string[]).includes(composer.mode)) {
@@ -2044,7 +2057,7 @@ export class App implements OnInit, OnDestroy {
     }
     this.composerMode.set(composer.mode as ComposerRunMode);
     this.autoApplyMode.set(composer.autoApply);
-    if (view.conversationId && view.conversationId === this.activeConversationId()) {
+    if (composer.conversationId && composer.conversationId === this.activeConversationId()) {
       this.adminElevationGranted.set(composer.admin);
     }
   }

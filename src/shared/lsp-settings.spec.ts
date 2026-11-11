@@ -44,6 +44,7 @@ describe('normalizeLspServersSettings', () => {
       python: defaults.python,
       typescript: defaults.typescript,
       java: defaults.java,
+      rust: defaults.rust,
     });
   });
 
@@ -56,14 +57,49 @@ describe('normalizeLspServersSettings', () => {
     expect(gdscript.inlayTypeHints).toBe(true);
   });
 
-  it.each([undefined, 'true', 1, {}])('never treats %j as permission to run Godot', (value) => {
+  // Workspace trust decides whether Godot may run; the option only turns it off where trust allows it.
+  it.each([undefined, 'true', 1, {}])('leaves the Godot dump on for a malformed %j', (value) => {
     expect(normalizeLspServersSettings({ gdscript: { allowEngineApiDump: value } }).gdscript.allowEngineApiDump).toBe(
+      true,
+    );
+  });
+
+  it('keeps the Godot dump off when it was turned off', () => {
+    expect(normalizeLspServersSettings({ gdscript: { allowEngineApiDump: false } }).gdscript.allowEngineApiDump).toBe(
       false,
     );
   });
 
-  it('is off by default', () => {
-    expect(defaultLspServersSettings().gdscript.allowEngineApiDump).toBe(false);
+  it('turns on by default the options that only run in a trusted workspace', () => {
+    const defaults = defaultLspServersSettings();
+    expect(defaults.gdscript.allowEngineApiDump).toBe(true);
+    expect(defaults.rust.runBuildScripts).toBe(true);
+    expect(defaults.rust.expandProcMacros).toBe(true);
+    expect(defaults.rust.checkOnSave).toBe(true);
+  });
+
+  it('keeps valid Rust values', () => {
+    const rust = {
+      runBuildScripts: false,
+      expandProcMacros: false,
+      checkOnSave: false,
+      checkCommand: 'clippy',
+      separateTargetDir: false,
+      allFeatures: true,
+      inlayTypeHints: false,
+      inlayParameterHints: false,
+      inlayChainingHints: false,
+    };
+    expect(normalizeLspServersSettings({ rust }).rust).toEqual(rust);
+  });
+
+  it('replaces bad Rust fields and keeps the rest', () => {
+    const { rust } = normalizeLspServersSettings({
+      rust: { checkCommand: 'build', runBuildScripts: 'no', allFeatures: true },
+    });
+    expect(rust.checkCommand).toBe('check');
+    expect(rust.runBuildScripts).toBe(true);
+    expect(rust.allFeatures).toBe(true);
   });
 });
 

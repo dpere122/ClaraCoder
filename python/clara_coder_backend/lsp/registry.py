@@ -11,6 +11,7 @@ __all__ = [
     'get_lsp_server_plugin',
     'iter_registered_lsp_server_ids',
     'lsp_server_id_is_registered',
+    'workspace_trust_lsp_server_ids',
 ]
 
 # Backward-compatible alias: any registered server id (not only python|typescript).
@@ -46,6 +47,13 @@ def lsp_server_id_is_registered(server_id: str) -> bool:
 def iter_registered_lsp_server_ids() -> tuple[str, ...]:
     _ensure_plugins_loaded()
     return tuple(_PLUGIN_BY_ID.keys())
+
+
+def workspace_trust_lsp_server_ids() -> tuple[str, ...]:
+    """Servers that behave differently in a trusted workspace."""
+
+    _ensure_plugins_loaded()
+    return tuple(sid for sid, plugin in _PLUGIN_BY_ID.items() if plugin.uses_workspace_trust)
 
 
 def display_label_for_server(server_id: str | None) -> str:

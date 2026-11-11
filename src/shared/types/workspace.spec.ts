@@ -4,8 +4,11 @@ import {
   formatWorkspaceLastOpenedLabel,
   isFavoriteWorkspace,
   isNoWorkspaceSystemPromptId,
+  isTrustedWorkspace,
   reorderFavoriteWorkspaces,
   setWorkspaceFavorite,
+  setWorkspaceTrusted,
+  trustedWorkspacePaths,
   sortFavoriteWorkspaces,
   sortNonFavoriteWorkspaces,
   sortRecentWorkspaces,
@@ -77,6 +80,51 @@ describe('workspace favorites', () => {
     const dropped = reorderFavoriteWorkspaces(next, ['b']);
     expect(dropped.find((w) => w.id === 'a')?.favorite).toBeUndefined();
     expect(dropped.find((w) => w.id === 'b')?.favoriteOrder).toBe(0);
+  });
+});
+
+describe('workspace trust', () => {
+  const workspace = (id: string, extra: Partial<Workspace> = {}): Workspace => ({
+    id,
+    name: id,
+    path: `/work/${id}`,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    ...extra,
+  });
+
+  it('only counts an explicit true', () => {
+    expect(isTrustedWorkspace(workspace('a'))).toBe(false);
+    expect(isTrustedWorkspace(workspace('a', { trusted: false }))).toBe(false);
+    expect(isTrustedWorkspace({ trusted: 'yes' as unknown as boolean })).toBe(false);
+    expect(isTrustedWorkspace(null)).toBe(false);
+    expect(isTrustedWorkspace(workspace('a', { trusted: true }))).toBe(true);
+  });
+
+  it('trusts and untrusts one workspace, leaving the others alone', () => {
+    const list = [workspace('a'), workspace('b', { trusted: true, favorite: true })];
+    const trusted = setWorkspaceTrusted(list, 'a', true);
+    expect(trusted.map(isTrustedWorkspace)).toEqual([true, true]);
+    expect(trusted[1]).toBe(list[1]);
+
+    const untrusted = setWorkspaceTrusted(trusted, 'b', false);
+    expect(untrusted.map(isTrustedWorkspace)).toEqual([true, false]);
+    expect('trusted' in untrusted[1]!).toBe(false);
+    expect(untrusted[1]!.favorite).toBe(true);
+  });
+
+  it('ignores an unknown id', () => {
+    const list = [workspace('a')];
+    expect(setWorkspaceTrusted(list, 'missing', true)).toEqual(list);
+  });
+
+  it('lists the folders of trusted workspaces only', () => {
+    const list = [
+      workspace('a', { trusted: true }),
+      workspace('b'),
+      workspace('c', { trusted: true, path: '  ' }),
+      workspace('d', { trusted: true, path: ' /work/d ' }),
+    ];
+    expect(trustedWorkspacePaths(list)).toEqual(['/work/a', '/work/d']);
   });
 });
 

@@ -158,6 +158,7 @@ import {
   activeBuildPlanClosePrompt,
   closeWorkspacePrompt,
 } from '../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
+import { askWorkspaceTrust } from '../../shared/themed-confirm-dialog/format-workspace-trust-prompt';
 import { normalizePathSlashes, workspaceRelativePathIfUnderRoot } from '../../utils/workspace-relative-path';
 import { LucideAngularModule } from 'lucide-angular';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
@@ -2078,7 +2079,8 @@ export class App implements OnInit, OnDestroy {
         return;
       }
       const name = selected.split(/[\\/]/).pop() || 'New Workspace';
-      await this.electron.addWorkspace(name, selected);
+      const trusted = await askWorkspaceTrust(this.themedConfirm, name, selected);
+      await this.electron.addWorkspace(name, selected, { trusted });
       const config = await this.electron.loadConfig();
       this.workspaces.set(config.workspaces);
       // Auto-select the new workspace
@@ -3149,7 +3151,8 @@ export class App implements OnInit, OnDestroy {
     }
 
     const name = normalizedPath.split(/[\\/]/).pop() || 'Workspace';
-    await this.electron.addWorkspace(name, normalizedPath);
+    const trusted = await askWorkspaceTrust(this.themedConfirm, name, normalizedPath);
+    await this.electron.addWorkspace(name, normalizedPath, { trusted });
     const config = await this.electron.loadConfig();
     this.workspaces.set(config.workspaces);
     const added = config.workspaces.find((workspace) => workspace.path === normalizedPath);

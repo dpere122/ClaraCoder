@@ -114,13 +114,20 @@ LANGUAGE_POLICIES: dict[str, LspFilePolicy] = {
         use_lsp=True,
         requires_review=True,
     ),
+    '.rs': LspFilePolicy(
+        extension='.rs',
+        language_id='rust',
+        language_label='Rust',
+        lsp_server='rust',
+        use_lsp=True,
+        requires_review=True,
+    ),
 }
 
 # Extensions that require nested code review but are not served by an integrated LSP yet.
 LEGACY_CODE_REVIEW_EXTENSIONS: frozenset[str] = frozenset(
     {
         '.go',
-        '.rs',
         '.cs',
         '.rb',
         '.php',

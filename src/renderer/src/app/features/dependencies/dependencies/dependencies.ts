@@ -93,7 +93,7 @@ export interface DependencyGroup {
 
 const DEPENDENCY_GROUPS: readonly DependencyGroupDef[] = [
   { id: 'required', label: 'Required', ids: ['llama-server'] },
-  { id: 'lsp', label: 'Language servers', ids: ['java-lsp', 'gdls'] },
+  { id: 'lsp', label: 'Language servers', ids: ['java-lsp', 'gdls', 'rust-analyzer'] },
   { id: 'voice', label: 'Voice', ids: ['kokoro', 'whisper'], comingSoon: true },
 ];
 

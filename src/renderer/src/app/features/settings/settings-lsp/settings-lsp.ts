@@ -18,12 +18,15 @@ import {
   type PythonLspSettings,
   type PythonProjectConfigInfo,
   type PythonTypeCheckingMode,
+  type RustCheckCommand,
+  type RustLspSettings,
   type TypescriptImportModuleSpecifier,
   type TypescriptLspSettings,
   type TypescriptParameterNameHints,
   type TypescriptQuoteStyle,
 } from '@shared/lsp-settings';
 import type { DependencyInfo } from '@shared/types/dependencies';
+import { isTrustedWorkspace } from '@shared/types/workspace';
 import { ElectronService } from '../../../core/electron.service';
 import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 import { SettingsStore } from '../settings/settings-store';
@@ -96,6 +99,23 @@ export class SettingsLsp {
     { id: 'single', label: 'Single' },
     { id: 'double', label: 'Double' },
   ];
+
+  protected readonly rust = computed(() => this.s.lspServers().rust);
+  /** The Dependencies row behind the Rust server, once the list has loaded. */
+  protected readonly rustAnalyzer = computed(
+    () => this.s.lspDependencies().find((dep) => dep.id === 'rust-analyzer') ?? null,
+  );
+  protected readonly rustCheckCommandOptions: ReadonlyArray<{ id: RustCheckCommand; label: string }> = [
+    { id: 'check', label: 'cargo check' },
+    { id: 'clippy', label: 'cargo clippy (more lints)' },
+  ];
+  /** Name of the open workspace when it isn't trusted, so the options trust holds back can say so. */
+  protected readonly untrustedWorkspaceName = computed(() => {
+    const current = this.s.currentWorkspace();
+    // The list is what a trust change in the Workspaces tab updates.
+    const workspace = this.s.workspaces().find((entry) => entry.id === current?.id) ?? current;
+    return workspace && !isTrustedWorkspace(workspace) ? workspace.name : '';
+  });
 
   protected readonly java = computed(() => this.s.lspServers().java);
   /** The Dependencies row behind the Java server, once the list has loaded. */
@@ -202,6 +222,10 @@ export class SettingsLsp {
 
   protected patch(patch: Partial<GdscriptLspSettings>): void {
     this.s.patchGdscriptLsp(patch);
+  }
+
+  protected patchRust(patch: Partial<RustLspSettings>): void {
+    this.s.patchRustLsp(patch);
   }
 
   protected patchPython(patch: Partial<PythonLspSettings>): void {

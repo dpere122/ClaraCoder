@@ -9,6 +9,7 @@ import re
 import stat as stat_module
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
@@ -68,6 +69,12 @@ _DIAG_WAIT_TIMEOUT_SLOW_S = 2.5
 _DIAG_FIRST_OPEN_TIMEOUT_S = 5.0
 _DIAG_FIRST_OPEN_TIMEOUT_SLOW_S = 8.0
 _DIAG_QUIET_S = 0.05
+#: After ``didSave``: how long a check run may take to begin, and how long a sync waits for it to
+#: end before reporting diagnostics that may still be missing its results.
+_SAVE_CHECK_BEGIN_GRACE_S = 1.5
+_SAVE_CHECK_WAIT_S = 15.0
+#: A save cancels the run in flight and starts another; the gap between the two is a few milliseconds.
+_SAVE_CHECK_RESTART_GAP_S = 0.15
 #: ``wait_for_workspace_analysis``: silence that counts as settled, and how long a fresh client may
 #: take to begin its first analysis (basedpyright starts in about two seconds).
 _WORKSPACE_ANALYSIS_QUIET_S = 1.0
@@ -375,10 +382,14 @@ class SessionWorkspaceLspManager:
         self._server_capabilities: dict[str, Any] = {}
         self._language_status: str = ''
         self._language_status_message: str = ''
+        # A problem the running server reports about itself (see ``server_health_from_notification``).
+        self._server_health: str = ''
         # ``$/progress`` tokens between ``begin`` and ``end``: the server is still indexing.
         self._active_progress: dict[str, str] = {}
         # Latest ``$/progress`` report text, e.g. basedpyright's "12 files to analyze".
         self._progress_report: str = ''
+        # Check-on-save runs (``save_check_progress_prefix``) that have ended on any client of this manager.
+        self._save_checks_ended: int = 0
         # Monotonic time of the last publish or progress message, and of the current client's start;
         # ``wait_for_workspace_analysis`` settles on these.
         self._last_server_activity_at: float = 0.0
@@ -419,6 +430,7 @@ class SessionWorkspaceLspManager:
         self._server_capabilities = {}
         self._language_status = ''
         self._language_status_message = ''
+        self._server_health = ''
         self._active_progress.clear()
         self._lifecycle_phase = 'crashed'
         if not (self._lifecycle_error or '').strip():
@@ -583,6 +595,11 @@ class SessionWorkspaceLspManager:
                 process_id=os.getpid(),
                 capabilities=_deep_merge(_workspace_capabilities(), self._plugin.client_capability_overrides()),
                 initialization_options=init_opts,
+                **(
+                    {'configuration_section': self._plugin.configuration_section}
+                    if self._plugin.configuration_section
+                    else {}
+                ),
             )
         except Exception as exc:
             with self._lock:
@@ -656,6 +673,7 @@ class SessionWorkspaceLspManager:
             self._server_capabilities = {}
             self._language_status = ''
             self._language_status_message = ''
+            self._server_health = ''
             self._active_progress.clear()
             self._clear_document_state_locked()
             self._bump_sync_epoch_locked()
@@ -905,11 +923,27 @@ class SessionWorkspaceLspManager:
                 # prompt a missing publish, changes nothing for them.)
                 if not same_digest:
                     self._expect_republish_except([rel])
+            saved = self._plugin.checks_on_save and origin == DOC_ORIGIN_DISK and self.scope == 'workspace'
+            checks_ended_before = self._save_checks_ended
+
+            def report_saved() -> None:
+                client.notify('textDocument/didSave', {'textDocument': {'uri': uri}})
+
+            if saved:
+                # The editor sends its own ``didSave``; a staging overlay's text isn't on disk.
+                report_saved()
             if not reports_diagnostics:
                 self._diag_ready_digest[rel] = digest
             elif wait_for_diagnostics:
-                published = self._wait_for_diagnostics(rel, prev_fresh_generation, first_open=version == 1)
-                if self._wait_settled(published):
+                check_finished = self._wait_for_save_check(checks_ended_before, report_saved) if saved else None
+                if check_finished is None:
+                    published = self._wait_for_diagnostics(rel, prev_fresh_generation, first_open=version == 1)
+                    settled = self._wait_settled(published)
+                else:
+                    # A run publishes what it found before its progress ends; a moment for the last of it.
+                    self._diag_cond.wait(timeout=_DIAG_QUIET_S)
+                    settled = check_finished
+                if settled:
                     self._diag_ready_digest[rel] = digest
             rows = list(cache.get(rel, []))
         if self.scope == 'staging':
@@ -1726,6 +1760,8 @@ class SessionWorkspaceLspManager:
                 self._active_progress[token] = str(value.get('title') or '')
             elif kind == 'end':
                 self._active_progress.pop(token, None)
+                if self._is_save_check_token(token):
+                    self._save_checks_ended += 1
                 if not self._active_progress:
                     self._analysis_progress_ended = True
                     self._progress_report = ''
@@ -1778,6 +1814,10 @@ class SessionWorkspaceLspManager:
             )
             return
         if method != 'textDocument/publishDiagnostics':
+            health = self._plugin.server_health_from_notification(method, params)
+            if health is not None:
+                with self._lock:
+                    self._server_health = health
             return
         uri = str(params.get('uri') or '')
         try:
@@ -1850,6 +1890,49 @@ class SessionWorkspaceLspManager:
         if published:
             return True
         return self._plugin.silent_when_diagnostics_unchanged and self._seen_publish
+
+    def _is_save_check_token(self, token: str) -> bool:
+        prefix = self._plugin.save_check_progress_prefix
+        return bool(prefix) and token.startswith(prefix)
+
+    def _wait_for_save_check(self, ended_before: int, report_saved: Callable[[], None]) -> bool | None:
+        """After ``didSave``, wait for the server's check run to end. The caller holds ``_lock``.
+
+        True when a run ended. False when the deadline came first with a run, or the project load
+        before it, still going: the run's results are missing from the cache. None when the server
+        went quiet without a run.
+
+        A server that is still loading its project drops the save, so it is reported once more
+        (``report_saved``) when the load has finished.
+        """
+
+        if not self._plugin.save_check_progress_prefix:
+            return None
+        started = time.monotonic()
+        quiet_from = started
+        was_loading = False
+        reported_again = False
+        while True:
+            now = time.monotonic()
+            running = any(self._is_save_check_token(token) for token in self._active_progress)
+            if not running and self._save_checks_ended > ended_before:
+                # The run that just ended may be the one this save cancelled; its replacement follows.
+                self._diag_cond.wait(timeout=_SAVE_CHECK_RESTART_GAP_S)
+                if not any(self._is_save_check_token(token) for token in self._active_progress):
+                    return True
+                continue
+            loading = bool(self._active_progress) and not running
+            was_loading = was_loading or loading
+            if now - started >= _SAVE_CHECK_WAIT_S:
+                return False if running or loading else None
+            quiet_for = now - max(quiet_from, self._last_server_activity_at)
+            if not running and not loading and quiet_for >= _SAVE_CHECK_BEGIN_GRACE_S:
+                if not was_loading or reported_again:
+                    return None
+                report_saved()
+                reported_again = True
+                quiet_from = time.monotonic()
+            self._diag_cond.wait(timeout=0.1)
 
     def _wait_for_diagnostics(
         self,
@@ -1939,6 +2022,9 @@ class SessionWorkspaceLspManager:
             'phase': phase,
             'scope': self.scope,
         }
+        health = self._server_health.strip() if running else ''
+        if health:
+            language_status = f'{language_status} · {health}' if language_status else health
         if language_status:
             entry['languageStatus'] = language_status
         err = (self._lifecycle_error or '').strip()

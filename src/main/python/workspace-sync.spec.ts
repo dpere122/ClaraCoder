@@ -148,4 +148,15 @@ describe('changedLspServerIds', () => {
     settings.gdscript.inlayTypeHints = !settings.gdscript.inlayTypeHints;
     expect(changedLspServerIds(null, settings)).toEqual([]);
   });
+
+  it('adds the servers that read workspace trust when the trusted workspaces changed', () => {
+    const before = defaultLspServersSettings();
+    expect(changedLspServerIds(before, structuredClone(before), true)).toEqual(['gdscript', 'rust']);
+
+    const after = defaultLspServersSettings();
+    after.rust.checkCommand = 'clippy';
+    after.python.extraPaths = ['src'];
+    expect(changedLspServerIds(before, after, true)).toEqual(['python', 'rust', 'gdscript']);
+    expect(changedLspServerIds(null, after, true)).toEqual([]);
+  });
 });

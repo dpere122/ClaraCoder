@@ -70,7 +70,9 @@ export const createWorkspaceApi = (ipcRenderer: PreloadIpc) => ({
   ): Promise<EnsureWorkspaceSystemPromptResult> =>
     ipcRenderer.invoke('ensure-workspace-system-prompt', workspaceId, sessionId),
   getWorkspaces: () => ipcRenderer.invoke('get-workspaces'),
-  addWorkspace: (name: string, p: string) => ipcRenderer.invoke('add-workspace', name, p),
+  addWorkspace: (name: string, p: string, options?: { trusted?: boolean }) =>
+    ipcRenderer.invoke('add-workspace', name, p, options),
+  setWorkspaceTrusted: (id: string, trusted: boolean) => ipcRenderer.invoke('set-workspace-trusted', id, trusted),
   removeWorkspace: (id: string) => ipcRenderer.invoke('remove-workspace', id),
   getWorkspaceMonacoUnsavedPaths: () => ipcRenderer.invoke('get-workspace-monaco-unsaved-paths'),
   setCurrentWorkspace: (id: string | null) => ipcRenderer.invoke('set-current-workspace', id),

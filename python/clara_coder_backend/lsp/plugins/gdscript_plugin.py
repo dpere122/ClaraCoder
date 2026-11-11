@@ -20,6 +20,7 @@ from clara_coder_backend.lsp.server_plugin import (
 )
 from clara_coder_backend.runtime.deps.paths import gdls_stub_cache_dir, get_runtime_gdls_dir
 from clara_coder_backend.session.state import runtime_config
+from clara_coder_backend.workspace.trust import workspace_is_trusted
 
 if TYPE_CHECKING:
     from clara_coder_backend.domain import SessionState
@@ -56,7 +57,7 @@ def _formatter_options(settings: RuntimeGdscriptLspConfig) -> dict[str, Any] | N
     return {'command': found, 'args': list(_GDFORMAT_ARGS)} if found else None
 
 
-def _build_init_options(project_root: Path) -> dict[str, Any]:
+def _build_init_options(project_root: Path, *, workspace_trusted: bool) -> dict[str, Any]:
     options: dict[str, Any] = {
         'projectRoot': str(project_root),
         # gdls adds its own ``stubs/`` below this, which is ``gdls_stub_cache_dir()``.
@@ -64,14 +65,14 @@ def _build_init_options(project_root: Path) -> dict[str, Any]:
     }
     settings = runtime_config.lsp.gdscript
     env_binary = env_clara('CLARA_GODOT_BINARY', '').strip()
-    if env_binary or settings.allow_engine_api_dump:
+    if env_binary or (settings.allow_engine_api_dump and workspace_trusted):
         godot_binary = env_binary or settings.godot_binary_path
         if godot_binary:
             options['godotBinaryPath'] = godot_binary
     else:
         # gdls would otherwise find Godot on its own and run it on the project to dump the engine
         # API, which can load the project's native GDExtension libraries. Opening a file must not
-        # run project code, so this takes an explicit opt-in; gdls's bundled classes cover the rest.
+        # run project code unless the user trusts the workspace; gdls's bundled classes cover the rest.
         options['autoDumpExtensionApi'] = False
     options['strict'] = {'profile': settings.diagnostics_profile}
     options['inlayHint'] = {
@@ -94,6 +95,9 @@ class GdscriptLspPlugin(LspServerPlugin):
 
     #: gdls answers with everything in scope (about 1,300 items) and leaves filtering to the client.
     completion_item_limit = 5000
+
+    #: The engine API dump runs Godot on the project, so it follows workspace trust.
+    uses_workspace_trust = True
 
     def create_state(self) -> Any:
         return GdscriptPluginState()
@@ -190,7 +194,7 @@ class GdscriptLspPlugin(LspServerPlugin):
         return LspStartParams(
             lsp_cwd=project_root,
             command=command,
-            init_options=_build_init_options(project_root),
+            init_options=_build_init_options(project_root, workspace_trusted=workspace_is_trusted(workspace_root)),
         )
 
     def after_shutdown(self, session: SessionState, state: Any) -> None:

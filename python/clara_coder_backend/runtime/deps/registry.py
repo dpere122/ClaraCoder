@@ -15,6 +15,7 @@ DEPENDENCY_IDS = (
     'llama-server',
     'java-lsp',
     'gdls',
+    'rust-analyzer',
     'kokoro',
     'whisper',
 )
@@ -26,6 +27,7 @@ def _providers():
         java_lsp,
         kokoro,
         llama_server,
+        rust_analyzer,
         whisper,
     )
 
@@ -33,6 +35,7 @@ def _providers():
         'llama-server': llama_server,
         'java-lsp': java_lsp,
         'gdls': gdls,
+        'rust-analyzer': rust_analyzer,
         'kokoro': kokoro,
         'whisper': whisper,
     }

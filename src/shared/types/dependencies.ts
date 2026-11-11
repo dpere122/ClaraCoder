@@ -1,9 +1,9 @@
 /**
  * Shared types for the runtime dependency download framework
- * (llama-server, Java LSP, gdls, Kokoro, Whisper).
+ * (llama-server, Java LSP, gdls, rust-analyzer, Kokoro, Whisper).
  */
 
-export type DependencyId = 'llama-server' | 'java-lsp' | 'gdls' | 'kokoro' | 'whisper';
+export type DependencyId = 'llama-server' | 'java-lsp' | 'gdls' | 'rust-analyzer' | 'kokoro' | 'whisper';
 
 export type DependencyState = 'missing' | 'installed' | 'updating' | 'error';
 
@@ -99,6 +99,7 @@ export const DEPENDENCY_IDS: readonly DependencyId[] = [
   'llama-server',
   'java-lsp',
   'gdls',
+  'rust-analyzer',
   'kokoro',
   'whisper',
 ] as const;
@@ -107,6 +108,7 @@ export const DEPENDENCY_LABELS: Record<DependencyId, string> = {
   'llama-server': 'llama-server',
   'java-lsp': 'Java LSP (JDT LS)',
   gdls: 'GDScript LSP (gdls)',
+  'rust-analyzer': 'Rust LSP (rust-analyzer)',
   kokoro: 'Kokoro TTS',
   whisper: 'Whisper STT',
 };
@@ -115,6 +117,7 @@ export const DEPENDENCY_DESCRIPTIONS: Record<DependencyId, string> = {
   'llama-server': 'llama.cpp server binary for managed local models.',
   'java-lsp': 'Eclipse JDT Language Server for Java diagnostics and navigation.',
   gdls: 'Standalone GDScript language server for Godot 4.6+. Needs no running Godot editor.',
+  'rust-analyzer': 'Rust language server. Needs a Rust toolchain (cargo) on this computer.',
   kokoro: 'Local neural TTS (CPU PyTorch + kokoro).',
   whisper: 'Local speech-to-text (faster-whisper, CPU CTranslate2).',
 };
@@ -123,6 +126,7 @@ export const DEPENDENCY_SIZE_HINTS: Record<DependencyId, string> = {
   'llama-server': '~40–750 MB (CPU ~40 MB; CUDA build + CUDA runtime libs up to ~750 MB)',
   'java-lsp': '~50–80 MB',
   gdls: '~12 MB (macOS: built from source with Rust)',
+  'rust-analyzer': '~18 MB download',
   kokoro: '~1–2 GB (CPU PyTorch + Kokoro)',
   whisper: '~80–500 MB (CTranslate2 + small model)',
 };
@@ -135,6 +139,7 @@ export const DEPENDENCY_COMPONENTS: Record<DependencyId, readonly string[]> = {
   'llama-server': ['llama-server', 'ggml / llama shared libs', 'CUDA runtime libs (CUDA builds)'],
   'java-lsp': ['Eclipse JDT LS', 'Equinox launcher', 'JDT plugins'],
   gdls: ['gdls'],
+  'rust-analyzer': ['rust-analyzer'],
   kokoro: ['torch (CPU)', 'kokoro', 'misaki', 'spacy'],
   whisper: ['faster-whisper', 'CTranslate2', 'Whisper model weights'],
 };
@@ -195,6 +200,13 @@ export const DEPENDENCY_SOURCES: Record<DependencyId, readonly DependencySource[
       label: 'gdls',
       url: 'https://github.com/kurushimee/gdls',
       detail: 'Prebuilt binary from the pinned GitHub release, checksum verified; built with cargo on macOS.',
+    },
+  ],
+  'rust-analyzer': [
+    {
+      label: 'rust-analyzer',
+      url: 'https://github.com/rust-lang/rust-analyzer',
+      detail: 'Prebuilt binary from the pinned GitHub release, checksum verified.',
     },
   ],
   kokoro: [

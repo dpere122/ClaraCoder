@@ -331,3 +331,73 @@ def test_update_configuration_stores_and_notifies(tmp_path: Path) -> None:
     ]
     items = {'items': [{'section': 'java.project'}]}
     assert configuration_values_for_items(client._initialization_options, items) == [{'sourcePaths': ['src']}]
+
+
+def test_a_configuration_section_wraps_the_options_for_the_server(tmp_path: Path) -> None:
+    """rust-analyzer's init options are its ``rust-analyzer`` section; it asks for them by that name."""
+
+    client = JsonRpcLspClient(['unused'], workspace_root=tmp_path)
+    notified: list[tuple[str, dict]] = []
+    sent: list[dict] = []
+    options = {'checkOnSave': False}
+    client.start = lambda: None  # type: ignore[method-assign]
+    client.request = lambda *a, **k: {'capabilities': {}}  # type: ignore[method-assign]
+    client.notify = lambda method, params: notified.append((method, params))  # type: ignore[method-assign]
+    client._send_message = lambda payload: sent.append(payload)  # type: ignore[method-assign]
+
+    client.initialize(
+        root_uri='file:///tmp',
+        process_id=1,
+        capabilities={},
+        initialization_options=options,
+        configuration_section='rust-analyzer',
+    )
+    assert client._initialization_options == options, '``initialize`` sends the section value itself'
+    assert notified[1] == ('workspace/didChangeConfiguration', {'settings': {'rust-analyzer': options}})
+
+    client._reply_to_server_request(
+        {'id': 3, 'method': 'workspace/configuration', 'params': {'items': [{'section': 'rust-analyzer'}]}}
+    )
+    assert sent == [{'jsonrpc': '2.0', 'id': 3, 'result': [options]}]
+
+    client.update_configuration({'checkOnSave': True})
+    client._reply_to_server_request(
+        {'id': 4, 'method': 'workspace/configuration', 'params': {'items': [{'section': 'rust-analyzer.checkOnSave'}]}}
+    )
+    assert sent[-1] == {'jsonrpc': '2.0', 'id': 4, 'result': [True]}
+
+
+def test_shutdown_and_exit_carry_no_params(tmp_path: Path) -> None:
+    """rust-analyzer refuses ``shutdown`` with ``params: {}`` and then has to be killed."""
+
+    client = JsonRpcLspClient(['unused'], workspace_root=tmp_path)
+    sent: list[dict] = []
+
+    class _Proc:
+        stdin = None
+
+        def poll(self) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
+
+    def send(payload: dict) -> None:
+        sent.append(payload)
+        if 'id' in payload:
+            client._handle_message({'jsonrpc': '2.0', 'id': payload['id'], 'result': None})
+
+    client._proc = _Proc()  # type: ignore[assignment]
+    client._initialized = True
+    client._send_message = send  # type: ignore[method-assign]
+
+    client.shutdown()
+
+    assert [message['method'] for message in sent] == ['shutdown', 'exit']
+    assert all('params' not in message for message in sent)
+
+    sent.clear()
+    client._proc = _Proc()  # type: ignore[assignment]
+    client._closed = False
+    client.notify('initialized', {})
+    assert sent == [{'jsonrpc': '2.0', 'method': 'initialized', 'params': {}}], 'an empty object is still sent when given'

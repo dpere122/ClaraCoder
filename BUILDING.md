@@ -136,6 +136,7 @@ After install (or in dev), open **Dependencies** to download optional runtime pi
 | ---------- | ------- |
 | llama-server | Managed local llama.cpp binary (no system install required) |
 | Java LSP (JDT LS) | Eclipse JDT Language Server for Java |
+| Rust LSP (rust-analyzer) | rust-analyzer for Rust; needs a Rust toolchain (cargo) and runs only in a trusted workspace |
 | Kokoro TTS | Local neural TTS (CPU PyTorch + kokoro) |
 | Whisper STT | Local speech-to-text (faster-whisper, CPU CTranslate2) |
 

@@ -84,6 +84,12 @@ def configuration_values_for_items(options: dict[str, Any], params: Any) -> list
     return results
 
 
+def _with_params(message: dict[str, Any], params: dict[str, Any] | None) -> dict[str, Any]:
+    if params is not None:
+        message['params'] = params
+    return message
+
+
 class JsonRpcLspClient:
     """A small blocking LSP client suitable for tool-call workloads."""
 
@@ -115,6 +121,8 @@ class JsonRpcLspClient:
         self._closed = False
         self._initialized = False
         self._initialization_options: dict[str, Any] = {}
+        # Set when the options are the value of this one configuration section, not the whole tree.
+        self._configuration_section = ''
         self._stderr_tail: deque[str] = deque(maxlen=10)
 
     def start(self) -> None:
@@ -153,9 +161,14 @@ class JsonRpcLspClient:
         process_id: int | None,
         capabilities: dict[str, Any],
         initialization_options: dict[str, Any] | None = None,
+        configuration_section: str = '',
     ) -> dict[str, Any]:
+        """``configuration_section``: the options are that section's value (rust-analyzer), so
+        ``workspace/configuration`` and ``didChangeConfiguration`` put them under its name."""
+
         self.start()
         self._initialization_options = dict(initialization_options or {})
+        self._configuration_section = configuration_section
         try:
             result = self.request(
                 'initialize',
@@ -173,7 +186,7 @@ class JsonRpcLspClient:
             self.notify('initialized', {})
             self.notify(
                 'workspace/didChangeConfiguration',
-                {'settings': did_change_configuration_settings(self._initialization_options)},
+                {'settings': did_change_configuration_settings(self._configuration_tree())},
             )
         except Exception:
             logger.warning(
@@ -192,10 +205,19 @@ class JsonRpcLspClient:
         self._initialization_options = dict(initialization_options or {})
         self.notify(
             'workspace/didChangeConfiguration',
-            {'settings': did_change_configuration_settings(self._initialization_options)},
+            {'settings': did_change_configuration_settings(self._configuration_tree())},
         )
 
-    def request(self, method: str, params: dict[str, Any], *, timeout_s: float = 10.0) -> dict[str, Any]:
+    def _configuration_tree(self) -> dict[str, Any]:
+        """The stored options as the client-side settings tree a server looks sections up in."""
+
+        if self._configuration_section:
+            return {self._configuration_section: dict(self._initialization_options)}
+        return self._initialization_options
+
+    def request(self, method: str, params: dict[str, Any] | None, *, timeout_s: float = 10.0) -> dict[str, Any]:
+        """``params`` of None sends no ``params`` member, for methods that take none."""
+
         with self._lock:
             proc = self._require_process()
             self._next_id += 1
@@ -203,7 +225,7 @@ class JsonRpcLspClient:
             wait_q: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=1)
             self._pending[req_id] = wait_q
         try:
-            self._send_message({'jsonrpc': '2.0', 'id': req_id, 'method': method, 'params': params})
+            self._send_message(_with_params({'jsonrpc': '2.0', 'id': req_id, 'method': method}, params))
         except Exception:
             with self._lock:
                 self._pending.pop(req_id, None)
@@ -225,8 +247,8 @@ class JsonRpcLspClient:
         # Preserve JSON ``null`` results (e.g. ``textDocument/rename`` unsupported).
         return response.get('result')
 
-    def notify(self, method: str, params: dict[str, Any]) -> None:
-        self._send_message({'jsonrpc': '2.0', 'method': method, 'params': params})
+    def notify(self, method: str, params: dict[str, Any] | None) -> None:
+        self._send_message(_with_params({'jsonrpc': '2.0', 'method': method}, params))
 
     def shutdown(self) -> None:
         with self._lock:
@@ -235,11 +257,12 @@ class JsonRpcLspClient:
                 return
         if self._initialized:
             try:
-                self.request('shutdown', {}, timeout_s=5.0)
+                # No params: rust-analyzer rejects ``{}`` here ("expected unit") and would be killed instead.
+                self.request('shutdown', None, timeout_s=5.0)
             except Exception as exc:
                 logger.warning('lsp shutdown request failed workspace=%s err=%s', self._workspace_root, exc)
         try:
-            self.notify('exit', {})
+            self.notify('exit', None)
         except Exception:
             pass
         self.close()
@@ -429,7 +452,7 @@ class JsonRpcLspClient:
         if method in {'workspace/semanticTokens/refresh', 'window/workDoneProgress/create'}:
             result = None
         elif method == 'workspace/configuration':
-            result = configuration_values_for_items(self._initialization_options, payload.get('params'))
+            result = configuration_values_for_items(self._configuration_tree(), payload.get('params'))
         else:
             logger.debug('lsp unhandled server request workspace=%s method=%s', self._workspace_root, method)
         try:

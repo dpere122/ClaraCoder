@@ -433,8 +433,12 @@ export const createLspHealthApi = (ipcRenderer: PreloadIpc) => ({
         }
       | { ok: false; error: string }
     >,
-  onLspDiagnosticsUpdated: (callback: (event: unknown, payload: { sessionId: string; relativePath: string; generation: number; epoch?: number }) => void) =>
-    ipcRenderer.on('lsp-diagnostics-updated', callback),
+  onLspDiagnosticsUpdated: (
+    callback: (event: unknown, payload: { sessionId: string; relativePath: string; generation: number; epoch?: number }) => void,
+  ): (() => void) => {
+    ipcRenderer.on('lsp-diagnostics-updated', callback);
+    return () => { ipcRenderer.removeListener('lsp-diagnostics-updated', callback); };
+  },
   onLspSettingsApplied: (callback: (payload: { servers: string[] }) => void): (() => void) => {
     const listener = (_event: unknown, payload: { servers: string[] }) => callback(payload);
     ipcRenderer.on('lsp-settings-applied', listener);

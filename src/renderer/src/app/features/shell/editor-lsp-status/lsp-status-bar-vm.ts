@@ -27,13 +27,14 @@ function hiddenVm(): LspStatusBarVm {
   return { chips: [], idleText: '', title: '', visible: false };
 }
 
-export const LSP_DASHBOARD_SERVER_ORDER = ['python', 'typescript', 'gdscript', 'java'] as const;
+export const LSP_DASHBOARD_SERVER_ORDER = ['python', 'typescript', 'gdscript', 'java', 'rust'] as const;
 
 const SERVER_DISPLAY: Record<string, string> = {
   python: 'Python',
   typescript: 'TS/JS',
   gdscript: 'GDScript',
   java: 'Java',
+  rust: 'Rust',
 };
 
 export function phaseDisplayLabel(phase: LspLifecyclePhase): string {

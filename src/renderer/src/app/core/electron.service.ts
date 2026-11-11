@@ -4,6 +4,13 @@
  */
 import { Injectable, NgZone } from '@angular/core';
 import type { ScreenshotAssetStatus, ScreenshotStorageStats } from '@shared/screenshot-retention';
+import type {
+  LspEditorFeature,
+  LspEditorFeatureResponse,
+  LspFileRenameIpc,
+  LspWireLocation,
+  LspWireTextEdit,
+} from '@shared/lsp-editor-features';
 import {
   createDefaultTutorialProgress,
   type TutorialClaimResult,
@@ -45,6 +52,10 @@ import type {
   ChatTemplateReasoningCaps,
   LlmSourcePingResult,
   LmStudioListModelsResult,
+  LmStudioLoadOptions,
+  OpenAiCompatEndpoint,
+  OpenAiCompatListResult,
+  OpenAiCompatTestResult,
   LmStudioMutationResult,
   LlmStatus,
   MenuFileCommand,
@@ -58,6 +69,7 @@ import type {
   SecretStorageMode,
   HfDownloadId,
   HfDownloadProgressEvent,
+  HfDownloadSnapshot,
   MaybeAutoTitleResult,
   PlanConfirmPayload,
   AgentQuestionPayload,
@@ -1145,7 +1157,7 @@ export class ElectronService {
 
   readAbsoluteFile(
     absolutePath: string,
-  ): Promise<{ ok: boolean; content?: string; path?: string; error?: string }> {
+  ): Promise<{ ok: boolean; content?: string; path?: string; error?: string; readOnly?: boolean }> {
     return (
       this.api?.readAbsoluteFile?.(absolutePath) ??
       Promise.resolve({ ok: false, error: 'API not available' })
@@ -1403,6 +1415,18 @@ export class ElectronService {
     return (
       this.api?.modelManagerCancelHfDownload(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
     );
+  }
+
+  /** Stops a running download and keeps its partial file for a later resume. */
+  modelManagerPauseHfDownload(payload: { downloadId: HfDownloadId }): Promise<{ ok: true } | { ok: false; error: string }> {
+    return (
+      this.api?.modelManagerPauseHfDownload?.(payload) ?? Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  /** Downloads main is running or holding a partial file for, whichever window started them. */
+  modelManagerListHfDownloads(): Promise<HfDownloadSnapshot[]> {
+    return this.api?.modelManagerListHfDownloads?.() ?? Promise.resolve([]);
   }
 
   async setWorkspaceContext(
@@ -1785,7 +1809,12 @@ export class ElectronService {
     return this.api?.lmStudioListModels(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
   }
 
-  lmStudioLoadModel(payload: { baseUrl: string; model: string; apiKey?: string }): Promise<LmStudioMutationResult> {
+  lmStudioLoadModel(payload: {
+    baseUrl: string;
+    model: string;
+    apiKey?: string;
+    options?: LmStudioLoadOptions;
+  }): Promise<LmStudioMutationResult> {
     return this.api?.lmStudioLoadModel(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
   }
 
@@ -1795,6 +1824,14 @@ export class ElectronService {
     apiKey?: string;
   }): Promise<LmStudioMutationResult> {
     return this.api?.lmStudioUnloadModel(payload) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  openAiCompatListModels(endpoint: OpenAiCompatEndpoint): Promise<OpenAiCompatListResult> {
+    return this.api?.openAiCompatListModels({ endpoint }) ?? Promise.resolve({ ok: false, error: 'API not available' });
+  }
+
+  openAiCompatTest(endpoint: OpenAiCompatEndpoint, model: string): Promise<OpenAiCompatTestResult | null> {
+    return this.api?.openAiCompatTest({ endpoint, model }) ?? Promise.resolve(null);
   }
 
   openSettingsWindow(tab?: string): void {
@@ -2343,6 +2380,72 @@ export class ElectronService {
     );
   }
 
+  lspEditorFeature<F extends LspEditorFeature>(
+    sessionId: string,
+    relativePath: string,
+    feature: F,
+    params: Record<string, unknown>,
+    documentText: string,
+    skipDocumentSync = false,
+  ): Promise<LspEditorFeatureResponse<F>> {
+    return (
+      this.api?.lspEditorFeature?.(sessionId, relativePath, feature, params, documentText, skipDocumentSync) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspWorkspaceSymbols(
+    sessionId: string,
+    server: string,
+    query: string,
+  ): Promise<{ ok: true; symbols: LspWireLocation[] } | { ok: false; error: string }> {
+    return (
+      this.api?.lspWorkspaceSymbols?.(sessionId, server, query) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspWillRenameFiles(
+    sessionId: string,
+    files: LspFileRenameIpc[],
+  ): Promise<{ ok: true; changes: Record<string, LspWireTextEdit[]> } | { ok: false; error: string }> {
+    return (
+      this.api?.lspWillRenameFiles?.(sessionId, files) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspDidRenameFiles(sessionId: string, files: LspFileRenameIpc[]): Promise<{ ok: true } | { ok: false; error: string }> {
+    return (
+      this.api?.lspDidRenameFiles?.(sessionId, files) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
+  lspEditorSemanticTokensDelta(
+    sessionId: string,
+    relativePath: string,
+    previousResultId: string,
+    documentText: string,
+    skipDocumentSync = false,
+  ): Promise<
+    | {
+        ok: true;
+        payload: {
+          legend: { tokenTypes: string[]; tokenModifiers: string[] };
+          resultId: string | null;
+          edits: unknown[];
+          data?: number[];
+        };
+      }
+    | { ok: false; error: string }
+  > {
+    return (
+      this.api?.lspEditorSemanticTokensDelta?.(sessionId, relativePath, previousResultId, documentText, skipDocumentSync) ??
+      Promise.resolve({ ok: false as const, error: 'API not available' })
+    );
+  }
+
   lspDiagnosticsWatchStart(sessionId: string, relativePath: string): void {
     this.api?.lspDiagnosticsWatchStart?.(sessionId, relativePath);
   }
@@ -2364,6 +2467,11 @@ export class ElectronService {
     };
   }
 
+  /** Language servers that restarted with new settings after Settings → Apply. */
+  onLspSettingsApplied(callback: (servers: string[]) => void): () => void {
+    return this.api?.onLspSettingsApplied?.((payload) => this.zone.run(() => callback(payload.servers ?? []))) ?? (() => {});
+  }
+
   healthLogsRecent(limit: number): Promise<HealthLogRecord[]> {
     return this.api?.healthLogsRecent(limit).then((r) => r.records) ?? Promise.resolve([]);
   }
@@ -2382,6 +2490,29 @@ export class ElectronService {
 
   closeHealthWindow(): void {
     this.api?.closeHealthWindow();
+  }
+
+  /** The active workspace's own basedpyright config (``pyrightconfig.json`` or a pyproject table), if any. */
+  lspPythonProjectConfig(): Promise<{
+    ok: boolean;
+    error?: string;
+    workspacePath: string;
+    config: import('@shared/lsp-settings').PythonProjectConfigInfo | null;
+  }> {
+    return (
+      this.api?.lspPythonProjectConfig() ??
+      Promise.resolve({ ok: false, error: 'No Electron API', workspacePath: '', config: null })
+    );
+  }
+
+  /** Which of these Java folders have no Java executable, so the Java server would refuse to start. */
+  lspJavaCheckJdks(
+    jdkHome: string,
+    runtimes: string[],
+  ): Promise<{ ok: true; check: import('@shared/lsp-settings').JavaJdkCheck } | { ok: false; error: string }> {
+    return (
+      this.api?.lspJavaCheckJdks(jdkHome, runtimes) ?? Promise.resolve({ ok: false, error: 'No Electron API' })
+    );
   }
 
   depsList(): Promise<{

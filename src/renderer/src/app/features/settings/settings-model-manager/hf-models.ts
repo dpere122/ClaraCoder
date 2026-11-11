@@ -34,29 +34,38 @@ export const FEATURED_HF_MODELS: readonly FeaturedHfModel[] = [
   { id: 'unsloth/Qwen3.5-9B-GGUF', maker: 'Qwen', size: '9B dense', tag: 'Small', architecture: 'dense', totalParametersB: 9, activeParametersB: 9 },
 ];
 
-/** Choose tutorial examples by total parameters, not the display note or MoE active count. */
-export function featuredModelExamples(models: readonly FeaturedHfModel[]): {
-  small: FeaturedHfModel | null;
-  largest: FeaturedHfModel | null;
-} {
-  let small: FeaturedHfModel | null = null;
-  let largest: FeaturedHfModel | null = null;
-  for (const model of models) {
-    if (
-      !Number.isFinite(model.totalParametersB) || model.totalParametersB <= 0 ||
-      !Number.isFinite(model.activeParametersB) || model.activeParametersB <= 0 ||
-      model.activeParametersB > model.totalParametersB
-    ) {
-      continue;
-    }
-    if (!largest || model.totalParametersB > largest.totalParametersB) {
-      largest = model;
-    }
-    if (model.tag === 'Small' && (!small || model.totalParametersB < small.totalParametersB)) {
-      small = model;
-    }
+export type FeaturedModelGroupId = 'small' | 'medium' | 'large' | 'moe';
+
+/**
+ * Display order. MoE is a kind of model rather than a size, so those models group apart.
+ * ``stepId`` is the tutorial target and is deliberately not derived from ``id``: tutorial step
+ * IDs are persisted in config.json, so the small and large groups keep their original
+ * ``featured-low`` and ``featured-big`` steps.
+ */
+export const FEATURED_MODEL_GROUPS: readonly { id: FeaturedModelGroupId; label: string; hint: string; stepId: string }[] = [
+  { id: 'small', label: 'Small', hint: 'under 15B', stepId: 'featured-low' },
+  { id: 'medium', label: 'Medium', hint: '15–25B', stepId: 'featured-medium' },
+  { id: 'large', label: 'Large', hint: 'over 25B', stepId: 'featured-big' },
+  { id: 'moe', label: 'MoE', hint: 'Mixture of Experts', stepId: 'featured-moe' },
+];
+
+/** Sizes use total parameters, not the display note or the MoE active count. */
+export function featuredModelGroup(model: FeaturedHfModel): FeaturedModelGroupId {
+  if (model.architecture === 'moe') {
+    return 'moe';
   }
-  return { small, largest };
+  return model.totalParametersB < 15 ? 'small' : model.totalParametersB <= 25 ? 'medium' : 'large';
+}
+
+/** Group display order, smallest first within a group. */
+export function compareFeaturedModels(a: FeaturedHfModel, b: FeaturedHfModel): number {
+  const order = (model: FeaturedHfModel): number => FEATURED_MODEL_GROUPS.findIndex((group) => group.id === featuredModelGroup(model));
+  return order(a) - order(b) || a.totalParametersB - b.totalParametersB;
+}
+
+/** The lightest Small model, which the tour can safely preview. */
+export function smallestSmallModel(models: readonly FeaturedHfModel[]): FeaturedHfModel | null {
+  return models.filter((model) => featuredModelGroup(model) === 'small').sort(compareFeaturedModels)[0] ?? null;
 }
 
 /** ``owner/name`` → ``{ provider: owner, name }`` with a trailing ``-GGUF`` dropped from the name. */

@@ -426,7 +426,7 @@ class JsonRpcLspClient:
         if req_id is None:
             return
         result: Any = None
-        if method == 'workspace/semanticTokens/refresh':
+        if method in {'workspace/semanticTokens/refresh', 'window/workDoneProgress/create'}:
             result = None
         elif method == 'workspace/configuration':
             result = configuration_values_for_items(self._initialization_options, payload.get('params'))

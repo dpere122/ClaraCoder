@@ -85,6 +85,7 @@ function mockElectron(overrides: Partial<{
   const electron = {
     chunk$: chunkSubject.asObservable(),
     toolReadChunk$: new Subject().asObservable(),
+    backgroundCommandOpen$: new Subject().asObservable(),
     toolExecChunk$: new Subject().asObservable(),
     toolExecComplete$: new Subject().asObservable(),
     appendConversationFileJournal: vi.fn(async () => ({ ok: true })),

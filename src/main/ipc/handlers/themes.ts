@@ -20,6 +20,7 @@ import {
   writeUserTheme,
 } from '../../theme/theme-store';
 import { broadcastThemePreview, broadcastToAppWindows as broadcast } from './theme-broadcast';
+import { dialogFolderOption, rememberDialogFolder } from '../../utils/dialog-folder';
 
 export { broadcastThemePreview } from './theme-broadcast';
 
@@ -152,11 +153,13 @@ export function registerThemesIpc(): void {
             { name: 'Clara theme', extensions: ['json'] },
             { name: 'All files', extensions: ['*'] },
           ],
+          ...dialogFolderOption(),
         })
-      : await dialog.showOpenDialog({ title: 'Import theme', properties: ['openFile'] });
+      : await dialog.showOpenDialog({ title: 'Import theme', properties: ['openFile'], ...dialogFolderOption() });
     if (picked.canceled || picked.filePaths.length === 0) {
       return { ok: false, canceled: true };
     }
+    rememberDialogFolder(picked.filePaths[0]!);
     try {
       const json = await fs.readFile(picked.filePaths[0]!, 'utf8');
       const result = await importThemeBundle(json);
@@ -219,11 +222,13 @@ export function registerThemesIpc(): void {
       title: 'Choose a background image',
       properties: ['openFile'] as Array<'openFile'>,
       filters: [{ name: 'Images', extensions: Object.keys(THEME_ASSET_MIME_BY_EXT) }],
+      ...dialogFolderOption(),
     };
     const picked = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
     if (picked.canceled || picked.filePaths.length === 0) {
       return { ok: false, canceled: true };
     }
+    rememberDialogFolder(picked.filePaths[0]!);
     try {
       return await addThemeAssetFromFile(themeId, picked.filePaths[0]!);
     } catch (err) {

@@ -1,3 +1,4 @@
+import { defaultLspServersSettings } from '../../shared/lsp-settings';
 import { randomUUID } from 'crypto';
 import { DEFAULT_SCREENSHOT_RETENTION } from '../../shared/screenshot-retention';
 import { homedir } from 'os';
@@ -62,7 +63,7 @@ function defaultLmStudioModelProfile(): LlmModelProfile {
 export function createPinnedLmStudioProvider(): LlmProviderConfig {
   return {
     id: PINNED_LM_STUDIO_PROVIDER_ID,
-    name: 'LM Studio Default',
+    name: 'LM Studio',
     provider: 'lmstudio',
     baseUrl: process.env.LM_STUDIO_BASE_URL || 'http://127.0.0.1:1234/v1',
     apiKey: SecretValue.of(process.env.LM_STUDIO_API_KEY || 'lm-studio'),
@@ -107,12 +108,12 @@ function createLocalManagedLlamaProvider(): LlmProviderConfig {
   };
 }
 function defaultLlamacppUrlModelProfile(): LlmModelProfile {
-  const defaultM = process.env.LLAMA_SERVER_DEFAULT_MODEL || 'local-model';
+  const defaultM = process.env.LLAMA_SERVER_DEFAULT_MODEL || '';
   return {
     id: 'default-llama-server-url',
     name: 'Llama server (URL)',
     model: defaultM,
-    contextWindowTokens: inferContextWindowTokens(defaultM, 'llamacpp'),
+    contextWindowTokens: inferContextWindowTokens(defaultM, 'openai-compatible'),
     reasoningEffort: '',
     thinkingMode: 'default',
     samplingPreset: 'provider-default',
@@ -124,17 +125,14 @@ function defaultLlamacppUrlModelProfile(): LlmModelProfile {
   };
 }
 
-/** Pinned remote ``llama-server`` row (OpenAI-compatible URL; no managed Start). */
+/** Pinned row for any server with an OpenAI-compatible API (no managed Start). */
 export function createPinnedLlamaServerUrlProvider(): LlmProviderConfig {
   const chatBase = process.env.LLAMA_SERVER_BASE_URL || 'http://127.0.0.1:8080/v1';
-  const embeddingsBase =
-    process.env.LLAMA_SERVER_EMBEDDINGS_BASE_URL || 'http://127.0.0.1:8081/v1';
   return {
     id: PINNED_LLAMA_SERVER_URL_PROVIDER_ID,
     name: DEFAULT_URL_SOURCE_NAME,
-    provider: 'llamacpp',
+    provider: 'openai-compatible',
     baseUrl: chatBase,
-    embeddingsBaseUrl: embeddingsBase,
     apiKey: SecretValue.of(process.env.LLAMA_SERVER_API_KEY || ''),
     models: [defaultLlamacppUrlModelProfile()],
   };
@@ -306,6 +304,7 @@ export function createDefaultConfig(): AppConfig {
     uiFontFamily: '',
     codeFontFamily: '',
     monacoWorkspaceEditor: defaultMonacoWorkspaceEditorSettings(),
+    lspServers: defaultLspServersSettings(),
   };
 }
 

@@ -121,4 +121,17 @@ describe('buildLspStatusBarVm', () => {
     expect(vm.chips[0].text).toBe('Java · crashed');
     expect(vm.chips[0].title).toContain('timed out');
   });
+
+  it('says on the chip which setting stopped a server from starting', () => {
+    const lastError =
+      'Project JDK JavaSE-17 has no Java executable at C:\\jdk-17.0.2\\bin\\java.exe. Check Project JDKs in Settings → LSP → Java.';
+    const vm = buildLspStatusBarVm(
+      dashboard({ java: { initialized: false, phase: 'crashed', lastError, setupError: true } }),
+      '',
+      false,
+    );
+    expect(vm.chips[0].text).toBe('Java · Project JDK JavaSE-17 has no Java executable at C:\\jdk-17.0.2\\bin\\java.exe');
+    expect(vm.chips[0].tone).toBe('error');
+    expect(vm.chips[0].title).toContain('Check Project JDKs in Settings → LSP → Java.');
+  });
 });

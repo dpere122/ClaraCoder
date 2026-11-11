@@ -34,21 +34,15 @@
       ></div>
     }
 
-    <app-tutorial-mascot
-      [destination]='mascotPosition()'
-      [transitionKey]='mascotKey()'
-      [scale]='mascotScale()'
-      [celebration]='view === "step" && !!tour.descriptor()?.celebration'
-    />
-
     <section
       class='tutorial-card'
       role='region'
       [attr.aria-label]='minimized() ? "Minimized Clara tour" : null'
       [attr.aria-labelledby]='minimized() ? null : "tutorial-title"'
       [attr.aria-describedby]='minimized() ? null : "tutorial-description"'
-      [class.tutorial-card--celebration]='view === "step" && !!tour.descriptor()?.celebration'
       [class.tutorial-card--minimized]='minimized()'
+      [class.tutorial-card--skipping]='skippingStep()'
+      [class.tutorial-card--refade]='cardFadeFlip()'
       [style.left.px]='panelPosition().x'
       [style.top.px]='panelPosition().y'
     >
@@ -57,16 +51,21 @@
       }
       <div class='tutorial-card__content' [hidden]='minimized()'>
         <button type='button' class='tutorial-minimize' aria-label='Minimize tour' (click)='toggleMinimized()'>Minimize</button>
+        @if (view === 'step' && tour.descriptor()?.complete) {
+          <lucide-icon class='tutorial-complete-icon' name='check' [size]='40' aria-hidden='true' />
+        } @else {
+          <app-tutorial-mascot />
+        }
       @switch (view) {
         @case ('invitation') {
           <p class='tutorial-eyebrow'>A quick tour</p>
           <h2 id='tutorial-title' tabindex='-1'>Welcome to Clara Coder</h2>
-          <p id='tutorial-description'>Explore the app and an optional local model setup. Your current workspace stays open, and you can skip any phase.</p>
+          <p id='tutorial-description'>Take a quick look around and, if you like, see how to run AI on your own computer. Anything you have open stays open, and you can skip any part.</p>
           <div class='tutorial-actions'>
             <button type='button' class='tutorial-button tutorial-button--primary' [disabled]='tour.busy()' (click)='performAction("start")'>Start tour</button>
             <button type='button' class='tutorial-button' [disabled]='tour.busy()' (click)='performAction("later")'>Later</button>
           </div>
-          <button type='button' class='tutorial-link' [disabled]='tour.busy()' (click)='performAction("dismissAll")'>Don’t show this tour again</button>
+          <button type='button' class='tutorial-link' [disabled]='tour.busy()' (click)='performAction("dismissAll")'>Don't show this tour again</button>
         }
         @case ('step') {
           @if (tour.descriptor(); as step) {
@@ -81,6 +80,15 @@
             } @else {
               <h2 id='tutorial-title' tabindex='-1'>{{ step.title }}</h2>
               <p id='tutorial-description'>{{ step.body }}</p>
+              @if (step.details) {
+                <!-- Tracked by step so a section opened on one step does not stay open on the next. -->
+                @for (item of [step]; track item.stepId) {
+                  <details class='tutorial-details'>
+                    <summary>More technical details</summary>
+                    <p>{{ item.details }}</p>
+                  </details>
+                }
+              }
               @if (step.stepId === 'engine-install' && installStatus()) {
                 <p class='tutorial-status'>{{ installStatus() }}</p>
               }
@@ -107,7 +115,7 @@
                   <button type='button' class='tutorial-button' (click)='retryTarget()'>Retry target</button>
                 }
               </div>
-              @if (!step.celebration) {
+              @if (!step.complete) {
                 <div class='tutorial-secondary-actions'>
                   <button type='button' class='tutorial-link' [disabled]='tour.busy()' (click)='performAction("skipPhase")'>Skip this phase</button>
                   <button type='button' class='tutorial-link' [disabled]='tour.busy()' (click)='performAction("dismissAll")'>Dismiss remaining tour</button>

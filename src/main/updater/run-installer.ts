@@ -1,6 +1,6 @@
 /**
  * Windows installer hand-off: Authenticode comparison and launching the NSIS installer that
- * electron-builder produced (`--updated /S [--force-run]`, the same flags electron-updater uses).
+ * electron-builder produced (see `installerArgs` for the flags).
  */
 import { spawn, execFile } from 'child_process';
 import { accessSync, constants as fsConstants } from 'fs';
@@ -53,8 +53,13 @@ export async function assertInstallerSignature(installer: string, appExe: string
   if (problem) throw new Error(problem);
 }
 
+/**
+ * "Restart and install" (relaunch) runs the installer visibly: with `--updated` it skips straight
+ * to its progress page, and build/installer.nsh relaunches the app instead of showing Finish.
+ * "Restart later" stays silent, since the user is quitting and doesn't need a window.
+ */
 export function installerArgs(relaunch: boolean): string[] {
-  return ['--updated', '/S', ...(relaunch ? ['--force-run'] : [])];
+  return relaunch ? ['--updated'] : ['--updated', '/S'];
 }
 
 /** Per-machine installs (Program Files) need elevation for a silent update. */

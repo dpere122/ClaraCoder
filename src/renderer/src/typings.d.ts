@@ -1,3 +1,4 @@
+import type { JavaJdkCheck, PythonProjectConfigInfo } from '@shared/lsp-settings';
 import type { ScreenshotAssetStatus, ScreenshotStorageStats } from '@shared/screenshot-retention';
 import type {
   TutorialClaimResult,
@@ -46,8 +47,13 @@ import type {
   SecretStorageMode,
   HfDownloadId,
   HfDownloadProgressEvent,
+  HfDownloadSnapshot,
   LlmSourcePingResult,
   LmStudioListModelsResult,
+  LmStudioLoadOptions,
+  OpenAiCompatEndpoint,
+  OpenAiCompatListResult,
+  OpenAiCompatTestResult,
   LmStudioMutationResult,
   MaybeAutoTitleResult,
   PythonInterpreterListItem,
@@ -74,7 +80,12 @@ import type {
   LspEditorDiagnosticPayload,
   LspEditorDocumentSymbolPayload,
   LspEditorFlatSymbolPayload,
+  LspEditorFeature,
+  LspEditorFeatureResponse,
   LspEditorIRangePayload,
+  LspFileRenameIpc,
+  LspWireLocation,
+  LspWireTextEdit,
   LspEditorLocationPayload,
   LspEditorTextEditPayload,
   LspSemanticTokensFullPayload,
@@ -321,7 +332,7 @@ declare global {
     ) => Promise<{ ok: boolean; path?: string; error?: string }>;
     readAbsoluteFile?: (
       absolutePath: string,
-    ) => Promise<{ ok: boolean; content?: string; path?: string; error?: string }>;
+    ) => Promise<{ ok: boolean; content?: string; path?: string; error?: string; readOnly?: boolean }>;
     setAlwaysOnTop: (pinned: boolean) => Promise<void>;
     getConversations: (workspaceId?: string | null) => Promise<ConversationMeta[]>;
     readConversationFromDisk: (id: string, workspaceId?: string | null) => Promise<Conversation>;
@@ -402,7 +413,9 @@ declare global {
       customDir: string;
       token?: string;
     }) => Promise<ModelManagerDownloadHfResult>;
+    modelManagerPauseHfDownload?: (payload: { downloadId: HfDownloadId }) => Promise<{ ok: true } | { ok: false; error: string }>;
     modelManagerCancelHfDownload: (payload: { downloadId: HfDownloadId }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    modelManagerListHfDownloads?: () => Promise<HfDownloadSnapshot[]>;
     onModelManagerHfDownloadProgress?: (callback: (event: unknown, data: HfDownloadProgressEvent) => void) => void;
     loadConfig: () => Promise<AppConfig>;
     saveConfig: (config: AppConfig) => Promise<AppConfig>;
@@ -476,8 +489,15 @@ declare global {
     anthropicSetApiKey: (payload: { apiKey: string }) => Promise<AnthropicListModelsResult>;
     anthropicClearApiKey: () => Promise<AnthropicListModelsResult>;
     anthropicSetModel: (payload: { modelId: string }) => Promise<AnthropicSetModelResult>;
+    openAiCompatListModels: (payload: { endpoint: OpenAiCompatEndpoint }) => Promise<OpenAiCompatListResult>;
+    openAiCompatTest: (payload: { endpoint: OpenAiCompatEndpoint; model: string }) => Promise<OpenAiCompatTestResult>;
     lmStudioListModels: (payload: { baseUrl: string; apiKey?: string }) => Promise<LmStudioListModelsResult>;
-    lmStudioLoadModel: (payload: { baseUrl: string; model: string; apiKey?: string }) => Promise<LmStudioMutationResult>;
+    lmStudioLoadModel: (payload: {
+      baseUrl: string;
+      model: string;
+      apiKey?: string;
+      options?: LmStudioLoadOptions;
+    }) => Promise<LmStudioMutationResult>;
     lmStudioUnloadModel: (payload: {
       baseUrl: string;
       instanceId: string;
@@ -827,6 +847,27 @@ declare global {
         }
       | { ok: false; error: string }
     >;
+    lspEditorFeature?: <F extends LspEditorFeature>(
+      sessionId: string,
+      relativePath: string,
+      feature: F,
+      params: Record<string, unknown>,
+      documentText: string,
+      skipDocumentSync?: boolean,
+    ) => Promise<LspEditorFeatureResponse<F>>;
+    lspWorkspaceSymbols?: (
+      sessionId: string,
+      server: string,
+      query: string,
+    ) => Promise<{ ok: true; symbols: LspWireLocation[] } | { ok: false; error: string }>;
+    lspWillRenameFiles?: (
+      sessionId: string,
+      files: LspFileRenameIpc[],
+    ) => Promise<{ ok: true; changes: Record<string, LspWireTextEdit[]> } | { ok: false; error: string }>;
+    lspDidRenameFiles?: (
+      sessionId: string,
+      files: LspFileRenameIpc[],
+    ) => Promise<{ ok: true } | { ok: false; error: string }>;
     lspEditorCodeLensResolve?: (
       sessionId: string,
       relativePath: string,
@@ -848,10 +889,13 @@ declare global {
             legend: { tokenTypes: string[]; tokenModifiers: string[] };
             resultId: string | null;
             edits: unknown[];
+            data?: number[];
           };
         }
       | { ok: false; error: string }
     >;
+    /** Servers ``/runtime-config`` restarted because their settings changed. */
+    onLspSettingsApplied?: (callback: (payload: { servers: string[] }) => void) => () => void;
     lspDiagnosticsWatchStart?: (sessionId: string, relativePath: string) => void;
     lspDiagnosticsWatchStop?: () => void;
     onLspDiagnosticsUpdated?: (
@@ -864,6 +908,16 @@ declare global {
     onHealthLogRecord: (callback: (event: unknown, record: HealthLogRecord) => void) => void;
     openHealthWindow: () => void;
     closeHealthWindow: () => void;
+    lspPythonProjectConfig: () => Promise<{
+      ok: boolean;
+      error?: string;
+      workspacePath: string;
+      config: PythonProjectConfigInfo | null;
+    }>;
+    lspJavaCheckJdks: (
+      jdkHome: string,
+      runtimes: string[],
+    ) => Promise<{ ok: true; check: JavaJdkCheck } | { ok: false; error: string }>;
     depsList: () => Promise<{
       ok: boolean;
       dependencies: import('@shared/index').DependencyInfo[];

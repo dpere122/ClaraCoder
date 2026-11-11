@@ -242,6 +242,9 @@
                   @if (variantHint(dep); as hint) {
                     <p class='deps-note deps-note--action'>{{ hint }}</p>
                   }
+                  @if (updateHint(dep); as hint) {
+                    <p class='deps-note deps-note--action'>{{ hint }}</p>
+                  }
                   @if (displayState(dep) === 'partial') {
                     <p class='deps-note'>
                       Model weights ({{ dep.downloadedModels!.join(', ') }}) are on disk, but the Whisper packages
@@ -335,7 +338,7 @@
                       <button
                         type='button'
                         class='deps-btn'
-                        [class.deps-btn--primary]='!!variantHint(dep)'
+                        [class.deps-btn--primary]='!!variantHint(dep) || !!updateHint(dep)'
                         [disabled]='isBusy(dep.id)'
                         (click)='reinstall(dep)'
                       >

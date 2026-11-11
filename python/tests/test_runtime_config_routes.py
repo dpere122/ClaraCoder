@@ -262,3 +262,272 @@ def test_runtime_config_applies_hugging_face_token() -> None:
         state.runtime_config.audio = orig.audio
         state.runtime_config.host = orig.host
         state.runtime_config.tools = orig.tools
+
+
+def test_runtime_config_applies_python_lsp_settings_and_restarts_basedpyright_only_when_they_change(
+    monkeypatch,
+) -> None:
+    from clara_coder_backend.main import app
+    from clara_coder_backend.session import state
+    from clara_coder_backend.lsp import manager as lsp_manager
+
+    stopped: list[str] = []
+    monkeypatch.setattr(lsp_manager, 'shutdown_lsp_server_for_all_sessions', stopped.append)
+    orig = deepcopy(state.runtime_config)
+    settings = {
+        'typeCheckingMode': 'recommended',
+        'diagnosticMode': 'workspace',
+        'inlayVariableTypes': False,
+        'inlayCallArgumentNames': True,
+        'inlayFunctionReturnTypes': False,
+        'inlayGenericTypes': True,
+        'autoImportCompletions': False,
+        'extraPaths': [' src ', '', 'src', 'libs'],
+    }
+    try:
+        with TestClient(app) as client:
+            assert client.post('/runtime-config', json=_payload()).status_code == 200
+            stopped.clear()
+
+            body = {**_payload(), 'lsp': {'python': settings}}
+            assert client.post('/runtime-config', json=body).status_code == 200
+            applied = state.runtime_config.lsp.python
+            assert applied.type_checking_mode == 'recommended'
+            assert applied.diagnostic_mode == 'workspace'
+            assert applied.inlay_variable_types is False
+            assert applied.inlay_generic_types is True
+            assert applied.auto_import_completions is False
+            assert applied.extra_paths == ['src', 'libs'], 'trimmed, blanks and repeats dropped'
+            assert stopped == ['python']
+
+            assert client.post('/runtime-config', json=body).status_code == 200
+            assert stopped == ['python'], 'saving unchanged settings must not restart basedpyright'
+
+            bad = {**_payload(), 'lsp': {'python': {**settings, 'typeCheckingMode': 'loud'}}}
+            assert client.post('/runtime-config', json=bad).status_code == 422
+    finally:
+        state.runtime_config.lsp = orig.lsp
+        state.runtime_config.tools = orig.tools
+        state.runtime_config.connections = orig.connections
+        state.runtime_config.active_connection_id = orig.active_connection_id
+        state.runtime_config.audio = orig.audio
+        state.runtime_config.host = orig.host
+
+
+def test_runtime_config_applies_typescript_lsp_settings_and_restarts_vtsls_only_when_they_change(
+    monkeypatch,
+) -> None:
+    from clara_coder_backend.main import app
+    from clara_coder_backend.session import state
+    from clara_coder_backend.lsp import manager as lsp_manager
+
+    stopped: list[str] = []
+    monkeypatch.setattr(lsp_manager, 'shutdown_lsp_server_for_all_sessions', stopped.append)
+    orig = deepcopy(state.runtime_config)
+    settings = {
+        'useWorkspaceTsdk': True,
+        'validateJavaScript': False,
+        'checkJs': True,
+        'inlayParameterNames': 'literals',
+        'inlayParameterTypes': True,
+        'inlayVariableTypes': True,
+        'inlayPropertyDeclarationTypes': False,
+        'inlayFunctionReturnTypes': True,
+        'inlayEnumMemberValues': True,
+        'autoImportCompletions': False,
+        'importModuleSpecifier': 'project-relative',
+        'quoteStyle': 'double',
+    }
+    try:
+        with TestClient(app) as client:
+            assert client.post('/runtime-config', json=_payload()).status_code == 200
+            stopped.clear()
+
+            body = {**_payload(), 'lsp': {'typescript': settings}}
+            assert client.post('/runtime-config', json=body).status_code == 200
+            applied = state.runtime_config.lsp.typescript
+            assert applied.use_workspace_tsdk is True
+            assert applied.validate_javascript is False
+            assert applied.check_js is True
+            assert applied.inlay_parameter_names == 'literals'
+            assert applied.inlay_property_declaration_types is False
+            assert applied.inlay_enum_member_values is True
+            assert applied.auto_import_completions is False
+            assert applied.import_module_specifier == 'project-relative'
+            assert applied.quote_style == 'double'
+            assert stopped == ['typescript']
+
+            assert client.post('/runtime-config', json=body).status_code == 200
+            assert stopped == ['typescript'], 'saving unchanged settings must not restart vtsls'
+
+            for field, value in (('inlayParameterNames', 'some'), ('quoteStyle', 'backtick')):
+                bad = {**_payload(), 'lsp': {'typescript': {**settings, field: value}}}
+                assert client.post('/runtime-config', json=bad).status_code == 422
+    finally:
+        state.runtime_config.lsp = orig.lsp
+        state.runtime_config.tools = orig.tools
+        state.runtime_config.connections = orig.connections
+        state.runtime_config.active_connection_id = orig.active_connection_id
+        state.runtime_config.audio = orig.audio
+        state.runtime_config.host = orig.host
+
+
+def test_runtime_config_marks_settings_as_received_only_once_they_are_applied() -> None:
+    from clara_coder_backend.main import app
+    from clara_coder_backend.session import state
+
+    orig = deepcopy(state.runtime_config)
+    state.runtime_config_received.clear()
+    try:
+        with TestClient(app) as client:
+            bad = {**_payload(), 'lsp': {'java': {'maxHeap': '1T'}}}
+            assert client.post('/runtime-config', json=bad).status_code == 422
+            assert not state.runtime_config_received.is_set()
+
+            body = {**_payload(), 'lsp': {'java': {'importMaven': False}}}
+            assert client.post('/runtime-config', json=body).status_code == 200
+            assert state.runtime_config_received.is_set()
+            assert state.runtime_config.lsp.java.import_maven is False
+    finally:
+        state.runtime_config_received.set()
+        state.runtime_config.lsp = orig.lsp
+        state.runtime_config.tools = orig.tools
+        state.runtime_config.connections = orig.connections
+        state.runtime_config.active_connection_id = orig.active_connection_id
+        state.runtime_config.audio = orig.audio
+        state.runtime_config.host = orig.host
+
+
+def test_runtime_config_applies_java_lsp_settings_and_restarts_jdt_ls_only_when_they_change(monkeypatch) -> None:
+    from clara_coder_backend.main import app
+    from clara_coder_backend.session import state
+    from clara_coder_backend.lsp import manager as lsp_manager
+
+    stopped: list[str] = []
+    monkeypatch.setattr(lsp_manager, 'shutdown_lsp_server_for_all_sessions', stopped.append)
+    orig = deepcopy(state.runtime_config)
+    settings = {
+        'jdkHome': ' C:/jdk-21 ',
+        'maxHeap': '4G',
+        'runtimes': [
+            {'name': ' JavaSE-17 ', 'path': ' C:/jdk-17 '},
+            {'name': 'JavaSE-11', 'path': ' '},
+        ],
+        'importMaven': False,
+        'importGradle': True,
+        'projectMetadataAtRoot': False,
+        'mavenUserSettings': ' C:/m2/settings.xml ',
+        'updateBuildConfiguration': 'disabled',
+        'autobuild': False,
+        'inlayParameterNames': 'all',
+        'inlayVariableTypes': True,
+        'inlayParameterTypes': False,
+        'inlayFormatParameters': True,
+        'referencesCodeLens': False,
+        'implementationCodeLens': 'methods',
+        'signatureHelp': False,
+        'guessMethodArguments': 'insertBestGuessedArguments',
+        'formatEnabled': True,
+        'formatOnType': True,
+        'formatComments': False,
+        'formatterSettingsPath': ' C:/style.xml ',
+        'formatterProfile': ' Team ',
+    }
+    try:
+        with TestClient(app) as client:
+            assert client.post('/runtime-config', json=_payload()).status_code == 200
+            stopped.clear()
+
+            body = {**_payload(), 'lsp': {'java': settings}}
+            assert client.post('/runtime-config', json=body).status_code == 200
+            applied = state.runtime_config.lsp.java
+            assert applied.jdk_home == 'C:/jdk-21'
+            assert applied.max_heap == '4G'
+            assert applied.runtimes == [('JavaSE-17', 'C:/jdk-17')], 'trimmed, incomplete entries dropped'
+            assert applied.import_maven is False
+            assert applied.project_metadata_at_root is False
+            assert applied.maven_user_settings == 'C:/m2/settings.xml'
+            assert applied.update_build_configuration == 'disabled'
+            assert applied.autobuild is False
+            assert applied.inlay_parameter_names == 'all'
+            assert applied.implementation_code_lens == 'methods'
+            assert applied.signature_help is False
+            assert applied.guess_method_arguments == 'insertBestGuessedArguments'
+            assert applied.format_on_type is True
+            assert applied.formatter_settings_path == 'C:/style.xml'
+            assert applied.formatter_profile == 'Team'
+            assert stopped == ['java']
+
+            assert client.post('/runtime-config', json=body).status_code == 200
+            assert stopped == ['java'], 'saving unchanged settings must not restart JDT LS'
+
+            for field, value in (
+                ('maxHeap', '1T'),
+                ('updateBuildConfiguration', 'interactive'),
+                ('inlayParameterNames', 'some'),
+                ('implementationCodeLens', 'everything'),
+                ('guessMethodArguments', 'auto'),
+            ):
+                bad = {**_payload(), 'lsp': {'java': {**settings, field: value}}}
+                assert client.post('/runtime-config', json=bad).status_code == 422
+    finally:
+        state.runtime_config.lsp = orig.lsp
+        state.runtime_config.tools = orig.tools
+        state.runtime_config.connections = orig.connections
+        state.runtime_config.active_connection_id = orig.active_connection_id
+        state.runtime_config.audio = orig.audio
+        state.runtime_config.host = orig.host
+
+
+def test_runtime_config_applies_lsp_settings_and_restarts_gdls_only_when_they_change(monkeypatch) -> None:
+    import os
+
+    from clara_coder_backend.main import app
+    from clara_coder_backend.session import state
+    from clara_coder_backend.lsp import manager as lsp_manager
+    from clara_coder_backend.lsp.plugins import gdscript_plugin
+
+    stopped: list[str] = []
+    monkeypatch.setattr(lsp_manager, 'shutdown_lsp_server_for_all_sessions', stopped.append)
+    orig = deepcopy(state.runtime_config)
+    orig_path = os.environ.get('PATH', '')
+    settings = {
+        'godotBinaryPath': ' C:/godot/godot.exe ',
+        'allowEngineApiDump': True,
+        'diagnosticsProfile': 'strict',
+        'inlayTypeHints': False,
+        'inlayParameterHints': True,
+        'formatterCommand': 'fmt',
+        'formatterArgs': '--stdin',
+    }
+    try:
+        with TestClient(app) as client:
+            assert client.post('/runtime-config', json=_payload()).status_code == 200
+            before = state.runtime_config.lsp
+            assert stopped == [], 'a payload without lsp settings keeps what is there'
+
+            body = {**_payload(), 'lsp': {'gdscript': settings}}
+            assert client.post('/runtime-config', json=body).status_code == 200
+            applied = state.runtime_config.lsp.gdscript
+            assert applied.godot_binary_path == 'C:/godot/godot.exe'
+            assert applied.allow_engine_api_dump is True
+            assert applied.diagnostics_profile == 'strict'
+            assert applied.inlay_type_hints is False
+            assert applied.formatter_args == '--stdin'
+            assert gdscript_plugin.runtime_config.lsp.gdscript is applied, 'importers see live values'
+            assert before.gdscript is not applied
+            assert stopped == ['gdscript']
+
+            assert client.post('/runtime-config', json=body).status_code == 200
+            assert stopped == ['gdscript'], 'saving unrelated settings must not restart gdls'
+
+            bad = {**_payload(), 'lsp': {'gdscript': {**settings, 'diagnosticsProfile': 'loud'}}}
+            assert client.post('/runtime-config', json=bad).status_code == 422
+    finally:
+        state.runtime_config.lsp = orig.lsp
+        state.runtime_config.tools = orig.tools
+        state.runtime_config.connections = orig.connections
+        state.runtime_config.active_connection_id = orig.active_connection_id
+        state.runtime_config.audio = orig.audio
+        state.runtime_config.host = orig.host
+        os.environ['PATH'] = orig_path

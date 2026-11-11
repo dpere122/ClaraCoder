@@ -38,6 +38,8 @@ export class PillSelectComponent {
   readonly labelKey = input('label');
   readonly value = input('');
   readonly disabled = input(false);
+  /** Trigger text when ``value`` is empty. */
+  readonly placeholder = input('');
   readonly ariaLabel = input('Select');
   /** Id placed on the trigger so an external label can point at it. */
   readonly controlId = input('');
@@ -56,7 +58,7 @@ export class PillSelectComponent {
   protected readonly selectedLabel = computed(() => {
     const id = this.value();
     const match = this.options().find((option) => this.optionId(option) === id);
-    return match ? this.optionLabel(match) : id;
+    return match ? this.optionLabel(match) : id || this.placeholder();
   });
 
   constructor() {

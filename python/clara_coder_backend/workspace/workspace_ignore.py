@@ -14,6 +14,8 @@ WORKSPACE_CONTEXT_IGNORED_NAMES: frozenset[str] = frozenset(
     {
         '.git',
         '.angular',
+        '.gdls',
+        '.godot',
         '.cache',
         '.cursor',
         '.idea',

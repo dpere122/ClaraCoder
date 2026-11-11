@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import logging
+import threading
 import time
 
 from fastapi import HTTPException
@@ -112,6 +113,8 @@ def build_default_runtime_config() -> RuntimeConfig:
 
 # Live settings; replaced entirely when the client POSTs /runtime-config.
 runtime_config: RuntimeConfig = build_default_runtime_config()
+#: Set by the first POST /runtime-config. Until then ``runtime_config`` holds defaults, not the user's Settings.
+runtime_config_received = threading.Event()
 
 
 def touch_session(sess: SessionState, *, now: float | None = None) -> None:

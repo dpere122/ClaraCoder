@@ -4,7 +4,7 @@ import type { DiffReviewStatus, StreamPart } from './types/conversation';
 import type { PlanConfirmPayload } from './types/plan-confirm';
 import type { AgentQuestionPayload } from './types/agent-question';
 import type { ThemeProposalPayload } from './types/theme-proposal';
-import type { AcceptCommandPayload } from './types/accept-command';
+import { ACCEPT_COMMAND_KIND_ADMIN_ELEVATION, type AcceptCommandPayload } from './types/accept-command';
 import type { CopyConfirmPayload } from './types/copy-confirm';
 import type { DeleteConfirmPayload } from './types/delete-confirm';
 import type { FileDiffPayload } from './types/diff';
@@ -189,7 +189,10 @@ export function hitlTrailItemsFromArtifacts(artifacts: readonly HitlTrailArtifac
         out.push(...copyTrailItems(artifact.payload, artifact.reviewStatus));
         break;
       case 'accept_command':
-        out.push(acceptCommandTrailItem(artifact.payload, artifact.reviewStatus));
+        // Its tool's own line says how the card was answered; the composer's Admin grant has no tool line.
+        if (artifact.payload.kind === ACCEPT_COMMAND_KIND_ADMIN_ELEVATION) {
+          out.push(acceptCommandTrailItem(artifact.payload, artifact.reviewStatus));
+        }
         break;
       case 'plan_confirm':
         out.push(planConfirmTrailItem(artifact.payload, artifact.reviewStatus));

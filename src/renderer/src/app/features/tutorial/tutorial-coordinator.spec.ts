@@ -114,7 +114,7 @@ describe('tutorial descriptors', () => {
     const registry = TUTORIAL_PHASE_REGISTRY.flatMap((phase) => phase.steps.map((stepId) => `${phase.id}:${stepId}`));
     expect(TUTORIAL_STEPS.map((step) => `${step.phaseId}:${step.stepId}`)).toEqual(registry);
     expect(new Set(registry).size).toBe(registry.length);
-    expect(TUTORIAL_STEPS.find((step) => step.stepId === 'celebration')?.celebration).toBe(true);
+    expect(TUTORIAL_STEPS.find((step) => step.stepId === 'tour-complete')?.complete).toBe(true);
   });
   it('teaches Home navigation in order and highlights provider and uploader separately', () => {
     const intro = TUTORIAL_STEPS.filter((step) => step.phaseId === 'intro');
@@ -125,7 +125,15 @@ describe('tutorial descriptors', () => {
     expect(intro.find((step) => step.stepId === 'home-models')?.targets?.[0]).toBe('home-model-manager');
     expect(TUTORIAL_STEPS.find((step) => step.stepId === 'featured-preview')?.targets).toEqual(['featured-provider']);
     expect(TUTORIAL_STEPS.find((step) => step.stepId === 'featured-uploader')?.targets).toEqual(['featured-uploader']);
-    expect(TUTORIAL_STEPS.find((step) => step.stepId === 'sources-defaults')?.body).toContain('Advanced → Inference');
+    expect(TUTORIAL_STEPS.find((step) => step.stepId === 'sources-defaults')?.details).toContain('Advanced → Inference');
+  });
+  it('keeps technical terms out of the main text, in the collapsed details', () => {
+    const jargon = /GGUF|Hugging Face|metadata|inference|quantiz|semantic|runtime|draft/i;
+    expect(TUTORIAL_STEPS.filter((step) => jargon.test(`${step.title} ${step.body}`)).map((step) => step.stepId)).toEqual([]);
+  });
+  it('uses straight quotes, which keep their natural width in every App font', () => {
+    const copy = TUTORIAL_STEPS.flatMap((step) => [step.title, step.body, step.details ?? '', step.unavailableHint ?? '']);
+    expect(copy.filter((text) => /[‘’“”]/.test(text))).toEqual([]);
   });
 });
 
@@ -287,7 +295,7 @@ describe('TutorialCoordinator', () => {
     expect(home.coordinator.ownsLease()).toBe(true);
     await home.coordinator.advance();
     await flush();
-    expect(settings.coordinator.cursor()?.stepId).toBe('featured-intro');
+    expect(settings.coordinator.cursor()?.stepId).toBe('downloaded-list');
     expect(settings.coordinator.ownsLease()).toBe(true);
     expect(home.client.openSettingsWindow).toHaveBeenCalledWith('modelManager');
     expect(deps.client.closeDependenciesWindow).not.toHaveBeenCalled();

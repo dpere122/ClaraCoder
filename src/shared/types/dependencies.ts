@@ -1,9 +1,9 @@
 /**
  * Shared types for the runtime dependency download framework
- * (llama-server, Java LSP, Kokoro, Whisper).
+ * (llama-server, Java LSP, gdls, Kokoro, Whisper).
  */
 
-export type DependencyId = 'llama-server' | 'java-lsp' | 'kokoro' | 'whisper';
+export type DependencyId = 'llama-server' | 'java-lsp' | 'gdls' | 'kokoro' | 'whisper';
 
 export type DependencyState = 'missing' | 'installed' | 'updating' | 'error';
 
@@ -25,8 +25,8 @@ export type DependencyProgressPhase =
  * - `auto`: use the host-detected default (CPU / Vulkan / CUDA prebuilt)
  * - `cpu`: force the CPU build
  * - `vulkan`: force the Vulkan prebuilt (Linux/Windows x64)
- * - `cuda-12`: force the Windows CUDA 12.4 prebuilt (Windows x64)
- * - `cuda-13`: force the Windows CUDA 13.3 prebuilt (Windows x64)
+ * - `cuda-12`: force the CUDA 12 prebuilt (12.4 on Windows x64, 12.8 on Linux x64)
+ * - `cuda-13`: force the CUDA 13.5 prebuilt (Windows x64, Linux x64)
  * - `cuda-compiled`: compile from source with `-DGGML_CUDA=ON` (Linux; needs CUDA toolkit)
  */
 export type LlamaServerVariant =
@@ -50,8 +50,8 @@ export const LLAMA_SERVER_VARIANT_LABELS: Record<LlamaServerVariant, string> = {
   auto: 'Auto (detect)',
   cpu: 'CPU',
   vulkan: 'Vulkan (GPU)',
-  'cuda-12': 'CUDA 12.4 (Windows)',
-  'cuda-13': 'CUDA 13.3 (Windows)',
+  'cuda-12': 'CUDA 12 (prebuilt)',
+  'cuda-13': 'CUDA 13 (prebuilt)',
   'cuda-compiled': 'Compile from source (CUDA)',
 };
 
@@ -72,6 +72,11 @@ export interface DependencyInfo {
   downloadedModels?: string[];
   /** Sub-dependencies this install drops on disk (packages, binaries, weights). */
   components?: string[];
+  /**
+   * Version a reinstall would fetch, set only while the installed copy is older than it
+   * (llama-server after its pinned build moved on). The install still runs.
+   */
+  updateAvailable?: string | null;
 }
 
 export interface DependencyProgressEvent {
@@ -93,6 +98,7 @@ export interface DependencyActionResult {
 export const DEPENDENCY_IDS: readonly DependencyId[] = [
   'llama-server',
   'java-lsp',
+  'gdls',
   'kokoro',
   'whisper',
 ] as const;
@@ -100,6 +106,7 @@ export const DEPENDENCY_IDS: readonly DependencyId[] = [
 export const DEPENDENCY_LABELS: Record<DependencyId, string> = {
   'llama-server': 'llama-server',
   'java-lsp': 'Java LSP (JDT LS)',
+  gdls: 'GDScript LSP (gdls)',
   kokoro: 'Kokoro TTS',
   whisper: 'Whisper STT',
 };
@@ -107,13 +114,15 @@ export const DEPENDENCY_LABELS: Record<DependencyId, string> = {
 export const DEPENDENCY_DESCRIPTIONS: Record<DependencyId, string> = {
   'llama-server': 'llama.cpp server binary for managed local models.',
   'java-lsp': 'Eclipse JDT Language Server for Java diagnostics and navigation.',
+  gdls: 'Standalone GDScript language server for Godot 4.6+. Needs no running Godot editor.',
   kokoro: 'Local neural TTS (CPU PyTorch + kokoro).',
   whisper: 'Local speech-to-text (faster-whisper, CPU CTranslate2).',
 };
 
 export const DEPENDENCY_SIZE_HINTS: Record<DependencyId, string> = {
-  'llama-server': '~40–400 MB (CPU ~40 MB; CUDA build + cudart DLLs up to ~400 MB)',
+  'llama-server': '~40–750 MB (CPU ~40 MB; CUDA build + CUDA runtime libs up to ~750 MB)',
   'java-lsp': '~50–80 MB',
+  gdls: '~12 MB (macOS: built from source with Rust)',
   kokoro: '~1–2 GB (CPU PyTorch + Kokoro)',
   whisper: '~80–500 MB (CTranslate2 + small model)',
 };
@@ -123,8 +132,9 @@ export const DEPENDENCY_SIZE_HINTS: Record<DependencyId, string> = {
  * the authoritative list.
  */
 export const DEPENDENCY_COMPONENTS: Record<DependencyId, readonly string[]> = {
-  'llama-server': ['llama-server', 'ggml / llama shared libs', 'cudart DLLs (CUDA builds)'],
+  'llama-server': ['llama-server', 'ggml / llama shared libs', 'CUDA runtime libs (CUDA builds)'],
   'java-lsp': ['Eclipse JDT LS', 'Equinox launcher', 'JDT plugins'],
+  gdls: ['gdls'],
   kokoro: ['torch (CPU)', 'kokoro', 'misaki', 'spacy'],
   whisper: ['faster-whisper', 'CTranslate2', 'Whisper model weights'],
 };
@@ -178,6 +188,13 @@ export const DEPENDENCY_SOURCES: Record<DependencyId, readonly DependencySource[
       label: 'Eclipse JDT Language Server',
       url: 'https://github.com/eclipse-jdtls/eclipse.jdt.ls',
       detail: 'Milestone tarball from download.eclipse.org/jdtls/milestones.',
+    },
+  ],
+  gdls: [
+    {
+      label: 'gdls',
+      url: 'https://github.com/kurushimee/gdls',
+      detail: 'Prebuilt binary from the pinned GitHub release, checksum verified; built with cargo on macOS.',
     },
   ],
   kokoro: [

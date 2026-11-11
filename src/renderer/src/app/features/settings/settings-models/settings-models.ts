@@ -22,6 +22,9 @@ import { ElectronService } from '../../../core/electron.service';
 import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
 import { SettingsStore } from '../settings/settings-store';
 import { LlamaRunCommandComponent } from './llama-run-command/llama-run-command';
+import { LmStudioDashboardComponent } from './lm-studio-dashboard/lm-studio-dashboard';
+import { OpenAiCompatDashboardComponent } from './openai-compat-dashboard/openai-compat-dashboard';
+import { TutorialSourceExampleComponent } from './tutorial-source-example/tutorial-source-example';
 import {
   OPENROUTER_MODEL_SORT_OPTIONS,
   filterOpenRouterModels,
@@ -40,10 +43,13 @@ const OPENROUTER_GRID_PAGE = 48;
   imports: [
     FormsModule,
     LlamaRunCommandComponent,
+    LmStudioDashboardComponent,
     LucideAngularModule,
     NgTemplateOutlet,
     NgxSpinnerComponent,
+    OpenAiCompatDashboardComponent,
     PillSelectComponent,
+    TutorialSourceExampleComponent,
   ],
   templateUrl: './settings-models.html',
   styleUrl: './settings-models.css',
@@ -80,8 +86,6 @@ export class SettingsModels {
     const scanned = this.scannedEffortOptions();
     return scanned.length ? llmComposerEffortValue(scanned, saved) : saved;
   });
-  protected readonly builtinEmbeddingsOptions = [{ id: '', label: 'Built-in CPU embeddings' }];
-
   protected readonly openRouterDefaultBaseUrl = OPENROUTER_DEFAULT_BASE_URL;
   /** Connection fields are drafted here and only reach the config on Save. */
   protected readonly openRouterEditing = signal(false);
@@ -193,18 +197,6 @@ export class SettingsModels {
   protected readonly formatContext = formatOpenRouterContext;
   protected readonly formatPrice = formatOpenRouterPrice;
   protected readonly isFree = openRouterModelIsFree;
-
-  protected lmStudioChatOptions(): { id: string; label: string }[] {
-    const current = this.s.selectedModel()?.model ?? '';
-    const rows = this.s.lmStudioMainModelOptions().map((opt) => ({
-      id: opt.id,
-      label: `${opt.id} — ${opt.state}`,
-    }));
-    if (current && !rows.some((row) => row.id === current)) {
-      rows.unshift({ id: current, label: `${current} (current)` });
-    }
-    return rows;
-  }
 
   protected managedModelOptions(): { id: string; label: string }[] {
     const rows = this.s.managedInventoryModels().map((model) => ({

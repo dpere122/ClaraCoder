@@ -4,11 +4,7 @@ import { bootstrapApplication } from '@angular/platform-browser';
 import { appConfig } from './app/app.config';
 import { App } from './app/features/shell/app';
 import { AppShell } from './app/features/shell/app-shell';
-import { Settings } from './app/features/settings/settings/settings';
-import { HealthMonitor } from './app/features/health/health-monitor/health-monitor';
-import { Dependencies } from './app/features/dependencies/dependencies/dependencies';
-import { Updater } from './app/features/updater/updater/updater';
-import { provideRouter, withHashLocation } from '@angular/router';
+import { provideRouter, withHashLocation, type Routes } from '@angular/router';
 import { builtInThemeForMode } from '@shared/theme';
 import { applyBuiltInThemeSync, browserModeStorage, readCachedThemeMode } from './app/core/theme/theme-dom';
 
@@ -24,12 +20,28 @@ if (window.location.protocol === 'file:' && /\/index\.html$/i.test(window.locati
 // ThemeEngineService takes over (persisted selection, library, live preview) once running.
 applyBuiltInThemeSync(document, builtInThemeForMode(readCachedThemeMode(browserModeStorage())).id);
 
-const routes = [
+// Each secondary window is its own BrowserWindow on its own route, so it loads its component
+// as a lazy chunk. That keeps the main window's initial bundle to the workspace UI.
+const routes: Routes = [
   { path: '', component: App, data: { tutorialWindow: 'home' } },
-  { path: 'settings', component: Settings, data: { tutorialWindow: 'settings' } },
-  { path: 'health', component: HealthMonitor },
-  { path: 'dependencies', component: Dependencies, data: { tutorialWindow: 'dependencies' } },
-  { path: 'updater', component: Updater },
+  {
+    path: 'settings',
+    loadComponent: () => import('./app/features/settings/settings/settings').then((m) => m.Settings),
+    data: { tutorialWindow: 'settings' },
+  },
+  {
+    path: 'health',
+    loadComponent: () => import('./app/features/health/health-monitor/health-monitor').then((m) => m.HealthMonitor),
+  },
+  {
+    path: 'dependencies',
+    loadComponent: () => import('./app/features/dependencies/dependencies/dependencies').then((m) => m.Dependencies),
+    data: { tutorialWindow: 'dependencies' },
+  },
+  {
+    path: 'updater',
+    loadComponent: () => import('./app/features/updater/updater/updater').then((m) => m.Updater),
+  },
 ];
 
 // Dev builds in a plain browser tab: attach to the main process if `npm run dev:bridge` handed

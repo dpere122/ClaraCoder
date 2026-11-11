@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import type { LlmConnectionConfig } from '../../shared';
+import { defaultLspServersSettings } from '../../shared/lsp-settings';
 import {
+  changedLspServerIds,
   chatTemplateReasoningWire,
   embeddingsConfiguredForWire,
   embeddingsEnabledForWire,
@@ -128,5 +130,22 @@ describe('embeddingsConfiguredForWire', () => {
     expect(
       embeddingsConfiguredForWire(llamacppConn({ embeddingsBaseUrl: 'http://127.0.0.1:8081/v1' })),
     ).toBe(false);
+  });
+});
+
+describe('changedLspServerIds', () => {
+  it('names only the servers whose settings changed', () => {
+    const before = defaultLspServersSettings();
+    const after = defaultLspServersSettings();
+    after.typescript.inlayVariableTypes = true;
+    after.python.extraPaths = ['src'];
+    expect(changedLspServerIds(before, after)).toEqual(['python', 'typescript']);
+    expect(changedLspServerIds(after, structuredClone(after))).toEqual([]);
+  });
+
+  it('names none on the first sync, when the sidecar runs no servers yet', () => {
+    const settings = defaultLspServersSettings();
+    settings.gdscript.inlayTypeHints = !settings.gdscript.inlayTypeHints;
+    expect(changedLspServerIds(null, settings)).toEqual([]);
   });
 });

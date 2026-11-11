@@ -11,17 +11,17 @@
           type='button'
           class='chrome-menu-btn'
           data-tutorial='home-dependencies-menu'
-          [class.chrome-menu-btn--attention]='!!coreDependenciesAlert()'
-          [attr.title]='coreDependenciesAlert() || null'
+          [class.chrome-menu-btn--attention]='!!coreDependenciesNotice()'
+          [attr.title]='coreDependenciesNotice() || null'
           (click)='onChromeDependencies()'
         >
-          @if (coreDependenciesAlert()) {
+          @if (coreDependenciesNotice()) {
             <lucide-icon
               name='triangle-alert'
               [size]='11'
               class='chrome-menu-btn-alert'
               role='img'
-              [attr.aria-label]='coreDependenciesAlert()'
+              [attr.aria-label]='coreDependenciesNotice()'
             ></lucide-icon>
           }
           Dependencies
@@ -539,6 +539,9 @@
   @if (electron.isElectron && currentWorkspaceId()) {
     <footer class="app-status-footer" data-theme-group="shell.status-bar">
       <div class="app-status-footer__start">
+        <div class="app-status-footer__source" data-theme-group="workspace.footer">
+          <app-managed-llama-controls layout="status-bar" [appConfig]="appConfig()" />
+        </div>
         <app-llama-status-indicator [appConfig]="appConfig()" />
       </div>
       <div class="app-status-footer__end">

@@ -313,6 +313,12 @@ class RuntimeConnection:
     repeat_penalty: float | None = None
     #: Main context window for this connection (from Settings); used for context compaction budgets.
     context_window_tokens: int = 0
+    #: LM Studio idle unload in seconds, sent on requests so a model it auto-loads gets it; 0 omits it.
+    idle_ttl_seconds: int = 0
+    #: ``openai-compatible`` only: what the server accepts (``OpenAiCompatRequest`` as a dict).
+    open_ai_compat: dict[str, Any] | None = None
+    #: ``openai-compatible`` only: sent on every request. May hold credentials, so never logged.
+    custom_headers: dict[str, str] = field(default_factory=dict)
     #: Live llama-server Jinja scan: ``{enableThinking, reasoningEffortValues}`` or None when unknown.
     chat_template_reasoning: dict[str, Any] | None = None
 
@@ -444,6 +450,93 @@ class RuntimeMcpServer:
 
 
 @dataclass
+class RuntimeGdscriptLspConfig:
+    """Settings → LSP → Godot."""
+
+    godot_binary_path: str = ''
+    #: Lets gdls run Godot on a project, which can load the project's native code. Off until opted in.
+    allow_engine_api_dump: bool = False
+    diagnostics_profile: str = 'godot'
+    inlay_type_hints: bool = True
+    inlay_parameter_hints: bool = True
+    formatter_command: str = ''
+    formatter_args: str = ''
+
+
+@dataclass
+class RuntimePythonLspConfig:
+    """Settings → LSP → Python (basedpyright)."""
+
+    #: A project ``pyrightconfig.json`` or ``[tool.basedpyright]`` / ``[tool.pyright]`` table wins over this.
+    type_checking_mode: str = 'standard'
+    diagnostic_mode: str = 'openFilesOnly'
+    inlay_variable_types: bool = True
+    inlay_call_argument_names: bool = True
+    inlay_function_return_types: bool = True
+    inlay_generic_types: bool = False
+    auto_import_completions: bool = True
+    extra_paths: list[str] = field(default_factory=list)
+
+
+@dataclass
+class RuntimeTypescriptLspConfig:
+    """Settings → LSP → TypeScript / JavaScript (vtsls). Defaults are vtsls' own."""
+
+    use_workspace_tsdk: bool = False
+    validate_javascript: bool = True
+    #: Only for JavaScript files no ``jsconfig.json`` / ``tsconfig.json`` covers.
+    check_js: bool = False
+    inlay_parameter_names: str = 'none'
+    inlay_parameter_types: bool = False
+    inlay_variable_types: bool = False
+    inlay_property_declaration_types: bool = False
+    inlay_function_return_types: bool = False
+    inlay_enum_member_values: bool = False
+    auto_import_completions: bool = True
+    import_module_specifier: str = 'shortest'
+    quote_style: str = 'auto'
+
+
+@dataclass
+class RuntimeJavaLspConfig:
+    """Settings → LSP → Java (Eclipse JDT LS). Defaults keep what Clara ran before these settings existed."""
+
+    #: JDK that runs JDT LS; empty looks at ``JAVA_HOME``, then ``java`` on ``PATH``.
+    jdk_home: str = ''
+    max_heap: str = '1G'
+    #: ``(execution environment, JDK folder)`` projects compile against; the first is the default.
+    runtimes: list[tuple[str, str]] = field(default_factory=list)
+    import_maven: bool = True
+    import_gradle: bool = True
+    #: Write ``.project``, ``.classpath`` and ``.settings`` into the project; off keeps them in JDT LS's own data.
+    project_metadata_at_root: bool = True
+    maven_user_settings: str = ''
+    update_build_configuration: str = 'automatic'
+    autobuild: bool = True
+    inlay_parameter_names: str = 'literals'
+    inlay_variable_types: bool = False
+    inlay_parameter_types: bool = False
+    inlay_format_parameters: bool = False
+    references_code_lens: bool = True
+    implementation_code_lens: str = 'none'
+    signature_help: bool = True
+    guess_method_arguments: str = 'insertParameterNames'
+    format_enabled: bool = True
+    format_on_type: bool = False
+    format_comments: bool = True
+    formatter_settings_path: str = ''
+    formatter_profile: str = ''
+
+
+@dataclass
+class RuntimeLspConfig:
+    gdscript: RuntimeGdscriptLspConfig = field(default_factory=RuntimeGdscriptLspConfig)
+    python: RuntimePythonLspConfig = field(default_factory=RuntimePythonLspConfig)
+    typescript: RuntimeTypescriptLspConfig = field(default_factory=RuntimeTypescriptLspConfig)
+    java: RuntimeJavaLspConfig = field(default_factory=RuntimeJavaLspConfig)
+
+
+@dataclass
 class RuntimeConfig:
     """Full runtime settings chosen in the desktop UI and POSTed to /runtime-config."""
 
@@ -453,6 +546,7 @@ class RuntimeConfig:
     host: RuntimeHostConfig = field(default_factory=RuntimeHostConfig)
     tools: RuntimeToolsConfig = field(default_factory=RuntimeToolsConfig)
     context_compression: RuntimeContextCompressionConfig = field(default_factory=RuntimeContextCompressionConfig)
+    lsp: RuntimeLspConfig = field(default_factory=RuntimeLspConfig)
     mcp_servers: list[RuntimeMcpServer] = field(default_factory=list)
     #: Active workspace directory. MCP stdio cwd and the advertised root follow this path.
     active_workspace_path: str = ''

@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import type { HuggingFaceModelFile } from '../../../shared';
 
 const { handlers } = vi.hoisted(() => ({
@@ -71,5 +74,31 @@ describe('the quant files of a repo', () => {
   it('keep the MTP role for an MTP head', async () => {
     const files = await listFiles(['gemma-4-12B-it-Q4_0.gguf', 'mtp-gemma-4-12B-it-Q4_0.gguf']);
     expect(files.map((f) => f.role)).toEqual([undefined, 'mtp']);
+  });
+});
+
+describe('the downloaded models of a folder', () => {
+  it('leave out a hub folder that only holds an unfinished download', async () => {
+    const customDir = mkdtempSync(path.join(os.tmpdir(), 'clara-mm-list-'));
+    try {
+      const file = (...parts: string[]): void => {
+        const full = path.join(customDir, ...parts);
+        mkdirSync(path.dirname(full), { recursive: true });
+        writeFileSync(full, 'x');
+      };
+      file('models--org--partial', 'blobs', 'abc.incomplete');
+      mkdirSync(path.join(customDir, 'models--org--partial', 'snapshots', 'c0ffee'), { recursive: true });
+      // A second quant still downloading does not hide the one that finished.
+      file('models--org--done', 'blobs', 'def.incomplete');
+      file('models--org--done', 'snapshots', 'c0ffee', 'model-Q4_K_M.gguf');
+      const res = (await handlers.get('model-manager:list-custom-models')?.({ sender: {} }, { customDir })) as {
+        ok: boolean;
+        models: { fileName: string }[];
+      };
+      expect(res.ok).toBe(true);
+      expect(res.models.map((m) => m.fileName)).toEqual(['models--org--done']);
+    } finally {
+      rmSync(customDir, { recursive: true, force: true });
+    }
   });
 });

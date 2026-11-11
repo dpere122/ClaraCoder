@@ -1,5 +1,10 @@
 @if (show()) {
-  <div class="managed-llama-controls" role="group" aria-label="LLM source and managed llama-server controls">
+  <div
+    class="managed-llama-controls"
+    [class.managed-llama-controls--status-bar]="layout() === 'status-bar'"
+    role="group"
+    aria-label="LLM source and managed llama-server controls"
+  >
     <div class="managed-llama-controls__row">
       <app-pill-select
         class="managed-llama-controls__source-select"
@@ -7,6 +12,7 @@
         [value]="activeProviderId()"
         [disabled]="running() || busy()"
         [attr.aria-busy]="inventoryLoading() ? 'true' : null"
+        [menuFitContent]="layout() === 'status-bar'"
         ariaLabel="Active LLM source"
         (valueChange)="onSourceChange($event)"
       />
@@ -43,6 +49,15 @@
     </div>
     @if (startError()) {
       <div class="managed-llama-controls__error" role="alert"><span>{{ startError() }}</span></div>
+      @if (layout() === 'status-bar') {
+        <button
+          type="button"
+          class="managed-llama-controls__error-dismiss"
+          title="Dismiss"
+          aria-label="Dismiss start error"
+          (click)="startError.set('')"
+        >&times;</button>
+      }
     }
   </div>
 }

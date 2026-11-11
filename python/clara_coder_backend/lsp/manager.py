@@ -23,7 +23,7 @@ from clara_coder_backend.lsp.registry import (
     get_lsp_server_plugin,
     iter_registered_lsp_server_ids,
 )
-from clara_coder_backend.lsp.server_plugin import LspServerPlugin
+from clara_coder_backend.lsp.server_plugin import LspServerNotInstalledError, LspServerPlugin
 from clara_coder_backend.lsp.overlay_hooks import clear_lsp_staging_overlay
 from clara_coder_backend.session.state import current_session_id, get_session, sessions
 from clara_coder_backend.workspace.paths import normalize_relative_path
@@ -68,6 +68,10 @@ _DIAG_WAIT_TIMEOUT_SLOW_S = 2.5
 _DIAG_FIRST_OPEN_TIMEOUT_S = 5.0
 _DIAG_FIRST_OPEN_TIMEOUT_SLOW_S = 8.0
 _DIAG_QUIET_S = 0.05
+#: ``wait_for_workspace_analysis``: silence that counts as settled, and how long a fresh client may
+#: take to begin its first analysis (basedpyright starts in about two seconds).
+_WORKSPACE_ANALYSIS_QUIET_S = 1.0
+_WORKSPACE_ANALYSIS_STARTUP_GRACE_S = 5.0
 
 # Who last supplied a document's text: the Monaco editor (may be unsaved) or the file on disk.
 DOC_ORIGIN_EDITOR = 'editor'
@@ -235,6 +239,14 @@ def _workspace_capabilities() -> dict[str, Any]:
     }
 
 
+def _deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in overrides.items():
+        current = merged.get(key)
+        merged[key] = _deep_merge(current, value) if isinstance(current, dict) and isinstance(value, dict) else value
+    return merged
+
+
 def _extract_semantic_tokens_legend(init_result: Any) -> dict[str, list[str]] | None:
     """Parse ``capabilities.semanticTokensProvider.legend`` from ``initialize`` result."""
 
@@ -363,8 +375,20 @@ class SessionWorkspaceLspManager:
         self._server_capabilities: dict[str, Any] = {}
         self._language_status: str = ''
         self._language_status_message: str = ''
+        # ``$/progress`` tokens between ``begin`` and ``end``: the server is still indexing.
+        self._active_progress: dict[str, str] = {}
+        # Latest ``$/progress`` report text, e.g. basedpyright's "12 files to analyze".
+        self._progress_report: str = ''
+        # Monotonic time of the last publish or progress message, and of the current client's start;
+        # ``wait_for_workspace_analysis`` settles on these.
+        self._last_server_activity_at: float = 0.0
+        self._client_started_at: float = 0.0
+        # A progress run went from ``begin`` to ``end`` on this client: its first analysis finished.
+        self._analysis_progress_ended: bool = False
         self._lifecycle_phase: str = 'idle'
         self._lifecycle_error: str = ''
+        # ``_lifecycle_error`` is something the user has to fix (a setting, a download), not a crash.
+        self._lifecycle_error_is_setup: bool = False
 
     def should_defer_semantic_tokens_legend_without_document_seed(self) -> bool:
         """True when legend prefetch must not spawn this server before any document seed."""
@@ -395,9 +419,11 @@ class SessionWorkspaceLspManager:
         self._server_capabilities = {}
         self._language_status = ''
         self._language_status_message = ''
+        self._active_progress.clear()
         self._lifecycle_phase = 'crashed'
         if not (self._lifecycle_error or '').strip():
             self._lifecycle_error = 'Language server process exited.'
+            self._lifecycle_error_is_setup = False
         self._clear_document_state_locked()
         self._bump_sync_epoch_locked()
         cache = self._diag_cache()
@@ -469,6 +495,16 @@ class SessionWorkspaceLspManager:
         client: Any | None = None
         lsp_cwd: Path | None = None
         init_opts: dict[str, Any] = {}
+        try:
+            self._plugin.wait_until_ready_to_start()
+        except LspServerNotInstalledError as exc:
+            with self._lock:
+                if self._client is None:
+                    self._lifecycle_phase = 'crashed'
+                    self._lifecycle_error = str(exc)
+                    self._lifecycle_error_is_setup = True
+                    self._diag_cond.notify_all()
+            raise
         while True:
             with self._lock:
                 if self._client is not None and not self._client_process_alive(self._client):
@@ -482,6 +518,7 @@ class SessionWorkspaceLspManager:
                     continue
                 self._lifecycle_phase = 'starting'
                 self._lifecycle_error = ''
+                self._lifecycle_error_is_setup = False
                 try:
                     bundle = self._plugin.compute_start_params(
                         session=self.session,
@@ -490,9 +527,16 @@ class SessionWorkspaceLspManager:
                         session_id=self.session_id,
                         scope=self.scope,
                     )
+                except LspServerNotInstalledError as exc:
+                    self._lifecycle_phase = 'crashed'
+                    self._lifecycle_error = str(exc)
+                    self._lifecycle_error_is_setup = True
+                    self._diag_cond.notify_all()
+                    raise
                 except Exception:
                     self._lifecycle_phase = 'crashed'
                     self._lifecycle_error = 'Failed to resolve language-server command.'
+                    self._lifecycle_error_is_setup = False
                     self._diag_cond.notify_all()
                     raise
                 lsp_cwd = bundle.lsp_cwd
@@ -519,10 +563,16 @@ class SessionWorkspaceLspManager:
                 except Exception:
                     self._lifecycle_phase = 'crashed'
                     self._lifecycle_error = 'Failed to spawn language-server subprocess.'
+                    self._lifecycle_error_is_setup = False
                     self._diag_cond.notify_all()
                     raise
                 self._inflight_client = client
                 self._lifecycle_phase = 'initializing'
+                # Before ``initialize``: the server may start (and even finish) analyzing as soon as
+                # it gets it, before this thread marks the client running.
+                self._client_started_at = time.monotonic()
+                self._analysis_progress_ended = False
+                self._progress_report = ''
                 self._diag_cond.notify_all()
             break
 
@@ -531,7 +581,7 @@ class SessionWorkspaceLspManager:
             init_result = client.initialize(
                 root_uri=_path_to_uri(lsp_cwd),
                 process_id=os.getpid(),
-                capabilities=_workspace_capabilities(),
+                capabilities=_deep_merge(_workspace_capabilities(), self._plugin.client_capability_overrides()),
                 initialization_options=init_opts,
             )
         except Exception as exc:
@@ -542,6 +592,7 @@ class SessionWorkspaceLspManager:
                 if not already_shutting:
                     self._lifecycle_phase = 'crashed'
                     self._lifecycle_error = str(exc).strip()[:400]
+                    self._lifecycle_error_is_setup = False
                     self._close_client_best_effort(
                         client,
                         session_id=self.session_id,
@@ -605,6 +656,7 @@ class SessionWorkspaceLspManager:
             self._server_capabilities = {}
             self._language_status = ''
             self._language_status_message = ''
+            self._active_progress.clear()
             self._clear_document_state_locked()
             self._bump_sync_epoch_locked()
             cache = self._diag_cache()
@@ -700,6 +752,7 @@ class SessionWorkspaceLspManager:
             if self._lifecycle_phase == 'shuttingDown':
                 self._lifecycle_phase = 'idle'
                 self._lifecycle_error = ''
+                self._lifecycle_error_is_setup = False
             self._diag_cond.notify_all()
         logger.info(
             '%s LSP restarting for plugin request session=%s scope=%s',
@@ -757,10 +810,12 @@ class SessionWorkspaceLspManager:
     ) -> list[dict[str, Any]]:
         path = normalize_relative_path(self.workspace_root, rel)
         uri = _path_to_uri(path)
+        # The server is set to report nothing for this file, so no publish is coming to wait for.
+        reports_diagnostics = not self._plugin.diagnostics_off_reason(rel)
         with self._lock:
             cache = self._diag_cache()
             same_digest = rel in self._doc_versions and self._last_synced_digest.get(rel) == digest
-            ready = self._diag_ready_digest.get(rel) == digest
+            ready = self._diag_ready_digest.get(rel) == digest or not reports_diagnostics
             if same_digest:
                 # Identical text: the editor confirming its buffer takes ownership back; a disk
                 # read leaves an editor-owned (clean) buffer with the editor.
@@ -850,7 +905,9 @@ class SessionWorkspaceLspManager:
                 # prompt a missing publish, changes nothing for them.)
                 if not same_digest:
                     self._expect_republish_except([rel])
-            if wait_for_diagnostics:
+            if not reports_diagnostics:
+                self._diag_ready_digest[rel] = digest
+            elif wait_for_diagnostics:
                 published = self._wait_for_diagnostics(rel, prev_fresh_generation, first_open=version == 1)
                 if self._wait_settled(published):
                     self._diag_ready_digest[rel] = digest
@@ -1038,6 +1095,11 @@ class SessionWorkspaceLspManager:
         with self._lock:
             digest = self._last_synced_digest.get(rel)
             return digest is not None and self._diag_ready_digest.get(rel) == digest
+
+    def diagnostics_off_reason(self, relative_path: str) -> str:
+        """Why the server is set to report nothing for this file, or ``''`` when it reports diagnostics."""
+
+        return self._plugin.diagnostics_off_reason(normalize_relative_posix_path(relative_path))
 
     def mark_diagnostics_stale(self, relative_path: str) -> None:
         """Make the next waiting sync re-send the document and wait for a new publish."""
@@ -1356,6 +1418,8 @@ class SessionWorkspaceLspManager:
 
     def formatting(self, relative_path: str, *, tab_size: int = 4, insert_spaces: bool = True) -> Any:
         rel = self._ensure_workspace_synced(relative_path)
+        if not self._has_provider('documentFormattingProvider'):
+            return []
         params = {
             'textDocument': {'uri': _path_to_uri(normalize_relative_path(self.workspace_root, rel))},
             'options': {'tabSize': max(1, int(tab_size)), 'insertSpaces': bool(insert_spaces)},
@@ -1374,6 +1438,8 @@ class SessionWorkspaceLspManager:
         insert_spaces: bool = True,
     ) -> Any:
         rel = self._ensure_workspace_synced(relative_path)
+        if not self._has_provider('documentRangeFormattingProvider'):
+            return []
         params = {
             'textDocument': {'uri': _path_to_uri(normalize_relative_path(self.workspace_root, rel))},
             'range': {
@@ -1395,6 +1461,8 @@ class SessionWorkspaceLspManager:
         insert_spaces: bool = True,
     ) -> Any:
         rel = self._ensure_workspace_synced(relative_path)
+        if not self._has_provider('documentOnTypeFormattingProvider'):
+            return []
         params = {
             'textDocument': {'uri': _path_to_uri(normalize_relative_path(self.workspace_root, rel))},
             'position': {'line': max(0, int(line) - 1), 'character': max(0, int(character) - 1)},
@@ -1442,6 +1510,92 @@ class SessionWorkspaceLspManager:
         if not self._has_provider('codeLensProvider'):
             return lsp_lens
         return self._require_client().request('codeLens/resolve', lsp_lens, timeout_s=8.0)
+
+    def document_request(
+        self,
+        relative_path: str,
+        method: str,
+        *,
+        provider: str,
+        params: dict[str, Any] | None = None,
+        timeout_s: float = 15.0,
+    ) -> Any:
+        """Send a ``textDocument/*`` request, or return None when the server lacks ``provider``."""
+
+        rel = self._ensure_workspace_synced(relative_path)
+        if not self._has_provider(provider):
+            return None
+        full = {'textDocument': {'uri': _path_to_uri(normalize_relative_path(self.workspace_root, rel))}}
+        full.update(params or {})
+        return self._require_client().request(method, full, timeout_s=timeout_s)
+
+    def server_request(
+        self,
+        method: str,
+        params: dict[str, Any],
+        *,
+        provider: str,
+        timeout_s: float = 15.0,
+    ) -> Any:
+        """Send a request that names no open document, or return None without ``provider``."""
+
+        self.ensure_started()
+        if not self._has_provider(provider):
+            return None
+        return self._require_client().request(method, params, timeout_s=timeout_s)
+
+    def ensure_document_ready(self, relative_path: str) -> None:
+        """Start the server and open the document, so its capabilities can be read."""
+
+        self._ensure_workspace_synced(relative_path)
+
+    def server_capability(self, capability_name: str) -> Any:
+        return self._server_capabilities.get(capability_name)
+
+    @property
+    def completion_item_limit(self) -> int:
+        return self._plugin.completion_item_limit
+
+    def has_provider(self, capability_name: str) -> bool:
+        return self._has_provider(capability_name)
+
+    def read_only_document_roots(self) -> list[Path]:
+        return self._plugin.read_only_document_roots(self._plugin_state)
+
+    def _file_operation_supported(self, operation: str) -> bool:
+        workspace = self._server_capabilities.get('workspace')
+        file_ops = workspace.get('fileOperations') if isinstance(workspace, dict) else None
+        return isinstance(file_ops, dict) and isinstance(file_ops.get(operation), dict)
+
+    def _file_rename_params(self, renames: list[tuple[str, str]]) -> dict[str, Any]:
+        return {
+            'files': [
+                {
+                    'oldUri': _path_to_uri(self.workspace_root / old),
+                    'newUri': _path_to_uri(self.workspace_root / new),
+                }
+                for old, new in renames
+            ]
+        }
+
+    def will_rename_files(self, renames: list[tuple[str, str]]) -> Any:
+        """``WorkspaceEdit`` for references to the moved files, or None when the server has none."""
+
+        self.ensure_started()
+        if not self._file_operation_supported('willRename'):
+            return None
+        return self._require_client().request(
+            'workspace/willRenameFiles', self._file_rename_params(renames), timeout_s=15.0
+        )
+
+    def did_rename_files(self, renames: list[tuple[str, str]]) -> None:
+        """Tell a running server about a finished move; a stopped one rescans when it starts."""
+
+        with self._lock:
+            client = self._client
+        if client is None or not self._file_operation_supported('didRename'):
+            return
+        client.notify('workspace/didRenameFiles', self._file_rename_params(renames))
 
     @property
     def semantic_tokens_legend(self) -> dict[str, list[str]] | None:
@@ -1516,7 +1670,91 @@ class SessionWorkspaceLspManager:
                     continue
                 self._diag_cond.wait(timeout=wait_for)
 
+    def wait_for_workspace_analysis(
+        self,
+        *,
+        timeout_s: float,
+        quiet_s: float = _WORKSPACE_ANALYSIS_QUIET_S,
+        startup_grace_s: float = _WORKSPACE_ANALYSIS_STARTUP_GRACE_S,
+    ) -> bool:
+        """Start the server if needed, then wait until its background analysis settles.
+
+        For a server that checks the whole workspace (basedpyright with ``diagnosticMode:
+        workspace``): settled means no ``$/progress`` is running and nothing was published or
+        reported for ``quiet_s``, counted from this call so a re-scan the caller just triggered
+        gets time to begin. A small project can finish in one pass without any progress, so a
+        client that never ran one counts as settled once ``startup_grace_s`` has passed since it
+        started. Returns False on timeout or when the server is gone.
+        """
+
+        self.ensure_started()
+        waited_from = time.monotonic()
+        deadline = waited_from + max(0.0, timeout_s)
+        with self._lock:
+            while True:
+                # A crashed server stays as ``_client`` until something restarts it; don't wait out
+                # the timeout on it.
+                if self._client is None or not self._client_process_alive(self._client):
+                    return False
+                now = time.monotonic()
+                if not self._active_progress:
+                    quiet_for = now - max(self._last_server_activity_at, waited_from)
+                    warmed_up = self._analysis_progress_ended or now - self._client_started_at >= startup_grace_s
+                    if quiet_for >= quiet_s and warmed_up:
+                        return True
+                if now >= deadline:
+                    return False
+                self._diag_cond.wait(timeout=max(0.01, min(0.2, deadline - now)))
+
+    def analysis_progress_report(self) -> str:
+        """Latest progress text while the server is analyzing, else ''."""
+
+        with self._lock:
+            return self._progress_report if self._active_progress else ''
+
+    def _handle_progress(self, params: dict[str, Any]) -> None:
+        """``$/progress``: show the server's indexing work as the ``indexing`` phase."""
+
+        token = str(params.get('token') or '')
+        value = params.get('value')
+        if not token or not isinstance(value, dict):
+            return
+        kind = value.get('kind')
+        with self._lock:
+            self._last_server_activity_at = time.monotonic()
+            if kind == 'begin':
+                self._active_progress[token] = str(value.get('title') or '')
+            elif kind == 'end':
+                self._active_progress.pop(token, None)
+                if not self._active_progress:
+                    self._analysis_progress_ended = True
+                    self._progress_report = ''
+            elif kind == 'report':
+                message = str(value.get('message') or '').strip()
+                if message:
+                    self._progress_report = message
+                self._diag_cond.notify_all()
+                return
+            else:
+                return
+            if self.server_kind == 'java':
+                return
+            if self._active_progress:
+                self._language_status = 'Indexing'
+                self._language_status_message = next(iter(self._active_progress.values()))
+                if self._lifecycle_phase == 'running':
+                    self._lifecycle_phase = 'indexing'
+            else:
+                self._language_status = ''
+                self._language_status_message = ''
+                if self._lifecycle_phase == 'indexing':
+                    self._lifecycle_phase = 'running'
+            self._diag_cond.notify_all()
+
     def _handle_notification(self, method: str, params: dict[str, Any]) -> None:
+        if method == '$/progress':
+            self._handle_progress(params)
+            return
         if method == 'language/status':
             status_type = str(params.get('type') or params.get('Status') or '')
             message = str(params.get('message') or '')
@@ -1571,6 +1809,7 @@ class SessionWorkspaceLspManager:
                 )
                 return
             self._seen_publish = True
+            self._last_server_activity_at = time.monotonic()
             self._diag_cache()[rel] = normalized
             self._diag_generation[rel] = self._diag_generation.get(rel, 0) + 1
             if current is not None and (
@@ -1679,7 +1918,7 @@ class SessionWorkspaceLspManager:
         ):
             self._lifecycle_phase = 'indexing'
             return
-        self._lifecycle_phase = 'running'
+        self._lifecycle_phase = 'indexing' if self._active_progress else 'running'
 
     def dashboard_entry(self) -> dict[str, Any]:
         """Status payload for ``GET /lsp/status`` without starting a subprocess."""
@@ -1707,6 +1946,8 @@ class SessionWorkspaceLspManager:
             err = 'Language server process exited.'
         if err and phase == 'crashed':
             entry['lastError'] = err
+            if self._lifecycle_error_is_setup:
+                entry['setupError'] = True
         return entry
 
 
@@ -1828,6 +2069,15 @@ def shutdown_session_lsp_server(session_id: str, server_id: str) -> None:
     _shutdown_and_forget_managers(pairs)
 
 
+def shutdown_lsp_server_for_all_sessions(server_id: str) -> None:
+    """Stop one server id everywhere, e.g. before its installed executable is replaced or deleted."""
+
+    srv = (server_id or '').strip()
+    with _MANAGERS_LOCK:
+        pairs = [(k, mgr) for k, mgr in _SESSION_MANAGERS.items() if k[1] == srv]
+    _shutdown_and_forget_managers(pairs)
+
+
 def shutdown_session_python_lsp(session_id: str) -> None:
     """Stop only the Python language-server manager for this session (e.g. after interpreter change)."""
 
@@ -1934,6 +2184,8 @@ def get_lsp_dashboard_status(session_id: str) -> dict[str, Any]:
                 last_err = str(best.get('lastError') or '').strip()
                 if last_err:
                     payload['lastError'] = last_err
+                if best.get('setupError'):
+                    payload['setupError'] = True
                 servers_payload[srv_id] = payload
     diag_count = sum(
         len(rows)

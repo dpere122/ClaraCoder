@@ -1,25 +1,29 @@
-import { Component, DestroyRef, HostListener, ViewEncapsulation, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, HostListener, ViewEncapsulation, computed, effect, inject, signal, untracked } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
 import { isDraftSidecarGgufFileName, isMmprojGgufFileName, isMtpCompanionGgufFileName } from '@shared/index';
 import type {
+  HfDownloadId,
   HuggingFaceModelDetails,
   HuggingFaceModelSearchItem,
   ModelManagerFileEntry,
 } from '@shared/index';
 import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
-import { SettingsStore } from '../settings/settings-store';
+import { SettingsStore, type HfDownloadEntry } from '../settings/settings-store';
 import {
+  compareFeaturedModels,
   FEATURED_HF_MODELS,
+  FEATURED_MODEL_GROUPS,
   type FeaturedHfModel,
-  featuredModelExamples,
+  featuredModelGroup,
   formatHfContext,
   formatHfCount,
   formatHfDate,
   formatHfParams,
   hubFolderRepoId,
   maskHfToken,
+  smallestSmallModel,
   splitHfRepoId,
 } from './hf-models';
 
@@ -28,9 +32,23 @@ type LocalRow = { kind: 'local'; key: string; provider: string; name: string; re
 type FeaturedRow = { kind: 'featured'; key: string; provider: string; name: string; repoId: string; featured: FeaturedHfModel };
 type ResultRow = { kind: 'result'; key: string; provider: string; name: string; repoId: string; item: HuggingFaceModelSearchItem };
 type ModelRow = LocalRow | FeaturedRow | ResultRow;
+/** A download that is running or stopped, listed above the downloaded models. ``repoKey`` is its repo's row key. */
+type DownloadRow = { key: string; id: HfDownloadId; repoId: string; repoKey: string; name: string; download: HfDownloadEntry };
 
 /** Typing waits this long before querying the Hub; local and featured rows filter instantly. */
 const HUB_SEARCH_DEBOUNCE_MS = 450;
+
+type ListSection = 'downloaded' | 'featured';
+
+function withSection(sections: ReadonlySet<ListSection>, section: ListSection, present: boolean): ReadonlySet<ListSection> {
+  const next = new Set(sections);
+  if (present) {
+    next.add(section);
+  } else {
+    next.delete(section);
+  }
+  return next;
+}
 
 @Component({
   selector: 'app-settings-model-manager',
@@ -52,9 +70,55 @@ export class SettingsModelManager {
 
   constructor() {
     inject(DestroyRef).onDestroy(() => this.clearSearchTimer());
+    // A selection can arrive from outside the list, such as the tour's preview, so show its row.
+    effect(() => {
+      const section = this.selectedSection();
+      if (section) {
+        untracked(() => this.revealSection(section));
+      }
+    });
+    // A download that starts, or that was already going when Settings opened, opens its section once.
+    let listed = new Set<string>();
+    effect(() => {
+      const ids = Object.keys(this.s.modelManagerHfDownloads());
+      const added = ids.some((id) => !listed.has(id));
+      listed = new Set(ids);
+      if (added) {
+        untracked(() => this.revealSection('downloaded'));
+      }
+    });
   }
 
   private readonly filter = computed(() => this.s.modelManagerHfQuery().trim().toLowerCase());
+  protected readonly searching = computed(() => !!this.filter());
+
+  /** What is open while browsing; both start collapsed. */
+  private readonly browseOpen = signal<ReadonlySet<ListSection>>(new Set());
+  /** What the user closed during this search. Search opens the rest, and clearing it restores browsing. */
+  private readonly searchClosed = signal<ReadonlySet<ListSection>>(new Set());
+
+  protected isSectionOpen(section: ListSection): boolean {
+    return this.searching() ? !this.searchClosed().has(section) : this.browseOpen().has(section);
+  }
+
+  /** Also how the tour's direct `open` reaches this state, through the element's toggle event. */
+  protected onSectionToggle(section: ListSection, event: Event): void {
+    this.setSectionOpen(section, (event.target as HTMLDetailsElement).open);
+  }
+
+  private setSectionOpen(section: ListSection, open: boolean): void {
+    if (this.searching()) {
+      this.searchClosed.update((sections) => withSection(sections, section, !open));
+    } else {
+      this.browseOpen.update((sections) => withSection(sections, section, open));
+    }
+  }
+
+  /** Opens for browsing as well as for a search, so a row picked while searching still shows once it ends. */
+  private revealSection(section: ListSection): void {
+    this.browseOpen.update((sections) => withSection(sections, section, true));
+    this.searchClosed.update((sections) => withSection(sections, section, false));
+  }
 
   /** What a separate head or projector file is, which works beside a model and can't load as one. Empty for anything else. */
   protected companionKind(model: ModelManagerFileEntry): string {
@@ -87,6 +151,28 @@ export class SettingsModelManager {
       .filter((row) => this.matches(row.provider, row.name, row.model.fileName)),
   );
 
+  /** Downloads that are running or stopped with a partial file, filtered by the search text. */
+  protected readonly downloadRows = computed<DownloadRow[]>(() =>
+    Object.entries(this.s.modelManagerHfDownloads())
+      .map(([id, download]): DownloadRow => ({
+        key: `download:${id}`,
+        id,
+        repoId: download.repoId,
+        repoKey: `hf:${download.repoId}`,
+        name: download.fileName.replace(/\.gguf$/i, ''),
+        download,
+      }))
+      .filter((row) => this.matches(row.repoId, row.name)),
+  );
+
+  /** ``2 downloading, 1 paused``: what the count beside the section title stands for. */
+  protected readonly downloadsSummary = computed(() => {
+    const rows = this.downloadRows();
+    const running = rows.filter((row) => row.download.status === 'downloading').length;
+    const stopped = rows.length - running;
+    return [running ? `${running} downloading` : '', stopped ? `${stopped} paused` : ''].filter(Boolean).join(', ');
+  });
+
   /** Hub repos already on disk, so featured and result rows can say so. */
   protected readonly localRepoIds = computed(
     () => new Set(this.localRows().flatMap((row) => (row.repoId ? [row.repoId.toLowerCase()] : []))),
@@ -97,14 +183,19 @@ export class SettingsModelManager {
     if (this.s.modelManagerHfRawResults().length) {
       return [];
     }
-    return FEATURED_HF_MODELS.map((featured): FeaturedRow => {
+    return [...FEATURED_HF_MODELS].sort(compareFeaturedModels).map((featured): FeaturedRow => {
       const { provider, name } = splitHfRepoId(featured.id);
       return { kind: 'featured', key: `hf:${featured.id}`, provider, name, repoId: featured.id, featured };
     }).filter((row) => this.matches(row.provider, row.name, row.featured.maker));
   });
 
-  /** Recompute examples from the visible catalog, so filtering or catalog edits cannot point at a hidden row. */
-  protected readonly tutorialExamples = computed(() => featuredModelExamples(this.featuredRows().map((row) => row.featured)));
+  /** Only groups with a visible row, so filtering never leaves an empty heading or a tour target. */
+  protected readonly featuredGroups = computed(() =>
+    FEATURED_MODEL_GROUPS.map((group) => ({
+      ...group,
+      rows: this.featuredRows().filter((row) => featuredModelGroup(row.featured) === group.id),
+    })).filter((group) => group.rows.length),
+  );
 
   protected readonly resultRows = computed<ResultRow[]>(() =>
     this.s.modelManagerHfResults().map((item): ResultRow => {
@@ -116,6 +207,14 @@ export class SettingsModelManager {
   protected readonly selectedKey = computed(() => {
     const sel = this.s.modelManagerSelection();
     return !sel ? null : sel.kind === 'hf' ? `hf:${sel.id}` : `local:${sel.path}`;
+  });
+
+  private readonly selectedSection = computed<ListSection | null>(() => {
+    const key = this.selectedKey();
+    if (this.localRows().some((row) => row.key === key)) {
+      return 'downloaded';
+    }
+    return this.featuredRows().some((row) => row.key === key) ? 'featured' : null;
   });
 
   /** The local model behind the selection; null when the selection is a Hub repo or was removed. */
@@ -201,10 +300,10 @@ export class SettingsModelManager {
     ) {
       return;
     }
-    const small = this.tutorialExamples().small;
-    if (small) {
+    const lightest = smallestSmallModel(this.featuredRows().map((row) => row.featured));
+    if (lightest) {
       // This fetches only the repo's metadata and file listing; Download remains a user action.
-      this.s.selectHfModel(small.id);
+      this.s.selectHfModel(lightest.id);
     }
   }
 
@@ -222,7 +321,11 @@ export class SettingsModelManager {
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') {
       return;
     }
-    const rows = [...this.localRows(), ...this.featuredRows(), ...this.resultRows()];
+    const rows = [
+      ...(this.isSectionOpen('downloaded') ? this.localRows() : []),
+      ...(this.isSectionOpen('featured') ? this.featuredRows() : []),
+      ...this.resultRows(),
+    ];
     if (!rows.length) {
       return;
     }
@@ -237,6 +340,7 @@ export class SettingsModelManager {
 
   protected onQueryChange(value: string): void {
     this.s.onModelManagerHfQueryChange(value);
+    this.searchClosed.set(new Set());
     this.clearSearchTimer();
     if (!value.trim()) {
       void this.s.searchHuggingFaceModels(0);

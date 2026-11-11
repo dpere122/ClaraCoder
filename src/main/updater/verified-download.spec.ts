@@ -181,8 +181,8 @@ describe('installer hand-off', () => {
     expect(compareSignatures(app, { status: 'Valid', subject: 'CN=Someone Else' })).toMatch(/different publisher/);
   });
 
-  it('runs the NSIS installer silently, relaunching only for restart-and-install', () => {
-    expect(installerArgs(true)).toEqual(['--updated', '/S', '--force-run']);
+  it('shows the NSIS progress page for restart-and-install and stays silent on quit', () => {
+    expect(installerArgs(true)).toEqual(['--updated']);
     expect(installerArgs(false)).toEqual(['--updated', '/S']);
   });
 });

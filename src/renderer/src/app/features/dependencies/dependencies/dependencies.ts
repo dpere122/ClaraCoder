@@ -93,7 +93,7 @@ export interface DependencyGroup {
 
 const DEPENDENCY_GROUPS: readonly DependencyGroupDef[] = [
   { id: 'required', label: 'Required', ids: ['llama-server'] },
-  { id: 'lsp', label: 'Language servers', ids: ['java-lsp'] },
+  { id: 'lsp', label: 'Language servers', ids: ['java-lsp', 'gdls'] },
   { id: 'voice', label: 'Voice', ids: ['kokoro', 'whisper'], comingSoon: true },
 ];
 
@@ -119,6 +119,12 @@ export function installedLlamaVariant(dep: Pick<DependencyInfo, 'state' | 'compo
     if (m && (LLAMA_SERVER_VARIANTS as readonly string[]).includes(m[1]!)) return m[1] as LlamaServerVariant;
   }
   return null;
+}
+
+/** Says the install is behind the version a reinstall would fetch; null when it is current. */
+export function dependencyUpdateHint(dep: Pick<DependencyInfo, 'state' | 'updateAvailable'>): string | null {
+  if (dep.state !== 'installed' || !dep.updateAvailable) return null;
+  return `Clara now installs ${dep.updateAvailable}. Reinstall to update: newer models can fail to load on this older build.`;
 }
 
 @Component({
@@ -468,6 +474,10 @@ export class Dependencies implements OnInit, OnDestroy {
     return `Installed: ${this.variantLabels[installed]}. Reinstall to switch to ${this.variantLabels[chosen]}.`;
   }
 
+  protected updateHint(dep: DependencyInfo): string | null {
+    return dependencyUpdateHint(dep);
+  }
+
   protected setVariant(dep: DependencyInfo, v: LlamaServerVariant): void {
     this.variantById.update((m) => ({ ...m, [dep.id]: v }));
   }
@@ -521,8 +531,8 @@ export class Dependencies implements OnInit, OnDestroy {
   }
 
   /**
-   * Short size label for the row pill, e.g. "~40–400 MB" from
-   * "~40–400 MB (CPU ~40 MB; CUDA build …)". The full hint goes in the tooltip.
+   * Short size label for the row pill, e.g. "~40–750 MB" from
+   * "~40–750 MB (CPU ~40 MB; CUDA build …)". The full hint goes in the tooltip.
    */
   protected sizeShort(hint: string): string {
     const idx = hint.indexOf(' (');

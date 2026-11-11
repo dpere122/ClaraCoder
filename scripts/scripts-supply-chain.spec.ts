@@ -108,7 +108,7 @@ describe('sha256File / verifyArchiveSha256', () => {
 
   it('verifyArchiveSha256 throws on a mismatch', async () => {
     writeFileSync(file, content);
-    await expect(verifyArchiveSha256(file, 'cpython-3.12.11+20250630-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz')).rejects.toThrow(
+    await expect(verifyArchiveSha256(file, 'cpython-3.12.16+20261026-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz')).rejects.toThrow(
       /SHA256 mismatch/,
     );
   });

@@ -1,0 +1,13 @@
+; Engine configuration file.
+; Minimal Godot project used by the gdls integration tests and manual LSP checks.
+
+config_version=5
+
+[application]
+
+config/name="GdlsFixture"
+config/features=PackedStringArray("4.6")
+
+[autoload]
+
+GameState="*res://scripts/game_state.gd"

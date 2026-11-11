@@ -8,6 +8,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { AppConfig, LlmProviderConfig, LlmSourcePingResult } from '../shared';
 import { OPENROUTER_DEFAULT_BASE_URL, findLlmModelLocation } from '../shared';
+import { openAiCompatBaseUrl } from '../shared/openai-compat';
 import { parseAllowedHttpUrl } from '../shared/safe-http-url';
 import { unwrapSecret } from '../shared/types/app-config';
 import { getAnthropicApiKey } from './anthropic-key-store';
@@ -57,17 +58,21 @@ function withoutCredentials(raw: string): { target: string; basicAuth: string } 
   }
 }
 
-async function pingHttp(name: string, rawTarget: string, apiKey: string): Promise<LlmSourcePingResult> {
+async function pingHttp(name: string, rawTarget: string, apiKey: string, extraHeaders: Record<string, string> = {}): Promise<LlmSourcePingResult> {
   const { target, basicAuth } = withoutCredentials(normalizeBindAllHostToLocalhost(rawTarget));
   const url = parseAllowedHttpUrl(target);
   if (!url) {
     return { ok: false, error: `${name} has an invalid base URL. Check it in Settings.` };
   }
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  if (basicAuth) {
-    headers.Authorization = `Basic ${basicAuth}`;
-  } else if (apiKey) {
-    headers.Authorization = `Bearer ${apiKey}`;
+  const headers: Record<string, string> = { Accept: 'application/json', ...extraHeaders };
+  // A custom Authorization header beats the key, as it does on the requests this stands in for.
+  const hasCustomAuth = Object.keys(extraHeaders).some((name) => name.toLowerCase() === 'authorization');
+  if (!hasCustomAuth) {
+    if (basicAuth) {
+      headers.Authorization = `Basic ${basicAuth}`;
+    } else if (apiKey) {
+      headers.Authorization = `Bearer ${apiKey}`;
+    }
   }
   const attempt = async (): Promise<number> => {
     const res = await envProxyFetch(url, { headers, signal: AbortSignal.timeout(PING_TIMEOUT_MS) });
@@ -128,6 +133,17 @@ function pingOpenAiCompatible(provider: LlmProviderConfig): Promise<LlmSourcePin
       const base = ensureOpenAiV1Base(baseUrl.trim() || envOr('LM_STUDIO_BASE_URL', DEFAULT_LM_STUDIO_BASE_URL));
       return pingHttp(name, `${base}/models`, apiKey);
     }
+    case 'openai-compatible': {
+      const base = openAiCompatBaseUrl(baseUrl);
+      if (!base) {
+        return Promise.resolve({
+          ok: false,
+          error: baseUrl.trim() ? `${name} has an invalid base URL. Check it in Settings.` : `Add a base URL for ${name} in Settings to send`,
+        });
+      }
+      const extra = Object.fromEntries((provider.customHeaders ?? []).map((h) => [h.key, unwrapSecret(h.value)]));
+      return pingHttp(name, `${base}/models`, key, extra);
+    }
     case 'llamacpp': {
       const apiKey = key || (process.env.LLAMACPP_API_KEY ?? '').trim();
       const base = ensureOpenAiV1Base(baseUrl.trim() || envOr('LLAMACPP_BASE_URL', DEFAULT_LLAMACPP_BASE_URL));
@@ -146,7 +162,7 @@ export async function pingLlmSource(modelId: string, config: AppConfig): Promise
   }
   const { provider, model } = loc;
   // These two send no default model, so a blank pick fails however healthy the provider is.
-  if ((provider.provider === 'anthropic' || provider.provider === 'openrouter') && !(model.model ?? '').trim()) {
+  if ((provider.provider === 'anthropic' || provider.provider === 'openrouter' || provider.provider === 'openai-compatible') && !(model.model ?? '').trim()) {
     return { ok: false, error: `Choose a ${provider.name} model in Settings to send` };
   }
   return provider.provider === 'anthropic' ? pingAnthropic(provider.name) : pingOpenAiCompatible(provider);

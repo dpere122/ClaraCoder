@@ -4,223 +4,24 @@
 }
 
 .tutorial-mascot,
-.tutorial-mascot *,
-.tutorial-mascot-departure,
-.tutorial-mascot-departure * {
+.tutorial-mascot * {
   pointer-events: none;
 }
 
-/* The input point is the center of this fixed-size viewport overlay. */
-.tutorial-mascot,
-.tutorial-mascot-departure {
-  position: fixed;
-  top: 0;
-  left: 0;
-  z-index: var(--tutorial-mascot-z-index, 10002);
-  width: 104px;
-  height: 120px;
-  transform: translate3d(calc(var(--tutorial-mascot-x) - 52px), calc(var(--tutorial-mascot-y) - 60px), 0) scale(var(--tutorial-mascot-scale, 1));
-}
-
-/* The new location waits briefly so the previous one has mostly faded first. */
+/* Floats beside the card's heading. */
 .tutorial-mascot {
-  animation: tutorial-mascot-fade-in 320ms ease-out 140ms both;
+  float: left;
+  width: 48px;
+  height: 48px;
+  margin: 0 0.6rem 0.25rem 0;
 }
 
-.tutorial-mascot-departure {
-  animation: tutorial-mascot-fade-out 180ms ease-in both;
-}
-
+/* Tinted by the theme, since the card can be light or dark. */
 .tutorial-mascot__mark {
-  position: absolute;
-  top: 22px;
-  left: 14px;
-  width: 76px;
-  height: 76px;
-  filter: drop-shadow(0 3px 5px rgb(0 0 0 / 0.35)) drop-shadow(0 1px 2px rgb(0 0 0 / 0.6));
-}
-
-.tutorial-mascot--celebrating .tutorial-mascot__mark {
-  animation: tutorial-mascot-hero 1650ms ease-out 460ms 1 forwards;
-}
-
-/* The finale is local, finite and pointer-transparent; it never covers the app with a backdrop. */
-.tutorial-mascot__celebration {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-}
-
-.tutorial-mascot__celebration::before {
-  content: '';
-  position: absolute;
-  top: -30px;
-  left: -38px;
-  width: 180px;
-  height: 180px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgb(255 197 94 / 0.42), transparent 70%);
-  opacity: 0;
-  animation: tutorial-mascot-celebrate 1450ms ease-out 460ms 1 both;
-}
-
-.tutorial-mascot__ring {
-  position: absolute;
-  top: 28px;
-  left: 20px;
-  width: 64px;
-  height: 64px;
-  box-sizing: border-box;
-  border: 2px solid #ffd17c;
-  /* Override the app-wide square-corner reset for the decorative fireworks. */
-  border-radius: 50% !important;
-  box-shadow: 0 0 12px rgb(255 192 100 / 0.7);
-  opacity: 0;
-  animation: tutorial-mascot-ring 1450ms ease-out 460ms 1 both;
-}
-
-.tutorial-mascot__ring--inner {
-  border-width: 1px;
-  border-style: dashed;
-  border-color: #fff2bd;
-  animation-delay: 640ms;
-}
-
-.tutorial-mascot__rays {
-  position: absolute;
-  inset: 0;
-  filter: drop-shadow(0 0 5px rgb(255 194 88 / 0.75));
-}
-
-.tutorial-mascot__rays span {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 3px;
-  height: 24px;
-  border-radius: 50%;
-  background: linear-gradient(transparent, #fff2bd, #ffb84b);
-  opacity: 0;
-  animation: tutorial-mascot-ray 1450ms ease-out 460ms 1 both;
-}
-
-.tutorial-mascot__rays span:nth-child(1) { --angle: 0deg; }
-.tutorial-mascot__rays span:nth-child(2) { --angle: 45deg; }
-.tutorial-mascot__rays span:nth-child(3) { --angle: 90deg; }
-.tutorial-mascot__rays span:nth-child(4) { --angle: 135deg; }
-.tutorial-mascot__rays span:nth-child(5) { --angle: 180deg; }
-.tutorial-mascot__rays span:nth-child(6) { --angle: 225deg; }
-.tutorial-mascot__rays span:nth-child(7) { --angle: 270deg; }
-.tutorial-mascot__rays span:nth-child(8) { --angle: 315deg; }
-
-.tutorial-mascot__sparkles {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  filter: drop-shadow(0 0 6px rgb(255 203 103 / 0.9));
-  animation: tutorial-mascot-celebrate 1450ms ease-out 460ms 1 both;
-}
-
-.tutorial-mascot__sparkles span,
-.tutorial-mascot__confetti span {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 14px;
-  height: 14px;
-  opacity: 0;
-  background: #fff2bd;
-  animation: tutorial-mascot-particle 1450ms ease-out 460ms 1 both;
-}
-
-.tutorial-mascot__sparkles span {
-  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
-}
-
-.tutorial-mascot__sparkles span:nth-child(1) { --dx: -82px; --dy: -62px; --turn: -40deg; }
-.tutorial-mascot__sparkles span:nth-child(2) { --dx: 78px; --dy: -67px; --turn: 70deg; }
-.tutorial-mascot__sparkles span:nth-child(3) { --dx: -108px; --dy: 28px; --turn: 50deg; }
-.tutorial-mascot__sparkles span:nth-child(4) { --dx: 104px; --dy: 34px; --turn: -80deg; }
-.tutorial-mascot__sparkles span:nth-child(5) { --dx: 0px; --dy: -100px; --turn: 90deg; }
-
-.tutorial-mascot__confetti {
-  position: absolute;
-  inset: 0;
-  filter: drop-shadow(0 0 4px rgb(255 189 87 / 0.65));
-}
-
-.tutorial-mascot__confetti span {
-  width: 7px;
-  height: 15px;
-  border-radius: 2px;
-  background: #ffc363;
-  animation-duration: 1650ms;
-}
-
-.tutorial-mascot__confetti span:nth-child(even) { background: #a9d5aa; }
-.tutorial-mascot__confetti span:nth-child(1) { --dx: -54px; --dy: -105px; --turn: -140deg; }
-.tutorial-mascot__confetti span:nth-child(2) { --dx: 50px; --dy: -108px; --turn: 180deg; }
-.tutorial-mascot__confetti span:nth-child(3) { --dx: -124px; --dy: -18px; --turn: 140deg; }
-.tutorial-mascot__confetti span:nth-child(4) { --dx: 122px; --dy: -16px; --turn: -160deg; }
-.tutorial-mascot__confetti span:nth-child(5) { --dx: -92px; --dy: 85px; --turn: 200deg; }
-.tutorial-mascot__confetti span:nth-child(6) { --dx: 89px; --dy: 87px; --turn: -200deg; }
-.tutorial-mascot__confetti span:nth-child(7) { --dx: -37px; --dy: 106px; --turn: 160deg; }
-.tutorial-mascot__confetti span:nth-child(8) { --dx: 39px; --dy: 105px; --turn: -180deg; }
-
-@keyframes tutorial-mascot-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes tutorial-mascot-fade-out {
-  from { opacity: 1; }
-  to { opacity: 0; }
-}
-
-@keyframes tutorial-mascot-hero {
-  0%, 100% { transform: scale(1); }
-  40% { transform: scale(1.22); }
-}
-
-@keyframes tutorial-mascot-ring {
-  0% { opacity: 0; transform: scale(0.7); }
-  20%, 50% { opacity: 0.9; }
-  100% { opacity: 0; transform: scale(3.4); }
-}
-
-@keyframes tutorial-mascot-celebrate {
-  0% { opacity: 0; }
-  20%, 55% { opacity: 1; }
-  100% { opacity: 0; }
-}
-
-@keyframes tutorial-mascot-ray {
-  0% { opacity: 0; transform: translate(-50%, -50%) rotate(var(--angle)) translateY(-28px) scaleY(0.3); }
-  20%, 55% { opacity: 0.9; }
-  100% { opacity: 0; transform: translate(-50%, -50%) rotate(var(--angle)) translateY(-112px) scaleY(1.1); }
-}
-
-@keyframes tutorial-mascot-particle {
-  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.3); }
-  20%, 55% { opacity: 1; }
-  100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) rotate(var(--turn)) scale(1); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tutorial-mascot,
-  .tutorial-mascot * {
-    animation: none !important;
-    transition: none !important;
-  }
-
-  /* Without a fade to finish, the previous location must not linger. */
-  .tutorial-mascot-departure,
-  .tutorial-mascot__celebration,
-  .tutorial-mascot__sparkles {
-    display: none;
-  }
-
-  .tutorial-mascot__mark {
-    transform: none;
-  }
+  display: block;
+  width: 100%;
+  height: 100%;
+  background-color: var(--t-primary);
+  -webkit-mask: var(--tutorial-mascot-icon) center / contain no-repeat;
+  mask: var(--tutorial-mascot-icon) center / contain no-repeat;
 }

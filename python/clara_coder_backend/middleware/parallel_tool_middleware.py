@@ -7,7 +7,7 @@ from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
 
-from clara_coder_backend.llm.model_tuning import effective_parallel_tool_calls
+from clara_coder_backend.llm.model_tuning import effective_parallel_tool_calls, sends_parallel_tool_calls_field
 from clara_coder_backend.session.state import get_active_connection
 
 
@@ -21,23 +21,24 @@ def _parallel_tool_calls_for_agent_request() -> bool:
     return effective_parallel_tool_calls(get_active_connection())
 
 
+def _with_parallel_tool_calls(request: Any) -> Any:
+    settings = dict(request.model_settings)
+    if sends_parallel_tool_calls_field(get_active_connection()):
+        settings['parallel_tool_calls'] = _parallel_tool_calls_for_agent_request()
+    else:
+        settings.pop('parallel_tool_calls', None)
+    return request.override(model_settings=settings)
+
+
 class ConnectionParallelToolCallsMiddleware(AgentMiddleware):
     """Set ``parallel_tool_calls`` on each model request (mirrors classic ``bind_tools``)."""
 
     def wrap_model_call(self, request: Any, handler: Callable[[Any], Any]) -> Any:
-        merged = {
-            **request.model_settings,
-            'parallel_tool_calls': _parallel_tool_calls_for_agent_request(),
-        }
-        return handler(request.override(model_settings=merged))
+        return handler(_with_parallel_tool_calls(request))
 
     async def awrap_model_call(
         self,
         request: Any,
         handler: Callable[[Any], Awaitable[Any]],
     ) -> Any:
-        merged = {
-            **request.model_settings,
-            'parallel_tool_calls': _parallel_tool_calls_for_agent_request(),
-        }
-        return await handler(request.override(model_settings=merged))
+        return await handler(_with_parallel_tool_calls(request))

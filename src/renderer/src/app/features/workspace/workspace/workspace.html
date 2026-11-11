@@ -154,27 +154,42 @@
           (revealSymbol)='onOutlineSymbolReveal($event)'
         />
         @if (pythonInterpreterControlsActive()) {
-          <label class='workspace-interpreter-label' for='workspace-python-interpreter'>Python env</label>
-          <app-pill-select
-            class='workspace-interpreter-select'
-            controlId='workspace-python-interpreter'
-            [options]='pythonInterpreterRows()'
-            [value]='pythonInterpreterSelectedId()'
-            [disabled]='pythonInterpreterLoading() || !pythonInterpreterRows().length'
-            ariaLabel='Python env'
-            (valueChange)='onPythonInterpreterChange($event)'
-          />
-          @if (pythonInterpreterError()) {
-            <p class='workspace-interpreter-error'>{{ pythonInterpreterError() }}</p>
-          }
+          <div class='workspace-env'>
+            <button
+              type='button'
+              class='workspace-env__bar'
+              [attr.aria-expanded]='pythonEnvExpanded()'
+              (click)='togglePythonEnv()'
+            >
+              <span
+                class='workspace-outline-dock__chevron'
+                [class.workspace-outline-dock__chevron--open]='pythonEnvExpanded()'
+                aria-hidden='true'
+              ></span>
+              <span class='workspace-env__label'>Python env</span>
+              @if (!pythonEnvExpanded() && pythonInterpreterSelectedLabel(); as selected) {
+                <span class='workspace-env__selected' [attr.title]='selected'>{{ selected }}</span>
+              }
+            </button>
+            @if (pythonEnvExpanded()) {
+              <app-pill-select
+                class='workspace-interpreter-select'
+                [options]='pythonInterpreterRows()'
+                [value]='pythonInterpreterSelectedId()'
+                [disabled]='pythonInterpreterLoading() || !pythonInterpreterRows().length'
+                ariaLabel='Python env'
+                (valueChange)='onPythonInterpreterChange($event)'
+              />
+            }
+            @if (pythonInterpreterError()) {
+              <p class='workspace-interpreter-error'>{{ pythonInterpreterError() }}</p>
+            }
+          </div>
         }
       }
       @if (settingsError()) {
         <p class='workspace-settings-error' role='alert'>{{ settingsError() }}</p>
       }
-      <div class='workspace-footer-model-row' data-theme-group='workspace.footer'>
-        <app-managed-llama-controls [appConfig]='appConfig()' />
-      </div>
     </div>
   }
 

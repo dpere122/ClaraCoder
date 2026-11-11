@@ -281,6 +281,21 @@ class TtsRequest(BaseModel):
         return v
 
 
+class OpenAiCompatRequest(BaseModel):
+    """What an ``openai-compatible`` server accepts; see ``OpenAiCompatSettings`` in the app."""
+
+    tokensField: Literal['max_tokens', 'max_completion_tokens'] = 'max_tokens'
+    thinkingMethod: Literal['none', 'reasoning_effort', 'reasoning', 'chat_template_kwargs'] = 'none'
+    sendTemperature: bool = True
+    sendParallelToolCalls: bool = True
+    streamUsage: bool = True
+    nonStandardSampling: bool = False
+    frequencyPenalty: float | None = Field(default=None, ge=-2.0, le=2.0)
+    seed: int | None = None
+    stop: list[str] = Field(default_factory=list)
+    extraBody: str = ''
+
+
 class ChatTemplateReasoningCapsRequest(BaseModel):
     """Live reasoning caps, not a persisted setting: a llama-server Jinja scan (Electron ``GET /props``)
     or, for OpenRouter, the model catalog's ``reasoning`` block (``enableThinking`` = can be turned off).
@@ -299,7 +314,7 @@ class RuntimeConnectionRequest(BaseModel):
 
     id: str
     name: str
-    provider: Literal['openai', 'lmstudio', 'llamacpp', 'openrouter', 'anthropic']
+    provider: Literal['openai', 'lmstudio', 'llamacpp', 'openai-compatible', 'openrouter', 'anthropic']
     baseUrl: str = ''
     model: str
     apiKey: str = ''
@@ -337,6 +352,19 @@ class RuntimeConnectionRequest(BaseModel):
         ge=0,
         le=10_000_000,
         validation_alias=AliasChoices('contextWindowTokens', 'context_window_tokens'),
+    )
+    openAiCompat: OpenAiCompatRequest | None = Field(
+        default=None,
+        validation_alias=AliasChoices('openAiCompat', 'open_ai_compat'),
+    )
+    customHeaders: dict[str, str] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices('customHeaders', 'custom_headers'),
+    )
+    idleTtlSeconds: int = Field(
+        default=0,
+        ge=0,
+        validation_alias=AliasChoices('idleTtlSeconds', 'idle_ttl_seconds'),
     )
     chatTemplateReasoning: ChatTemplateReasoningCapsRequest | None = Field(
         default=None,
@@ -614,6 +642,89 @@ class McpOAuthTokensUpdateRequest(BaseModel):
     oauth: McpOAuthTokensRequest
 
 
+class RuntimeGdscriptLspRequest(BaseModel):
+    """Settings → LSP → Godot."""
+
+    godotBinaryPath: str = ''
+    allowEngineApiDump: bool = False
+    diagnosticsProfile: Literal['godot', 'strict', 'off'] = 'godot'
+    inlayTypeHints: bool = True
+    inlayParameterHints: bool = True
+    formatterCommand: str = ''
+    formatterArgs: str = ''
+
+
+class RuntimePythonLspRequest(BaseModel):
+    """Settings → LSP → Python."""
+
+    typeCheckingMode: Literal['off', 'basic', 'standard', 'strict', 'recommended', 'all'] = 'standard'
+    diagnosticMode: Literal['openFilesOnly', 'workspace'] = 'openFilesOnly'
+    inlayVariableTypes: bool = True
+    inlayCallArgumentNames: bool = True
+    inlayFunctionReturnTypes: bool = True
+    inlayGenericTypes: bool = False
+    autoImportCompletions: bool = True
+    extraPaths: list[str] = Field(default_factory=list)
+
+
+class RuntimeTypescriptLspRequest(BaseModel):
+    """Settings → LSP → TypeScript / JavaScript."""
+
+    useWorkspaceTsdk: bool = False
+    validateJavaScript: bool = True
+    checkJs: bool = False
+    inlayParameterNames: Literal['none', 'literals', 'all'] = 'none'
+    inlayParameterTypes: bool = False
+    inlayVariableTypes: bool = False
+    inlayPropertyDeclarationTypes: bool = False
+    inlayFunctionReturnTypes: bool = False
+    inlayEnumMemberValues: bool = False
+    autoImportCompletions: bool = True
+    importModuleSpecifier: Literal['shortest', 'relative', 'non-relative', 'project-relative'] = 'shortest'
+    quoteStyle: Literal['auto', 'single', 'double'] = 'auto'
+
+
+class RuntimeJavaRuntimeRequest(BaseModel):
+    """One JDK projects can compile against, e.g. ``JavaSE-17``."""
+
+    name: str
+    path: str
+
+
+class RuntimeJavaLspRequest(BaseModel):
+    """Settings → LSP → Java."""
+
+    jdkHome: str = ''
+    maxHeap: Literal['512M', '1G', '2G', '4G', '8G'] = '1G'
+    runtimes: list[RuntimeJavaRuntimeRequest] = Field(default_factory=list)
+    importMaven: bool = True
+    importGradle: bool = True
+    projectMetadataAtRoot: bool = True
+    mavenUserSettings: str = ''
+    updateBuildConfiguration: Literal['automatic', 'disabled'] = 'automatic'
+    autobuild: bool = True
+    inlayParameterNames: Literal['none', 'literals', 'all'] = 'literals'
+    inlayVariableTypes: bool = False
+    inlayParameterTypes: bool = False
+    inlayFormatParameters: bool = False
+    referencesCodeLens: bool = True
+    implementationCodeLens: Literal['none', 'types', 'methods', 'all'] = 'none'
+    signatureHelp: bool = True
+    guessMethodArguments: Literal['off', 'insertParameterNames', 'insertBestGuessedArguments'] = 'insertParameterNames'
+    formatEnabled: bool = True
+    formatOnType: bool = False
+    formatComments: bool = True
+    formatterSettingsPath: str = ''
+    formatterProfile: str = ''
+
+
+class RuntimeLspRequest(BaseModel):
+    gdscript: RuntimeGdscriptLspRequest = Field(default_factory=RuntimeGdscriptLspRequest)
+    python: RuntimePythonLspRequest = Field(default_factory=RuntimePythonLspRequest)
+    typescript: RuntimeTypescriptLspRequest = Field(default_factory=RuntimeTypescriptLspRequest)
+    java: RuntimeJavaLspRequest = Field(default_factory=RuntimeJavaLspRequest)
+
+
 class RuntimeConfigRequest(BaseModel):
     """Full settings payload from the UI; replaces in-memory runtime_config."""
 
@@ -623,6 +734,7 @@ class RuntimeConfigRequest(BaseModel):
     host: RuntimeHostRequest | None = None
     tools: RuntimeToolsRequest | None = None
     contextCompression: RuntimeContextCompressionRequest | None = None
+    lsp: RuntimeLspRequest | None = None
     huggingFaceToken: str = ''
     mcpServers: list[McpServerRequest] = Field(default_factory=list)
     activeWorkspacePath: str = ''

@@ -9,6 +9,8 @@ import {
   upsertClaraOuterBriefStreamPart,
   upsertToolTrailStatusStreamPart,
   appendStreamPart,
+  markToolExecStreamComplete,
+  openRunCommandLane,
 } from './app-stream-parts';
 
 describe('mergeToolTrailStatusText', () => {
@@ -249,5 +251,65 @@ describe('appendStreamPart', () => {
     const out = appendStreamPart(parts, 'tool-pytest', 'output', 'T');
     expect(out.map((p) => p.streamTag)).toEqual(['tool-trail:a', 'clara', 'tool-pytest']);
     expect(out[1]?.text).toBe('I should list files');
+  });
+});
+
+describe('openRunCommandLane', () => {
+  const lane = 'run-command:c1';
+  const status = { streamTag: toolTrailStatusStreamTag('call-1'), label: 'run_command', text: 'Pending user confirmation' };
+
+  it('opens an empty lane once, and ignores anything that is not a command lane', () => {
+    const opened = openRunCommandLane([status], lane, 'npm test');
+    expect(opened[1]).toEqual({ streamTag: lane, label: 'npm test', text: '' });
+    expect(openRunCommandLane(opened, lane, 'npm test')).toBe(opened);
+    expect(openRunCommandLane([status], '', 'npm test')).toEqual([status]);
+    expect(openRunCommandLane([status], 'agent', 'npm test')).toEqual([status]);
+  });
+
+  it('takes the first output in place, even after another row arrived', () => {
+    const opened = [...openRunCommandLane([status], lane, 'npm test'), { streamTag: 'run-command:c2', label: 'ls', text: 'a' }];
+    const out = appendStreamPart(opened, lane, 'done', 'npm test');
+    expect(out.map((p) => p.streamTag)).toEqual([status.streamTag, lane, 'run-command:c2']);
+    expect(out[1]!.text).toBe('done');
+  });
+
+  it('keeps a lane that ends without printing, so the rows behind it hold their places', () => {
+    const read = { streamTag: toolTrailStatusStreamTag('call-2'), label: 'read_workspace_file', text: 'a.py' };
+    const out = markToolExecStreamComplete([...openRunCommandLane([status], lane, 'mkdir out'), read], lane, 0);
+    expect(out.map((p) => p.streamTag)).toEqual([status.streamTag, lane, read.streamTag]);
+    expect(out[1]).toMatchObject({ text: '', runComplete: true, exitCode: 0 });
+  });
+
+  it('keeps one lane for a command, whatever arrived between its outputs', () => {
+    const read = { streamTag: toolTrailStatusStreamTag('call-2'), label: 'read_workspace_file', text: 'a.py' };
+    const first = appendStreamPart([...openRunCommandLane([status], lane, 'npm run dev'), read], lane, 'one\n', 'npm run dev');
+    const second = appendStreamPart(first, lane, 'two\n', 'npm run dev');
+    expect(second.map((p) => p.streamTag)).toEqual([status.streamTag, lane, read.streamTag]);
+    expect(second[1]!.text).toBe('one\ntwo\n');
+    expect(markToolExecStreamComplete(second, lane, 0)[1]).toMatchObject({ runComplete: true, exitCode: 0 });
+  });
+
+  it('adds output that follows a quiet end to the finished lane', () => {
+    const ended = markToolExecStreamComplete(openRunCommandLane([status], lane, 'npm start'), lane, 0);
+    const late = appendStreamPart(ended, lane, 'listening\n', 'npm start');
+    expect(late).toHaveLength(2);
+    expect(late[1]).toMatchObject({ text: 'listening\n', runComplete: true });
+  });
+
+  it('keeps a quiet lane whose completion carries an output excerpt', () => {
+    const opened = openRunCommandLane([status], lane, 'npm test');
+    expect(markToolExecStreamComplete(opened, lane, 1, 'boom')[1]).toMatchObject({ text: 'boom', runComplete: true, exitCode: 1 });
+  });
+});
+
+describe('approval cards in the timeline', () => {
+  it('adds no trail row for a tool approval card, but keeps one for the Admin grant', () => {
+    const card = (kind: string): HitlTrailArtifact => ({
+      role: 'accept_command',
+      reviewStatus: 'complete',
+      payload: { version: 1, requestId: kind, kind, title: 'T', message: '', confirmLabel: 'Run', cancelLabel: 'Cancel', commandText: '', details: [] },
+    });
+    expect(mergeHitlTrailIntoLiveStreamParts([], [card('deferred_tool'), card('mcp_tool'), card('admin_elevation_tool')])).toEqual([]);
+    expect(mergeHitlTrailIntoLiveStreamParts([], [card('admin_elevation')])).toHaveLength(1);
   });
 });

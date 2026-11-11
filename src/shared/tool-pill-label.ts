@@ -73,6 +73,10 @@ const TOOL_SPECS: Readonly<Record<string, ToolSpec>> = {
   lsp_find_definition: { verb: 'Definition', category: 'lsp' },
   lsp_find_references: { verb: 'References', category: 'lsp' },
   lsp_get_document_symbols: { verb: 'Symbols', category: 'lsp' },
+  lsp_find_implementations: { verb: 'Implementations', category: 'lsp' },
+  lsp_call_hierarchy: { verb: 'Call hierarchy', category: 'lsp' },
+  lsp_type_hierarchy: { verb: 'Type hierarchy', category: 'lsp' },
+  lsp_workspace_symbols: { verb: 'Workspace symbols', category: 'lsp' },
   propose_theme: { verb: 'Propose theme', category: 'other' },
   mark_build_plan_steps_complete: { verb: 'Plan progress', category: 'other' },
   java_bootstrap_project: { verb: 'Bootstrap Java', category: 'other' },
@@ -275,15 +279,20 @@ function deleteDetail(text: string): string {
   return deleted > 1 ? plural(deleted, 'entry', 'entries') : '';
 }
 
+/** Start of every result a tool returns when it staged an approval card (Python's `PENDING_APPROVAL_PREFIX`). */
+const AWAITING_APPROVAL_RESULT = /^Pending user confirmation/;
+const DECLINED_RESULT = /^User (?:cancelled|declined|dismissed)\b/;
+const DENIED_RESULT = /^Tool `[^`]+` on MCP server `[^`]+` is denied\./;
+
 function completedDetail(name: string, category: ToolPillCategory, text: string): string {
-  if (/^Pending user confirmation/.test(text)) {
+  if (AWAITING_APPROVAL_RESULT.test(text)) {
     return 'awaiting approval';
   }
   // An answered approval card replaces the pending text with the answer's note.
-  if (/^User (?:cancelled|declined|dismissed)\b/.test(text)) {
-    return 'cancelled';
+  if (DECLINED_RESULT.test(text)) {
+    return 'declined';
   }
-  if (/^Tool `[^`]+` on MCP server `[^`]+` is denied\./.test(text)) {
+  if (DENIED_RESULT.test(text)) {
     return 'denied';
   }
   if (name === 'mark_build_plan_steps_complete') {
@@ -372,6 +381,14 @@ export function isRunCommandLaneRunning(part: Pick<StreamPart, 'streamTag' | 'ru
 }
 
 /**
+ * A finished `run-command:*` lane that printed nothing. It stays in the live feed so the rows behind
+ * it keep their places, but it shows nothing: its status row has the result.
+ */
+export function isQuietCommandLane(part: Pick<StreamPart, 'streamTag' | 'runComplete' | 'text'>): boolean {
+  return !!part.runComplete && isRunCommandStreamTag(part.streamTag) && !part.text.trim();
+}
+
+/**
  * Human label for a tool row in the turn feed. Tool-trail status rows map their tool name to a
  * verb and pull the target and a short outcome out of the result text; subprocess lanes
  * (`run-command:*`, pytest, smoke) use the command as the target and the exit code as detail.
@@ -456,9 +473,27 @@ export function isStoppedToolCall(part: Pick<StreamPart, 'label' | 'toolStopped'
   return !!part.toolStopped && !isSubagentSpawnCall(part);
 }
 
-/** Outcome notes for a pill's meta line: `2 failed`, `1 stopped` (none when zero). */
-export function toolOutcomeNotes(failed: number, stopped: number): string[] {
-  return [failed > 0 ? `${failed} failed` : '', stopped > 0 ? `${stopped} stopped` : ''].filter(Boolean);
+/** Outcome notes for a pill's meta line: `2 failed`, `1 stopped`, `1 declined` (none when zero). */
+export function toolOutcomeNotes(failed: number, stopped: number, declined = 0): string[] {
+  return [
+    failed > 0 ? `${failed} failed` : '',
+    stopped > 0 ? `${stopped} stopped` : '',
+    declined > 0 ? `${declined} declined` : '',
+  ].filter(Boolean);
+}
+
+/** A tool call's result while its approval card waits (what `completedDetail` calls awaiting approval). */
+export function isAwaitingApprovalText(text: string): boolean {
+  return AWAITING_APPROVAL_RESULT.test(text.trim());
+}
+
+/** A tool call the user declined or denied: its result is that answer's note, so it never ran. */
+export function isDeclinedToolCall(part: Pick<StreamPart, 'streamTag' | 'text'>): boolean {
+  if (!isToolTrailStatusStreamTag(part.streamTag)) {
+    return false;
+  }
+  const text = part.text.trim();
+  return DECLINED_RESULT.test(text) || DENIED_RESULT.test(text);
 }
 
 /** Pill meta line: `target · detail` (either may be empty). */
@@ -570,6 +605,8 @@ interface HeadlineAction {
   target?: (target: string) => string;
   /** Whole clause with no target or count (`checked diagnostics`). */
   fixed?: string;
+  /** Count every call, not every target: a repeat is another run, and cut-off labels can look alike. */
+  countCalls?: boolean;
 }
 
 const HEADLINE_MAX_CLAUSES = 3;
@@ -622,7 +659,7 @@ function headlineAction(label: ToolPillLabel): HeadlineAction {
       return { key: 'edit', verb: 'edited', attempt: 'tried to edit', noun: ['file', 'files'], rank: 0 };
     case 'run':
       return label.verb === 'Run' || label.verb === RUNNING_COMMAND_VERB
-        ? { key: 'run', verb: 'ran', noun: ['command', 'commands'], rank: 1, target: (t) => cut(t, 40) }
+        ? { key: 'run', verb: 'ran', noun: ['command', 'commands'], rank: 1, target: (t) => cut(t, 40), countCalls: true }
         : fixed('run-status', 'checked commands', 8);
     case 'web':
       return fixed('web', 'used the web', 2);
@@ -642,6 +679,12 @@ function headlineAction(label: ToolPillLabel): HeadlineAction {
   }
 }
 
+/** The action for a call whose approval card was declined: it reads as declined, not as done. */
+function declinedHeadlineAction(action: HeadlineAction, label: ToolPillLabel): HeadlineAction {
+  const declined: HeadlineAction = { ...action, key: `${action.key}:declined`, verb: 'declined' };
+  return action.fixed ? { ...declined, fixed: `declined ${label.verb.toLowerCase()}` } : declined;
+}
+
 /** Headline for a stretch of tool calls, plus every clause (the headline may drop some). */
 export interface ActivityHeadline {
   text: string;
@@ -655,13 +698,22 @@ export interface ActivityHeadline {
  * headline ends `+2 more`; `clauses` keeps them all for the hover title. Reading back a file
  * the stretch already changed is checking that change, so it folds into the change's clause.
  * A change whose call failed or stopped (`unsettled[i]`) changed nothing: it reads `tried to edit
- * a.py` and does not fold later reads. Empty for no calls.
+ * a.py` and does not fold later reads. A call whose approval card was declined (`declined[i]`) never
+ * ran, so it is left out; the headline only names it when nothing else ran. Empty for no calls.
  */
-export function activityHeadline(labels: readonly ToolPillLabel[], unsettled: readonly boolean[] = []): ActivityHeadline {
-  const clauses = new Map<string, { action: HeadlineAction; first: number; untargeted: number; targets: Set<string> }>();
+export function activityHeadline(
+  labels: readonly ToolPillLabel[],
+  unsettled: readonly boolean[] = [],
+  declined: readonly boolean[] = [],
+): ActivityHeadline {
+  const clauses = new Map<string, { action: HeadlineAction; first: number; calls: number; untargeted: number; targets: Set<string> }>();
   const changed = new Set<string>();
+  const anyRan = labels.some((_, index) => !declined[index]);
   labels.forEach((label, index) => {
-    let action = headlineAction(label);
+    if (declined[index] && anyRan) {
+      return;
+    }
+    let action = declined[index] ? declinedHeadlineAction(headlineAction(label), label) : headlineAction(label);
     const target = label.target.trim();
     if (action.key === 'read' && target && changed.has(target)) {
       return;
@@ -671,7 +723,8 @@ export function activityHeadline(labels: readonly ToolPillLabel[], unsettled: re
     } else if (action.rank === 0 && target) {
       changed.add(target);
     }
-    const clause = clauses.get(action.key) ?? { action, first: index, untargeted: 0, targets: new Set<string>() };
+    const clause = clauses.get(action.key) ?? { action, first: index, calls: 0, untargeted: 0, targets: new Set<string>() };
+    clause.calls += 1;
     if (target) {
       clause.targets.add(target);
     } else {
@@ -681,12 +734,12 @@ export function activityHeadline(labels: readonly ToolPillLabel[], unsettled: re
   });
 
   const ordered = [...clauses.values()].sort((a, b) => a.first - b.first);
-  const texts = ordered.map(({ action, untargeted, targets }) => {
+  const texts = ordered.map(({ action, calls, untargeted, targets }) => {
     if (action.fixed) {
       return action.fixed;
     }
     // Calls with no target (a failed run has none) count one each; repeats of one target count once.
-    const n = targets.size + untargeted;
+    const n = action.countCalls ? calls : targets.size + untargeted;
     const only = targets.size === 1 && n === 1 ? [...targets][0]! : '';
     const what = only ? (action.target ?? shortTarget)(only) : plural(n, ...action.noun);
     return `${action.verb} ${what}`;
@@ -745,14 +798,25 @@ export function formatToolDuration(ms: number): string {
   return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}m`;
 }
 
-/** Slowest run time among a group's calls (`undefined` when none was timed). */
-export function toolPillSlowestMs(parts: readonly Pick<StreamPart, 'toolDurationMs'>[]): number | undefined {
-  let slowest: number | undefined;
+/**
+ * Time a set of calls took: parallel calls from one LLM step overlap, so each step counts its
+ * slowest call, and steps add up. Calls with no step add up too. Undefined when none has a time.
+ */
+export function toolCallsRunMs(parts: readonly Pick<StreamPart, 'toolDurationMs' | 'toolBatch'>[]): number | undefined {
+  const slowestByBatch = new Map<string, number>();
+  let unbatched = 0;
+  let timed = false;
   for (const part of parts) {
     const ms = part.toolDurationMs;
-    if (typeof ms === 'number' && (slowest === undefined || ms > slowest)) {
-      slowest = ms;
+    if (typeof ms !== 'number') {
+      continue;
+    }
+    timed = true;
+    if (part.toolBatch) {
+      slowestByBatch.set(part.toolBatch, Math.max(slowestByBatch.get(part.toolBatch) ?? 0, ms));
+    } else {
+      unbatched += ms;
     }
   }
-  return slowest;
+  return timed ? [...slowestByBatch.values()].reduce((sum, ms) => sum + ms, unbatched) : undefined;
 }

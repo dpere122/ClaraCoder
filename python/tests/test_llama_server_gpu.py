@@ -122,28 +122,28 @@ def test_build_toolchain_reports_missing(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 # --------------------------------------------------------------------------- #
-# llama_server.select_variant / _select_windows_cuda_variant
+# llama_server.select_variant / _select_cuda_variant
 # --------------------------------------------------------------------------- #
 
 
-def test_windows_cuda_variant_picks_13_for_cuda_13() -> None:
+def test_cuda_variant_picks_13_for_cuda_13() -> None:
     gpu = gpu_detect.NvidiaGpuInfo(present=True, gpu_names=('RTX 5090',), driver_version='570', cuda_runtime=(13, 3))
-    assert ls._select_windows_cuda_variant(gpu) == 'cuda-13'
+    assert ls._select_cuda_variant(gpu) == 'cuda-13'
 
 
-def test_windows_cuda_variant_picks_12_for_cuda_12() -> None:
+def test_cuda_variant_picks_12_for_cuda_12() -> None:
     gpu = gpu_detect.NvidiaGpuInfo(present=True, gpu_names=('RTX 4070',), driver_version='560', cuda_runtime=(12, 4))
-    assert ls._select_windows_cuda_variant(gpu) == 'cuda-12'
+    assert ls._select_cuda_variant(gpu) == 'cuda-12'
 
 
-def test_windows_cuda_variant_none_for_old_cuda() -> None:
+def test_cuda_variant_none_for_old_cuda() -> None:
     gpu = gpu_detect.NvidiaGpuInfo(present=True, gpu_names=('GTX 1080',), driver_version='470', cuda_runtime=(11, 4))
-    assert ls._select_windows_cuda_variant(gpu) is None
+    assert ls._select_cuda_variant(gpu) is None
 
 
-def test_windows_cuda_variant_none_when_unknown() -> None:
+def test_cuda_variant_none_when_unknown() -> None:
     gpu = gpu_detect.NvidiaGpuInfo(present=True, gpu_names=('RTX 4070',), driver_version='560', cuda_runtime=None)
-    assert ls._select_windows_cuda_variant(gpu) is None
+    assert ls._select_cuda_variant(gpu) is None
 
 
 def test_forced_variant_cpu(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -196,28 +196,35 @@ def test_select_variant_windows_no_nvidia_is_cpu(monkeypatch: pytest.MonkeyPatch
     assert ls.select_variant() == 'cpu'
 
 
-def test_select_variant_linux_nvidia_defaults_to_vulkan(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv('CLARA_LLAMA_SERVER_CUDA', '')
-    monkeypatch.setattr(ls.sys, 'platform', 'linux')
-    monkeypatch.setattr(ls.platform, 'machine', lambda: 'x86_64')
-    monkeypatch.setattr(gpu_detect, 'detect_nvidia_gpu', lambda: gpu_detect.NvidiaGpuInfo(
-        present=True, gpu_names=('RTX 4070',), driver_version='560', cuda_runtime=(12, 4)))
-    # The default path does not probe the build toolchain at all.
-    assert ls.select_variant() == 'vulkan'
-
-
-def test_select_variant_linux_nvidia_no_toolchain_still_vulkan(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ('cuda_runtime', 'expected'),
+    [
+        ((13, 0), 'cuda-13'),
+        ((12, 4), 'cuda-12'),
+        ((11, 8), 'vulkan'),  # driver too old for the CUDA 12 prebuilt
+        (None, 'vulkan'),  # driver version unknown
+    ],
+)
+def test_select_variant_linux_nvidia_picks_cuda_prebuilt_by_driver(
+    monkeypatch: pytest.MonkeyPatch, cuda_runtime, expected: str,
 ) -> None:
     monkeypatch.setenv('CLARA_LLAMA_SERVER_CUDA', '')
     monkeypatch.setattr(ls.sys, 'platform', 'linux')
     monkeypatch.setattr(ls.platform, 'machine', lambda: 'x86_64')
     monkeypatch.setattr(gpu_detect, 'detect_nvidia_gpu', lambda: gpu_detect.NvidiaGpuInfo(
-        present=True, gpu_names=('RTX 4070',), driver_version='560', cuda_runtime=(12, 4)))
-    monkeypatch.setattr(gpu_detect, 'detect_build_toolchain', lambda: gpu_detect.BuildToolchain(
-        available=False, cmake_path=None, gcc_path=None, nvcc_path=None, cuda_home=None,
-        missing=('cmake', 'gcc', 'CUDA toolkit (nvcc)')))
-    assert ls.select_variant() == 'vulkan'
+        present=True, gpu_names=('RTX 4070',), driver_version='560', cuda_runtime=cuda_runtime))
+    # The default path never probes the build toolchain (compile is opt-in only).
+    monkeypatch.setattr(gpu_detect, 'detect_build_toolchain', lambda: pytest.fail('should not probe toolchain'))
+    assert ls.select_variant() == expected
+
+
+def test_select_variant_linux_arm64_nvidia_is_cpu(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv('CLARA_LLAMA_SERVER_CUDA', '')
+    monkeypatch.setattr(ls.sys, 'platform', 'linux')
+    monkeypatch.setattr(ls.platform, 'machine', lambda: 'aarch64')
+    monkeypatch.setattr(gpu_detect, 'detect_nvidia_gpu', lambda: gpu_detect.NvidiaGpuInfo(
+        present=True, gpu_names=('GB10',), driver_version='580', cuda_runtime=(13, 0)))
+    assert ls.select_variant() == 'cpu'
 
 
 def test_select_variant_linux_no_nvidia_is_cpu(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -399,13 +406,110 @@ def test_install_prebuilt_cuda_passes_variant_key(
     def fake_install_prebuilt(tag, variant, **kwargs):
         calls.append(variant)
 
+    monkeypatch.setattr(ls.sys, 'platform', 'win32')
+    monkeypatch.setattr(ls.platform, 'machine', lambda: 'x86_64')
     monkeypatch.setattr(ls, '_install_prebuilt', fake_install_prebuilt)
     ls._install_prebuilt_cuda('b10262', 'cuda-12', force=False)
     assert calls == ['cuda-12']
 
 
+@pytest.mark.parametrize(
+    ('system', 'variant', 'asset', 'cudart'),
+    [
+        ('win32', 'cuda-12', 'llama-b12182-bin-win-cuda-12.4-x64.zip', 'cudart-llama-bin-win-cuda-12.4-x64.zip'),
+        ('win32', 'cuda-13', 'llama-b12182-bin-win-cuda-13.5-x64.zip', 'cudart-llama-bin-win-cuda-13.5-x64.zip'),
+        (
+            'linux', 'cuda-12',
+            'llama-b12182-bin-ubuntu-cuda-12.8-x64.tar.gz',
+            'cudart-llama-b12182-bin-ubuntu-cuda-12.8-x64.tar.gz',
+        ),
+        (
+            'linux', 'cuda-13',
+            'llama-b12182-bin-ubuntu-cuda-13.5-x64.tar.gz',
+            'cudart-llama-b12182-bin-ubuntu-cuda-13.5-x64.tar.gz',
+        ),
+    ],
+)
+def test_install_prebuilt_cuda_downloads_host_assets(
+    monkeypatch: pytest.MonkeyPatch, system: str, variant: str, asset: str, cudart: str,
+) -> None:
+    seen: dict = {}
+
+    def fake_install_prebuilt(tag, variant_key, **kwargs):
+        seen.update(kwargs, variant=variant_key)
+
+    monkeypatch.setattr(ls.sys, 'platform', system)
+    monkeypatch.setattr(ls.platform, 'machine', lambda: 'x86_64')
+    monkeypatch.setattr(ls, '_install_prebuilt', fake_install_prebuilt)
+    ls._install_prebuilt_cuda('b12182', variant, force=False)
+    base = 'https://github.com/ggml-org/llama.cpp/releases/download/b12182'
+    assert seen['variant'] == variant
+    assert seen['asset'] == asset
+    assert seen['url'] == f'{base}/{asset}'
+    assert seen['extra_assets'] == ((cudart, f'{base}/{cudart}'),)
+
+
+@pytest.mark.parametrize(('system', 'machine'), [('darwin', 'arm64'), ('linux', 'aarch64'), ('win32', 'ARM64')])
+def test_install_prebuilt_cuda_rejects_hosts_without_prebuilts(
+    monkeypatch: pytest.MonkeyPatch, system: str, machine: str,
+) -> None:
+    monkeypatch.setattr(ls.sys, 'platform', system)
+    monkeypatch.setattr(ls.platform, 'machine', lambda: machine)
+    monkeypatch.setattr(ls, '_install_prebuilt', lambda *a, **k: pytest.fail('should not download'))
+    with pytest.raises(RuntimeError, match='No prebuilt cuda-13'):
+        ls._install_prebuilt_cuda('b12182', 'cuda-13', force=False)
+
+
+def test_install_prebuilt_linux_cuda_colocates_nested_cudart_libs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """The Linux cudart tarball nests its libs one dir down; they must land next to the binary."""
+    bin_dir = tmp_path / 'bin'
+    downloads = tmp_path / 'downloads'
+    downloads.mkdir()
+    monkeypatch.setattr(ls.sys, 'platform', 'linux')
+    monkeypatch.setattr(ls.platform, 'machine', lambda: 'x86_64')
+    monkeypatch.setattr(ls, 'get_runtime_bin_dir', lambda: bin_dir)
+    monkeypatch.setattr(ls, 'get_runtime_downloads_dir', lambda: downloads)
+    monkeypatch.setattr(ls, 'llama_server_binary', lambda: bin_dir / 'llama-server')
+    monkeypatch.setattr(ls, 'chmod_executable', lambda _p: None)
+    monkeypatch.setattr(ls, 'download_file', lambda url, dest, **k: dest.write_bytes(b'archive'))
+
+    def fake_extract(archive: Path, dest: Path) -> None:
+        # Mirror ggml-org's release layout for b12182.
+        if archive.name.startswith('cudart-'):
+            inner = dest / 'cudart-llama-b12182-bin-ubuntu-cuda-12.8-x64'
+            inner.mkdir(parents=True)
+            for name in ('libcudart.so.12', 'libcublas.so.12', 'libcublasLt.so.12'):
+                (inner / name).write_bytes(b'lib')
+        else:
+            inner = dest / 'llama-b12182'
+            inner.mkdir(parents=True)
+            (inner / 'llama-server').write_bytes(b'x' * 2_000_000)
+            (inner / 'libllama-server-impl.so').write_bytes(b'impl')
+            (inner / 'libggml-cuda.so').write_bytes(b'cuda backend')
+
+    monkeypatch.setattr(ls, 'extract_archive', fake_extract)
+    ls._install_prebuilt_cuda('b12182', 'cuda-12', force=False)
+
+    names = {p.name for p in bin_dir.iterdir()}
+    assert {
+        'llama-server', 'libllama-server-impl.so', 'libggml-cuda.so',
+        'libcudart.so.12', 'libcublas.so.12', 'libcublasLt.so.12',
+    } <= names
+    assert (bin_dir / ls.VARIANT_MARKER).read_text(encoding='utf-8').strip() == 'cuda-12'
+
+
+def test_copy_libs_in_tree_raises_when_bundle_has_no_libs(tmp_path: Path) -> None:
+    root = tmp_path / 'cudart'
+    (root / 'nested').mkdir(parents=True)
+    (root / 'nested' / 'README.txt').write_text('nothing here', encoding='utf-8')
+    with pytest.raises(RuntimeError, match='No shared libraries'):
+        ls._copy_libs_in_tree(root, tmp_path / 'bin')
+
+
 # --------------------------------------------------------------------------- #
-# llama_server._cpu_asset_name / _CUDA_ASSETS / _version_label
+# llama_server._cpu_asset_name / CUDA asset tables / _version_label
 # --------------------------------------------------------------------------- #
 
 
@@ -424,13 +528,29 @@ def test_cpu_asset_names_per_platform(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_cuda_assets_table_has_expected_templates() -> None:
-    asset12, cudart12, label12 = ls._CUDA_ASSETS['cuda-12']
+    asset12, cudart12, label12 = ls._WIN_CUDA_ASSETS['cuda-12']
     assert asset12 == 'llama-{tag}-bin-win-cuda-12.4-x64.zip'
     assert cudart12 == 'cudart-llama-bin-win-cuda-12.4-x64.zip'
     assert label12 == 'cuda-12.4'
-    asset13, cudart13, label13 = ls._CUDA_ASSETS['cuda-13']
-    assert asset13 == 'llama-{tag}-bin-win-cuda-13.3-x64.zip'
-    assert label13 == 'cuda-13.3'
+    asset13, cudart13, label13 = ls._WIN_CUDA_ASSETS['cuda-13']
+    assert asset13 == 'llama-{tag}-bin-win-cuda-13.5-x64.zip'
+    assert label13 == 'cuda-13.5'
+    # Same variant keys on Linux, so the marker / UI / env values stay platform-neutral.
+    assert set(ls._LINUX_CUDA_ASSETS) == set(ls._WIN_CUDA_ASSETS) == set(ls._CUDA_VARIANTS)
+    assert ls._LINUX_CUDA_ASSETS['cuda-12'][2] == 'cuda-12.8'
+    assert ls._LINUX_CUDA_ASSETS['cuda-13'][2] == 'cuda-13.5'
+
+
+def test_cuda_assets_per_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    for system, machine, expected in (
+        ('win32', 'AMD64', ls._WIN_CUDA_ASSETS),
+        ('linux', 'x86_64', ls._LINUX_CUDA_ASSETS),
+        ('linux', 'aarch64', None),
+        ('darwin', 'arm64', None),
+    ):
+        monkeypatch.setattr(ls.sys, 'platform', system)
+        monkeypatch.setattr(ls.platform, 'machine', lambda m=machine: m)
+        assert ls._cuda_assets() is expected, (system, machine)
 
 
 def test_vulkan_asset_names_per_platform(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -451,13 +571,19 @@ def test_vulkan_asset_names_per_platform(monkeypatch: pytest.MonkeyPatch) -> Non
     assert ls._vulkan_asset_name('b10262') is None
 
 
-def test_version_label_includes_variant_for_cuda() -> None:
+def test_version_label_includes_variant_for_cuda(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ls.sys, 'platform', 'win32')
+    monkeypatch.setattr(ls.platform, 'machine', lambda: 'AMD64')
     assert ls._version_label('b10262', 'cpu') == 'b10262'
     # Marker stores keys; display maps to the precise CUDA asset label.
     assert ls._version_label('b10262', 'cuda-12') == 'b10262 (cuda-12.4)'
-    assert ls._version_label('b10262', 'cuda-13') == 'b10262 (cuda-13.3)'
+    assert ls._version_label('b10262', 'cuda-13') == 'b10262 (cuda-13.5)'
     assert ls._version_label('b10262', 'cuda-compiled') == 'b10262 (cuda-compiled)'
     assert ls._version_label('b10262', 'vulkan') == 'b10262 (vulkan)'
+    # Linux shows its own CUDA 12 minor for the shared key.
+    monkeypatch.setattr(ls.sys, 'platform', 'linux')
+    monkeypatch.setattr(ls.platform, 'machine', lambda: 'x86_64')
+    assert ls._version_label('b10262', 'cuda-12') == 'b10262 (cuda-12.8)'
 
 
 # --------------------------------------------------------------------------- #
@@ -549,3 +675,49 @@ def test_status_reports_missing_when_thin_binary_lacks_libs(
     monkeypatch.setattr(ls, 'get_runtime_bin_dir', lambda: bin_dir)
     st = ls.status()
     assert st['state'] == 'missing'
+
+
+# --------------------------------------------------------------------------- #
+# llama_server.status: install older than the pinned build
+# --------------------------------------------------------------------------- #
+
+
+def _installed_build(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, marker: str | None) -> None:
+    """A runnable llama-server in ``tmp_path/bin`` whose ready marker holds ``marker``."""
+    monkeypatch.setattr(sys, 'platform', 'win32')
+    bin_dir = tmp_path / 'bin'
+    bin_dir.mkdir()
+    bin_path = bin_dir / 'llama-server.exe'
+    bin_path.write_bytes(b'x')
+    if marker is not None:
+        (bin_dir / '.clara-ready').write_text(marker + '\n', encoding='utf-8')
+    monkeypatch.setattr(ls, 'llama_server_binary', lambda: bin_path)
+    monkeypatch.setattr(ls, 'get_runtime_bin_dir', lambda: bin_dir)
+    monkeypatch.setattr(ls, '_pinned_tag', lambda: 'b12182')
+
+
+def test_status_flags_an_install_older_than_the_pinned_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _installed_build(tmp_path, monkeypatch, 'b10867')
+    st = ls.status()
+    assert st['state'] == 'installed'
+    assert st['updateAvailable'] == 'b12182'
+
+
+@pytest.mark.parametrize('marker', ['b12182', 'b12300', 'custom-build', None])
+def test_status_does_not_flag_current_newer_or_unknown_builds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, marker: str | None,
+) -> None:
+    _installed_build(tmp_path, monkeypatch, marker)
+    st = ls.status()
+    assert st['state'] == 'installed'
+    assert st['updateAvailable'] is None
+
+
+def test_status_does_not_flag_when_the_pin_is_not_a_build_tag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _installed_build(tmp_path, monkeypatch, 'b10867')
+    monkeypatch.setattr(ls, '_pinned_tag', lambda: 'master')
+    assert ls.status()['updateAvailable'] is None

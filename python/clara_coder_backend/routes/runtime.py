@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -12,18 +13,97 @@ from clara_coder_backend.domain import (
     RuntimeAudioConfig,
     RuntimeConnection,
     RuntimeContextCompressionConfig,
+    RuntimeGdscriptLspConfig,
     RuntimeHostConfig,
+    RuntimeJavaLspConfig,
+    RuntimeLspConfig,
     RuntimeMcpServer,
+    RuntimePythonLspConfig,
     RuntimeToolsConfig,
+    RuntimeTypescriptLspConfig,
 )
 from clara_coder_backend.runtime.http_url_normalize import normalize_bind_all_host_url
 from clara_coder_backend.runtime.python_env import apply_extra_user_path
-from clara_coder_backend.session.schemas import ChatTemplateReasoningCapsRequest, RuntimeConfigRequest
+from clara_coder_backend.session.schemas import (
+    ChatTemplateReasoningCapsRequest,
+    RuntimeConfigRequest,
+    RuntimeLspRequest,
+)
 from clara_coder_backend.workspace.workspace_text_io import validate_workspace_encoding
 from clara_coder_backend.session import state
 logger = logging.getLogger('clara.http.routes')
 
 router = APIRouter()
+
+
+def _runtime_lsp_config(request: RuntimeLspRequest) -> RuntimeLspConfig:
+    g = request.gdscript
+    p = request.python
+    t = request.typescript
+    j = request.java
+    return RuntimeLspConfig(
+        gdscript=RuntimeGdscriptLspConfig(
+            godot_binary_path=g.godotBinaryPath.strip(),
+            allow_engine_api_dump=g.allowEngineApiDump,
+            diagnostics_profile=g.diagnosticsProfile,
+            inlay_type_hints=g.inlayTypeHints,
+            inlay_parameter_hints=g.inlayParameterHints,
+            formatter_command=g.formatterCommand.strip(),
+            formatter_args=g.formatterArgs.strip(),
+        ),
+        python=RuntimePythonLspConfig(
+            type_checking_mode=p.typeCheckingMode,
+            diagnostic_mode=p.diagnosticMode,
+            inlay_variable_types=p.inlayVariableTypes,
+            inlay_call_argument_names=p.inlayCallArgumentNames,
+            inlay_function_return_types=p.inlayFunctionReturnTypes,
+            inlay_generic_types=p.inlayGenericTypes,
+            auto_import_completions=p.autoImportCompletions,
+            extra_paths=list(dict.fromkeys(path.strip() for path in p.extraPaths if path.strip())),
+        ),
+        typescript=RuntimeTypescriptLspConfig(
+            use_workspace_tsdk=t.useWorkspaceTsdk,
+            validate_javascript=t.validateJavaScript,
+            check_js=t.checkJs,
+            inlay_parameter_names=t.inlayParameterNames,
+            inlay_parameter_types=t.inlayParameterTypes,
+            inlay_variable_types=t.inlayVariableTypes,
+            inlay_property_declaration_types=t.inlayPropertyDeclarationTypes,
+            inlay_function_return_types=t.inlayFunctionReturnTypes,
+            inlay_enum_member_values=t.inlayEnumMemberValues,
+            auto_import_completions=t.autoImportCompletions,
+            import_module_specifier=t.importModuleSpecifier,
+            quote_style=t.quoteStyle,
+        ),
+        java=RuntimeJavaLspConfig(
+            jdk_home=j.jdkHome.strip(),
+            max_heap=j.maxHeap,
+            runtimes=[
+                (runtime.name.strip(), runtime.path.strip())
+                for runtime in j.runtimes
+                if runtime.name.strip() and runtime.path.strip()
+            ],
+            import_maven=j.importMaven,
+            import_gradle=j.importGradle,
+            project_metadata_at_root=j.projectMetadataAtRoot,
+            maven_user_settings=j.mavenUserSettings.strip(),
+            update_build_configuration=j.updateBuildConfiguration,
+            autobuild=j.autobuild,
+            inlay_parameter_names=j.inlayParameterNames,
+            inlay_variable_types=j.inlayVariableTypes,
+            inlay_parameter_types=j.inlayParameterTypes,
+            inlay_format_parameters=j.inlayFormatParameters,
+            references_code_lens=j.referencesCodeLens,
+            implementation_code_lens=j.implementationCodeLens,
+            signature_help=j.signatureHelp,
+            guess_method_arguments=j.guessMethodArguments,
+            format_enabled=j.formatEnabled,
+            format_on_type=j.formatOnType,
+            format_comments=j.formatComments,
+            formatter_settings_path=j.formatterSettingsPath.strip(),
+            formatter_profile=j.formatterProfile.strip(),
+        ),
+    )
 
 
 def _chat_template_reasoning_dict(
@@ -145,6 +225,9 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             embeddings_model=(item.embeddingsModel or '').strip(),
             embeddings_configured=bool(item.embeddingsConfigured),
             context_window_tokens=int(item.contextWindowTokens),
+            idle_ttl_seconds=int(item.idleTtlSeconds),
+            open_ai_compat=item.openAiCompat.model_dump() if item.openAiCompat else None,
+            custom_headers=dict(item.customHeaders),
             chat_template_reasoning=_chat_template_reasoning_dict(item.chatTemplateReasoning),
         )
         for item in request.connections
@@ -197,6 +280,9 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
     else:
         context_compression_cfg = prev_cc
 
+    prev_lsp = state.runtime_config.lsp
+    lsp_cfg = _runtime_lsp_config(request.lsp) if request.lsp is not None else prev_lsp
+
     token = (request.huggingFaceToken or '').strip()
     if token:
         os.environ['HF_TOKEN'] = token
@@ -231,9 +317,35 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
     )
     cfg.tools = tools_cfg
     cfg.context_compression = context_compression_cfg
+    cfg.lsp = lsp_cfg
+    state.runtime_config_received.set()
     cfg.mcp_servers = [_runtime_mcp_server(item) for item in request.mcpServers]
     cfg.active_workspace_path = (request.activeWorkspacePath or '').strip()
     apply_extra_user_path(tools_cfg.extra_user_path)
+    if lsp_cfg.gdscript != prev_lsp.gdscript:
+        # gdls reads these when it starts; the next request for a ``.gd`` file starts it again.
+        from clara_coder_backend.lsp.manager import shutdown_lsp_server_for_all_sessions
+
+        await asyncio.to_thread(shutdown_lsp_server_for_all_sessions, 'gdscript')
+    if lsp_cfg.python != prev_lsp.python:
+        # Some basedpyright settings (diagnostic scope, type checking mode) only take full effect on a
+        # fresh start, so restart it; the next request for a ``.py`` file starts it again.
+        from clara_coder_backend.lsp.manager import shutdown_lsp_server_for_all_sessions
+
+        await asyncio.to_thread(shutdown_lsp_server_for_all_sessions, 'python')
+    if lsp_cfg.typescript != prev_lsp.typescript:
+        # vtsls takes most of these live, but it only republishes diagnostics that change, and a
+        # tsserver change (workspace TypeScript, checkJs) is cleaner on a fresh start. The next
+        # request for a TS/JS file starts it again.
+        from clara_coder_backend.lsp.manager import shutdown_lsp_server_for_all_sessions
+
+        await asyncio.to_thread(shutdown_lsp_server_for_all_sessions, 'typescript')
+    if lsp_cfg.java != prev_lsp.java:
+        # The JDK and heap are launch arguments, and import settings only apply when JDT LS opens the
+        # project, so restart it; the next request for a ``.java`` file starts it again.
+        from clara_coder_backend.lsp.manager import shutdown_lsp_server_for_all_sessions
+
+        await asyncio.to_thread(shutdown_lsp_server_for_all_sessions, 'java')
     try:
         from clara_coder_backend.mcp.manager import schedule_mcp_reconcile
 

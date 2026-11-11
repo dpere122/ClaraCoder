@@ -245,6 +245,74 @@ app-settings-model-manager {
   text-transform: none;
 }
 
+.mm-accordion {
+  flex: none;
+}
+
+.mm-accordion > summary {
+  justify-content: flex-start;
+  align-items: center;
+  gap: 4px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.mm-accordion > summary::-webkit-details-marker {
+  display: none;
+}
+
+.mm-accordion > summary:hover {
+  color: var(--t-fg);
+}
+
+.mm-accordion > summary:focus-visible {
+  outline: 2px solid var(--t-primary);
+  outline-offset: -2px;
+}
+
+.mm-accordion__chevron {
+  display: inline-flex;
+  flex: none;
+}
+
+.mm-accordion[open] > summary .mm-accordion__chevron {
+  transform: rotate(90deg);
+}
+
+.mm-accordion__count {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.mm-accordion__downloads {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--t-primary);
+}
+
+.mm-list__group {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 0 10px 5px;
+  /* Mixed from the text color so the line stands out on light and dark themes alike. */
+  border-bottom: 1px solid color-mix(in srgb, var(--t-fg) 55%, transparent);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--t-fg);
+}
+
+.mm-list__group span {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--t-text-muted, var(--t-muted));
+}
+
 .mm-list__note {
   display: flex;
   align-items: center;
@@ -333,6 +401,55 @@ app-settings-model-manager {
 
 .mm-row__done {
   color: var(--t-success);
+}
+
+/* A download in the Downloaded list: its own controls, and a progress bar along the bottom edge. */
+.mm-download {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 6px;
+  padding: 4px 10px 0 8px;
+  border-left: 2px solid transparent;
+  color: var(--t-text-muted, var(--t-muted));
+}
+
+.mm-download:hover {
+  background: var(--t-hover-bg);
+}
+
+.mm-download.is-selected {
+  border-left-color: var(--t-primary);
+  background: var(--t-active-bg);
+}
+
+.mm-download__main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--t-fg);
+  font: inherit;
+  line-height: 1.25;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mm-download__main:focus-visible,
+.mm-download .mm-icon-button:focus-visible {
+  outline: 1px solid var(--t-primary);
+  outline-offset: 1px;
+}
+
+.mm-download .mm-row__sub {
+  font-variant-numeric: tabular-nums;
+}
+
+.mm-download--stopped .model-quant-row__progress-fill {
+  opacity: 0.45;
 }
 
 .mm-pager {

@@ -12,6 +12,8 @@ import {
   lmStudioOpenAiBaseUrlToRestOrigin,
   normalizeWebSearchEngines,
 } from '../../shared';
+import { normalizeLspServersSettings, type LspServersSettings } from '../../shared/lsp-settings';
+import { mainState } from '../state';
 import { unwrapSecret } from '../../shared/types/app-config';
 import { ensurePythonReady } from './server';
 import { pythonControlFetch } from './http-client';
@@ -20,9 +22,12 @@ import { readWorkspaceSystemPromptText } from '../workspace/system-prompt';
 import {
   getAllCachedChatTemplateReasoning,
   getAllCachedLlamaServerNctx,
+  setCachedChatTemplateReasoning,
   setCachedLlamaServerNctx,
 } from '../chat-template-reasoning-cache';
 import { lmStudioListModels } from '../lm-studio-client';
+import { lmStudioReasoningCaps, normalizeLmStudioSettings } from '../../shared/lm-studio-ipc';
+import { normalizeOpenAiCompatSettings, openAiCompatBaseUrl } from '../../shared/openai-compat';
 import { refreshOpenRouterReasoningCaps } from '../openrouter-reasoning';
 import { refreshAnthropicReasoningCaps } from '../anthropic-models';
 import { getAnthropicApiKey } from '../anthropic-key-store';
@@ -199,9 +204,11 @@ function connectionToRuntimeWire(
   const resolvedBase = c.provider === 'llamacpp' && llamaOverride ? llamaOverride.baseUrl : c.baseUrl;
   const normalizedHost = normalizeBindAllHostToLocalhost(resolvedBase);
   const baseUrl =
-    c.provider === 'lmstudio' || c.provider === 'llamacpp' || c.provider === 'openrouter'
-      ? ensureOpenAiV1Base(normalizedHost)
-      : normalizedHost;
+    c.provider === 'openai-compatible'
+      ? (openAiCompatBaseUrl(normalizedHost) ?? normalizedHost)
+      : c.provider === 'lmstudio' || c.provider === 'llamacpp' || c.provider === 'openrouter'
+        ? ensureOpenAiV1Base(normalizedHost)
+        : normalizedHost;
   const rawEmbeddingsBase =
     c.provider === 'llamacpp' && llamaOverride
       ? (llamaOverride.embeddingsBaseUrl || '').trim() || (c.embeddingsBaseUrl ?? '').trim()
@@ -243,8 +250,24 @@ function connectionToRuntimeWire(
     embeddingsEnabled: embeddingsEnabledForWire(c, llamaOverride),
     embeddingsConfigured: embeddingsConfiguredForWire(c),
     contextWindowTokens,
+    idleTtlSeconds: lmStudioIdleTtlSeconds(c),
+    ...(c.provider === 'openai-compatible'
+      ? {
+          openAiCompat: normalizeOpenAiCompatSettings(c.openAiCompat),
+          customHeaders: Object.fromEntries((c.customHeaders ?? []).filter((h) => h.key.trim()).map((h) => [h.key.trim(), unwrapSecret(h.value)])),
+        }
+      : {}),
     ...(chatTemplateReasoning ? { chatTemplateReasoning } : {}),
   };
+}
+
+/** Sent only when LM Studio does the loading; it ignores the value on a model Clara already loaded. */
+function lmStudioIdleTtlSeconds(c: LlmConnectionConfig): number {
+  if (c.provider !== 'lmstudio') {
+    return 0;
+  }
+  const settings = normalizeLmStudioSettings(c.lmStudio);
+  return settings.autoLoad ? 0 : settings.idleTtlSeconds;
 }
 
 /**
@@ -321,12 +344,45 @@ async function refreshLmStudioLiveNctx(config: AppConfig): Promise<void> {
           if (n > 0) {
             setCachedLlamaServerNctx(row.id, n);
           }
+          // Only v1 reports capabilities; see refreshLmStudioReasoningForConnection.
+          if (card && res.source === 'v1') {
+            setCachedChatTemplateReasoning(row.id, lmStudioReasoningCaps(card));
+          }
         }
       } catch {
         /* LM Studio unreachable — keep persisted contextWindowTokens */
       }
     }),
   );
+}
+
+/** LSP settings the sidecar last accepted; ``null`` before the first sync, when it runs no servers yet. */
+let lastAppliedLspSettings: LspServersSettings | null = null;
+
+/** Servers whose settings changed: ``/runtime-config`` restarts exactly these before it replies. */
+export function changedLspServerIds(previous: LspServersSettings | null, next: LspServersSettings): string[] {
+  if (!previous) {
+    return [];
+  }
+  return (Object.keys(next) as Array<keyof LspServersSettings>).filter(
+    (id) => JSON.stringify(previous[id]) !== JSON.stringify(next[id]),
+  );
+}
+
+/**
+ * Tell the editor which servers restarted with new settings. Open editors otherwise keep the
+ * restarted server's old inlay hints until the text changes, since nothing asks for them again.
+ */
+function notifyLspSettingsApplied(servers: string[]): void {
+  const win = mainState.mainWindow;
+  if (servers.length === 0 || !win || win.isDestroyed()) {
+    return;
+  }
+  try {
+    win.webContents.send('lsp-settings-applied', { servers });
+  } catch {
+    // The window can close between the check and the send.
+  }
 }
 
 async function postRuntimeConfigToPython(
@@ -353,6 +409,7 @@ async function postRuntimeConfigToPython(
       );
       return c.provider === 'anthropic' ? { ...wire, apiKey: anthropicKey } : wire;
     });
+    const lsp = normalizeLspServersSettings(config.lspServers);
     const response = await pythonControlFetch('/runtime-config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -387,6 +444,7 @@ async function postRuntimeConfigToPython(
           triggerRatio: config.contextCompression.triggerRatio,
           targetRatio: config.contextCompression.targetRatio,
         },
+        lsp,
         huggingFaceToken: unwrapSecret(config.modelManager?.huggingFaceToken ?? ''),
         mcpServers: wireMcpServers(config),
         activeWorkspacePath: activeWorkspacePath(config),
@@ -397,6 +455,9 @@ async function postRuntimeConfigToPython(
       const detail = await response.text();
       throw new Error(`Runtime config sync failed (${response.status}): ${detail}`);
     }
+    const restarted = changedLspServerIds(lastAppliedLspSettings, lsp);
+    lastAppliedLspSettings = lsp;
+    notifyLspSettingsApplied(restarted);
   } catch (err) {
     console.error('Failed to sync runtime config to Python:', err);
   }

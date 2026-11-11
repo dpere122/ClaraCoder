@@ -9,12 +9,12 @@ import { SettingsTools } from './settings-tools';
 
 const stats = { bytes: 1048576, imageCount: 4, reducedCount: 2, maxBytes: 104857600, maxImages: 200 };
 
-function setup() {
+function setup(subTab = 'webTools') {
   const store = {
     screenshotRetention: signal({ ...DEFAULT_SCREENSHOT_RETENTION }),
     markSettingsDirty: vi.fn(),
     onScreenshotRetentionChange: vi.fn(),
-    activeSubTabId: () => 'webTools',
+    activeSubTabId: () => subTab,
     editToolsMode: () => 'standard',
     enableAgentFormatters: () => false,
     allowStagingOverlayCommands: () => false,
@@ -50,6 +50,26 @@ function setup() {
 }
 
 beforeEach(() => TestBed.resetTestingModule());
+
+describe('web search Tools settings', () => {
+  it('shows the search settings on the Web tools sub-tab', () => {
+    const { fixture } = setup('webTools');
+    fixture.detectChanges();
+    const text = (fixture.nativeElement as HTMLElement).querySelector('.web-search-settings')?.textContent;
+    for (const label of ['Web search provider', 'Built-in search engines', 'Search User-Agent', 'Engine cooldown', 'SearXNG base URL']) {
+      expect(text).toContain(label);
+    }
+  });
+
+  it('no longer shows them on the Edit tools sub-tab', () => {
+    const { fixture } = setup('editTools');
+    fixture.detectChanges();
+    const text = (fixture.nativeElement as HTMLElement).textContent;
+    expect(text).toContain('Allow web access');
+    expect(text).not.toContain('Web search provider');
+    expect(text).not.toContain('SearXNG base URL');
+  });
+});
 
 describe('screenshot retention Tools settings', () => {
   it('renders all five controls and usage even with web access off', async () => {

@@ -87,6 +87,8 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  # Update relaunch from the Finish page (see the file's header).
+  include: build/installer.nsh
 
 mac:
   target:

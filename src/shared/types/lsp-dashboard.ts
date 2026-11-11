@@ -19,6 +19,8 @@ export interface LspDashboardServerEntry {
   scope?: string;
   /** Latched initialize/process failure text while ``phase`` is ``crashed``. */
   lastError?: string | null;
+  /** ``lastError`` is something the user has to fix, such as a setting, so the server didn't start. */
+  setupError?: boolean;
 }
 
 export interface LspDashboardStatus {

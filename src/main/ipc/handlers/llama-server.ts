@@ -21,6 +21,7 @@ import { loadConfig } from '../../config/load-save';
 import { fetchOpenAiCompatibleModelIds } from '../../openai-compatible-models';
 import { findOpenRouterConnection, refreshOpenRouterReasoningForConnection } from '../../openrouter-reasoning';
 import { findAnthropicConnection, refreshAnthropicReasoningForConnection } from '../../anthropic-models';
+import { findLmStudioConnection, refreshLmStudioReasoningForConnection } from '../../lm-studio-runtime';
 import { pingLlmSource } from '../../llm-source-ping';
 import { pythonControlFetch } from '../../python/http-client';
 import { assertTrustedAppRenderer, assertTrustedMainRendererOrThrow } from '../assert-trusted-renderer';
@@ -113,6 +114,12 @@ export function registerLlamaServerIpc(): void {
     if (anthropic) {
       const caps = await refreshAnthropicReasoningForConnection(anthropic);
       return { ok: true as const, modelId, chatTemplateReasoning: caps ?? null, nCtx: null };
+    }
+    // LM Studio reports what each model supports in its model list.
+    const lmStudio = findLmStudioConnection(config, modelId);
+    if (lmStudio) {
+      const caps = await refreshLmStudioReasoningForConnection(lmStudio);
+      return { ok: true as const, modelId, chatTemplateReasoning: caps ?? null, nCtx: getCachedLlamaServerNctx(modelId) ?? null };
     }
     return {
       ok: true as const,

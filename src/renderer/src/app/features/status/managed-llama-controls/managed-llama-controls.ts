@@ -50,7 +50,7 @@ const INVENTORY_SPINNER = {
 
 /**
  * LLM source picker + managed ``llama-server`` Start/Stop controls, shown in
- * the workspace panel below the system prompt area. A dropdown lists every
+ * the status bar and the home Runtime panel. A dropdown lists every
  * LLM source and switches the active one; the Start/Stop button is enabled
  * only for a managed (non-URL-only) llamacpp source — i.e. the local llama
  * server — and disabled for everything else. An inline loading spinner shows
@@ -70,6 +70,8 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
 
   /** Live app config from the shell; drives the active source and start/stop IPC calls. */
   readonly appConfig = input<AppConfig | null>(null);
+  /** `status-bar`: compact single row for the app footer. */
+  readonly layout = input<'default' | 'status-bar'>('default');
 
   protected readonly phase = signal<ManagedLlamaPhase>('idle');
   /** Why the last start failed, which is what the server said when it exited. */
@@ -205,6 +207,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
             this.phase.set('downloading');
           } else if (ev.phase === 'running') {
             this.phase.set('running');
+            this.startError.set('');
           } else if (ev.phase === 'stopped') {
             this.phase.set('idle');
           }
@@ -225,6 +228,13 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
         return;
       }
       void this.probeStatus(cfg);
+    });
+
+    // A failure is about one model's last start: drop it when another source becomes active,
+    // including from outside this control (Settings), where nothing else would clear it.
+    effect(() => {
+      this.modelId();
+      untracked(() => this.startError.set(''));
     });
 
     // Keep the local model inventory in sync with the configured custom models dir
@@ -363,6 +373,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
       }
       if (res.ok && res.running) {
         this.phase.set('running');
+        this.startError.set('');
       } else if (res.ok && res.starting) {
         if (this.phase() !== 'downloading') {
           this.phase.set('starting');

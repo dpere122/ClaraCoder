@@ -117,6 +117,7 @@ import {
   WorkspaceMonacoModelStore,
   type WorkspaceMonacoSaveAsResult,
 } from '../workspace/workspace-monaco/workspace-monaco-model-store';
+import type { WorkspaceMonacoLspNavigatePayload } from '../workspace/workspace-monaco/workspace-monaco-lsp';
 import { applyAppFontOverrides } from '../../core/theme/app-font-overrides';
 import { SETTINGS_TABS, type SettingsTab } from '../settings/settings/settings-tabs';
 import {
@@ -126,6 +127,7 @@ import {
 } from '../status/context-capacity/context-capacity.utils';
 import { EditorLspStatusComponent } from './editor-lsp-status/editor-lsp-status';
 import { LlamaStatusIndicator } from '../status/llama-status-indicator/llama-status-indicator';
+import { ManagedLlamaControlsComponent } from '../status/managed-llama-controls/managed-llama-controls';
 import { MainPanelEmptyStateComponent } from './main-panel-empty-state/main-panel-empty-state';
 import { TutorialCoordinator } from '../tutorial/tutorial-coordinator';
 import { WorkspaceComponent } from '../workspace/workspace/workspace';
@@ -235,6 +237,7 @@ export function editorGridSlotView(slot: EditorGridSlot): EditorGridSlotView {
     ChatConversationHubComponent,
     EditorLspStatusComponent,
     LlamaStatusIndicator,
+    ManagedLlamaControlsComponent,
     MainPanelEmptyStateComponent,
     LucideAngularModule,
     WorkspaceComponent,
@@ -455,6 +458,12 @@ export class App implements OnInit, OnDestroy {
   protected readonly chatCollapsed = model(false);
   /** Skip persisting chat chrome until the first config load has hydrated the signals. */
   private chatLayoutHydrated = false;
+  /**
+   * The chat is expanded only because no editor tab was open. Not saved to config, so the
+   * next start (or a workspace opened from home) doesn't cover restored tabs with it.
+   * Cleared once the chat leaves the expanded view.
+   */
+  private chatAutoExpanded = false;
   /** Skip open-tab persist/restore until the first config load. */
   private openTabsHydrated = false;
   /** Workspace whose `fileTabs` currently belong to; used to persist before restore. */
@@ -602,6 +611,12 @@ export class App implements OnInit, OnDestroy {
   /** Missing core dependencies, or '' when none are missing or the selected source doesn't need them. */
   protected readonly coreDependenciesAlert = computed(() =>
     coreDependenciesNeeded(this.appConfig()) ? this.coreDependencies.missingSummary() : '',
+  );
+  /** Title-bar Dependencies flag: what's missing, else which core install is out of date. */
+  protected readonly coreDependenciesNotice = computed(
+    () =>
+      this.coreDependenciesAlert() ||
+      (coreDependenciesNeeded(this.appConfig()) ? this.coreDependencies.outdatedSummary() : ''),
   );
   /** Running app version, shown at the right of the title bar. */
   protected readonly appVersion = signal('');
@@ -847,6 +862,37 @@ export class App implements OnInit, OnDestroy {
       this.chatExpanded();
       untracked(() => {
         void this.persistChatWindowStateNow();
+      });
+    });
+
+    // With a workspace open but no editor tab, the main stage would be empty:
+    // move the sidebar chat into the expanded view. Only on the change into
+    // that state, so un-expanding by hand still sticks; and when tabs come
+    // back (closing the last one is undone, a workspace with tabs restores),
+    // drop the overlay so they're visible. Closing the workspace drops it too,
+    // or it would cover the tabs of the next workspace opened from home.
+    // An automatic expand isn't saved to config (see `chatAutoExpanded`).
+    let prevNoTabOpen: boolean | null = null;
+    effect(() => {
+      const hasWorkspace = this.hasOpenWorkspace();
+      const noTabOpen = hasWorkspace && this.allFileTabs().length === 0;
+      untracked(() => {
+        if (!this.chatLayoutHydrated) {
+          return;
+        }
+        const prev = prevNoTabOpen;
+        prevNoTabOpen = noTabOpen;
+        if (prev === noTabOpen) {
+          return;
+        }
+        if (noTabOpen) {
+          if (!this.chatCollapsed() && this.chatHubView() === 'activeChat' && !this.chatExpanded()) {
+            this.chatAutoExpanded = true;
+            this.chatExpanded.set(true);
+          }
+        } else if (prev) {
+          this.chatExpanded.set(false);
+        }
       });
     });
 
@@ -1335,7 +1381,10 @@ export class App implements OnInit, OnDestroy {
       return;
     }
     const collapsed = this.chatCollapsed();
-    const expanded = this.chatExpanded();
+    if (!this.chatExpanded()) {
+      this.chatAutoExpanded = false;
+    }
+    const expanded = this.chatExpanded() && !this.chatAutoExpanded;
     const current = resolveChatWindowState(config);
     if (current.collapsed === collapsed && current.expanded === expanded) {
       return;
@@ -2016,7 +2065,12 @@ export class App implements OnInit, OnDestroy {
       return;
     }
 
-    const tab = workspaceChatFileTab(norm);
+    this.openFileTabInFocusedSlot(workspaceChatFileTab(norm));
+  }
+
+  /** Focus ``tab`` wherever it is already open, else add it to the focused slot. */
+  private openFileTabInFocusedSlot(tab: ChatFileTab): void {
+    const focusedId = this.ensureFocusedSlotId();
     const id = chatFileTabId(tab);
     const key = chatFileTabModelKey(tab);
     const layout = this.editorGrid();
@@ -2609,8 +2663,12 @@ export class App implements OnInit, OnDestroy {
     );
   }
 
-  protected onWorkspaceMonacoNavigate(payload: { relativePath: string; line: number; column: number }): void {
-    this.openOrFocusFileTab(payload.relativePath);
+  protected onWorkspaceMonacoNavigate(payload: WorkspaceMonacoLspNavigatePayload): void {
+    if (payload.absolutePath) {
+      this.openFileTabInFocusedSlot({ absolutePath: payload.absolutePath, outsideWorkspace: true });
+    } else {
+      this.openOrFocusFileTab(payload.relativePath);
+    }
     this.monacoRevealPending.set({
       relativePath: normalizePathSlashes(payload.relativePath),
       line: payload.line,

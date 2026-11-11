@@ -1,4 +1,5 @@
 /** Settings window tab ids and sub-tab catalog. */
+import { LSP_SERVER_CATALOG } from '@shared/lsp-settings';
 import { THEME_GROUP_CATEGORIES } from '@shared/theme';
 import { SETTINGS_TAB_ENTRIES, isSettingsTab, type SettingsTab } from '@shared/settings-tabs';
 
@@ -18,6 +19,7 @@ const SETTINGS_TAB_DESCRIPTIONS: Record<SettingsTab, string> = {
   modelManager: 'Local models and Hugging Face search for managed llama-server.',
   tools: 'Workspace agent tool limits and edit modes (synced to the Python backend).',
   mcp: 'MCP servers whose tools Clara can call. One client, many server configs.',
+  lsp: 'The language servers behind code intelligence in the editor and agent tools.',
   monaco:
     'Monaco options for the in-app workspace file editor (color theme, font, minimap, wrap, cursor, and editing behavior).',
   audio: 'Transcription, talk-mode microphone, Kokoro assistant voice, speech speed, and end-of-speech timing.',
@@ -117,9 +119,14 @@ export const SETTINGS_SUB_TAB_CATALOG: Partial<Record<SettingsTab, SettingsSubTa
       id: 'webTools',
       label: 'Web tools',
       description:
-        'Screenshot retention: automatic cleanup, downsampling, and storage limits for webpage screenshots.',
+        'Web search provider and engines, plus automatic cleanup, downsampling, and storage limits for webpage screenshots.',
     },
   ],
+  lsp: LSP_SERVER_CATALOG.map((server) => ({
+    id: server.id,
+    label: server.label,
+    description: `${server.server}: how it runs and what it checks.`,
+  })),
   monaco: [
     {
       id: 'theme',

@@ -1,3 +1,6 @@
+import { normalizeLspServersSettings } from '../../shared/lsp-settings';
+import { normalizeLmStudioSettings } from '../../shared/lm-studio-ipc';
+import { normalizeOpenAiCompatSettings } from '../../shared/openai-compat';
 import { createHash, randomUUID } from 'crypto';
 import { normalizeScreenshotRetention } from '../../shared/screenshot-retention';
 import { promises as fs } from 'fs';
@@ -532,6 +535,7 @@ function mergeMcpServers(
 function exposeSecretsForConsumers(config: AppConfig): AppConfig {
   for (const p of config.llmProviders ?? []) {
     (p as { apiKey: string | SecretValue<string> }).apiKey = unwrapSecret(p.apiKey);
+    exposeMcpSecretEntries(p.customHeaders ?? []);
   }
   if (config.audioTranscription) {
     const audio = config.audioTranscription as {
@@ -557,6 +561,7 @@ function serializeConfigForDisk(config: AppConfig): Record<string, unknown> {
     ...p,
     // The Claude key lives in its own keychain file (anthropic-key-store), never in config.json.
     apiKey: p.provider === 'anthropic' ? '' : encryptSecretForDisk(unwrapSecret(p.apiKey)),
+    ...(p.customHeaders ? { customHeaders: encryptMcpSecretEntries(p.customHeaders) } : {}),
     models: p.models,
   }));
   const audio = config.audioTranscription
@@ -835,6 +840,20 @@ function normalizeLlmModelProfile(model: LlmModelProfile, provider: LlmProviderC
     delete (model as LlmModelProfile & { planRetryAttemptsCount?: unknown }).planRetryAttemptsCount;
     migrated = true;
   }
+  if (provider.provider === 'openai-compatible' && model.openAiCompat !== undefined) {
+    const compat = normalizeOpenAiCompatSettings(model.openAiCompat);
+    if (JSON.stringify(compat) !== JSON.stringify(model.openAiCompat)) {
+      model.openAiCompat = compat;
+      migrated = true;
+    }
+  }
+  if (provider.provider === 'lmstudio' && model.lmStudio !== undefined) {
+    const lmStudio = normalizeLmStudioSettings(model.lmStudio);
+    if (JSON.stringify(lmStudio) !== JSON.stringify(model.lmStudio)) {
+      model.lmStudio = lmStudio;
+      migrated = true;
+    }
+  }
   if (provider.provider === 'llamacpp') {
     if (normalizeLlamaCppManagedField(model)) {
       migrated = true;
@@ -940,6 +959,7 @@ function normalizeLlmProvidersTree(providers: LlmProviderConfig[]): boolean {
       p.provider !== 'openai' &&
       p.provider !== 'lmstudio' &&
       p.provider !== 'llamacpp' &&
+      p.provider !== 'openai-compatible' &&
       p.provider !== 'openrouter' &&
       p.provider !== 'anthropic'
     ) {
@@ -972,6 +992,11 @@ function normalizeLlmProvidersTree(providers: LlmProviderConfig[]): boolean {
         p.apiKey = coerced;
         migrated = true;
       }
+    }
+    if (p.customHeaders !== undefined) {
+      const headers = normalizeMcpSecretEntries(p.customHeaders);
+      p.customHeaders = headers.entries;
+      migrated = migrated || headers.migrated;
     }
     if (!Array.isArray(p.models) || p.models.length === 0) {
       const mid = defaultLlmModelId(p.provider);
@@ -1029,6 +1054,10 @@ function ensurePinnedLmStudioProvider(providers: LlmProviderConfig[]): boolean {
       pinned.provider = 'lmstudio';
       migrated = true;
     }
+    if (pinned.name === 'LM Studio Default') {
+      pinned.name = 'LM Studio';
+      migrated = true;
+    }
     return migrated;
   }
   const firstLmIdx = providers.findIndex((p) => p.provider === 'lmstudio');
@@ -1041,10 +1070,42 @@ function ensurePinnedLmStudioProvider(providers: LlmProviderConfig[]): boolean {
   return true;
 }
 
+/**
+ * Move a URL source saved as ``llamacpp``, which sent every server llama-server's own fields, to its
+ * own type without changing where its requests go. That type doesn't add ``/v1`` to a path or accept
+ * ``user:pw@``, so the URL gets its ``/v1`` here, and the credentials become the header httpx was sending.
+ */
+function retypeLegacyUrlSource(source: LlmProviderConfig): boolean {
+  if (source.provider === 'openai-compatible') {
+    return false;
+  }
+  source.provider = 'openai-compatible';
+  const raw = (source.baseUrl ?? '').trim() || (process.env.LLAMACPP_BASE_URL ?? '').trim() || 'http://127.0.0.1:8080/v1';
+  try {
+    const url = new URL(raw.includes('://') ? raw : `http://${raw}`);
+    if (url.username || url.password) {
+      const credentials = `${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`;
+      source.customHeaders = [
+        ...(source.customHeaders ?? []),
+        { key: 'Authorization', value: SecretValue.of(`Basic ${Buffer.from(credentials).toString('base64')}`) },
+      ];
+      url.username = '';
+      url.password = '';
+    }
+    const path = url.pathname.replace(/\/+$/, '');
+    url.pathname = path.toLowerCase().endsWith('/v1') ? path : `${path}/v1`;
+    source.baseUrl = url.href;
+  } catch {
+    // Not a URL: its screen says so, and the text stays for the user to fix.
+  }
+  return true;
+}
+
 /** Ensure pinned remote ``llama-server`` URL source exists (next to LM Studio in the list). */
 function ensurePinnedLlamaServerUrlProvider(providers: LlmProviderConfig[]): boolean {
-  if (providers.some((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID)) {
-    return false;
+  const pinned = providers.find((p) => p.id === PINNED_LLAMA_SERVER_URL_PROVIDER_ID);
+  if (pinned) {
+    return retypeLegacyUrlSource(pinned);
   }
   const lmIdx = providers.findIndex((p) => p.id === PINNED_LM_STUDIO_PROVIDER_ID);
   const at = lmIdx >= 0 ? lmIdx + 1 : 1;
@@ -1173,11 +1234,7 @@ function migrateLlmProvidersToLeadingPinnedSources(
   if (!url.name?.trim()) {
     url.name = DEFAULT_URL_SOURCE_NAME;
   }
-  url.provider = 'llamacpp';
-  if (!(url.embeddingsBaseUrl ?? '').trim()) {
-    url.embeddingsBaseUrl =
-      process.env.LLAMA_SERVER_EMBEDDINGS_BASE_URL || 'http://127.0.0.1:8081/v1';
-  }
+  retypeLegacyUrlSource(url);
 
   const pinnedIdSet = new Set([PINNED_LM_STUDIO_PROVIDER_ID, PINNED_LLAMA_SERVER_URL_PROVIDER_ID]);
   const extras = pool.filter((p) => !pinnedIdSet.has(p.id) && !absorbedIds.has(p.id));
@@ -1595,6 +1652,13 @@ export function migrateConfig(config: AppConfig): AppConfig {
   const codeFont = (newConfig as AppConfig).codeFontFamily;
   if (codeFont !== undefined && typeof codeFont !== 'string') {
     (newConfig as AppConfig).codeFontFamily = '';
+    migrated = true;
+  }
+
+  const lspPrev = (newConfig as AppConfig).lspServers;
+  const lspNorm = normalizeLspServersSettings(lspPrev);
+  if (JSON.stringify(lspPrev) !== JSON.stringify(lspNorm)) {
+    (newConfig as AppConfig).lspServers = lspNorm;
     migrated = true;
   }
 

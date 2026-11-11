@@ -32,10 +32,19 @@ export function missingCoreDependencies(deps: readonly DependencyInfo[]): Depend
   return CORE_DEPENDENCY_IDS.filter((id) => deps.find((dep) => dep.id === id)?.state === 'missing');
 }
 
+/** Installed core dependencies that a reinstall would update, in {@link CORE_DEPENDENCY_IDS} order. */
+export function outdatedCoreDependencies(deps: readonly DependencyInfo[]): DependencyId[] {
+  return CORE_DEPENDENCY_IDS.filter((id) => {
+    const dep = deps.find((d) => d.id === id);
+    return dep?.state === 'installed' && !!dep.updateAvailable;
+  });
+}
+
 /**
- * Tracks whether a core dependency (llama-server) still needs downloading, so the shell can
- * flag its Dependencies entry points. Re-checks when an install finishes and when the window
- * regains focus (the user is back from the Dependencies window, possibly after a delete).
+ * Tracks whether a core dependency (llama-server) still needs downloading or is behind the
+ * build Clara installs, so the shell can flag its Dependencies entry points. Re-checks when
+ * an install finishes and when the window regains focus (the user is back from the
+ * Dependencies window, possibly after a delete).
  */
 @Injectable({ providedIn: 'root' })
 export class CoreDependenciesStatusService {
@@ -47,6 +56,13 @@ export class CoreDependenciesStatusService {
   readonly missingSummary = computed(() => {
     const labels = this.missing().map((id) => DEPENDENCY_LABELS[id]);
     return labels.length ? `Not downloaded: ${labels.join(', ')}` : '';
+  });
+  /** Installed core deps older than the version a reinstall would fetch. */
+  readonly outdated = signal<readonly DependencyId[]>([]);
+  /** Tooltip / aria text naming what's out of date, or '' when every install is current. */
+  readonly outdatedSummary = computed(() => {
+    const labels = this.outdated().map((id) => DEPENDENCY_LABELS[id]);
+    return labels.length ? `Update available: ${labels.join(', ')}` : '';
   });
 
   private static readonly FOCUS_REFRESH_MIN_MS = 5_000;
@@ -102,6 +118,7 @@ export class CoreDependenciesStatusService {
       const result = await this.electron.depsList();
       if (result.dependencies.length > 0) {
         this.missing.set(missingCoreDependencies(result.dependencies));
+        this.outdated.set(outdatedCoreDependencies(result.dependencies));
       }
     } catch {
       /* keep the last known state */

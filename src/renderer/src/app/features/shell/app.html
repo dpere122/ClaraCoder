@@ -11,17 +11,17 @@
           type='button'
           class='chrome-menu-btn'
           data-tutorial='home-dependencies-menu'
-          [class.chrome-menu-btn--attention]='!!coreDependenciesAlert()'
-          [attr.title]='coreDependenciesAlert() || null'
+          [class.chrome-menu-btn--attention]='!!coreDependenciesNotice()'
+          [attr.title]='coreDependenciesNotice() || null'
           (click)='onChromeDependencies()'
         >
-          @if (coreDependenciesAlert()) {
+          @if (coreDependenciesNotice()) {
             <lucide-icon
               name='triangle-alert'
               [size]='11'
               class='chrome-menu-btn-alert'
               role='img'
-              [attr.aria-label]='coreDependenciesAlert()'
+              [attr.aria-label]='coreDependenciesNotice()'
             ></lucide-icon>
           }
           Dependencies

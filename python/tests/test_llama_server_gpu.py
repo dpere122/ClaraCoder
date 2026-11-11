@@ -675,3 +675,49 @@ def test_status_reports_missing_when_thin_binary_lacks_libs(
     monkeypatch.setattr(ls, 'get_runtime_bin_dir', lambda: bin_dir)
     st = ls.status()
     assert st['state'] == 'missing'
+
+
+# --------------------------------------------------------------------------- #
+# llama_server.status: install older than the pinned build
+# --------------------------------------------------------------------------- #
+
+
+def _installed_build(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, marker: str | None) -> None:
+    """A runnable llama-server in ``tmp_path/bin`` whose ready marker holds ``marker``."""
+    monkeypatch.setattr(sys, 'platform', 'win32')
+    bin_dir = tmp_path / 'bin'
+    bin_dir.mkdir()
+    bin_path = bin_dir / 'llama-server.exe'
+    bin_path.write_bytes(b'x')
+    if marker is not None:
+        (bin_dir / '.clara-ready').write_text(marker + '\n', encoding='utf-8')
+    monkeypatch.setattr(ls, 'llama_server_binary', lambda: bin_path)
+    monkeypatch.setattr(ls, 'get_runtime_bin_dir', lambda: bin_dir)
+    monkeypatch.setattr(ls, '_pinned_tag', lambda: 'b12182')
+
+
+def test_status_flags_an_install_older_than_the_pinned_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _installed_build(tmp_path, monkeypatch, 'b10867')
+    st = ls.status()
+    assert st['state'] == 'installed'
+    assert st['updateAvailable'] == 'b12182'
+
+
+@pytest.mark.parametrize('marker', ['b12182', 'b12300', 'custom-build', None])
+def test_status_does_not_flag_current_newer_or_unknown_builds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, marker: str | None,
+) -> None:
+    _installed_build(tmp_path, monkeypatch, marker)
+    st = ls.status()
+    assert st['state'] == 'installed'
+    assert st['updateAvailable'] is None
+
+
+def test_status_does_not_flag_when_the_pin_is_not_a_build_tag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _installed_build(tmp_path, monkeypatch, 'b10867')
+    monkeypatch.setattr(ls, '_pinned_tag', lambda: 'master')
+    assert ls.status()['updateAvailable'] is None

@@ -612,6 +612,12 @@ export class App implements OnInit, OnDestroy {
   protected readonly coreDependenciesAlert = computed(() =>
     coreDependenciesNeeded(this.appConfig()) ? this.coreDependencies.missingSummary() : '',
   );
+  /** Title-bar Dependencies flag: what's missing, else which core install is out of date. */
+  protected readonly coreDependenciesNotice = computed(
+    () =>
+      this.coreDependenciesAlert() ||
+      (coreDependenciesNeeded(this.appConfig()) ? this.coreDependencies.outdatedSummary() : ''),
+  );
   /** Running app version, shown at the right of the title bar. */
   protected readonly appVersion = signal('');
   private readonly llamaServerNctxByModel = toSignal(inject(ElectronService).llamaServerNctx$, {

@@ -11,6 +11,7 @@ import {
   CoreDependenciesStatusService,
   coreDependenciesNeeded,
   missingCoreDependencies,
+  outdatedCoreDependencies,
 } from './core-dependencies-status.service';
 import { ElectronService } from './electron.service';
 
@@ -50,6 +51,25 @@ describe('missingCoreDependencies', () => {
       dep.id === 'llama-server' ? { ...dep, state: 'updating' as const } : { ...dep, state: 'error' as const },
     );
     expect(missingCoreDependencies(deps)).toEqual([]);
+  });
+});
+
+/** The catalog with llama-server installed from a build older than the pinned one. */
+function outdatedLlama(): DependencyInfo[] {
+  return catalog(['llama-server']).map((dep) =>
+    dep.id === 'llama-server' ? { ...dep, version: 'b10867', updateAvailable: 'b12182' } : dep,
+  );
+}
+
+describe('outdatedCoreDependencies', () => {
+  it('lists an installed llama-server that a reinstall would update', () => {
+    expect(outdatedCoreDependencies(outdatedLlama())).toEqual(['llama-server']);
+    expect(outdatedCoreDependencies(catalog(['llama-server']))).toEqual([]);
+  });
+
+  it('ignores a build that is not installed', () => {
+    const deps = outdatedLlama().map((dep) => ({ ...dep, state: 'updating' as const }));
+    expect(outdatedCoreDependencies(deps)).toEqual([]);
   });
 });
 
@@ -124,5 +144,18 @@ describe('CoreDependenciesStatusService', () => {
     await pending;
     expect(electron.depsList).toHaveBeenCalledTimes(3);
     expect(service.hasMissing()).toBe(false);
+  });
+
+  it('flags an out-of-date core dep and clears it after the reinstall', async () => {
+    const { service, electron, emitProgress } = setup(outdatedLlama());
+    await settle();
+    expect(service.hasMissing()).toBe(false);
+    expect(service.outdatedSummary()).toBe('Update available: llama-server');
+
+    electron.depsList.mockResolvedValue({ ok: true, dependencies: catalog(['llama-server']) });
+    emitProgress({ depId: 'llama-server', phase: 'done' });
+    await settle();
+    expect(service.outdated()).toEqual([]);
+    expect(service.outdatedSummary()).toBe('');
   });
 });

@@ -258,6 +258,28 @@ def _version_label(tag: str, variant: str) -> str:
     return f'{tag} ({display})'
 
 
+def _build_number(tag: str | None) -> int | None:
+    """``b12182`` -> ``12182``; ``None`` for anything that is not a ggml-org build tag."""
+    text = (tag or '').strip()
+    if len(text) > 1 and text[0] == 'b' and text[1:].isdigit():
+        return int(text[1:])
+    return None
+
+
+def _newer_pinned_tag(installed_tag: str | None) -> str | None:
+    """The pinned tag when the installed build is older than it, else ``None``.
+
+    An install made before a pin bump keeps running, but models that need the newer
+    llama.cpp fail to load with an error that does not name the build as the cause.
+    A build newer than the pin (``CLARA_LLAMA_SERVER_VERSION`` set lower) is not flagged.
+    """
+    pinned = _pinned_tag()
+    installed_n, pinned_n = _build_number(installed_tag), _build_number(pinned)
+    if installed_n is None or pinned_n is None or installed_n >= pinned_n:
+        return None
+    return pinned
+
+
 def _runtime_libs_present(bin_path: Path) -> bool:
     """Return True when the installed binary can resolve its co-located shared libs.
 
@@ -301,6 +323,7 @@ def status() -> dict:
             'sizeHint': SIZE_HINT,
             'canDelete': True,
             'error': None,
+            'updateAvailable': _newer_pinned_tag(version),
         }
     return {
         'id': DEP_ID,

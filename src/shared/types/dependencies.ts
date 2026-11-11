@@ -72,6 +72,11 @@ export interface DependencyInfo {
   downloadedModels?: string[];
   /** Sub-dependencies this install drops on disk (packages, binaries, weights). */
   components?: string[];
+  /**
+   * Version a reinstall would fetch, set only while the installed copy is older than it
+   * (llama-server after its pinned build moved on). The install still runs.
+   */
+  updateAvailable?: string | null;
 }
 
 export interface DependencyProgressEvent {

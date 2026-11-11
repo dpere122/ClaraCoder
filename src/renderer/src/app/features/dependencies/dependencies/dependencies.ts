@@ -121,6 +121,12 @@ export function installedLlamaVariant(dep: Pick<DependencyInfo, 'state' | 'compo
   return null;
 }
 
+/** Says the install is behind the version a reinstall would fetch; null when it is current. */
+export function dependencyUpdateHint(dep: Pick<DependencyInfo, 'state' | 'updateAvailable'>): string | null {
+  if (dep.state !== 'installed' || !dep.updateAvailable) return null;
+  return `Clara now installs ${dep.updateAvailable}. Reinstall to update: newer models can fail to load on this older build.`;
+}
+
 @Component({
   selector: 'app-dependencies',
   imports: [NgxSpinnerComponent, PillSelectComponent, ThemedConfirmDialogComponent],
@@ -466,6 +472,10 @@ export class Dependencies implements OnInit, OnDestroy {
     if (!installed || chosen === installed) return null;
     if (chosen === 'auto') return 'Reinstall to let Clara pick the best build for this machine.';
     return `Installed: ${this.variantLabels[installed]}. Reinstall to switch to ${this.variantLabels[chosen]}.`;
+  }
+
+  protected updateHint(dep: DependencyInfo): string | null {
+    return dependencyUpdateHint(dep);
   }
 
   protected setVariant(dep: DependencyInfo, v: LlamaServerVariant): void {

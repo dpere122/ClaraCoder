@@ -7,6 +7,11 @@
  * machines or re-running `npm run dev`). `--force` always rebuilds (used by postinstall,
  * because `npm install` typically compiles addons for system Node, not Electron).
  *
+ * A module whose package ships a Node-API binary needs no compiler: that binary works in
+ * every Node and Electron version. better-sqlite3 13 is one, and its own build does nothing
+ * while that binary is present. So when a rebuild fails (no C++ toolchain) the module still
+ * passes if Electron loads it as installed.
+ *
  * Windows + node-pty (including bundled winpty): upstream .gyp enables Spectre mitigation, so MSBuild needs
  * "MSVC ... Spectre-mitigated libs" (VS Installer → Individual components). If you cannot
  * install those, set CLARA_ALLOW_WIN_PTY_NON_SPECTRE=1 (or NEMO_ALLOW_WIN_PTY_NON_SPECTRE=1)
@@ -134,6 +139,10 @@ function ensureModule(mod, electronPath, electronVersion) {
   const rebuilt = rebuild(mod.name, electronVersion);
   if (!rebuilt) {
     console.warn(`${logPrefix} electron-rebuild for ${mod.name} failed.`);
+    if (electronCanLoad(electronPath, mod.name).ok) {
+      console.log(`${logPrefix} ${mod.name} loads in Electron ${electronVersion} from its prebuilt binary; continuing.`);
+      return true;
+    }
     return false;
   }
 

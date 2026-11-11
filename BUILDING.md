@@ -8,10 +8,10 @@ A fresh clone takes roughly 5–15 minutes to set up, depending on network speed
 
 | Tool                 | Notes |
 | -------------------- | ----- |
-| **Node.js + npm**    | Required for Electron, Angular, and native addon rebuilds. The repo pins `npm@11.9.0`; any recent npm 11.x is fine. |
+| **Node.js 22.12+ + npm** | Required for Electron, Angular, and native addon rebuilds (Electron 45 and `better-sqlite3` 13 need Node 22.12 or newer; CI uses Node 24). The repo pins `npm@11.9.0`; any recent npm 11.x is fine. |
 | **Python 3.10–3.13** | One system Python is enough. `npm run setup:python` creates the repo-root `.venv` for you — you do **not** need a separate 3.12 install. |
 | **Git**              | Needed when Kokoro cannot install from PyPI (today: Python 3.13+); `setup:python` falls back to GitHub for misaki/kokoro. |
-| **Build toolchain**  | Linux/macOS: compiler + Python headers for `node-pty` / `better-sqlite3` rebuilds (`build-essential`, `python3-venv`, etc.). Windows: Visual Studio Build Tools; see [node-pty / Spectre note](#native-modules-better-sqlite3--node-pty) below. |
+| **Build toolchain**  | Needed to compile `node-pty`: on Linux a compiler + Python headers (`build-essential`, `python3-venv`, etc.), on Windows Visual Studio Build Tools; see [node-pty / Spectre note](#native-modules-better-sqlite3--node-pty) below. Windows and macOS can do without it: `node-pty` ships prebuilt binaries for them, and `npm install` falls back to those when the rebuild fails. `better-sqlite3` is never compiled. |
 
 Optional:
 
@@ -239,7 +239,9 @@ Dev mode prefers `<repo>/.venv/bin/python` (or `.venv\Scripts\python.exe`). If t
 
 ### Native modules (`better-sqlite3` / `node-pty`)
 
-These addons must match this repo's Electron ABI, not system Node. If you see `NODE_MODULE_VERSION` / `was compiled against a different Node.js version`, run `npm run rebuild:sqlite` (and `npm run rebuild:pty` if the terminal is broken). `npm run dev` does that check automatically.
+`better-sqlite3` 13 ships a Node-API binary for each platform inside its package. That binary works in every Node and Electron version, so it is never compiled here, and `npm run rebuild:sqlite` only confirms that Electron loads it.
+
+`node-pty` must match this repo's Electron ABI, not system Node. If you see `NODE_MODULE_VERSION` / `was compiled against a different Node.js version`, or the terminal is broken, run `npm run rebuild:pty`. `npm run dev` does that check automatically. When the rebuild fails and Electron can still load the addon from its prebuilt binary, the install continues.
 
 `node-pty` on Windows may require **MSVC Spectre-mitigated libraries** (Visual Studio Installer → Individual components). If you cannot install them locally, set `CLARA_ALLOW_WIN_PTY_NON_SPECTRE=1` before `npm install` for a non-Spectre local build (see `scripts/rebuild-native.mjs`).
 

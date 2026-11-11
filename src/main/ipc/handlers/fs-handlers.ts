@@ -1,6 +1,5 @@
 import { dialog, ipcMain, shell } from 'electron';
-import { existsSync, promises as fs } from 'fs';
-import { homedir } from 'os';
+import { promises as fs } from 'fs';
 import path = require('path');
 import { assertTrustedAppRenderer, assertTrustedMainRenderer } from '../assert-trusted-renderer';
 import { mainState } from '../../state';
@@ -15,18 +14,7 @@ import {
 } from '../../utils/assert-registered-workspace-dir';
 import { buildWorkspaceTree } from '../../workspace/context-tree';
 import { loadWorkspaceIgnoreRules } from '../../workspace/ignore-rules';
-
-/** Desktop on Windows/macOS when that folder exists; otherwise the user home directory. */
-export function defaultOpenFileDialogPath(): string {
-  const home = homedir();
-  if (process.platform === 'win32' || process.platform === 'darwin') {
-    const desktop = path.join(home, 'Desktop');
-    if (existsSync(desktop)) {
-      return desktop;
-    }
-  }
-  return home;
-}
+import { defaultOpenFileDialogPath, dialogFolderOption, rememberDialogFolder } from '../../utils/dialog-folder';
 
 /**
  * Native folder picker, shallow listing, and recursive tree text for workspace UI.
@@ -45,8 +33,10 @@ export function registerFsIpc(): void {
     if (!parent || parent.isDestroyed()) return null;
     const result = await dialog.showOpenDialog(parent, {
       properties: ['openDirectory'],
+      ...dialogFolderOption(defaultOpenFileDialogPath()),
     });
     if (result.canceled || result.filePaths.length === 0) return null;
+    rememberDialogFolder(result.filePaths[0]);
     return result.filePaths[0];
   });
 

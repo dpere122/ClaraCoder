@@ -11,7 +11,7 @@ A fresh clone takes roughly 5–15 minutes to set up, depending on network speed
 | **Node.js 22.12+ + npm** | Required for Electron, Angular, and native addon rebuilds (Electron 45 and `better-sqlite3` 13 need Node 22.12 or newer; CI uses Node 24). The repo pins `npm@11.9.0`; any recent npm 11.x is fine. |
 | **Python 3.10–3.13** | One system Python is enough. `npm run setup:python` creates the repo-root `.venv` for you — you do **not** need a separate 3.12 install. |
 | **Git**              | Needed when Kokoro cannot install from PyPI (today: Python 3.13+); `setup:python` falls back to GitHub for misaki/kokoro. |
-| **Build toolchain**  | Needed to compile `node-pty`: on Linux a compiler + Python headers (`build-essential`, `python3-venv`, etc.), on Windows Visual Studio Build Tools; see [node-pty / Spectre note](#native-modules-better-sqlite3--node-pty) below. Windows and macOS can do without it: `node-pty` ships prebuilt binaries for them, and `npm install` falls back to those when the rebuild fails. `better-sqlite3` is never compiled. |
+| **Build toolchain**  | Needed to compile `node-pty`: on Linux a compiler + Python headers (`build-essential`, `python3-venv`, etc.), on Windows Visual Studio Build Tools; see [node-pty / Spectre note](#native-modules-better-sqlite3--node-pty) below. Windows and macOS can do without it: `node-pty` ships prebuilt binaries for them, and `npm install` uses those without compiling. `better-sqlite3` is never compiled. |
 
 Optional:
 
@@ -26,7 +26,7 @@ cd ClaraCoder
 npm install
 ```
 
-One root `package.json` covers Electron and the Angular UI. `postinstall` rebuilds native Electron modules (`node-pty`, `better-sqlite3`) for the pinned Electron version. `npm run dev`, `npm start`, and `npm run pack` also check those addons and rebuild if they were compiled for a different Node/Electron ABI (for example after copying `node_modules` between machines). Prefer `npm install` on each device rather than copying `node_modules` across OS or CPU architectures.
+One root `package.json` covers Electron and the Angular UI. `postinstall`, `npm run dev`, `npm start`, and `npm run pack` check that the pinned Electron loads the native modules (`node-pty`, `better-sqlite3`) and rebuild one only if it does not: no binary for the platform, or one compiled for a different Node/Electron ABI (for example after copying `node_modules` between machines). Prefer `npm install` on each device rather than copying `node_modules` across OS or CPU architectures.
 
 If you previously had a separate `src/renderer/node_modules` (or an old workspace install), clean once and reinstall:
 
@@ -241,9 +241,9 @@ Dev mode prefers `<repo>/.venv/bin/python` (or `.venv\Scripts\python.exe`). If t
 
 `better-sqlite3` 13 ships a Node-API binary for each platform inside its package. That binary works in every Node and Electron version, so it is never compiled here, and `npm run rebuild:sqlite` only confirms that Electron loads it.
 
-`node-pty` must match this repo's Electron ABI, not system Node. If you see `NODE_MODULE_VERSION` / `was compiled against a different Node.js version`, or the terminal is broken, run `npm run rebuild:pty`. `npm run dev` does that check automatically. When the rebuild fails and Electron can still load the addon from its prebuilt binary, the install continues.
+`node-pty` 1.1 also ships a Node-API binary, for Windows and macOS only. There `npm install` and `npm run dev` only check that Electron loads it and compile nothing while it does; on Linux they compile it from source. If you see `NODE_MODULE_VERSION` / `was compiled against a different Node.js version`, or the terminal is broken, run `npm run rebuild:pty` to compile it from source for this repo's Electron. When that rebuild fails and Electron can still load the addon from its prebuilt binary, the command still passes.
 
-`node-pty` on Windows may require **MSVC Spectre-mitigated libraries** (Visual Studio Installer → Individual components). If you cannot install them locally, set `CLARA_ALLOW_WIN_PTY_NON_SPECTRE=1` before `npm install` for a non-Spectre local build (see `scripts/rebuild-native.mjs`).
+Compiling `node-pty` on Windows may require **MSVC Spectre-mitigated libraries** (Visual Studio Installer → Individual components). If you cannot install them locally, set `CLARA_ALLOW_WIN_PTY_NON_SPECTRE=1` before `npm run rebuild:pty` for a non-Spectre local build (see `scripts/rebuild-native.mjs`).
 
 ### Kokoro / TTS errors at runtime
 

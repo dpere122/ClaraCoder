@@ -6,7 +6,7 @@
   "private": true,
   "packageManager": "npm@11.9.0",
   "scripts": {
-    "postinstall": "node scripts/rebuild-native.mjs --force && node scripts/patch-monaco-vite-ignore.mjs",
+    "postinstall": "node scripts/rebuild-native.mjs && node scripts/patch-monaco-vite-ignore.mjs",
     "rebuild:pty": "node scripts/rebuild-native.mjs --force --only=node-pty",
     "rebuild:sqlite": "node scripts/rebuild-native.mjs --force --only=better-sqlite3",
     "predev": "node scripts/rebuild-native.mjs && node scripts/gen-theme-registry.mjs",

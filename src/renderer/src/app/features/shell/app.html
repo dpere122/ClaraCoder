@@ -300,6 +300,7 @@
           </div>
           @if (hasOpenWorkspace()) {
           <app-editor-grid
+            #editorGridRef
             class='chat-area__tab-panel chat-area__tab-panel--grid'
             [class.chat-area__tab-panel--hidden]='mainStageShowsEmptyState() || chatExpanded()'
             [layout]='editorGrid()'
@@ -337,6 +338,7 @@
                     [buildPlanStreamingKeys]='buildPlanStreamingKeys()'
                     [focused]='focused'
                     (surfaceFocused)='onEditorGridSlotFocus(slot.id)'
+                    (tabStripActions)='editorGridRef.setSlotTabActions(slot.id, $event)'
                     (navigateWorkspaceFile)='onWorkspaceMonacoNavigate($event)'
                     (pendingEditorRevealHandled)='onMonacoRevealHandled()'
                     (editorSelectionChange)='onEditorSelectionChange($event)'

@@ -3272,6 +3272,7 @@
         "editor-grid__gutter--column",
         "chat-area__tab-strip",
         "is-overlay-dragging",
+        "chat-area__tab-strip-scroller",
         "chat-area__tab-strip-tabs",
         "chat-main-tab",
         "chat-main-tab--active",
@@ -3286,7 +3287,8 @@
         "chat-main-tab-close-x",
         "chat-area__tab-strip-overlay",
         "is-overflowing",
-        "chat-area__tab-strip-overlay-thumb"
+        "chat-area__tab-strip-overlay-thumb",
+        "chat-area__tab-strip-actions"
       ]
     },
     {
@@ -3852,6 +3854,7 @@
         "llama-status__label",
         "chat-area__tab-strip",
         "is-overlay-dragging",
+        "chat-area__tab-strip-scroller",
         "chat-area__tab-strip-tabs",
         "chat-main-tab",
         "chat-main-tab--active",
@@ -3864,8 +3867,7 @@
         "chat-main-tab-close--unsaved",
         "chat-main-tab-unsaved",
         "chat-main-tab-close-x",
-        "chat-area__tab-strip-overlay",
-        "is-overflowing"
+        "chat-area__tab-strip-overlay"
       ]
     },
     {
@@ -3987,6 +3989,7 @@
         "chat-area__tab-strip",
         "is-overlay-dragging",
         "is-focused",
+        "chat-area__tab-strip-scroller",
         "chat-area__tab-strip-tabs",
         "chat-main-tab",
         "chat-main-tab--active",
@@ -4001,7 +4004,8 @@
         "chat-main-tab-close-x",
         "chat-area__tab-strip-overlay",
         "is-overflowing",
-        "chat-area__tab-strip-overlay-thumb"
+        "chat-area__tab-strip-overlay-thumb",
+        "chat-area__tab-strip-actions"
       ]
     },
     {

@@ -830,7 +830,6 @@ export interface MonacoWorkspaceEditorSettings {
   renderLineHighlight: 'all' | 'line' | 'none' | 'gutter';
   renderControlCharacters: boolean;
   lineNumbers: 'on' | 'off' | 'relative' | 'interval';
-  glyphMargin: boolean;
   folding: boolean;
   guidesIndentation: boolean;
   guidesBracketPairs: boolean;
@@ -874,7 +873,6 @@ export function defaultMonacoWorkspaceEditorSettings(): MonacoWorkspaceEditorSet
     renderLineHighlight: 'all',
     renderControlCharacters: false,
     lineNumbers: 'on',
-    glyphMargin: true,
     folding: true,
     guidesIndentation: true,
     guidesBracketPairs: true,
@@ -979,7 +977,6 @@ export function normalizeMonacoWorkspaceEditorSettings(raw: unknown): {
     ),
     renderControlCharacters: pickBool('renderControlCharacters', base.renderControlCharacters),
     lineNumbers: pickStr('lineNumbers', ['on', 'off', 'relative', 'interval'] as const, base.lineNumbers),
-    glyphMargin: pickBool('glyphMargin', base.glyphMargin),
     folding: pickBool('folding', base.folding),
     guidesIndentation: pickBool('guidesIndentation', base.guidesIndentation),
     guidesBracketPairs: pickBool('guidesBracketPairs', base.guidesBracketPairs),

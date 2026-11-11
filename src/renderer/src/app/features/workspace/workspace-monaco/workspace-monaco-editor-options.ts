@@ -71,7 +71,9 @@ export function monacoWorkspaceSettingsToEditorOptions(
     renderLineHighlight: s.renderLineHighlight,
     renderControlCharacters: s.renderControlCharacters,
     lineNumbers: s.lineNumbers,
-    glyphMargin: s.glyphMargin,
+    // Compact gutter: nothing draws in the glyph margin, and line numbers still grow past 3 digits.
+    glyphMargin: false,
+    lineNumbersMinChars: 3,
     folding: s.folding,
     guides: {
       indentation: s.guidesIndentation,

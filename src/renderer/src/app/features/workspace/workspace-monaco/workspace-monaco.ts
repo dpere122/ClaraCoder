@@ -14,6 +14,7 @@ import {
   output,
   signal,
   untracked,
+  type TemplateRef,
   viewChild,
   ViewEncapsulation,
 } from '@angular/core';
@@ -157,6 +158,8 @@ export class WorkspaceMonacoComponent {
   }>();
   /** Pointer / keyboard activity inside this editor surface (grid focus tracking). */
   readonly surfaceFocused = output<void>();
+  /** Controls to show at the right end of this slot's tab strip (null when there are none). */
+  readonly tabStripActions = output<TemplateRef<unknown> | null>();
 
   protected readonly loadError = signal('');
   protected readonly detachedBanner = signal('');
@@ -170,6 +173,7 @@ export class WorkspaceMonacoComponent {
   private readonly editorHost = viewChild.required<ElementRef<HTMLElement>>('editorHost');
   private readonly diffHost = viewChild.required<ElementRef<HTMLElement>>('diffHost');
   private readonly previewHost = viewChild.required<ElementRef<HTMLElement>>('previewHost');
+  private readonly mdToggle = viewChild.required<TemplateRef<unknown>>('mdToggle');
 
   /** True while the rendered markdown preview pane replaces the editor pane. */
   protected readonly mdPreviewActive = signal(false);
@@ -383,6 +387,10 @@ export class WorkspaceMonacoComponent {
         }
         monacoApi.editor.setTheme(this.monacoThemeName(settings));
       });
+    });
+
+    effect(() => {
+      this.tabStripActions.emit(this.showMdToolbar() ? this.mdToggle() : null);
     });
 
     // The diff surface wins over markdown preview: showing a diff force-exits preview

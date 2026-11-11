@@ -21,6 +21,7 @@ import {
   type SecretStorageMode,
 } from '../../../shared';
 import { secretStorageMode } from '../../config/load-save';
+import { defaultOpenFileDialogPath, dialogFolderOption, rememberDialogFolder } from '../../utils/dialog-folder';
 import {
   cancelHfDownload,
   cancelHfDownloadsUnder,
@@ -554,9 +555,14 @@ export function registerModelManagerIpc(): void {
     }
     const mw = mainState.mainWindow;
     if (!mw) return null;
-    const result = await dialog.showOpenDialog(mw, { properties: ['openDirectory'] });
-    if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0] ?? null;
+    const result = await dialog.showOpenDialog(mw, {
+      properties: ['openDirectory'],
+      ...dialogFolderOption(defaultOpenFileDialogPath()),
+    });
+    const picked = result.canceled ? undefined : result.filePaths[0];
+    if (!picked) return null;
+    rememberDialogFolder(picked);
+    return picked;
   });
 
   ipcMain.handle('model-manager:secret-storage', (event): SecretStorageMode => {

@@ -256,6 +256,20 @@ def test_cooldown_marks_and_clears() -> None:
     assert not cooldown.is_cooling('bing')
 
 
+def test_cooldown_never_reports_more_than_it_parked(monkeypatch: pytest.MonkeyPatch) -> None:
+    from clara_coder_backend.tools.metasearch import cooldown
+
+    # At this clock value ``(t + 60) - t`` rounds to 60.00000000000364 (it made CI flaky).
+    t = 32728.185951439325
+    assert (t + 60) - t > 60
+    monkeypatch.setattr(cooldown.time, 'monotonic', lambda: t)
+    cooldown.clear_cooldowns()
+    cooldown.mark_blocked('bing', seconds=60, reason='HTTP 429')
+    assert cooldown.cooldown_remaining('bing') == 60.0
+    assert cooldown.snapshot() == {'bing': 60.0}
+    cooldown.clear_cooldowns()
+
+
 def test_metasearch_skips_cooling_engines() -> None:
     from clara_coder_backend.tools.metasearch import cooldown
 

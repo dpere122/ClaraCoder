@@ -3,6 +3,7 @@ import path = require('path');
 import { randomUUID } from 'crypto';
 import type {
   AppConfig,
+  EnsureWorkspaceChecksResult,
   EnsureWorkspaceSystemPromptResult,
   HealthMonitorConfig,
   Workspace,
@@ -32,6 +33,7 @@ import {
   syncRuntimeConfigToPython,
   syncWorkspaceContextToPython,
   syncWorkspaceSystemPromptToPython,
+  ensureWorkspaceChecksInPython,
   fetchPythonInterpretersFromPython,
   postPythonInterpreterSelection,
 } from '../../python/workspace-sync';
@@ -539,6 +541,32 @@ export function registerConfigWorkspacesIpc(): void {
           absolutePath: result.absolutePath,
           relativePath: result.relativePath,
         };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { ok: false, error: msg };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    'ensure-workspace-checks',
+    async (event, workspaceId: string): Promise<EnsureWorkspaceChecksResult> => {
+      try {
+        assertTrustedMainRenderer(event);
+      } catch {
+        return { ok: false, error: 'Untrusted IPC sender' };
+      }
+      const wid = typeof workspaceId === 'string' ? workspaceId.trim() : '';
+      if (!wid) {
+        return { ok: false, error: 'Workspace id is required.' };
+      }
+      const config = await loadConfig();
+      const workspace = config.workspaces.find((w) => w.id === wid);
+      if (!workspace?.path?.trim()) {
+        return { ok: false, error: 'Workspace not found.' };
+      }
+      try {
+        return { ok: true, ...(await ensureWorkspaceChecksInPython(workspace.path)) };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return { ok: false, error: msg };

@@ -167,6 +167,37 @@
                 <label class='toggle-row'>
                   <input
                     type='checkbox'
+                    [ngModel]='s.verifyAfterEdits()'
+                    (ngModelChange)='s.onVerifyAfterEditsChange($event)'
+                  />
+                  <span>Verify changes before a turn ends</span>
+                </label>
+                <p class='settings-field-hint'>
+                  When the agent finishes an editing turn, Clara checks the files it touched for new
+                  language-server errors and runs the enabled commands in the workspace's
+                  <code>.clara/checks.json</code>. Failures go back to the agent to fix. Commands only run in a
+                  trusted workspace.
+                </p>
+              </div>
+              <div class='field field--hint'>
+                <span>Fix rounds per turn</span>
+                <input
+                  type='number'
+                  min='0'
+                  max='5'
+                  [disabled]='!s.verifyAfterEdits()'
+                  [ngModel]='s.verifyMaxFixRounds()'
+                  (ngModelChange)='s.onVerifyMaxFixRoundsChange($event)'
+                />
+                <p class='settings-field-hint'>
+                  How many times a failed verification is handed back to the agent before the turn ends with the
+                  failure shown. 0 only reports.
+                </p>
+              </div>
+              <div class='field field--hint'>
+                <label class='toggle-row'>
+                  <input
+                    type='checkbox'
                     [ngModel]='s.allowStagingOverlayCommands()'
                     (ngModelChange)='s.onAllowStagingOverlayCommandsChange($event)'
                   />

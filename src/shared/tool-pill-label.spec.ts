@@ -210,6 +210,14 @@ describe('toolPillLabel', () => {
     expect(pill(status('compact_context', ''))).toBe('Compacted context');
   });
 
+  it('turn verification: live verb while it runs, the result when done or failed', () => {
+    expect(pill(status('verify_turn', '3 files', { toolChainState: 'running' }), true)).toBe('Verifying changes · 3 files');
+    expect(pill(status('verify_turn', 'no new errors · tests passed'))).toBe('Verification · no new errors · tests passed');
+    expect(pill(status('verify_turn', 'tests failed (exit code 1)', { toolChainState: 'error' }))).toBe(
+      'Verification · tests failed (exit code 1)',
+    );
+  });
+
   it('unknown tools get a humanized name and an excerpt', () => {
     expect(pill(status('mcp__abc__get_addon_status', 'Error checking addon status: Could not connect.'))).toBe(
       'Get addon status · Error checking addon status: Could not connect.',
@@ -337,6 +345,10 @@ describe('activityHeadline', () => {
     const compact = label('compact_context', '42.1K → 18.3K tokens');
     expect(headline(compact)).toBe('Compacted context');
     expect(headline(read('a.py'), compact, edit('a.py'), compact)).toBe('Read a.py, compacted context, edited a.py');
+  });
+
+  it('turn verification reads as one clause', () => {
+    expect(headline(edit('a.py'), label('verify_turn', 'no new errors'))).toBe('Edited a.py, verified changes');
   });
 
   it('shortens long commands and is empty with no calls', () => {

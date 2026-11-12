@@ -245,6 +245,8 @@ export function getDefaultWorkspaceTools(): WorkspaceToolsConfig {
     screenshotRetention: { ...DEFAULT_SCREENSHOT_RETENTION },
     extraUserPath: '',
     enableAgentFormatters: false,
+    verifyAfterEdits: true,
+    verifyMaxFixRounds: 2,
   };
 }
 

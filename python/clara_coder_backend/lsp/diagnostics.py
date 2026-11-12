@@ -9,6 +9,7 @@ from clara_coder_backend.lsp.file_policy import is_prettier_managed_path, normal
 from clara_coder_backend.session.state import agent_formatters_enabled
 
 __all__ = [
+    'diagnostic_error_keys',
     'diagnostic_severity_name',
     'normalize_lsp_diagnostics',
     'format_diagnostics_summary',
@@ -31,6 +32,16 @@ _INDENT_DIAGNOSTIC_HINT = re.compile(
     r'inconsistent\s+use\s+of\s+tabs|expected\s+an\s+indented\s+block|invalidIndentedBlock|IndentationError',
     re.IGNORECASE,
 )
+
+
+def diagnostic_error_keys(items: list[dict[str, Any]] | None) -> list[str]:
+    """Position-free identity of each error-severity row (edits shift lines, so the line is left out)."""
+
+    return [
+        f"{item.get('source', '')}|{item.get('code', '')}|{item.get('message', '')}"
+        for item in items or []
+        if isinstance(item, dict) and item.get('severity_value') == 1
+    ]
 
 
 def diagnostic_severity_name(value: int | None) -> str:

@@ -64,6 +64,7 @@ import type {
   WorkspaceFileWriteOptions,
   WorkspaceFilesChangedMessage,
   WorkspaceOpenTabsState,
+  EnsureWorkspaceChecksResult,
   EnsureWorkspaceSystemPromptResult,
 } from '../../shared/index';
 import type {
@@ -628,6 +629,7 @@ declare global {
       workspaceId: string,
       sessionId?: string | null,
     ) => Promise<EnsureWorkspaceSystemPromptResult>;
+    ensureWorkspaceChecks?: (workspaceId: string) => Promise<EnsureWorkspaceChecksResult>;
     getHostOs?: () => Promise<{ platform: string; release: string; arch: string; version: string; label: string }>;
     healthMetrics: () => Promise<HealthMetricsSnapshot>;
     listCudaGpus?: () => Promise<CudaGpuDevice[]>;

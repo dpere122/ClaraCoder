@@ -227,6 +227,20 @@ def agent_formatters_enabled() -> bool:
     return bool(getattr(runtime_config.tools, 'enable_agent_formatters', False))
 
 
+def verify_after_edits_enabled() -> bool:
+    """True when Settings → Tools has end-of-turn verification on."""
+    return bool(getattr(runtime_config.tools, 'verify_after_edits', True))
+
+
+def verify_max_fix_rounds() -> int:
+    """How many failed verifications a turn hands back to the model (Settings → Tools; 0-5)."""
+    try:
+        rounds = int(getattr(runtime_config.tools, 'verify_max_fix_rounds', 2))
+    except (TypeError, ValueError):
+        rounds = 2
+    return max(0, min(5, rounds))
+
+
 def mutation_tools_blocked_reason(session_id: str | None = None) -> str | None:
     """Return an error when mutation-capable tools are used while Editor mode is off."""
     sid = (session_id or current_session_id.get() or '').strip()

@@ -77,8 +77,9 @@ def _reports_message(session: SessionState, *, closing: str = '') -> HumanMessag
 class SubagentResultsMiddleware(AgentMiddleware):
     """Inject waiting sub-agent reports before model calls; wait for running ones before the turn ends.
 
-    Listed first among the agent's middleware so its ``after_model`` runs last, after tool-call
-    promotion (Gemma / pseudo-XML) has settled whether the answer really has no tool calls.
+    Listed first among the agent's middleware (alone, or as the first gate of
+    :class:`FinishGatesMiddleware`) so its ``after_model`` runs last, after tool-call promotion
+    (Gemma / pseudo-XML) has settled whether the answer really has no tool calls.
     """
 
     @override

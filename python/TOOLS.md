@@ -204,7 +204,37 @@ fork, ownership, report delivery and the event contract live in
 New tools that must not run inside a sub-agent are dropped in
 `worker_tools_and_map` for sessions with `subagent_parent_session_id` set.
 
-## 10. Public webpage screenshots
+## 10. Turn verification (harness, not a tool)
+
+When an editing turn's model answers without tool calls, `TurnVerificationMiddleware`
+(`clara_coder_backend/middleware/turn_verification_middleware.py`) checks the work before the turn
+ends. It is not a tool and takes no schema budget.
+
+- **Evidence** (`clara_coder_backend/verify/evidence.py`): error-severity LSP diagnostics on the
+  paths journaled this turn, minus the errors each path already had when the turn first touched it;
+  then the enabled commands of `.clara/checks.json` whose `paths` globs match a touched path, run one
+  after another through `run_harness_command` (each with its own timeout, in a terminal tab).
+- **Who may run commands:** only a trusted workspace (`workspace_is_trusted`), with no approval
+  card, Auto Run on or off. In return the agent cannot change the file: the edit, copy and delete
+  tools refuse `.clara/checks.json` (`is_user_owned_meta_path` in `workspace/meta.py`). A new mutating
+  tool must refuse it too.
+- **Failure:** the failures go back to the model as a message and the graph jumps to the model, at
+  most `verify_max_fix_rounds` times per turn (Settings → Tools). After that, or when the model
+  answers the feedback without calling a tool, the turn ends and the `verify_turn` pill stays in its
+  error state.
+- **Where it is bound:** `build_clara_single_outer_graph` with Editor on, main sessions only (a
+  sub-agent's edits are verified by the turn that started it). It is the last of the finish gates:
+  the sub-agent wait, then plan execution's `PlanPendingStepsMiddleware` (`finish_middleware`), then
+  verification. `FinishGatesMiddleware` runs them as one graph node, because every `after_model`
+  node is a step against the turn's step limit on each model call. Add a new end-of-turn gate there,
+  not as its own middleware.
+- **Not covered:** files changed by `run_command` are not journaled, so they do not start a
+  verification on their own.
+
+Edit tools need nothing extra: journaling through `session/file_journal.py` (section 7) is what
+makes a path count as touched.
+
+## 11. Public webpage screenshots
 
 `screenshot_webpage(url, width=1280, height=800)` captures a public HTTP(S)
 page or direct image using Electron's isolated, static screenshot broker. It is

@@ -455,6 +455,8 @@ async function postRuntimeConfigToPython(
           webSearchCooldownSeconds: config.workspaceTools.webSearchCooldownSeconds ?? 300,
           extraUserPath: config.workspaceTools.extraUserPath ?? '',
           enableAgentFormatters: config.workspaceTools.enableAgentFormatters ?? false,
+          verifyAfterEdits: config.workspaceTools.verifyAfterEdits ?? true,
+          verifyMaxFixRounds: config.workspaceTools.verifyMaxFixRounds ?? 2,
         },
         contextCompression: {
           enabled: config.contextCompression.enabled,
@@ -567,6 +569,34 @@ export async function syncWorkspaceSystemPromptToPython(
       `workspace-system-prompt failed (${res.status})${detail ? `: ${detail.slice(0, 200)}` : ''}`,
     );
   }
+}
+
+/**
+ * Create `{workspace}/.clara/checks.json` when it is missing. The backend seeds it with the check
+ * commands it detects (package.json scripts, pytest, cargo), all turned off.
+ */
+export async function ensureWorkspaceChecksInPython(
+  workspaceRoot: string,
+): Promise<{ absolutePath: string; relativePath: string; created: boolean }> {
+  await ensurePythonReady();
+  const res = await pythonControlFetch('/workspace-checks/ensure', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspace_path: workspaceRoot }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`workspace-checks ensure failed (${res.status})${detail ? `: ${detail.slice(0, 200)}` : ''}`);
+  }
+  const body = (await res.json()) as { absolutePath?: unknown; relativePath?: unknown; created?: unknown };
+  if (typeof body.absolutePath !== 'string' || !body.absolutePath) {
+    throw new Error('workspace-checks ensure returned no path');
+  }
+  return {
+    absolutePath: body.absolutePath,
+    relativePath: typeof body.relativePath === 'string' ? body.relativePath : '',
+    created: body.created === true,
+  };
 }
 
 /** Discovered interpreters for the session workspace (LSP analysis env). */

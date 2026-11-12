@@ -46,10 +46,12 @@ from clara_coder_backend.config import MAX_AGENT_STEPS
 from clara_coder_backend.tools.delete import delete_confirm_sse_payload
 from clara_coder_backend.middleware.delete_review_middleware import DeleteReviewAfterToolMiddleware
 from clara_coder_backend.middleware.empty_response_middleware import EmptyResponseNudgeMiddleware
+from clara_coder_backend.middleware.finish_gates_middleware import FinishGatesMiddleware
 from clara_coder_backend.middleware.gemma_native_tool_middleware import GemmaNativeToolMiddleware
 from clara_coder_backend.middleware.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
 from clara_coder_backend.middleware.pseudo_tool_xml_middleware import PseudoToolXmlMiddleware
 from clara_coder_backend.middleware.subagent_results_middleware import SubagentResultsMiddleware
+from clara_coder_backend.middleware.turn_verification_middleware import TurnVerificationMiddleware
 from clara_coder_backend.middleware.tool_batch_middleware import ToolBatchMiddleware
 from clara_coder_backend.middleware.tool_harness_feedback_middleware import prepend_harness_feedback_middleware
 from clara_coder_backend.middleware.user_event_injection_middleware import UserEventInjectionMiddleware
@@ -107,12 +109,13 @@ def _stream_is_genuinely_stalled(session: SessionState, main_state: GraphStreamS
     (the tool node has not emitted ``on_tool_end`` yet). A HITL pause that is awaiting confirmation also keeps
     ``agent_pause_event`` set or a ``pending_*_request`` populated. Running sub-agents cover the end-of-turn wait
     for their reports. A compaction notes call streams with no graph events, and the HTTP idle timeout bounds it.
+    End-of-turn verification runs check commands with no graph events either; each has its own timeout.
     In all those cases the idle wait is legitimate and the watchdog must not fire. While a model call is open its
     tool entries are only previews of the call being generated, so they do not count.
     """
     if main_state.pending_tool_runs and not main_state.model_call_open:
         return False
-    if session.compaction_notes_call_open:
+    if session.compaction_notes_call_open or session.verify_running:
         return False
     if has_running_subagents(session):
         return False
@@ -132,8 +135,12 @@ def build_clara_single_outer_graph(
     tools_provider: Callable[..., tuple[list[Any], dict[str, Any]]] | None = None,
     allow_subagents: bool = False,
     compaction_pin_ratio: float = 0.25,
+    finish_middleware: list[Any] | None = None,
 ) -> Any:
     """Same ``create_agent`` shape as the live Clara stream (checkpoint-compatible).
+
+    ``finish_middleware`` holds after-model gates on an answer without tool calls. They run after the
+    sub-agent wait and before turn verification (which should see the work once it is really done).
 
     ``allow_subagents`` binds the sub-agent tools and report delivery (main sessions' chat turns, plan
     discovery and plan execution; sub-agents never get them). A ``tools_provider`` takes it as
@@ -145,10 +152,20 @@ def build_clara_single_outer_graph(
     else:
         tools, _ = worker_tools_and_map(apply_mode, session=session, include_subagent_tool=allow_subagents)
     system_prompt = build_system_prompt(session, apply_mode)
+    # Gates on an answer without tool calls, in the order they act: wait for sub-agents (they may still
+    # edit), then the caller's gates, then verify what the turn left behind.
+    main_session = not session.subagent_parent_session_id
+    gates: list[Any] = []
+    if allow_subagents and main_session:
+        gates.append(SubagentResultsMiddleware())
+    gates.extend(finish_middleware or [])
+    if apply_mode and main_session:
+        gates.append(TurnVerificationMiddleware())
     core_middleware: list[Any] = []
-    if allow_subagents and not session.subagent_parent_session_id:
-        # First, so its after-model wait runs last (after tool-call promotion; see the class).
-        core_middleware.append(SubagentResultsMiddleware())
+    if gates:
+        # First, so the after-model hook runs last (after tool-call promotion). Several gates share one
+        # graph node: each node is a step against the turn's limit on every model call.
+        core_middleware.append(gates[0] if len(gates) == 1 else FinishGatesMiddleware(gates))
     core_middleware += [
         CompactionContinueMiddleware(),
         UserEventInjectionMiddleware(),

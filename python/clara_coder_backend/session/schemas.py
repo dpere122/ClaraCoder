@@ -254,6 +254,15 @@ class WorkspaceSystemPromptRequest(BaseModel):
     )
 
 
+class WorkspaceChecksEnsureRequest(BaseModel):
+    """Create ``.clara/checks.json`` for a workspace folder when it is missing."""
+
+    workspace_path: str = Field(
+        default='',
+        validation_alias=AliasChoices('workspace_path', 'workspacePath'),
+    )
+
+
 class PythonInterpreterSelectRequest(BaseModel):
     """Apply a discovered Python interpreter for LSP and workspace tools."""
 
@@ -501,6 +510,16 @@ class RuntimeToolsRequest(BaseModel):
         validation_alias=AliasChoices('enableAgentFormatters', 'enable_agent_formatters'),
     )
 
+    verifyAfterEdits: bool = Field(
+        default=True,
+        validation_alias=AliasChoices('verifyAfterEdits', 'verify_after_edits'),
+    )
+
+    verifyMaxFixRounds: int = Field(
+        default=2,
+        validation_alias=AliasChoices('verifyMaxFixRounds', 'verify_max_fix_rounds'),
+    )
+
     @field_validator('allowStagingOverlayCommands', mode='before')
     @classmethod
     def _normalize_allow_overlay(cls, v: Any) -> Any:
@@ -525,6 +544,20 @@ class RuntimeToolsRequest(BaseModel):
     @classmethod
     def _normalize_enable_agent_formatters(cls, v: Any) -> Any:
         return _coerce_boolish(v)
+
+    @field_validator('verifyAfterEdits', mode='before')
+    @classmethod
+    def _normalize_verify_after_edits(cls, v: Any) -> Any:
+        return True if v is None else _coerce_boolish(v)
+
+    @field_validator('verifyMaxFixRounds', mode='before')
+    @classmethod
+    def _normalize_verify_max_fix_rounds(cls, v: Any) -> Any:
+        try:
+            value = int(v)
+        except (TypeError, ValueError):
+            return 2
+        return min(max(value, 0), 5)
 
     @field_validator('searxngBaseUrl', mode='before')
     @classmethod

@@ -26,6 +26,11 @@ from clara_coder_backend.session.pause import stage_hitl_request, timed_approved
 from clara_coder_backend.session.state import current_session_id, get_session, mutation_tools_blocked_reason
 from clara_coder_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
+from clara_coder_backend.workspace.meta import (
+    USER_OWNED_META_REASON,
+    holds_user_owned_meta_file,
+    is_user_owned_meta_path,
+)
 from clara_coder_backend.workspace.path_locks import locked_path, note_batch_replaced
 
 logger = logging.getLogger('clara.tools.delete')
@@ -140,6 +145,9 @@ def _collect_entries(root: Path, paths: list[str], recursive: bool) -> tuple[lis
         if not target.exists():
             return [], f'path does not exist: `{rel_in}`'
         is_dir = target.is_dir()
+        rel = target.relative_to(root).as_posix()
+        if is_user_owned_meta_path(rel) or (is_dir and holds_user_owned_meta_file(root, rel)):
+            return [], USER_OWNED_META_REASON
         if is_dir and not recursive and any(target.iterdir()):
             return [], f'directory `{rel_in}` is not empty; pass `recursive=true` to delete it and its contents'
         entries.append(

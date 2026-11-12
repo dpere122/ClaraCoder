@@ -45,6 +45,7 @@ from clara_coder_backend.session.schemas import (
     PythonInterpreterSelectRequest,
     SessionAdminElevationRequest,
     SessionAutoApplyRequest,
+    WorkspaceChecksEnsureRequest,
     WorkspaceContextRequest,
     WorkspacePtyCwdRequest,
     WorkspacePtyExitRequest,
@@ -257,6 +258,22 @@ async def set_workspace_system_prompt(request: WorkspaceSystemPromptRequest) -> 
     sess = state.get_session(request.session_id)
     sess.workspace_system_prompt = (request.workspace_system_prompt or '').strip()
     return {'ok': True}
+
+
+@router.post('/workspace-checks/ensure')
+def ensure_workspace_checks(request: WorkspaceChecksEnsureRequest) -> dict[str, Any]:
+    """Create the workspace's ``.clara/checks.json`` (seeded with disabled suggestions) when it is missing."""
+    from clara_coder_backend.verify.checks_suggest import ensure_workspace_checks_file
+    from clara_coder_backend.workspace.meta import CHECKS_RELATIVE_PATH
+
+    root = Path((request.workspace_path or '').strip()).expanduser()
+    if not root.is_absolute() or not root.is_dir():
+        raise HTTPException(status_code=400, detail='workspace_path must be an existing folder')
+    try:
+        path, created = ensure_workspace_checks_file(root.resolve())
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f'could not create {CHECKS_RELATIVE_PATH}: {exc}') from exc
+    return {'ok': True, 'absolutePath': str(path), 'relativePath': CHECKS_RELATIVE_PATH, 'created': created}
 
 
 @router.post('/workspace-context')

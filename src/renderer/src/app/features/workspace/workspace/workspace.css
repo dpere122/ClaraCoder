@@ -43,6 +43,11 @@ app-workspace .workspace-tree-cog {
     0 4px 12px color-mix(in srgb, black 22%, transparent);
 }
 
+/* Sits left of the system-prompt cog. */
+app-workspace .workspace-tree-checks {
+  right: 2.9rem;
+}
+
 app-workspace .file-tree.is-drop-target {
   outline: 1px dashed var(--t-primary);
   outline-offset: -1px;

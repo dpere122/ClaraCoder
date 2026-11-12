@@ -370,6 +370,26 @@ describe('migrateConfig workspace tools enableAgentFormatters', () => {
   });
 });
 
+describe('migrateConfig workspace tools turn verification', () => {
+  it('defaults missing settings to on with two fix rounds', () => {
+    const cfg = sampleConfig();
+    delete cfg.workspaceTools.verifyAfterEdits;
+    delete cfg.workspaceTools.verifyMaxFixRounds;
+    const migrated = migrateConfig(cfg);
+    expect(migrated.workspaceTools.verifyAfterEdits).toBe(true);
+    expect(migrated.workspaceTools.verifyMaxFixRounds).toBe(2);
+  });
+
+  it('keeps an explicit off and clamps the fix rounds', () => {
+    const cfg = sampleConfig();
+    cfg.workspaceTools.verifyAfterEdits = false;
+    cfg.workspaceTools.verifyMaxFixRounds = 9.6;
+    const migrated = migrateConfig(cfg);
+    expect(migrated.workspaceTools.verifyAfterEdits).toBe(false);
+    expect(migrated.workspaceTools.verifyMaxFixRounds).toBe(5);
+  });
+});
+
 describe('migrateConfig monaco hover delay', () => {
   it('bumps the previous 300ms default so hover is less eager', () => {
     const cfg = sampleConfig();

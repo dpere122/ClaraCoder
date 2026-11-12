@@ -13,7 +13,7 @@ import threading
 from pathlib import Path
 from typing import Any, Literal
 
-from clara_coder_backend.domain import SessionState
+from clara_coder_backend.domain import SessionEditJournalState, SessionState, TurnVerifyState
 from clara_coder_backend.workspace.workspace_text_io import decode_for_tools, detect_newline_preference
 
 logger = logging.getLogger('clara.session.file_journal')
@@ -25,6 +25,8 @@ TREE_SNAPSHOT_MAX_BYTES = 20_000_000
 _TREE_SNAPSHOT_SKIP_DIRS = frozenset({'.git', 'node_modules', '.venv', 'venv', '__pycache__'})
 #: Earlier turns whose journaled paths are remembered (a sub-agent may outlive a few main-agent turns).
 _EARLIER_TURNS_KEPT = 16
+#: Turns whose verification bookkeeping is remembered (same reason).
+_VERIFY_TURNS_KEPT = 8
 # Parallel tool calls (and sub-agents sharing their parent's ``edits``) journal from worker threads.
 _journal_lock = threading.Lock()
 
@@ -151,6 +153,49 @@ def first_mutation_this_turn(session: SessionState, relative_path: str) -> bool:
         return True
 
 
+def turn_verify_state(edits: SessionEditJournalState, turn_id: str) -> TurnVerifyState:
+    """Verification bookkeeping of ``turn_id``, created on first use (older turns are dropped past a cap)."""
+    with _journal_lock:
+        state = edits.verify_by_turn.get(turn_id)
+        if state is None:
+            state = TurnVerifyState()
+            edits.verify_by_turn[turn_id] = state
+            while len(edits.verify_by_turn) > _VERIFY_TURNS_KEPT:
+                edits.verify_by_turn.pop(next(iter(edits.verify_by_turn)))
+        return state
+
+
+def turn_touched_paths(session: SessionState) -> list[str]:
+    """Workspace-relative paths journaled under the session's current turn, sorted (deleted ones included)."""
+    turn_id = (getattr(session, 'current_user_message_id', '') or '').strip()
+    if not turn_id:
+        return []
+    edits = session.edits
+    with _journal_lock:
+        if edits.journal_turn_id == turn_id:
+            return sorted(edits.journaled_paths)
+        # A sub-agent of an earlier turn journaled last, which parked this turn's set.
+        return sorted(edits.journal_earlier_turns.get(turn_id, ()))
+
+
+def _note_mutation(session: SessionState, turn_id: str, relative_path: str, *, first: bool) -> None:
+    """Count the mutation for turn verification; on a path's first one, keep the errors it already had."""
+    state = turn_verify_state(session.edits, turn_id)
+    key = (relative_path or '').strip().replace('\\', '/')
+    baseline: list[str] | None = None
+    if first and key:
+        from clara_coder_backend.lsp.diagnostics import diagnostic_error_keys
+
+        # The edit tools journal before their LSP sync, so the cache still describes the pre-edit text.
+        cached = (session.lsp.lsp_diagnostics_by_scope.get('workspace') or {}).get(key)
+        if cached is not None:
+            baseline = diagnostic_error_keys(cached)
+    with _journal_lock:
+        state.mutations += 1
+        if baseline is not None:
+            state.baseline_errors.setdefault(key, baseline)
+
+
 def _running_loop() -> asyncio.AbstractEventLoop | None:
     try:
         return asyncio.get_running_loop()
@@ -170,7 +215,9 @@ def emit_file_journal(session: SessionState, payload: dict[str, Any]) -> None:
     turn_id = (getattr(session, 'current_user_message_id', '') or '').strip()
     if not turn_id:
         return
-    if not first_mutation_this_turn(session, rel):
+    first = first_mutation_this_turn(session, rel)
+    _note_mutation(session, turn_id, rel, first=first)
+    if not first:
         return
     body = dict(payload)
     body['userMessageId'] = turn_id

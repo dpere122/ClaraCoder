@@ -14,4 +14,7 @@ Modules
 ``pseudo_tool_xml_middleware`` — recover pseudo tool calls from XML-ish text
 ``tool_harness_feedback_middleware`` — harness feedback injection
 ``context_pack_activation_middleware`` — auto-activate deferred context packs on tool use
+``finish_gates_middleware`` — one graph node for the gates on an answer without tool calls
+``turn_verification_middleware`` — check an editing turn (LSP errors, check commands) before it ends
+``plan_pending_steps_middleware`` — plan execution: hand unchecked steps back to the executor once
 """

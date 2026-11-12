@@ -89,6 +89,22 @@ class SessionHitlState:
 
 
 @dataclass
+class TurnVerifyState:
+    """End-of-turn verification bookkeeping for one user turn (see :mod:`clara_coder_backend.verify`)."""
+
+    #: Journaled mutation calls under this turn (every call, not only the first per path).
+    mutations: int = 0
+    #: ``mutations`` when the last verification ran; -1 before the first one.
+    verified_mutations: int = -1
+    #: The last verification found failures, so the next finish verifies again even without new edits.
+    last_failed: bool = False
+    #: Fix rounds already handed back to the model this turn.
+    fix_rounds: int = 0
+    #: Error keys the diagnostics cache held for a path before its first edit this turn (absent: unknown).
+    baseline_errors: dict[str, list[str]] = field(default_factory=dict)
+
+
+@dataclass
 class SessionEditJournalState:
     """Per-turn record of which paths already have a pre-edit journal row (edits write straight to disk)."""
 
@@ -99,6 +115,10 @@ class SessionEditJournalState:
     #: ``journaled_paths`` of recent earlier turns (bounded): a background sub-agent still journals under
     #: the turn that started it while the main agent works on a newer one; neither re-journals a path.
     journal_earlier_turns: dict[str, set[str]] = field(default_factory=dict)
+    #: Verification bookkeeping by ``current_user_message_id`` (bounded; a sub-agent counts under its own turn).
+    verify_by_turn: dict[str, TurnVerifyState] = field(default_factory=dict)
+    #: While end-of-turn evidence is gathered. No graph events flow then, so the stall watchdog must not count it.
+    verify_running: bool = False
 
 
 @dataclass
@@ -174,6 +194,8 @@ class SessionPlanState:
     active_build_plan_id: str = ''
     #: Workspace-relative path to the active build plan Markdown file.
     active_build_plan_path: str = ''
+    #: Plan whose unchecked steps were already handed back to its executor (once per plan).
+    pending_steps_nudged_plan_id: str = ''
 
 
 @dataclass
@@ -415,6 +437,11 @@ class RuntimeToolsConfig:
     extra_user_path: str = ''
     #: When True, auto-run Black/Prettier after edits and bind format_* tools (Settings → Tools).
     enable_agent_formatters: bool = False
+    #: When True, an editing turn that tries to finish is verified first: LSP errors on the files it
+    #: touched and the workspace's ``.clara/checks.json`` commands (Settings → Tools).
+    verify_after_edits: bool = True
+    #: How many times a failed verification is handed back to the model per turn (0: report only).
+    verify_max_fix_rounds: int = 2
 
 
 @dataclass

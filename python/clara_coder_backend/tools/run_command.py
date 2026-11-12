@@ -108,6 +108,7 @@ STATUS_EXITED = 'exited'
 STATUS_KILLED = 'killed'
 
 __all__ = [
+    'HarnessCommandResult',
     'KILL_BACKGROUND_COMMAND_NAME',
     'LIST_BACKGROUND_COMMANDS_NAME',
     'RUN_COMMAND_NAME',
@@ -121,6 +122,8 @@ __all__ = [
     'list_background_commands_tool',
     'normalize_run_command_elevation',
     'run_command_tool',
+    'run_harness_command',
+    'validate_run_command_text',
     'wait_for_command_tool',
 ]
 
@@ -589,6 +592,74 @@ async def _start_elevated_job(
     _JOBS[job.job_id] = job
     await _emit_run_command_open(session_id, job)
     return job, None
+
+
+@dataclass(frozen=True)
+class HarnessCommandResult:
+    """Outcome of :func:`run_harness_command`."""
+
+    exit_code: int | None
+    output: str
+    duration_sec: float
+    timed_out: bool = False
+    stopped: bool = False
+    start_error: str = ''
+
+    @property
+    def passed(self) -> bool:
+        return not (self.start_error or self.timed_out or self.stopped) and self.exit_code == 0
+
+
+async def run_harness_command(
+    session_id: str,
+    *,
+    command: str,
+    cwd_label: str,
+    cwd: str,
+    timeout_sec: float,
+    stop_event: asyncio.Event | None = None,
+) -> HarnessCommandResult:
+    """Run one command to its end for the harness itself: no approval card, never left in the background.
+
+    The caller decides that the command may run (see :mod:`clara_coder_backend.verify`). Output streams to
+    the same terminal tab a ``run_command`` job gets. A timeout, ``stop_event`` or cancellation kills it.
+    """
+    from clara_coder_backend.runtime.python_env import session_workspace_subprocess_env, with_subprocess_color_env
+
+    env = session_workspace_subprocess_env(get_session(session_id)) or with_subprocess_color_env()
+    job, start_err = await _start_job(session_id, command=command, cwd_label=cwd_label, cwd=cwd, env=env)
+    if job is None:
+        return HarnessCommandResult(None, '', 0.0, start_error=start_err or 'Tool error: command failed to start.')
+    done = asyncio.ensure_future(job.done.wait())
+    stop = asyncio.ensure_future(stop_event.wait()) if stop_event is not None else None
+    timed_out = stopped = False
+    try:
+        finished, _ = await asyncio.wait(
+            {done} if stop is None else {done, stop},
+            timeout=timeout_sec,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if done not in finished:
+            stopped = stop is not None and stop in finished
+            timed_out = not stopped
+    finally:
+        if stop is not None:
+            stop.cancel()
+        if not job.done.is_set():
+            await _kill_job(job)
+            try:
+                await asyncio.wait_for(asyncio.shield(done), timeout=_KILL_REPORT_TIMEOUT_SEC)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+        done.cancel()
+        _JOBS.pop(job.job_id, None)
+    return HarnessCommandResult(
+        exit_code=job.exit_code,
+        output=job.buffer,
+        duration_sec=time.monotonic() - job.started_at,
+        timed_out=timed_out,
+        stopped=stopped,
+    )
 
 
 def _find_session_job(session_id: str, command_id: str) -> tuple[CommandJob | None, str | None]:

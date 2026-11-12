@@ -406,6 +406,8 @@ export class SettingsStore {
   readonly screenshotRetention = signal<ScreenshotRetentionSettings>({ ...DEFAULT_SCREENSHOT_RETENTION });
   readonly extraUserPath = signal('');
   readonly enableAgentFormatters = signal(false);
+  readonly verifyAfterEdits = signal(true);
+  readonly verifyMaxFixRounds = signal(2);
   readonly confirmMove = signal(true);
   /** Null follows the saved tour, so finishing or dismissing it elsewhere also unticks the box. */
   private readonly tutorialEnabledDraft = signal<boolean | null>(null);
@@ -3250,6 +3252,12 @@ export class SettingsStore {
     if (changes.enableAgentFormatters !== undefined) {
       this.enableAgentFormatters.set(!!changes.enableAgentFormatters);
     }
+    if (changes.verifyAfterEdits !== undefined) {
+      this.verifyAfterEdits.set(!!changes.verifyAfterEdits);
+    }
+    if (changes.verifyMaxFixRounds !== undefined) {
+      this.verifyMaxFixRounds.set(changes.verifyMaxFixRounds ?? 2);
+    }
     this.markSettingsDirty();
   }
 
@@ -3361,6 +3369,20 @@ export class SettingsStore {
 
   onEnableAgentFormattersChange(enabled: boolean): void {
     this.enableAgentFormatters.set(!!enabled);
+    this.markSettingsDirty();
+  }
+
+  onVerifyAfterEditsChange(enabled: boolean): void {
+    this.verifyAfterEdits.set(!!enabled);
+    this.markSettingsDirty();
+  }
+
+  onVerifyMaxFixRoundsChange(raw: string | number): void {
+    const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+    if (Number.isNaN(n)) {
+      return;
+    }
+    this.verifyMaxFixRounds.set(Math.min(5, Math.max(0, n)));
     this.markSettingsDirty();
   }
 
@@ -3836,6 +3858,8 @@ export class SettingsStore {
         screenshotRetention: normalizeScreenshotRetention(this.screenshotRetention()),
         extraUserPath: this.extraUserPath(),
         enableAgentFormatters: this.enableAgentFormatters(),
+        verifyAfterEdits: this.verifyAfterEdits(),
+        verifyMaxFixRounds: this.verifyMaxFixRounds(),
       },
       confirmMove: this.confirmMove(),
       contextCompression: {
@@ -4035,6 +4059,8 @@ export class SettingsStore {
     this.screenshotRetention.set(normalizeScreenshotRetention(wt.screenshotRetention));
     this.extraUserPath.set(wt.extraUserPath ?? '');
     this.enableAgentFormatters.set(!!(wt.enableAgentFormatters ?? false));
+    this.verifyAfterEdits.set(wt.verifyAfterEdits !== false);
+    this.verifyMaxFixRounds.set(wt.verifyMaxFixRounds ?? 2);
     this.confirmMove.set(config.confirmMove !== false);
 
     const cc = config.contextCompression ?? getDefaultContextCompression();

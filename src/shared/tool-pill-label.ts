@@ -82,6 +82,7 @@ const TOOL_SPECS: Readonly<Record<string, ToolSpec>> = {
   java_bootstrap_project: { verb: 'Bootstrap Java', category: 'other' },
   activate_context: { verb: 'Load context', category: 'other' },
   compact_context: { verb: 'Compacted context', category: 'other' },
+  verify_turn: { verb: 'Verification', category: 'other' },
   spawn_subagent: { verb: 'Sub-agent', category: 'other' },
   wait_for_subagents: { verb: 'Waiting for sub-agents', category: 'other' },
   stop_subagent: { verb: 'Stop sub-agent', category: 'other' },
@@ -359,7 +360,7 @@ const RUNNING_COMMAND_VERB = 'Running';
 
 /**
  * Live verb for a running call: `run_command` reads `Running · npm test`, `compact_context` reads
- * `Compacting context`; other tools keep theirs.
+ * `Compacting context`, `verify_turn` reads `Verifying changes`; other tools keep theirs.
  */
 function liveRunningVerb(name: string, verb: string): string {
   switch (name) {
@@ -367,6 +368,8 @@ function liveRunningVerb(name: string, verb: string): string {
       return RUNNING_COMMAND_VERB;
     case 'compact_context':
       return 'Compacting context';
+    case 'verify_turn':
+      return 'Verifying changes';
     default:
       return verb;
   }
@@ -649,6 +652,8 @@ function headlineAction(label: ToolPillLabel): HeadlineAction {
       return fixed('subagent-wait', 'waited for sub-agents', 3);
     case 'Compacted context':
       return fixed('compact', 'compacted context', 3);
+    case 'Verification':
+      return fixed('verify', 'verified changes', 3);
     case 'Outline':
       return { key: 'outline', verb: 'outlined', noun: ['file', 'files'], rank: 6 };
     case 'Diagnostics':

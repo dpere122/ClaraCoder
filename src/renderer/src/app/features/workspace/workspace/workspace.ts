@@ -526,6 +526,29 @@ export class WorkspaceComponent implements OnDestroy {
     }
   }
 
+  /** Open `.clara/checks.json` (the commands run when an editing turn ends), creating it when missing. */
+  protected async onOpenWorkspaceChecks(): Promise<void> {
+    const wid = this.currentWorkspaceId();
+    if (!wid || !this.electron.isElectron) {
+      return;
+    }
+    this.settingsError.set('');
+    this.settingsOpening.set(true);
+    try {
+      const res = await this.electron.ensureWorkspaceChecks(wid);
+      if (!res.ok) {
+        this.settingsError.set(res.error || 'Failed to open the workspace checks file.');
+        return;
+      }
+      this.workspaceFileOpen.emit({ absolutePath: res.absolutePath });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.settingsError.set(msg || 'Failed to open the workspace checks file.');
+    } finally {
+      this.settingsOpening.set(false);
+    }
+  }
+
   onContextMenuItemMousedown(event: MouseEvent): void {
     event.preventDefault();
     event.stopPropagation();

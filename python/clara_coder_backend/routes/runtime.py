@@ -278,6 +278,8 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
             web_search_cooldown_seconds=request.tools.webSearchCooldownSeconds,
             extra_user_path=(request.tools.extraUserPath or '').strip(),
             enable_agent_formatters=request.tools.enableAgentFormatters,
+            verify_after_edits=request.tools.verifyAfterEdits,
+            verify_max_fix_rounds=request.tools.verifyMaxFixRounds,
         )
     else:
         tools_cfg = prev_tools

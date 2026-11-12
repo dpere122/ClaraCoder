@@ -44,6 +44,8 @@ export {
   LEGACY_WORKSPACE_META_DIR,
   WORKSPACE_BUILD_PLANS_DIR,
   WORKSPACE_BUILD_PLANS_REL_DIR,
+  WORKSPACE_CHECKS_FILE,
+  WORKSPACE_CHECKS_RELATIVE_PATH,
   WORKSPACE_META_DIR,
   WORKSPACE_SYSTEM_PROMPT_FILE,
   WORKSPACE_SYSTEM_PROMPT_RELATIVE_PATH,
@@ -682,6 +684,7 @@ export type {
   WorkspaceContextSyncExtras,
   WorkspaceFileChangesForSync,
   PythonInterpreterListItem,
+  EnsureWorkspaceChecksResult,
   EnsureWorkspaceSystemPromptResult,
 } from './types/workspace-context';
 export type {

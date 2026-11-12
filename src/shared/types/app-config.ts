@@ -725,6 +725,16 @@ export interface WorkspaceToolsConfig {
    * Default false. Optional on disk until migrated.
    */
   enableAgentFormatters?: boolean;
+  /**
+   * When true, an editing turn that tries to finish is verified first: language-server errors on the
+   * files it touched and the workspace's `.clara/checks.json` commands. Default true.
+   */
+  verifyAfterEdits?: boolean;
+  /**
+   * How many times a failed verification is handed back to the model per turn (0-5; 0 only reports).
+   * Default 2.
+   */
+  verifyMaxFixRounds?: number;
 }
 
 /** Context compaction; synced to Python `/runtime-config`. */

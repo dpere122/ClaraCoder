@@ -130,6 +130,17 @@
       </div>
       @if (electron.isElectron) {
         <button
+          class='workspace-icon-btn workspace-tree-cog workspace-tree-checks'
+          type='button'
+          title='Edit workspace checks (run when a turn ends)'
+          aria-label='Edit workspace checks'
+          [disabled]='settingsOpening() || !currentWorkspaceHasPath()'
+          [attr.aria-busy]='settingsOpening()'
+          (click)='onOpenWorkspaceChecks()'
+        >
+          <lucide-icon name='list-checks' [size]='16' />
+        </button>
+        <button
           class='workspace-icon-btn workspace-tree-cog'
           type='button'
           title='Edit workspace system prompt'

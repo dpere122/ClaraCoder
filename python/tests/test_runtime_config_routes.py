@@ -104,6 +104,16 @@ def test_runtime_config_updates_imported_runtime_config_references() -> None:
             assert r5.status_code == 200
             assert state.runtime_config.tools.enable_agent_formatters is False
             assert messages.runtime_config.tools.enable_agent_formatters is False
+            assert state.runtime_config.tools.verify_after_edits is True
+            assert state.runtime_config.tools.verify_max_fix_rounds == 2
+
+            r6_body = _payload()
+            r6_body['tools']['verifyAfterEdits'] = False
+            r6_body['tools']['verifyMaxFixRounds'] = 4
+            r6 = client.post('/runtime-config', json=r6_body)
+            assert r6.status_code == 200
+            assert state.runtime_config.tools.verify_after_edits is False
+            assert state.runtime_config.tools.verify_max_fix_rounds == 4
     finally:
         os.environ['PATH'] = orig_path
         state.runtime_config.active_connection_id = orig.active_connection_id

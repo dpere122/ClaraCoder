@@ -1811,6 +1811,26 @@ export function migrateConfig(config: AppConfig): AppConfig {
       wt.enableAgentFormatters = false;
       migrated = true;
     }
+    const verifyRaw = (wt as unknown as { verifyAfterEdits?: unknown }).verifyAfterEdits;
+    if (typeof verifyRaw === 'string') {
+      const s = verifyRaw.trim().toLowerCase();
+      wt.verifyAfterEdits = !(s === 'false' || s === '0' || s === 'no' || s === 'off');
+      migrated = true;
+    } else if (typeof verifyRaw !== 'boolean') {
+      wt.verifyAfterEdits = true;
+      migrated = true;
+    }
+    const fixRoundsRaw = (wt as unknown as { verifyMaxFixRounds?: unknown }).verifyMaxFixRounds;
+    if (typeof fixRoundsRaw !== 'number' || !Number.isFinite(fixRoundsRaw)) {
+      wt.verifyMaxFixRounds = 2;
+      migrated = true;
+    } else {
+      const clamped = Math.min(5, Math.max(0, Math.round(fixRoundsRaw)));
+      if (clamped !== fixRoundsRaw) {
+        wt.verifyMaxFixRounds = clamped;
+        migrated = true;
+      }
+    }
   }
 
   const ccRaw = (newConfig as AppConfig & { contextCompression?: ContextCompressionConfig }).contextCompression;

@@ -2,6 +2,7 @@ import type { PreloadIpc } from '../preload-ipc';
 import type {
   WorkspaceContextSyncExtras,
   WorkspaceFileWriteOptions,
+  EnsureWorkspaceChecksResult,
   EnsureWorkspaceSystemPromptResult,
 } from '../../shared';
 
@@ -69,6 +70,8 @@ export const createWorkspaceApi = (ipcRenderer: PreloadIpc) => ({
     sessionId?: string | null,
   ): Promise<EnsureWorkspaceSystemPromptResult> =>
     ipcRenderer.invoke('ensure-workspace-system-prompt', workspaceId, sessionId),
+  ensureWorkspaceChecks: (workspaceId: string): Promise<EnsureWorkspaceChecksResult> =>
+    ipcRenderer.invoke('ensure-workspace-checks', workspaceId),
   getWorkspaces: () => ipcRenderer.invoke('get-workspaces'),
   addWorkspace: (name: string, p: string, options?: { trusted?: boolean }) =>
     ipcRenderer.invoke('add-workspace', name, p, options),

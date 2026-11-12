@@ -22,6 +22,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from clara_coder_backend.lang_agent.graph import AgentGraphConfig, _stream_langgraph_tool_agent, build_clara_single_outer_graph
 from clara_coder_backend.lang_agent.loop import AgentLoopOutcome, LangGraphWorkerOutcome
+from clara_coder_backend.middleware.plan_pending_steps_middleware import PlanPendingStepsMiddleware
 from clara_coder_backend.session.pause import await_diff_review_note, await_question_answers
 from clara_coder_backend.lang_agent.question import (
     agent_question_sse_payload,
@@ -722,12 +723,12 @@ def emit_planner_progress_from_md(session: SessionState, *, phase: str = 'execut
         pass
 
 
-def _plan_has_pending_steps(session: SessionState, record: BuildPlanRecord) -> bool:
+def _plan_steps_on_disk(session: SessionState, record: BuildPlanRecord) -> list[dict[str, Any]] | None:
+    """The plan file's action steps with their checkbox state; None when the file cannot be read."""
     try:
-        steps = parse_action_steps(read_build_plan_md(session.workspace_path, record))
+        return parse_action_steps(read_build_plan_md(session.workspace_path, record))
     except OSError:
-        return False
-    return any(not step.get('complete') for step in steps)
+        return None
 
 
 def _plan_discovery_outer_graph_builder(
@@ -762,6 +763,7 @@ def _plan_execute_outer_graph_builder(
         allow_subagents=True,
         # Its prompt inlines the plan and the findings; `read_build_plan` brings back what a pin leaves out.
         compaction_pin_ratio=0.1,
+        finish_middleware=[PlanPendingStepsMiddleware()],
     )
 
 
@@ -1557,18 +1559,15 @@ async def stream_plan_execute_langgraph(
         return
 
     # A text-only reply ends the executor too. An unchecked step keeps the plan active, a forgotten mark as well.
-    if not _plan_has_pending_steps(session, record):
+    final_steps = _plan_steps_on_disk(session, record)
+    if not any(not step.get('complete') for step in final_steps or []):
         complete_build_plan(session, record.id)
     final_text = exec_result.strip() or 'Plan completed.'
     outcome.mark_completed(final_text=final_text)
-    yield sse_line(
-        planner_progress_event(
-            planner_progress_payload_from_parsed(
-                [{'id': row['id'], 'text': row['text'], 'complete': row['state'] == 'complete'} for row in step_rows],
-                phase='complete',
-            )
-        )
-    )
+    if final_steps is None:
+        final_steps = [{'id': row['id'], 'text': row['text'], 'complete': False} for row in step_rows]
+    # The checkboxes as the file has them: a step left unchecked stays visibly unchecked.
+    yield sse_line(planner_progress_event(planner_progress_payload_from_parsed(final_steps, phase='complete')))
     yield sse_line(
         status_event(
             cfg.done_event_id,

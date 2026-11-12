@@ -13,6 +13,7 @@ from clara_coder_backend.session.file_journal import emit_copy_journal, snapshot
 from clara_coder_backend.session.state import current_session_id, get_session, mutation_tools_blocked_reason
 from clara_coder_backend.tools.tool_conventions import RELATIVE_PATH, describe
 from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
+from clara_coder_backend.workspace.meta import USER_OWNED_META_REASON, is_user_owned_meta_path
 from clara_coder_backend.workspace.path_locks import locked_path, note_batch_replaced
 
 logger = logging.getLogger('clara.tools.copy')
@@ -96,6 +97,8 @@ def _validate_copy_batch(
 
         rel_src = src.relative_to(root_resolved).as_posix()
         rel_dest = dest.relative_to(root_resolved).as_posix()
+        if is_user_owned_meta_path(rel_dest):
+            return None, f'Item {index}: {USER_OWNED_META_REASON}.'
         if rel_dest in seen_destinations:
             return None, f'Item {index}: duplicate destination path in the same request: `{rel_dest}`.'
         seen_destinations.add(rel_dest)

@@ -49,6 +49,7 @@ from clara_coder_backend.tools.tool_conventions import (
 )
 from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
 from clara_coder_backend.workspace.formatters import format_python_source_str, format_source_via_prettier
+from clara_coder_backend.workspace.meta import USER_OWNED_META_REASON, is_user_owned_meta_path
 from clara_coder_backend.workspace.partial_edit import line_range_edit_tool_feedback, merge_partial_edit
 from clara_coder_backend.workspace.path_locks import batch_line_map, locked_path, note_batch_write
 from clara_coder_backend.workspace.workspace_text_io import (
@@ -135,6 +136,9 @@ def _edit_target(relative_path: str, encoding: str, newline: str) -> Iterator[_E
         rel = path.relative_to(root).as_posix()
     except ValueError as exc:
         yield f'Tool error: {exc}'
+        return
+    if is_user_owned_meta_path(rel):
+        yield f'Tool error: {USER_OWNED_META_REASON}.'
         return
     with locked_path(path) as key:
         yield _read_target(session_id, rel, path, enc, nm, key)

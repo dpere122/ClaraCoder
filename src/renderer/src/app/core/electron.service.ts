@@ -98,6 +98,7 @@ import type {
   WorkspaceFileWriteOptions,
   WorkspaceFilesChangedMessage,
   WorkspaceOpenTabsState,
+  EnsureWorkspaceChecksResult,
   EnsureWorkspaceSystemPromptResult,
 } from '@shared/index';
 import { getDefaultContextCompression, isThemeProposalPayload, SecretValue } from '@shared/index';
@@ -1502,6 +1503,13 @@ export class ElectronService {
     return (
       this.api?.ensureWorkspaceSystemPrompt?.(workspaceId, sessionId) ??
       Promise.resolve({ ok: false, error: 'API not available' })
+    );
+  }
+
+  /** Create the workspace's `.clara/checks.json` when missing (seeded with disabled suggestions). */
+  ensureWorkspaceChecks(workspaceId: string): Promise<EnsureWorkspaceChecksResult> {
+    return (
+      this.api?.ensureWorkspaceChecks?.(workspaceId) ?? Promise.resolve({ ok: false, error: 'API not available' })
     );
   }
 

@@ -16,11 +16,44 @@ BUILD_PLANS_REL_DIR = f'{WORKSPACE_META_DIR}/{BUILD_PLANS_DIR_NAME}'
 LEGACY_BUILD_PLANS_REL_DIR = f'{LEGACY_WORKSPACE_META_DIR}/{BUILD_PLANS_DIR_NAME}'
 SYSTEM_PROMPT_RELATIVE_PATH = f'{WORKSPACE_META_DIR}/{SYSTEM_PROMPT_FILENAME}'
 INDEX_FILENAME = 'index.json'
+#: The user's project check commands for end-of-turn verification (see :mod:`clara_coder_backend.verify`).
+CHECKS_FILENAME = 'checks.json'
+CHECKS_RELATIVE_PATH = f'{WORKSPACE_META_DIR}/{CHECKS_FILENAME}'
 
 _LEGACY_BUILD_PLANS_PREFIX = f'{LEGACY_BUILD_PLANS_REL_DIR}/'
 _BUILD_PLANS_PREFIX = f'{BUILD_PLANS_REL_DIR}/'
 
 logger = logging.getLogger('clara.workspace.meta')
+
+
+#: Why a file tool refused (no ``Tool error:`` prefix and no final stop; each tool adds its own).
+USER_OWNED_META_REASON = (
+    f'`{CHECKS_RELATIVE_PATH}` holds commands that run without an approval card, so only the user changes it; '
+    'tell the user what to change in it instead'
+)
+
+
+def is_user_owned_meta_path(relative_path: str) -> bool:
+    """True for the checks file (also under the legacy ``.nemo``, which migration copies into ``.clara``).
+
+    The agent's file tools refuse to write, copy onto or delete it: its commands run unasked in a
+    trusted workspace. Compared case-folded, because Windows and macOS folders are case-insensitive.
+    """
+    n = (relative_path or '').strip().replace('\\', '/').casefold()
+    while n.startswith('./'):
+        n = n[2:]
+    return n in (
+        f'{WORKSPACE_META_DIR}/{CHECKS_FILENAME}'.casefold(),
+        f'{LEGACY_WORKSPACE_META_DIR}/{CHECKS_FILENAME}'.casefold(),
+    )
+
+
+def holds_user_owned_meta_file(root: Path, relative_dir: str) -> bool:
+    """True when ``relative_dir`` is a meta directory that contains the checks file (deleting it would too)."""
+    n = (relative_dir or '').strip().replace('\\', '/').strip('/').casefold()
+    if n not in (WORKSPACE_META_DIR.casefold(), LEGACY_WORKSPACE_META_DIR.casefold()):
+        return False
+    return (root / relative_dir / CHECKS_FILENAME).is_file()
 
 
 def rewrite_legacy_build_plan_relative_path(relative_path: str) -> str:

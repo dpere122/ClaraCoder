@@ -20,6 +20,7 @@ __all__ = [
 
 _lock = threading.Lock()
 _until: dict[str, float] = {}
+_seconds: dict[str, float] = {}
 _reason: dict[str, str] = {}
 
 
@@ -27,9 +28,30 @@ def mark_blocked(engine: str, *, seconds: float, reason: str = '') -> None:
     """Park ``engine`` for ``seconds`` (monotonic clock, so wall-clock jumps are harmless)."""
 
     now = time.monotonic()
+    parked = max(0.0, float(seconds))
     with _lock:
-        _until[engine] = now + max(0.0, float(seconds))
+        _until[engine] = now + parked
+        _seconds[engine] = parked
         _reason[engine] = reason
+
+
+def _remaining_locked(engine: str, now: float) -> float:
+    """Seconds left (caller holds ``_lock``); drops a cooldown that ran out.
+
+    ``until - now`` can round a hair above the parked duration (``(t + 60) - t`` is
+    ``60.00000000000364`` for some clock values ``t``), so it is capped at that duration.
+    """
+
+    until = _until.get(engine)
+    if until is None:
+        return 0.0
+    remaining = min(until - now, _seconds.get(engine, until - now))
+    if remaining <= 0.0:
+        _until.pop(engine, None)
+        _seconds.pop(engine, None)
+        _reason.pop(engine, None)
+        return 0.0
+    return remaining
 
 
 def cooldown_remaining(engine: str) -> float:
@@ -37,15 +59,7 @@ def cooldown_remaining(engine: str) -> float:
 
     now = time.monotonic()
     with _lock:
-        until = _until.get(engine)
-        if until is None:
-            return 0.0
-        remaining = until - now
-        if remaining <= 0.0:
-            _until.pop(engine, None)
-            _reason.pop(engine, None)
-            return 0.0
-        return remaining
+        return _remaining_locked(engine, now)
 
 
 def is_cooling(engine: str) -> bool:
@@ -58,12 +72,9 @@ def snapshot() -> dict[str, float]:
     now = time.monotonic()
     with _lock:
         out: dict[str, float] = {}
-        for name, until in list(_until.items()):
-            remaining = until - now
-            if remaining <= 0.0:
-                _until.pop(name, None)
-                _reason.pop(name, None)
-            else:
+        for name in list(_until):
+            remaining = _remaining_locked(name, now)
+            if remaining > 0.0:
                 out[name] = remaining
         return out
 
@@ -73,4 +84,5 @@ def clear_cooldowns() -> None:
 
     with _lock:
         _until.clear()
+        _seconds.clear()
         _reason.clear()

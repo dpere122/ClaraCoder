@@ -27,6 +27,9 @@ _TREE_SNAPSHOT_SKIP_DIRS = frozenset({'.git', 'node_modules', '.venv', 'venv', '
 _EARLIER_TURNS_KEPT = 16
 #: Turns whose verification bookkeeping is remembered (same reason).
 _VERIFY_TURNS_KEPT = 8
+#: Pre-edit texts kept per turn for a verification baseline (verification checks at most 25 paths).
+_BASELINE_TEXTS_KEPT = 25
+_BASELINE_TEXT_MAX_CHARS = 2_000_000
 # Parallel tool calls (and sub-agents sharing their parent's ``edits``) journal from worker threads.
 _journal_lock = threading.Lock()
 
@@ -178,22 +181,40 @@ def turn_touched_paths(session: SessionState) -> list[str]:
         return sorted(edits.journal_earlier_turns.get(turn_id, ()))
 
 
-def _note_mutation(session: SessionState, turn_id: str, relative_path: str, *, first: bool) -> None:
-    """Count the mutation for turn verification; on a path's first one, keep the errors it already had."""
+def _note_mutation(
+    session: SessionState, turn_id: str, relative_path: str, payload: dict[str, Any], *, first: bool
+) -> None:
+    """Count the mutation for turn verification; on a path's first one, keep the errors it already had.
+
+    When no diagnostics are cached for the path yet (the language server never opened it), its
+    pre-edit text is kept instead, so verification can ask the server what errors it already had.
+    """
     state = turn_verify_state(session.edits, turn_id)
     key = (relative_path or '').strip().replace('\\', '/')
     baseline: list[str] | None = None
+    before_text: str | None = None
     if first and key:
         from clara_coder_backend.lsp.diagnostics import diagnostic_error_keys
+        from clara_coder_backend.lsp.file_policy import lsp_server_for_path
 
         # The edit tools journal before their LSP sync, so the cache still describes the pre-edit text.
         cached = (session.lsp.lsp_diagnostics_by_scope.get('workspace') or {}).get(key)
         if cached is not None:
             baseline = diagnostic_error_keys(cached)
+        else:
+            before = payload.get('beforeContent')
+            if isinstance(before, str) and len(before) <= _BASELINE_TEXT_MAX_CHARS and lsp_server_for_path(key):
+                before_text = before
     with _journal_lock:
         state.mutations += 1
         if baseline is not None:
             state.baseline_errors.setdefault(key, baseline)
+        elif (
+            before_text is not None
+            and key not in state.baseline_errors
+            and len(state.baseline_texts) < _BASELINE_TEXTS_KEPT
+        ):
+            state.baseline_texts.setdefault(key, before_text)
 
 
 def _running_loop() -> asyncio.AbstractEventLoop | None:
@@ -216,7 +237,7 @@ def emit_file_journal(session: SessionState, payload: dict[str, Any]) -> None:
     if not turn_id:
         return
     first = first_mutation_this_turn(session, rel)
-    _note_mutation(session, turn_id, rel, first=first)
+    _note_mutation(session, turn_id, rel, payload, first=first)
     if not first:
         return
     body = dict(payload)

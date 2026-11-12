@@ -21,7 +21,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.runtime import Runtime
 from typing_extensions import override
 
-from clara_coder_backend.domain import SessionState
+from clara_coder_backend.domain import SessionState, TurnVerifyState
 from clara_coder_backend.lang_agent.streaming import status_event
 from clara_coder_backend.lang_agent.subagents import has_running_subagents
 from clara_coder_backend.llm.messages import stringify_content
@@ -123,7 +123,7 @@ class TurnVerificationMiddleware(AgentMiddleware):
             verify.last_failed = False
             return None
 
-        result = await self._gather(session, root, touched, verify.baseline_errors, checks, verify.fix_rounds, max_rounds)
+        result = await self._gather(session, root, touched, verify, checks, max_rounds)
         if result is None or result.stopped or session.abort_event.is_set():
             return None
         verify.verified_mutations = mutations
@@ -141,12 +141,12 @@ class TurnVerificationMiddleware(AgentMiddleware):
         session: SessionState,
         root: Path,
         touched: list[str],
-        baseline_errors: dict[str, list[str]],
+        verify: TurnVerifyState,
         checks: Any,
-        fix_rounds: int,
         max_rounds: int,
     ) -> VerificationResult | None:
         """Gather the evidence behind a pill; None when it could not be gathered."""
+        fix_rounds = verify.fix_rounds
         sid = (current_session_id.get() or '').strip()
         status_id = f'verify-turn-{next(_pill_ids)}'
         noun = 'file' if len(touched) == 1 else 'files'
@@ -160,9 +160,10 @@ class TurnVerificationMiddleware(AgentMiddleware):
                 sid,
                 root,
                 touched_paths=touched,
-                baseline_errors=baseline_errors,
+                baseline_errors=verify.baseline_errors,
                 checks=checks,
                 stop_event=session.abort_event,
+                baseline_texts=verify.baseline_texts,
             )
             if result.stopped:
                 detail = 'stopped'

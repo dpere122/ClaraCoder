@@ -33,16 +33,25 @@ USER_OWNED_META_REASON = (
 )
 
 
+def _meta_path_key(relative_path: str) -> str:
+    """The path as the file system resolves it, for comparing against the user-owned meta files.
+
+    Case-folded, because Windows and macOS folders are case-insensitive. Each part also loses an
+    NTFS stream suffix (``checks.json::$DATA``) and trailing dots and spaces, which Windows drops
+    when it opens a file: ``.clara./checks.json.`` writes ``.clara/checks.json``.
+    """
+    parts = (relative_path or '').strip().replace('\\', '/').casefold().split('/')
+    cleaned = (part.split(':', 1)[0].rstrip(' .') for part in parts)
+    return '/'.join(part for part in cleaned if part)
+
+
 def is_user_owned_meta_path(relative_path: str) -> bool:
     """True for the checks file (also under the legacy ``.nemo``, which migration copies into ``.clara``).
 
     The agent's file tools refuse to write, copy onto or delete it: its commands run unasked in a
-    trusted workspace. Compared case-folded, because Windows and macOS folders are case-insensitive.
+    trusted workspace.
     """
-    n = (relative_path or '').strip().replace('\\', '/').casefold()
-    while n.startswith('./'):
-        n = n[2:]
-    return n in (
+    return _meta_path_key(relative_path) in (
         f'{WORKSPACE_META_DIR}/{CHECKS_FILENAME}'.casefold(),
         f'{LEGACY_WORKSPACE_META_DIR}/{CHECKS_FILENAME}'.casefold(),
     )
@@ -50,7 +59,7 @@ def is_user_owned_meta_path(relative_path: str) -> bool:
 
 def holds_user_owned_meta_file(root: Path, relative_dir: str) -> bool:
     """True when ``relative_dir`` is a meta directory that contains the checks file (deleting it would too)."""
-    n = (relative_dir or '').strip().replace('\\', '/').strip('/').casefold()
+    n = _meta_path_key(relative_dir)
     if n not in (WORKSPACE_META_DIR.casefold(), LEGACY_WORKSPACE_META_DIR.casefold()):
         return False
     return (root / relative_dir / CHECKS_FILENAME).is_file()

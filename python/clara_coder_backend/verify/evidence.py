@@ -118,14 +118,36 @@ def _sync_path(session_id: str, server: str, relative_path: str, encoding: str) 
     return rows, manager.diagnostics_fresh(relative_path), ''
 
 
+def _baseline_keys(session_id: str, server: str, relative_path: str, before_text: str) -> list[str]:
+    """Blocking: the error keys the server reports for the path's text before the turn's first edit.
+
+    The server gets that text as the open document; :func:`_sync_path` brings it back to disk next.
+    """
+    from clara_coder_backend.lsp.manager import get_session_lsp_manager
+
+    manager = get_session_lsp_manager(session_id, server=server, scope='workspace', set_active=False)
+    if manager.diagnostics_off_reason(relative_path):
+        return []
+    rows = manager.sync_document(relative_path, before_text, wait_for_diagnostics=True)
+    if not manager.diagnostics_fresh(relative_path):
+        rows = manager.sync_document(relative_path, before_text, wait_for_diagnostics=True)
+    return diagnostic_error_keys(rows)
+
+
 async def collect_diagnostics(
     session_id: str,
     workspace_root: Path,
     touched_paths: list[str],
     baseline_errors: dict[str, list[str]],
     stop_event: asyncio.Event,
+    baseline_texts: dict[str, str] | None = None,
 ) -> DiagnosticsEvidence:
-    """Errors the language servers report on the touched files, minus the ones each file already had."""
+    """Errors the language servers report on the touched files, minus the ones each file already had.
+
+    ``baseline_texts`` holds the pre-edit text of paths whose earlier errors were not known when the
+    turn first edited them; the server is asked about that text once and the result is stored in
+    ``baseline_errors`` (both dicts are the turn's own bookkeeping, so later rounds reuse it).
+    """
 
     evidence = DiagnosticsEvidence()
     encoding = (runtime_config.tools.default_workspace_encoding or 'utf-8').strip() or 'utf-8'
@@ -141,6 +163,14 @@ async def collect_diagnostics(
         if index >= MAX_DIAGNOSTIC_PATHS or time.monotonic() > deadline:
             evidence.notes.append(f'diagnostics not checked for {len(candidates) - index} more file(s)')
             break
+        before_text = baseline_texts.pop(rel, None) if baseline_texts else None
+        if before_text is not None and rel not in baseline_errors:
+            try:
+                baseline_errors[rel] = await asyncio.to_thread(_baseline_keys, session_id, server, rel, before_text)
+            except Exception as exc:  # Without a baseline every error counts as new, as before.
+                logger.info('verification baseline skipped path=%s server=%s err=%s', rel, server, exc)
+            if stop_event.is_set():
+                break
         try:
             rows, fresh, off_reason = await asyncio.to_thread(_sync_path, session_id, server, rel, encoding)
         except Exception as exc:  # A server that cannot start must not fail the turn.
@@ -225,11 +255,14 @@ async def gather_evidence(
     baseline_errors: dict[str, list[str]],
     checks: WorkspaceChecks,
     stop_event: asyncio.Event,
+    baseline_texts: dict[str, str] | None = None,
 ) -> VerificationResult:
     """Diagnostics on the touched files, then the applicable checks (only in a trusted workspace)."""
 
     result = VerificationResult()
-    result.diagnostics = await collect_diagnostics(session_id, workspace_root, touched_paths, baseline_errors, stop_event)
+    result.diagnostics = await collect_diagnostics(
+        session_id, workspace_root, touched_paths, baseline_errors, stop_event, baseline_texts
+    )
     result.notes.extend(result.diagnostics.notes)
     if stop_event.is_set():
         result.stopped = True

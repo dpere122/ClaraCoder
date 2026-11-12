@@ -102,6 +102,10 @@ class TurnVerifyState:
     fix_rounds: int = 0
     #: Error keys the diagnostics cache held for a path before its first edit this turn (absent: unknown).
     baseline_errors: dict[str, list[str]] = field(default_factory=dict)
+    #: Text a path had before its first edit this turn when no diagnostics were cached for it then (a
+    #: file the language server never opened). Verification asks the server about it once, so errors
+    #: the file already had do not count as new; the result moves into ``baseline_errors``.
+    baseline_texts: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass

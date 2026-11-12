@@ -192,6 +192,47 @@ async def test_diagnostics_report_only_errors_the_file_did_not_have(turn, monkey
     assert found.new_errors == {'a.py': [second], 'b.py': [_ERROR]}
 
 
+async def test_a_file_the_server_never_opened_keeps_its_pre_edit_text_for_the_baseline(turn) -> None:
+    session, _workspace = turn
+    session.lsp.lsp_diagnostics_by_scope['workspace']['open.py'] = [_ERROR]
+
+    emit_edit_journal(session, 'unopened.py', 'old text\n', before_existed=True, encoding='utf-8', newline='lf')
+    emit_edit_journal(session, 'unopened.py', 'newer\n', before_existed=True, encoding='utf-8', newline='lf')
+    emit_edit_journal(session, 'open.py', 'old\n', before_existed=True, encoding='utf-8', newline='lf')
+    emit_edit_journal(session, 'notes.txt', 'old\n', before_existed=True, encoding='utf-8', newline='lf')
+    _touch(session, 'new.py')
+
+    verify = turn_verify_state(session.edits, 't1')
+    # Only the first edit's text, only for a server-backed file whose errors were not cached.
+    assert verify.baseline_texts == {'unopened.py': 'old text\n'}
+    assert verify.baseline_errors == {'open.py': ['pyright|E1|x is not defined']}
+
+
+async def test_diagnostics_ask_the_server_about_the_pre_edit_text_once(turn, monkeypatch: pytest.MonkeyPatch) -> None:
+    _session, workspace = turn
+    (workspace / 'a.py').write_text('new\n', encoding='utf-8')
+    second = {**_ERROR, 'message': 'y is not defined'}
+    asked: list[str] = []
+
+    def fake_baseline(session_id: str, server: str, rel: str, before_text: str) -> list[str]:
+        asked.append(before_text)
+        return ['pyright|E1|x is not defined']
+
+    monkeypatch.setattr(evidence, '_baseline_keys', fake_baseline)
+    monkeypatch.setattr(evidence, '_sync_path', lambda *_args: ([_ERROR, second], True, ''))
+    baseline_errors: dict[str, list[str]] = {}
+    baseline_texts = {'a.py': 'old\n'}
+
+    for _round in range(2):
+        found = await collect_diagnostics(
+            'verify-turn', workspace, ['a.py'], baseline_errors, asyncio.Event(), baseline_texts
+        )
+        assert found.preexisting == 1 and found.new_errors == {'a.py': [second]}
+
+    assert asked == ['old\n']  # the second round reuses the stored baseline
+    assert baseline_texts == {} and baseline_errors == {'a.py': ['pyright|E1|x is not defined']}
+
+
 async def test_a_language_server_that_cannot_start_is_a_note_not_a_failure(turn, monkeypatch) -> None:
     _session, workspace = turn
     (workspace / 'a.py').write_text('x\n', encoding='utf-8')
@@ -558,7 +599,17 @@ async def test_file_tools_refuse_the_checks_file(turn) -> None:
     before = checks_file.read_text(encoding='utf-8')
     (workspace / 'mine.json').write_text('{"checks": [{"command": "evil"}]}', encoding='utf-8')
 
-    for path in ('.clara/checks.json', '.CLARA/Checks.JSON', './.clara/../.clara/checks.json', '.nemo/checks.json'):
+    # Windows drops trailing dots and spaces and opens a file's main stream for ``::$DATA``.
+    for path in (
+        '.clara/checks.json',
+        '.CLARA/Checks.JSON',
+        './.clara/../.clara/checks.json',
+        '.nemo/checks.json',
+        '.clara/checks.json.',
+        '.clara/checks.json ',
+        '.clara./checks.json',
+        '.clara/checks.json::$DATA',
+    ):
         out = write_workspace_file.invoke({'relative_path': path, 'content': '{}'})
         assert out.startswith('Tool error:') and 'only the user changes it' in out, path
     copied = copy_workspace_files.invoke(

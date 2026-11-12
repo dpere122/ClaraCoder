@@ -3379,10 +3379,11 @@ export class SettingsStore {
 
   onVerifyMaxFixRoundsChange(raw: string | number): void {
     const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
-    if (Number.isNaN(n)) {
+    if (!Number.isFinite(n)) {
       return;
     }
-    this.verifyMaxFixRounds.set(Math.min(5, Math.max(0, n)));
+    // A number input still accepts a typed fraction (2.5); the setting is a whole count.
+    this.verifyMaxFixRounds.set(Math.min(5, Math.max(0, Math.round(n))));
     this.markSettingsDirty();
   }
 

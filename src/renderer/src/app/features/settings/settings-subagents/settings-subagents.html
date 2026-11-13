@@ -133,8 +133,8 @@
                 @if (unavailableSource(role); as source) {
                   <option [value]='source.id'>{{ unavailableLabel(source) }}</option>
                 }
-                @for (source of availableSources(); track source.id) {
-                  <option [value]='source.id'>{{ source.label }}</option>
+                @for (source of sourceChoices(); track source.id) {
+                  <option [value]='source.id'>{{ choiceLabel(source) }}</option>
                 }
               </select>
             </label>

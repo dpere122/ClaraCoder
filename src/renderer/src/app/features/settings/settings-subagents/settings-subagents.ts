@@ -30,9 +30,9 @@ const PHASE_ACTION: Record<SourcePhase, string> = { off: 'Launch', loading: 'Can
  * each role; every control for a role lives in the editor beside it.
  *
  * A panel on the right holds the local servers: every local model with a run command, with one
- * status light and a button that launches the command saved in Sources. A role can only pick a source that
- * would answer now: a running local server, or any other source that passes main's ping (a cloud
- * source with a working key, a reachable server URL).
+ * status light and a button that launches the command saved in Sources. A role can pick any llama.cpp
+ * source, running or not (one that is not follows the fallback setting until it runs). Any other source
+ * is offered only when it passes main's ping (a cloud source with a working key, a reachable server).
  */
 @Component({
   selector: 'app-settings-subagents',
@@ -67,9 +67,9 @@ export class SettingsSubagents implements OnInit {
   private readonly cancelled = new Set<string>();
 
   protected readonly localServers = computed(() => this.s.subagentSourceOptions().filter((option) => option.launchable));
-  /** Sources a role can pick now. */
-  protected readonly availableSources = computed(() =>
-    this.s.subagentSourceOptions().filter((option) => this.sourceAvailable(option)),
+  /** Sources a role can pick: every llama.cpp source, and any other that answers now. */
+  protected readonly sourceChoices = computed(() =>
+    this.s.subagentSourceOptions().filter((option) => this.alwaysOffered(option) || this.sourceAvailable(option)),
   );
 
   constructor() {
@@ -111,6 +111,16 @@ export class SettingsSubagents implements OnInit {
 
   private sourceAvailable(option: SourceOption): boolean {
     return this.sourceStatus.available(option);
+  }
+
+  /** A llama.cpp source is listed even when it is not running: it can be started before the role runs. */
+  private alwaysOffered(option: SourceOption): boolean {
+    return option.provider === 'llamacpp';
+  }
+
+  /** A choice's label, marked when it would not answer now. */
+  protected choiceLabel(source: SourceOption): string {
+    return this.sourceAvailable(source) ? source.label : this.unavailableLabel(source);
   }
 
   /** Launches a stopped server with the command saved in Sources; stops one that runs or loads. */
@@ -168,10 +178,10 @@ export class SettingsSubagents implements OnInit {
     return role.connectionId !== '' && this.roleSource(role) === null;
   }
 
-  /** The role's own source when a new role could not pick it now (stopped, no key, unreachable). */
+  /** The role's own source when it is not among the choices now (no key, unreachable). */
   protected unavailableSource(role: SubagentRoleConfig): SourceOption | null {
     const source = this.roleSource(role);
-    return source && !this.sourceAvailable(source) ? source : null;
+    return source && !this.alwaysOffered(source) && !this.sourceAvailable(source) ? source : null;
   }
 
   protected unavailableLabel(source: SourceOption): string {

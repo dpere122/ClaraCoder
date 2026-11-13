@@ -315,7 +315,7 @@ describe('SettingsSubagents', () => {
     expect(store.removeSubagentRole).toHaveBeenCalledWith('r1');
   });
 
-  it('offers a role only the sources that would answer now', async () => {
+  it('offers every llama.cpp source, and any other only when it would answer now', async () => {
     const { host, electron, refresh } = setup(
       [role('r1', 'explorer'), role('r2', 'stale', { connectionId: 'src-lm' }), role('r3', 'local', { connectionId: 'src-llama' })],
       { unreachable: ['conn-lm'] },
@@ -323,8 +323,8 @@ describe('SettingsSubagents', () => {
     await refresh();
     const sourceOptions = () => [...fieldControl<HTMLSelectElement>(host, 'Source')!.options].map((o) => o.textContent?.trim());
 
-    // LM Studio fails its ping and the local server is stopped: neither is offered.
-    expect(sourceOptions()).toEqual(['Same as main agent', 'Claude']);
+    // LM Studio fails its ping: not offered. The stopped local server is, marked.
+    expect(sourceOptions()).toEqual(['Same as main agent', 'Claude', 'Local GGUF (not running)']);
     // The local server is asked for its state, never pinged at its saved address.
     expect(electron.llmSourcePing.mock.calls.map(([payload]) => payload.modelId).sort()).toEqual(['conn-claude', 'conn-lm']);
     expect(electron.llamaServerStatus).toHaveBeenCalledWith({ modelId: 'conn-llama', config: SAVED_CONFIG });
@@ -333,11 +333,27 @@ describe('SettingsSubagents', () => {
     const rows = host.querySelectorAll<HTMLButtonElement>('.settings-subagents__role');
     rows[1].click();
     await refresh();
-    expect(sourceOptions()).toEqual(['Same as main agent', 'LM Studio (unavailable)', 'Claude']);
+    expect(sourceOptions()).toEqual(['Same as main agent', 'LM Studio (unavailable)', 'Claude', 'Local GGUF (not running)']);
     expect(fieldControl<HTMLSelectElement>(host, 'Source')!.value).toBe('src-lm');
+    // A role on the stopped local server finds it in its usual place, listed once.
     rows[2].click();
     await refresh();
-    expect(sourceOptions()).toEqual(['Same as main agent', 'Local GGUF (not running)', 'Claude']);
+    expect(sourceOptions()).toEqual(['Same as main agent', 'Claude', 'Local GGUF (not running)']);
+    expect(fieldControl<HTMLSelectElement>(host, 'Source')!.value).toBe('src-llama');
+  });
+
+  it('offers a llama.cpp source without a run command, marked when it does not answer', async () => {
+    const pinned = { ...SOURCES[2], id: 'src-pinned', connectionId: 'conn-pinned', label: 'Pinned server', launchable: false };
+    const { host, refresh } = setup([role('r1', 'explorer')], { sources: [...SOURCES, pinned], unreachable: ['conn-pinned'] });
+    await refresh();
+    const sourceOptions = () => [...fieldControl<HTMLSelectElement>(host, 'Source')!.options].map((o) => o.textContent?.trim());
+    expect(sourceOptions()).toEqual([
+      'Same as main agent',
+      'Claude',
+      'LM Studio',
+      'Local GGUF (not running)',
+      'Pinned server (unavailable)',
+    ]);
   });
 
   it('lists local servers with one light and launches the saved command', async () => {
@@ -366,7 +382,7 @@ describe('SettingsSubagents', () => {
       true,
       'Cancel',
     ]);
-    expect(sourceOptions()).not.toContain('Local GGUF');
+    expect(sourceOptions()).toContain('Local GGUF (not running)');
 
     lifecycle.next({ phase: 'running', modelId: 'conn-llama' });
     await refresh();
@@ -375,7 +391,7 @@ describe('SettingsSubagents', () => {
       true,
       'Stop',
     ]);
-    // Running: a role can now pick it.
+    // Running: no longer marked.
     expect(sourceOptions()).toEqual(['Same as main agent', 'Claude', 'LM Studio', 'Local GGUF']);
 
     button().click();

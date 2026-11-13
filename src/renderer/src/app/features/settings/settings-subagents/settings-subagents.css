@@ -1,12 +1,20 @@
 /* Settings → Subagents. Shared form chrome (fields, toggles, buttons) lives in settings/settings.css. */
 
-/* General above Roles on the left; the local servers panel on the right, as tall as both. */
+/* Fills the rest of the window below the overview; taller content scrolls the window's content area. */
+app-settings-subagents {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+}
+
+/* General above Roles on the left; the local servers panel on the right, as tall as both.
+   Roles takes whatever height General leaves. */
 .settings-subagents {
+  flex: 1 0 auto;
   display: grid;
   /* A fixed width for the panel: its rows are a light, a name and a button, whatever the UI font size. */
   grid-template-columns: minmax(0, 1fr) 320px;
-  grid-template-rows: auto auto;
-  align-content: start;
+  grid-template-rows: auto 1fr;
   gap: 20px 24px;
   max-width: 96rem;
 }
@@ -71,6 +79,7 @@
 @media (max-width: 1100px) {
   .settings-subagents {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr auto;
   }
 
   .settings-subagents__servers {
@@ -174,8 +183,9 @@
   color: var(--t-text-muted, var(--t-muted));
 }
 
-/* Role list on the left, the selected role's editor beside it. */
+/* Role list on the left, the selected role's editor beside it; together they fill the section's height. */
 .settings-subagents__split {
+  flex: 1 0 auto;
   display: flex;
   flex-wrap: wrap;
   align-items: stretch;

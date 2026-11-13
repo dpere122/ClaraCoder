@@ -75,7 +75,7 @@ async def test_a_cut_off_write_does_not_read_as_written(session: SessionState, w
     assert _final_rows(lines, 'write_workspace_file') == [_CUT_OFF_ROW]
 
 
-async def test_three_cut_off_writes_leave_no_finished_row_next_to_the_stop_text(
+async def test_a_cut_off_write_leaves_no_finished_row_next_to_the_stop_text(
     session: SessionState, workspace: Path
 ) -> None:
     server = MockServer([_cut_off_write(f'c{i}') for i in range(3)])
@@ -83,9 +83,11 @@ async def test_three_cut_off_writes_leave_no_finished_row_next_to_the_stop_text(
     _state, lines, error = await run_graph(real_graph(server, session), thread(), user_turn())
 
     assert error is None
+    # The first cut-off reply ends the turn: the model is not asked again.
+    assert len(server.requests) == 1
     assert session.harness_final_text.startswith('Stopped: the model hit its output limit')
     assert not (workspace / 'new.txt').exists()
-    assert _final_rows(lines, 'write_workspace_file') == [_CUT_OFF_ROW] * 3
+    assert _final_rows(lines, 'write_workspace_file') == [_CUT_OFF_ROW]
 
 
 async def test_a_refused_edit_does_not_read_as_done_and_its_retry_does(session: SessionState, workspace: Path) -> None:

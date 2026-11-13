@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 
 from langchain_core.messages import AIMessage
 
-from clara_coder_backend.middleware.empty_response_middleware import EmptyResponseNudgeMiddleware
 from clara_coder_backend.middleware.gemma_native_tool_middleware import GemmaNativeToolMiddleware
 
 
@@ -130,48 +129,5 @@ def test_gemma_native_middleware_ignores_incomplete_markup() -> None:
     incomplete = '<|tool_call>call:read_workspace_file{path:<|"|>a.py<|"|>}'
     result = asyncio.run(
         middleware.aafter_model({'messages': [AIMessage(content=incomplete)]}, MagicMock())
-    )
-    assert result is None
-
-
-def test_leftover_gemma_native_markup_triggers_pseudo_tool_nudge() -> None:
-    middleware = EmptyResponseNudgeMiddleware()
-    leftover = '<|tool_call>call:read_workspace_file{path:<|"|>a.py<|"|>}'
-    result = asyncio.run(
-        middleware.aafter_model(
-            {
-                'messages': [AIMessage(content=leftover)],
-                'empty_response_nudge_streak': 0,
-            },
-            MagicMock(),
-        )
-    )
-    assert result is not None
-    assert result.get('jump_to') == 'model'
-    assert result.get('pseudo_tool_markup_nudge_streak') == 1
-
-
-@patch('clara_coder_backend.session.state.get_active_connection')
-def test_leftover_gemma_native_markup_does_not_nudge_on_gemma_preset(mock_conn: MagicMock) -> None:
-    from clara_coder_backend.domain import RuntimeConnection
-
-    mock_conn.return_value = RuntimeConnection(
-        id='t',
-        name='t',
-        provider='lmstudio',
-        base_url='http://127.0.0.1:1234/v1',
-        model='google/gemma-4-it',
-        optimization_preset='gemma',
-    )
-    middleware = EmptyResponseNudgeMiddleware()
-    leftover = '<|tool_call>call:read_workspace_file{path:<|"|>a.py<|"|>}'
-    result = asyncio.run(
-        middleware.aafter_model(
-            {
-                'messages': [AIMessage(content=leftover)],
-                'empty_response_nudge_streak': 0,
-            },
-            MagicMock(),
-        )
     )
     assert result is None

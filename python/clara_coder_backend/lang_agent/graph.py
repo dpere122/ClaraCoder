@@ -35,17 +35,13 @@ from clara_coder_backend.lang_agent.interrupt_repair import repair_interrupted_t
 from clara_coder_backend.lang_agent.loop import AgentLoopOutcome, LangGraphWorkerOutcome
 from clara_coder_backend.hitl.accept_command import accept_command_sse_payload
 from clara_coder_backend.middleware.accept_command_review_middleware import AcceptCommandReviewAfterToolMiddleware
-from clara_coder_backend.middleware.context_compaction_middleware import (
-    CompactionContinueMiddleware,
-    ContextCompactionMiddleware,
-)
+from clara_coder_backend.middleware.context_compaction_middleware import ContextCompactionMiddleware
 from clara_coder_backend.middleware.context_pack_activation_middleware import ContextPackActivationMiddleware
 from clara_coder_backend.hitl.command_risk_assess import maybe_enrich_pending_command_risk
 from clara_coder_backend.session.checkpointing import get_graph_checkpointer, outer_agent_thread_id
 from clara_coder_backend.config import MAX_AGENT_STEPS
 from clara_coder_backend.tools.delete import delete_confirm_sse_payload
 from clara_coder_backend.middleware.delete_review_middleware import DeleteReviewAfterToolMiddleware
-from clara_coder_backend.middleware.empty_response_middleware import EmptyResponseNudgeMiddleware
 from clara_coder_backend.middleware.finish_gates_middleware import FinishGatesMiddleware
 from clara_coder_backend.middleware.gemma_native_tool_middleware import GemmaNativeToolMiddleware
 from clara_coder_backend.middleware.parallel_tool_middleware import ConnectionParallelToolCallsMiddleware
@@ -167,14 +163,12 @@ def build_clara_single_outer_graph(
         # graph node: each node is a step against the turn's limit on every model call.
         core_middleware.append(gates[0] if len(gates) == 1 else FinishGatesMiddleware(gates))
     core_middleware += [
-        CompactionContinueMiddleware(),
         UserEventInjectionMiddleware(),
         ContextPackActivationMiddleware(),
         ConnectionParallelToolCallsMiddleware(),
         ToolBatchMiddleware(),
         GemmaNativeToolMiddleware(),
         PseudoToolXmlMiddleware(),
-        EmptyResponseNudgeMiddleware(),
         VisionImageInjectionMiddleware(),
         ContextCompactionMiddleware(pin_ratio=compaction_pin_ratio),
     ]

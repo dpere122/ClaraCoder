@@ -62,12 +62,10 @@ from clara_coder_backend.llm.messages import USER_TURN_KEY, build_system_prompt,
 from clara_coder_backend.middleware import context_compaction_middleware as compaction_middleware
 from clara_coder_backend.middleware.context_compaction_middleware import (
     COMPACT_PILL_LABEL,
-    CONTINUE_NUDGE_TEXT,
     _EMPTY_REPLY_STOP_TEXT,
     _FUTILE_STOP_TEXT,
     _TRUNCATED_ANSWER_NOTE,
     _TRUNCATED_STOP_TEXT,
-    CompactionContinueMiddleware,
     ContextCompactionMiddleware,
     _capped_result,
 )
@@ -217,7 +215,7 @@ class MockServer:
         if is_summary_request(body):
             item = self.summaries.pop(0) if self.summaries else text_reply('NEXT STEP: go on.\nPROGRESS: some.')
         else:
-            # A script needs no answer for the nudge a mid-turn cut brings: its last answer is restated.
+            # An exhausted script repeats its last answer.
             item = self.script.pop(0) if self.script else self.last_answer
         if callable(item):
             item = item(body)
@@ -562,8 +560,7 @@ async def test_long_loop_on_a_small_window_never_overflows(session: SessionState
     events = compressed_events(session)
     assert events, 'the loop outgrew the window without one event'
     agent = server.agent_requests()
-    assert len(agent) == 42
-    assert agent[-1]['messages'][-1]['content'] == CONTINUE_NUDGE_TEXT
+    assert len(agent) == 41
     # Every call a valid view; a call without an event is the previous step's prompt, byte for byte.
     breaks = 0
     gone: set[str] = set()
@@ -666,8 +663,6 @@ async def test_event_at_a_new_turn_merges_the_block_into_the_user_message(sessio
     first = block_of(body)
     assert PIN_LEAD not in first
     assert re.search(r'\n\nrequest \d$', first)
-    cc = await private_state(graph, thread())
-    assert cc['nudge'] is False
 
 
 async def test_old_untagged_checkpoint_works(session: SessionState) -> None:
@@ -704,12 +699,14 @@ async def test_the_tail_never_moves_back(session: SessionState) -> None:
             *read_script(6, 6000, final=''),
             *read_script(2, 200, final='', start=10),
             calls_reply(('read_thing', '{"path": "a', 'cut'), finish='length', completion_tokens=window),
-            text_reply('done'),
         ]
     )
     graph = fake_graph(server, session)
 
-    state, _lines, error = await run_graph(graph, thread(), user_turn())
+    # The cut-off reply ends the turn and asks for an event on the next call.
+    await run_graph(graph, thread(), user_turn())
+    server.script = [text_reply('done')]
+    state, _lines, error = await run_graph(graph, thread(), user_turn('go on'))
 
     assert error is None
     assert state.last_final_text == 'done'
@@ -1152,8 +1149,7 @@ async def test_overflow_retries_twice_then_succeeds(session: SessionState) -> No
     for body in (second, third):
         assert_valid_view(body)
     # Three starts in one step are one step for the UI.
-    # (The last one is the nudge's: the turn had a mid-turn cut.)
-    assert state.llm_step == len(reads) + 2
+    assert state.llm_step == len(reads) + 1
     assert not any(payload.get('type') == 'context_compressed' for payload in sse_payloads(lines))
     # Retries of one model call are one chance at progress, not several events without it.
     assert 'of tool output' not in str(third['messages'][1]['content'])
@@ -1449,28 +1445,26 @@ def real_overhead(sess: SessionState) -> int:
     return prompt_overhead_chars(SystemMessage(content=build_system_prompt(sess, True)), tools) // _CHARS_PER_TOKEN
 
 
-async def test_truncated_write_never_executes_and_the_thread_stays(session: SessionState, workspace: Path) -> None:
+async def test_truncated_write_never_executes_and_ends_the_turn(session: SessionState, workspace: Path) -> None:
     cut_off = call_reply('write_workspace_file', '{"relative_path": "new.txt", "content": "par', finish='length')
-    server = MockServer([cut_off, text_reply('recovered')])
+    server = MockServer([cut_off, text_reply('never asked for')])
     graph = real_graph(server, session)
 
-    state, _lines, error = await run_graph(graph, thread(), user_turn())
+    _state, _lines, error = await run_graph(graph, thread(), user_turn())
 
     assert error is None
-    assert state.last_final_text == 'recovered'
+    # No second model call: the model is not told about the cut-off reply.
+    assert len(server.requests) == 1
+    assert session.harness_final_text == _TRUNCATED_STOP_TEXT
     assert not (workspace / 'new.txt').exists()
     snapshot = await graph.aget_state(thread())
     assert snapshot.next == ()
     messages = snapshot.values['messages']
-    assert not any(isinstance(m, ToolMessage) for m in messages)
-    # Replaced in place, not appended; the note follows, and the wire shows no call.
-    assert [type(m).__name__ for m in messages] == ['HumanMessage', 'AIMessage', 'HumanMessage', 'AIMessage']
+    # Replaced in place, not appended, and nothing follows it.
+    assert [type(m).__name__ for m in messages] == ['HumanMessage', 'AIMessage']
     assert messages[1].tool_calls == [] and messages[1].invalid_tool_calls == []
-    wire = server.requests[1]['messages']
-    assert 'tool_calls' not in wire[2]
-    assert 'discarded' in wire[2]['content']
-    assert wire[3]['role'] == 'user'
-    assert any(item[0] == 'agent_nudge' for item in drain(session.hitl_sse_queue))
+    assert messages[1].content == _TRUNCATED_STOP_TEXT
+    assert not any(item[0] == 'agent_nudge' for item in drain(session.hitl_sse_queue))
 
 
 async def test_empty_gemma_reply_is_drawn_again_without_touching_the_conversation(
@@ -1492,20 +1486,20 @@ async def test_empty_gemma_reply_is_drawn_again_without_touching_the_conversatio
     assert [type(m).__name__ for m in messages] == ['HumanMessage', 'AIMessage']
 
 
-async def test_empty_gemma_replies_that_keep_coming_get_a_note_then_stop_the_turn(
+async def test_empty_gemma_replies_that_keep_coming_stop_the_turn(
     session: SessionState, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
         'clara_coder_backend.middleware.context_compaction_middleware.gemma_optimize_profile_active', lambda _c: True
     )
-    # Three attempts for each of three visible retries: four draws per model call.
     server = MockServer([text_reply('<|channel>thought\n') for _ in range(12)])
     graph = fake_graph(server, session)
 
     await run_graph(graph, thread(), user_turn())
 
-    assert len(server.requests) == 12
-    assert any(m.get('content') == '[Reply discarded: it was empty.]' for m in server.requests[-1]['messages'])
+    # One model call: the first draw and its three silent redraws. No message about it reaches the model.
+    assert len(server.requests) == 4
+    assert all(body['messages'] == server.requests[0]['messages'] for body in server.requests)
     assert session.harness_final_text.startswith('Stopped: the model returned empty replies')
 
 
@@ -1514,7 +1508,8 @@ async def test_empty_reply_is_not_retried_for_other_presets_or_native_tool_calls
 ) -> None:
     server = MockServer([text_reply('')])
     await run_graph(fake_graph(server, session), thread('plain'), user_turn())
-    assert not any('[Reply discarded' in str(m.get('content')) for body in server.requests for m in body['messages'])
+    assert len(server.requests) == 1
+    assert not session.harness_final_text
 
     monkeypatch.setattr(
         'clara_coder_backend.middleware.context_compaction_middleware.gemma_optimize_profile_active', lambda _c: True
@@ -1522,7 +1517,9 @@ async def test_empty_reply_is_not_retried_for_other_presets_or_native_tool_calls
     native = '<|channel>thought\n<channel|><|tool_call>call:read_thing{path:<|"|>a<|"|>}<tool_call|>'
     server = MockServer([text_reply(native), text_reply('done')])
     await run_graph(fake_graph(server, session), thread('native'), user_turn())
-    assert not any('last reply was empty' in str(m.get('content')) for m in server.requests[-1]['messages'])
+    # A native tool call is not an empty reply: no redraw, and no stop notice.
+    assert len(server.requests) == 1
+    assert not session.harness_final_text
 
 
 async def test_a_new_request_starts_with_no_futile_events(session: SessionState) -> None:
@@ -1546,25 +1543,26 @@ async def test_a_new_request_starts_with_no_futile_events(session: SessionState)
 async def test_truncated_xml_call_in_text_is_not_promoted(session: SessionState, workspace: Path) -> None:
     """Without the first after-model hook jumping, the pseudo-XML middleware would run this cut-off reply's call."""
     text = '<tool_call><function=write_workspace_file><parameter=relative_path>xml.txt</parameter><parameter=content>x</parameter></function></tool_call> and then'
-    server = MockServer([text_reply(text, finish='length'), text_reply('recovered')])
+    server = MockServer([text_reply(text, finish='length'), text_reply('never asked for')])
     graph = real_graph(server, session)
 
-    state, _lines, error = await run_graph(graph, thread(), user_turn())
+    _state, _lines, error = await run_graph(graph, thread(), user_turn())
 
     assert error is None
-    assert state.last_final_text == 'recovered'
+    assert len(server.requests) == 1
+    assert session.harness_final_text == _TRUNCATED_STOP_TEXT
     assert not (workspace / 'xml.txt').exists()
 
 
-async def test_third_truncated_reply_ends_the_turn_with_visible_text(session: SessionState) -> None:
-    server = MockServer([_cut_off_call('c1'), _cut_off_call('c2'), _cut_off_call('c3'), text_reply('never')])
+async def test_truncated_reply_ends_the_turn_with_visible_text(session: SessionState) -> None:
+    server = MockServer([_cut_off_call('c1'), text_reply('never')])
     outcome = LangGraphWorkerOutcome()
 
     lines = await composer_turn(server, 'go', outcome=outcome)
 
-    assert len(server.requests) == 3
+    assert len(server.requests) == 1
     assert outcome.state == AgentLoopOutcome.COMPLETED
-    assert outcome.final_text.startswith('Stopped: the model hit its output limit')
+    assert outcome.final_text == _TRUNCATED_STOP_TEXT
     assert any(
         payload.get('type') == 'final_text' and payload['text'] == outcome.final_text for payload in sse_payloads(lines)
     )
@@ -1576,23 +1574,23 @@ async def test_third_truncated_reply_ends_the_turn_with_visible_text(session: Se
     assert not any(isinstance(m, ToolMessage) for m in messages)
     assert messages[-1].content == outcome.final_text and messages[-1].tool_calls == []
     assert session.history[-1]['content'] == outcome.final_text
-    # The next turn starts clean: it does not stop on its first truncated reply either.
-    server.script = [_cut_off_call('c4'), text_reply('fine')]
+    # The next turn carries nothing of it over.
+    server.script = [text_reply('fine')]
     outcome = LangGraphWorkerOutcome()
     await composer_turn(server, 'again', outcome=outcome)
     assert outcome.final_text == 'fine'
 
 
-async def test_third_cut_off_answer_keeps_its_text_with_a_note(session: SessionState) -> None:
-    """A plain answer over the output cap: the two retries stay, and what came last is the user's to continue from."""
-    server = MockServer([text_reply(f'A long answer, try {n}. It goes on and', finish='length') for n in (1, 2, 3)])
+async def test_cut_off_answer_keeps_its_text_with_a_note(session: SessionState) -> None:
+    """A plain answer over the output cap: what came is the user's to continue from."""
+    server = MockServer([text_reply('A long answer. It goes on and', finish='length'), text_reply('never')])
     outcome = LangGraphWorkerOutcome()
 
     await composer_turn(server, 'explain', outcome=outcome)
 
-    assert len(server.requests) == 3
+    assert len(server.requests) == 1
     assert outcome.state == AgentLoopOutcome.COMPLETED
-    expected = f'A long answer, try 3. It goes on and\n\n{_TRUNCATED_ANSWER_NOTE}'
+    expected = f'A long answer. It goes on and\n\n{_TRUNCATED_ANSWER_NOTE}'
     assert outcome.final_text == expected
     assert session.history[-1]['content'] == expected
     assert (await saved_thread())['messages'][-1].content == expected
@@ -1626,11 +1624,11 @@ _CUT_OFF = {'finish_reason': 'length'}
     ],
     ids=['plain', 'content blocks', 'gemma prose'],
 )
-async def test_third_cut_off_plain_answer_keeps_only_its_visible_text(
+async def test_cut_off_plain_answer_keeps_only_its_visible_text(
     session: SessionState, message: AIMessage, visible: str
 ) -> None:
     update = await ContextCompactionMiddleware().aafter_model(
-        {'messages': [user_turn(), message], 'context_compaction': {'truncated': 2}}, None
+        {'messages': [user_turn(), message]}, None
     )
 
     assert update['jump_to'] == 'end'
@@ -1672,12 +1670,12 @@ async def test_third_cut_off_plain_answer_keeps_only_its_visible_text(
     ],
     ids=['thought only', 'reasoning only', 'native call', 'xml call', 'hermes call', 'text and a structured call'],
 )
-async def test_third_cut_off_reply_with_no_plain_answer_keeps_the_stop_text(
+async def test_cut_off_reply_with_no_plain_answer_keeps_the_stop_text(
     session: SessionState, message: AIMessage
 ) -> None:
     """Cut-off tool markup or reasoning as the answer would land in the checkpoint as if it had been said."""
     update = await ContextCompactionMiddleware().aafter_model(
-        {'messages': [user_turn(), message], 'context_compaction': {'truncated': 2}}, None
+        {'messages': [user_turn(), message]}, None
     )
 
     assert update['jump_to'] == 'end'
@@ -1686,44 +1684,36 @@ async def test_third_cut_off_reply_with_no_plain_answer_keeps_the_stop_text(
 
 
 async def test_truncated_thinking_is_discarded_like_any_reply(session: SessionState) -> None:
-    server = MockServer([text_reply('', finish='length', reasoning='thinking until the limit'), text_reply('done')])
+    server = MockServer([text_reply('', finish='length', reasoning='thinking until the limit'), text_reply('never')])
     graph = fake_graph(server, session)
 
-    state, _lines, error = await run_graph(graph, thread(), user_turn())
+    _state, _lines, error = await run_graph(graph, thread(), user_turn())
 
     assert error is None
-    assert state.last_final_text == 'done'
-    assert 'thinking until the limit' not in json.dumps(server.requests[1])
-    assert 'discarded' in server.requests[1]['messages'][2]['content']
+    assert len(server.requests) == 1
+    assert session.harness_final_text == _TRUNCATED_STOP_TEXT
+    assert (await thread_messages(graph, thread()))[-1].content == _TRUNCATED_STOP_TEXT
 
 
-async def test_normal_output_resets_the_truncation_count(session: SessionState) -> None:
-    fine = call_reply('read_thing', {'path': 'b'}, 'ok')
-    cuts = [_cut_off_call(f't{i}') for i in range(4)]
-    server = MockServer([cuts[0], cuts[1], fine, cuts[2], cuts[3], fine, text_reply('done')])
-    graph = fake_graph(server, session)
-
-    state, _lines, error = await run_graph(graph, thread(), user_turn())
-
-    assert error is None
-    assert state.last_final_text == 'done'
-    assert (await private_state(graph, thread())).get('truncated') == 0
-
-
-async def test_truncated_near_the_window_forces_compaction(session: SessionState) -> None:
-    """The prompt is small, the reply used up the context: without more room the retry would end the same way."""
+async def test_truncated_near_the_window_forces_compaction_on_the_next_call(session: SessionState) -> None:
+    """The prompt is small, the reply used up the context: without more room, going on would end the same way."""
     window = small_window(session)
     set_window(window)
     server = MockServer(
         [
             *read_script(4, 6000, final=''),
             calls_reply(('read_thing', '{"path": "a', 'cut'), finish='length', completion_tokens=window),
-            text_reply('done'),
         ]
     )
     graph = fake_graph(server, session)
 
-    state, _lines, error = await run_graph(graph, thread(), user_turn())
+    await run_graph(graph, thread(), user_turn())
+
+    assert session.harness_final_text == _TRUNCATED_STOP_TEXT
+    assert (await private_state(graph, thread())).get('force') is True
+
+    server.script = [text_reply('done')]
+    state, _lines, error = await run_graph(graph, thread(), user_turn('go on'))
 
     assert error is None
     assert state.last_final_text == 'done'
@@ -2263,20 +2253,20 @@ async def test_disabled_runs_no_event_but_keeps_truncation_budget_and_thinking_b
     set_window(window)
     big = call_reply('read_workspace_file', {'relative_path': 'p.txt', 'size': 400_000}, 'big')
     cut_off = call_reply('read_thing', '{"path": "a', 'cut', finish='length')
-    server = MockServer([big, cut_off, *read_script(6, 6000)])
+    server = MockServer([big, *read_script(6, 6000, final=''), cut_off])
     graph = fake_graph(server, session)
 
-    state, _lines, error = await run_graph(graph, thread(), user_turn())
+    _state, _lines, error = await run_graph(graph, thread(), user_turn())
 
     assert error is None
-    assert state.last_final_text == 'all done'
     assert compressed_events(session) == []
     assert server.summary_requests() == []
     assert all(BLOCK_HEADER not in json.dumps(body) for body in server.requests)
-    # No state beyond the truncation count: nothing was cut.
+    # Nothing was cut.
     cc = await private_state(graph, thread())
     assert 'cut_id' not in cc
-    # Truncation: the cut-off call never ran. Budget: the giant read came back shortened.
+    # Truncation: the cut-off call never ran and ended the turn. Budget: the giant read came back shortened.
+    assert session.harness_final_text == _TRUNCATED_STOP_TEXT
     messages = await thread_messages(graph, thread())
     results = [m for m in messages if isinstance(m, ToolMessage)]
     assert 'cut' not in {m.tool_call_id for m in results}
@@ -2396,7 +2386,7 @@ async def test_events_without_progress_hint_halve_the_cap_then_stop(session: Ses
     assert 'of tool output' not in block_of(first_with_block(server.agent_requests()))
     # After the first futile event the same read returned half as much.
     cc = await private_state(graph, thread())
-    assert cc['futile'] == 0 and cc['nudge'] is False
+    assert cc['futile'] == 0
     sizes = [len(m.content) for m in messages if isinstance(m, ToolMessage)]
     assert min(sizes) < max(sizes)
 
@@ -2536,8 +2526,7 @@ async def test_the_first_request_after_a_futile_event_does_not_get_its_hint(sess
     """The block stays until the next event: 'stop reading' would otherwise reach a request that needs reads."""
     window = small_window(session)
     set_window(window)
-    # Its answer, and that answer restated for the nudge.
-    reply = _same_read(text_reply('I stopped reading.'), text_reply('I stopped reading.'))
+    reply = _same_read(text_reply('I stopped reading.'))
     server = MockServer([reply for _ in range(60)], n_ctx=window)
     graph = fake_graph(server, session)
     state, _lines, _error = await run_graph(graph, thread(), user_turn('Read same.txt.'))
@@ -2701,19 +2690,14 @@ async def test_harness_text_of_the_last_turn_does_not_leak_into_the_next(session
     assert outcome.final_text == 'real answer'
 
 
-async def test_nudge_after_an_acknowledgement_fires_once(session: SessionState) -> None:
+async def test_a_text_reply_after_a_mid_turn_cut_ends_the_turn(session: SessionState) -> None:
+    """Whatever the first text-only reply after an event says is the answer: it is never sent back."""
     window = small_window(session)
     set_window(window)
-    seen: list[str] = []
 
     def agent(body: dict) -> dict:
-        last = body['messages'][-1]
         reads = sum(1 for message in body['messages'] if message['role'] == 'tool')
-        if last['role'] == 'user' and last['content'] == CONTINUE_NUDGE_TEXT:
-            seen.append('nudged')
-            return text_reply('Here is the real final answer.')
         if BLOCK_HEADER in str(body['messages'][1]['content']):
-            seen.append('after-event')
             return text_reply('Understood, I will continue.')
         return call_reply(
             'read_workspace_file',
@@ -2727,106 +2711,20 @@ async def test_nudge_after_an_acknowledgement_fires_once(session: SessionState) 
     state, _lines, error = await run_graph(graph, thread(), user_turn())
 
     assert error is None
-    assert seen == ['after-event', 'nudged']
-    assert state.last_final_text == 'Here is the real final answer.'
-    assert (await private_state(graph, thread()))['nudge'] is False
-    assert ('agent_nudge', {'reason': 'compaction'}) in drain(session.hitl_sse_queue)
+    assert compressed_events(session)
+    assert state.last_final_text == 'Understood, I will continue.'
+    assert server.agent_requests()[-1]['messages'][-1]['role'] == 'tool'
+    assert not any(item[0] == 'agent_nudge' for item in drain(session.hitl_sse_queue))
 
 
-def _nudges(server: MockServer) -> int:
-    return sum(body['messages'][-1].get('content') == CONTINUE_NUDGE_TEXT for body in server.agent_requests())
-
-
-async def test_an_event_on_the_nudges_own_call_does_not_send_the_restatement_back(session: SessionState) -> None:
-    """A long answer can bring an event on the very call that restates it: one nudge per reply, not one per event."""
+async def test_a_futile_stop_replaces_whatever_the_model_would_have_said(session: SessionState) -> None:
+    """The third event without progress ends the turn with the notice alone: no model call follows."""
     window = small_window(session)
     set_window(window)
-    answer = 'A long and complete answer. ' * (window // 21)
-    server = MockServer([*read_script(10, 6000, final=''), text_reply(answer), text_reply('Restated once.')])
-    graph = fake_graph(server, session)
-
-    state, _lines, error = await run_graph(graph, thread(), user_turn())
-
-    assert error is None
-    assert state.last_final_text == 'Restated once.'
-    assert _nudges(server) == 1
-    cc = await private_state(graph, thread())
-    nudge = next(m for m in await thread_messages(graph, thread()) if m.content == CONTINUE_NUDGE_TEXT)
-    assert cc['floor_id'] == nudge.id, 'the last event did not run on the nudge call'
-    assert cc['nudge'] is False
-
-
-async def test_the_nudge_arms_again_after_more_work_and_a_later_cut(session: SessionState) -> None:
-    window = small_window(session)
-    set_window(window)
-    server = MockServer(
-        [
-            *read_script(10, 6000, final=''),
-            text_reply('Premature answer.'),
-            *read_script(14, 6000, final='', start=100),
-            text_reply('Real answer.'),
-            text_reply('Real answer restated.'),
-        ]
-    )
-    graph = fake_graph(server, session)
-
-    state, _lines, error = await run_graph(graph, thread(), user_turn())
-
-    assert error is None
-    assert _nudges(server) == 2
-    assert state.last_final_text == 'Real answer restated.'
-
-
-@pytest.mark.parametrize(
-    'cut_off',
-    [text_reply('The real answ', finish='length'), call_reply('read_thing', '{"path": "a', 'cut', finish='length')],
-    ids=['cut-off restatement', 'cut-off call'],
-)
-async def test_a_stop_after_the_nudge_keeps_the_answer_it_sent_back(session: SessionState, cut_off: dict) -> None:
-    """The answer stays in the prompt, so its restatement has less room than it had: it can be cut off every time."""
-    window = small_window(session)
-    set_window(window)
-    server = MockServer([*read_script(10, 6000, final=''), text_reply('The real answer.'), cut_off, cut_off, cut_off])
-    outcome = LangGraphWorkerOutcome()
-
-    await composer_turn(server, 'go', outcome=outcome)
-
-    assert _nudges(server) == 1
-    assert outcome.state == AgentLoopOutcome.COMPLETED
-    assert outcome.final_text == f'The real answer.\n\n{_TRUNCATED_STOP_TEXT}'
-    assert session.history[-1]['content'] == outcome.final_text
-    # The thread has the answer already: the reply that replaces the last draw carries the reason alone.
-    assert (await saved_thread())['messages'][-1].content == _TRUNCATED_STOP_TEXT
-
-
-async def test_an_empty_reply_stop_after_the_nudge_keeps_the_answer_it_sent_back(
-    session: SessionState, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _gemma_profile(monkeypatch)
-    window = small_window(session)
-    set_window(window)
-    empty = text_reply(_EMPTY_THOUGHT)
-    # Four draws per model call, for three visible retries.
-    server = MockServer([*read_script(10, 6000, final=''), text_reply('The real answer.'), *[empty for _ in range(12)]])
-    outcome = LangGraphWorkerOutcome()
-
-    await composer_turn(server, 'go', outcome=outcome)
-
-    assert outcome.final_text == f'The real answer.\n\n{_EMPTY_REPLY_STOP_TEXT}'
-
-
-async def test_a_futile_stop_on_the_nudges_own_call_keeps_the_answer_it_sent_back(session: SessionState) -> None:
-    """Two futile events behind it, the event on the nudge's call makes the third: no model call follows."""
-    window = small_window(session)
-    set_window(window)
-    answer = 'A long and complete answer. ' * (window // 21)
     counter = itertools.count()
 
     def agent(body: dict) -> dict:
         del body
-        # First event no baseline, then two with nothing new: that is futile 2.
-        if session.hitl_sse_queue.qsize() >= 3:
-            return text_reply(answer)
         return call_reply('read_thing', {'path': 'same', 'size': 14000}, f'c{next(counter)}')
 
     server = MockServer([agent for _ in range(60)], n_ctx=window)
@@ -2834,77 +2732,18 @@ async def test_a_futile_stop_on_the_nudges_own_call_keeps_the_answer_it_sent_bac
 
     await run_graph(graph, thread(), user_turn())
 
-    assert session.harness_final_text == f'{answer.strip()}\n\n{_FUTILE_STOP_TEXT}'
+    assert session.harness_final_text == _FUTILE_STOP_TEXT
     assert (await thread_messages(graph, thread()))[-1].content == _FUTILE_STOP_TEXT
 
 
-async def test_a_stop_keeps_no_answer_from_an_earlier_turn_or_before_more_work(session: SessionState) -> None:
-    window = small_window(session)
-    set_window(window)
-    cut_off = text_reply('A draft', finish='length')
-    server = MockServer([*read_script(10, 6000, final=''), text_reply('First answer.'), text_reply('Restated.')])
-    outcome = LangGraphWorkerOutcome()
-    await composer_turn(server, 'turn one', outcome=outcome)
-    assert outcome.final_text == 'Restated.'
-
-    server.script = [cut_off, cut_off, cut_off]
-    outcome = LangGraphWorkerOutcome()
-    await composer_turn(server, 'turn two', outcome=outcome)
-    assert outcome.final_text == f'A draft\n\n{_TRUNCATED_ANSWER_NOTE}'
-
-    server.script = [
-        *read_script(12, 6000, final='', start=100),
-        text_reply('Premature answer.'),
-        call_reply('read_thing', {'path': 'more'}, 'more'),
-        cut_off,
-        cut_off,
-        cut_off,
-    ]
-    outcome = LangGraphWorkerOutcome()
-    await composer_turn(server, 'turn three', outcome=outcome)
-    assert outcome.final_text == f'A draft\n\n{_TRUNCATED_ANSWER_NOTE}'
-
-
-async def test_tool_calling_reply_after_a_cut_keeps_the_nudge_for_the_first_text_reply(session: SessionState) -> None:
-    window = small_window(session)
-    set_window(window)
-    nudges: list[int] = []
-
-    def agent(body: dict) -> dict:
-        count = len(server.agent_requests())
-        last = body['messages'][-1]
-        if last['role'] == 'user' and last['content'] == CONTINUE_NUDGE_TEXT:
-            nudges.append(count)
-            return text_reply('Final answer restated.')
-        has_block = BLOCK_HEADER in str(body['messages'][1]['content'])
-        if has_block and body['messages'][-1]['role'] == 'tool' and body['messages'][-1]['tool_call_id'] == 'after-cut':
-            return text_reply('Final answer.')
-        if has_block:
-            return call_reply('read_thing', {'path': 'x'}, 'after-cut')
-        return call_reply('read_workspace_file', {'relative_path': f'p{count}.txt', 'size': 6000}, f'c{count}')
-
-    server = MockServer([agent] * 30)
-    graph = fake_graph(server, session)
-
-    state, _lines, error = await run_graph(graph, thread(), user_turn())
-
-    assert error is None
-    assert len(nudges) == 1
-    assert state.last_final_text == 'Final answer restated.'
-
-
-async def test_promoted_xml_call_is_not_a_text_only_reply(session: SessionState) -> None:
-    """Tool-call promotion runs before the nudge's check, so a call written as XML does not get a nudge."""
+async def test_promoted_xml_call_after_a_cut_runs(session: SessionState) -> None:
+    """A call written as XML right after an event is promoted and runs; the reply after it is the answer."""
     window = small_window(session)
     set_window(window)
     xml = '<tool_call><function=read_thing><parameter=path>promoted</parameter></function></tool_call>'
-    nudged: list[int] = []
 
     def agent(body: dict) -> dict:
         last = body['messages'][-1]
-        if last['role'] == 'user' and last['content'] == CONTINUE_NUDGE_TEXT:
-            nudged.append(len(body['messages']))
-            return text_reply('Restated.')
         if last['role'] == 'tool' and 'promoted' in last['content']:
             return text_reply('Done after the promoted call.')
         if BLOCK_HEADER in str(body['messages'][1]['content']):
@@ -2923,51 +2762,7 @@ async def test_promoted_xml_call_is_not_a_text_only_reply(session: SessionState)
     assert error is None
     messages = await thread_messages(graph, thread())
     assert any(isinstance(m, ToolMessage) and 'promoted' in m.content for m in messages)
-    # The one nudge goes to the first real text-only reply, after the promoted call ran.
-    assert len(nudged) == 1
-    assert state.last_final_text == 'Restated.'
-
-
-async def test_no_nudge_when_the_event_came_with_the_request_in_view(session: SessionState) -> None:
-    window = small_window(session)
-    set_window(window)
-    server = MockServer(
-        [text_reply('x' * 16000), text_reply('y' * 16000), text_reply('z' * 16000), text_reply('plain answer')]
-    )
-    graph = fake_graph(server, session)
-
-    for number in range(4):
-        state, _lines, error = await run_graph(graph, thread(), user_turn(f'request {number}'))
-
-    assert error is None
-    assert state.last_final_text == 'plain answer'
-    assert all(body['messages'][-1]['content'] != CONTINUE_NUDGE_TEXT for body in server.requests)
-    assert not (await private_state(graph, thread()))['nudge']
-
-
-async def test_a_new_turn_clears_a_nudge_a_stopped_turn_left(session: SessionState) -> None:
-    window = small_window(session)
-    set_window(window)
-    server = MockServer(read_script(10, 6000, final=''))
-    graph = fake_graph(server, session)
-
-    def stop_on_the_last_reply(body: dict) -> None:
-        del body
-        if not server.script:
-            session.abort_event.set()
-
-    server.on_request = stop_on_the_last_reply
-    await run_graph(graph, thread(), user_turn())
-    assert (await private_state(graph, thread()))['nudge'] is True
-
-    server.on_request = None
-    session.abort_event.clear()
-    server.script = [text_reply('direct answer')]
-    state, _lines, error = await run_graph(graph, thread(), user_turn('a new question'))
-
-    assert error is None
-    assert state.last_final_text == 'direct answer'
-    assert all(body['messages'][-1].get('content') != CONTINUE_NUDGE_TEXT for body in server.requests)
+    assert state.last_final_text == 'Done after the promoted call.'
 
 
 async def test_a_turn_counts_as_new_with_notes_after_the_request() -> None:
@@ -3189,7 +2984,7 @@ async def test_thinking_bound_shrinks_to_its_floor_near_the_window(session: Sess
 
 
 async def test_thinking_bound_leaves_room_for_the_answer_under_a_settings_cap(session: SessionState) -> None:
-    """Above the cap the model reaches it inside its thought: no answer, discarded, and the turn stops on the third."""
+    """Above the cap the model reaches it inside its thought: no answer, discarded, and the turn stops."""
     set_window(65536)
     server = MockServer([text_reply('done')])
     graph = fake_graph(server, session, model=build_model(server, max_tokens=6000))
@@ -3317,28 +3112,14 @@ async def test_truncation_hook_on_both_metadata_forms_strips_everything_but_the_
 
     update = await ContextCompactionMiddleware().aafter_model({'messages': [user_turn(), last]}, None)
 
-    assert update['jump_to'] == 'model'
-    replaced, note = update['messages']
+    assert update['jump_to'] == 'end'
+    (replaced,) = update['messages']
     assert replaced.id == 'the-id'
     assert replaced.tool_calls == [] and replaced.invalid_tool_calls == []
-    assert isinstance(replaced.content, str) and 'partial' not in replaced.content
+    assert replaced.content == session.harness_final_text == _TRUNCATED_STOP_TEXT
     assert replaced.additional_kwargs == {'reasoning_content': 'thoughts'}
-    assert isinstance(note, HumanMessage)
-    assert update['context_compaction']['truncated'] == 1
+    assert 'context_compaction' not in update
     assert last == original
-
-
-async def test_truncation_hook_counts_from_private_state(session: SessionState) -> None:
-    last = AIMessage(content='cut', id='i', response_metadata={'finish_reason': 'length'})
-    middleware = ContextCompactionMiddleware()
-
-    second = await middleware.aafter_model({'messages': [last], 'context_compaction': {'truncated': 1}}, None)
-    third = await middleware.aafter_model({'messages': [last], 'context_compaction': {'truncated': 2}}, None)
-
-    assert second['jump_to'] == 'model'
-    assert third['jump_to'] == 'end'
-    assert session.harness_final_text == third['messages'][0].content
-    assert len(third['messages']) == 1
 
 
 async def test_truncation_hook_ignores_everything_else(session: SessionState) -> None:
@@ -3346,32 +3127,6 @@ async def test_truncation_hook_ignores_everything_else(session: SessionState) ->
     assert await middleware.aafter_model({'messages': [AIMessage(content='fine')]}, None) is None
     assert await middleware.aafter_model({'messages': [HumanMessage(content='x')]}, None) is None
     assert await middleware.aafter_model({'messages': []}, None) is None
-    reset = await middleware.aafter_model(
-        {'messages': [AIMessage(content='fine')], 'context_compaction': {'truncated': 2}}, None
-    )
-    assert reset == {'context_compaction': {'truncated': 0}}
-
-
-@pytest.mark.parametrize(
-    'last',
-    [
-        AIMessage(content='', tool_calls=[{'name': 'x', 'args': {}, 'id': 'c', 'type': 'tool_call'}]),
-        AIMessage(
-            content='',
-            invalid_tool_calls=[{'name': 'x', 'args': '{', 'id': 'd', 'error': 'bad', 'type': 'invalid_tool_call'}],
-        ),
-        HumanMessage(content='x'),
-    ],
-)
-async def test_continue_hook_waits_for_a_text_only_reply(session: SessionState, last: Any) -> None:
-    state = {'messages': [last], 'context_compaction': {'nudge': True}}
-    assert await CompactionContinueMiddleware().aafter_model(state, None) is None
-
-
-async def test_continue_hook_stays_out_of_a_stopped_turn(session: SessionState) -> None:
-    session.abort_event.set()
-    state = {'messages': [AIMessage(content='text')], 'context_compaction': {'nudge': True}}
-    assert await CompactionContinueMiddleware().aafter_model(state, None) is None
 
 
 # ---------------------------------------------------------------------------

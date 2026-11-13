@@ -4,7 +4,7 @@ Modules
 -------
 ``delete_review_middleware`` — pause when a directory delete is too large to journal
 ``accept_command_review_middleware`` — pause after accept-command HITL
-``empty_response_middleware`` — nudge on empty model turns
+``agent_nudge_event`` — the stream event a finish gate sends when it hands an answer back
 ``context_compaction_middleware`` — keep model calls inside the context window; budget tool results
 ``parallel_tool_middleware`` — inject ``parallel_tool_calls`` from runtime
 ``tool_batch_middleware`` — tag each tool call with the model message (batch) that issued it

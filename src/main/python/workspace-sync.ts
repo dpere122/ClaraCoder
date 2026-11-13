@@ -475,7 +475,7 @@ async function postRuntimeConfigToPython(
           webSearchCooldownSeconds: config.workspaceTools.webSearchCooldownSeconds ?? 300,
           extraUserPath: config.workspaceTools.extraUserPath ?? '',
           enableAgentFormatters: config.workspaceTools.enableAgentFormatters ?? false,
-          verifyAfterEdits: config.workspaceTools.verifyAfterEdits ?? true,
+          verifyAfterEdits: config.workspaceTools.verifyAfterEdits ?? false,
           verifyMaxFixRounds: config.workspaceTools.verifyMaxFixRounds ?? 2,
         },
         contextCompression: {

@@ -123,17 +123,17 @@ def test_turn_verification_settings_default_on_and_clamp() -> None:
     }
     defaults = RuntimeConfigRequest.model_validate({**base, 'tools': {}})
     assert defaults.tools is not None
-    assert defaults.tools.verifyAfterEdits is True and defaults.tools.verifyMaxFixRounds == 2
+    assert defaults.tools.verifyAfterEdits is False and defaults.tools.verifyMaxFixRounds == 2
 
     explicit = RuntimeConfigRequest.model_validate(
-        {**base, 'tools': {'verify_after_edits': 'off', 'verifyMaxFixRounds': 99}}
+        {**base, 'tools': {'verify_after_edits': 'on', 'verifyMaxFixRounds': 99}}
     )
     assert explicit.tools is not None
-    assert explicit.tools.verifyAfterEdits is False and explicit.tools.verifyMaxFixRounds == 5
+    assert explicit.tools.verifyAfterEdits is True and explicit.tools.verifyMaxFixRounds == 5
 
     odd = RuntimeConfigRequest.model_validate({**base, 'tools': {'verifyAfterEdits': None, 'verifyMaxFixRounds': 'x'}})
     assert odd.tools is not None
-    assert odd.tools.verifyAfterEdits is True and odd.tools.verifyMaxFixRounds == 2
+    assert odd.tools.verifyAfterEdits is False and odd.tools.verifyMaxFixRounds == 2
 
 
 def test_enable_agent_formatters_defaults_false() -> None:

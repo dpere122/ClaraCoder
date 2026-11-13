@@ -71,6 +71,12 @@ def _write_checks(workspace: Path, checks: list[dict[str, Any]]) -> None:
     (workspace / '.clara' / 'checks.json').write_text(json.dumps({'checks': checks}), encoding='utf-8')
 
 
+@pytest.fixture(autouse=True)
+def _verification_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Settings → Tools has verification off by default; every test here is about it running."""
+    monkeypatch.setattr(runtime_config.tools, 'verify_after_edits', True)
+
+
 @pytest.fixture()
 def turn(tmp_path, monkeypatch: pytest.MonkeyPatch):
     """A main session in the middle of editor turn ``t1`` on a trusted temp workspace."""

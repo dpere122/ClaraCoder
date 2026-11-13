@@ -40,7 +40,7 @@ import { createDefaultTutorialProgress } from '../../shared/types/tutorial';
 import { FIRST_THEME_ID } from '../constants';
 
 /** Bump when persisted `config.json` needs a one-time migration step (see `migrateConfig`). */
-export const APP_CONFIG_SCHEMA_VERSION = 9;
+export const APP_CONFIG_SCHEMA_VERSION = 10;
 
 function defaultLmStudioModelProfile(): LlmModelProfile {
   const defaultLmStudioModel = process.env.LM_STUDIO_MODEL || 'local-model';
@@ -246,7 +246,7 @@ export function getDefaultWorkspaceTools(): WorkspaceToolsConfig {
     screenshotRetention: { ...DEFAULT_SCREENSHOT_RETENTION },
     extraUserPath: '',
     enableAgentFormatters: false,
-    verifyAfterEdits: true,
+    verifyAfterEdits: false,
     verifyMaxFixRounds: 2,
   };
 }

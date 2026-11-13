@@ -1416,6 +1416,15 @@ export function migrateConfig(config: AppConfig): AppConfig {
         }
       }
     }
+    if (schemaVersion < 10) {
+      // Edit verification now defaults to off: models that check their own work were sent back to
+      // answer twice. Every saved `true` so far was written by this loader's old default, so it
+      // flips once; turning it on afterwards sticks.
+      const tools = (newConfig as AppConfig).workspaceTools;
+      if (tools && typeof tools === 'object') {
+        tools.verifyAfterEdits = false;
+      }
+    }
     (newConfig as { configSchemaVersion: number }).configSchemaVersion = APP_CONFIG_SCHEMA_VERSION;
     migrated = true;
   }
@@ -1822,10 +1831,10 @@ export function migrateConfig(config: AppConfig): AppConfig {
     const verifyRaw = (wt as unknown as { verifyAfterEdits?: unknown }).verifyAfterEdits;
     if (typeof verifyRaw === 'string') {
       const s = verifyRaw.trim().toLowerCase();
-      wt.verifyAfterEdits = !(s === 'false' || s === '0' || s === 'no' || s === 'off');
+      wt.verifyAfterEdits = s === 'true' || s === '1' || s === 'yes' || s === 'on';
       migrated = true;
     } else if (typeof verifyRaw !== 'boolean') {
-      wt.verifyAfterEdits = true;
+      wt.verifyAfterEdits = false;
       migrated = true;
     }
     const fixRoundsRaw = (wt as unknown as { verifyMaxFixRounds?: unknown }).verifyMaxFixRounds;

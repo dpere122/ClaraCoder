@@ -10,7 +10,7 @@ sends them as ``chat_template_reasoning``):
 - Preserved thinking: a thinking block is bound to the system prompt, the tools and every message
   before it, so a Claude thread only ever grows (see :mod:`~clara_coder_backend.middleware.append_only_context_middleware`).
   ``thinking.block_binding.prefix_mismatch_behavior = "drop_block"`` stays as the safety net: an edit
-  that still slips through (a ClaraCoder compaction after an overflow, a provider switch) costs that
+  that still slips through (a cut another provider left in the thread, a provider switch) costs that
   reasoning instead of failing the request with a 400. Every dropped block is logged from the
   response's ``input_transformations``.
 - Mid-conversation ``role: "system"`` messages: a HumanMessage whose ``additional_kwargs`` hold

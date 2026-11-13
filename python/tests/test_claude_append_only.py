@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import dataclasses
 import itertools
 import json
 from collections.abc import Callable
@@ -41,7 +42,11 @@ from clara_coder_backend.llm.anthropic_llm import (
 )
 from clara_coder_backend.llm.messages import USER_TURN_KEY
 from clara_coder_backend.middleware.append_only_context_middleware import system_change_text
-from clara_coder_backend.middleware.context_compaction_middleware import SERVER_COMPACTION_MIN_TRIGGER
+from clara_coder_backend.middleware.context_compaction_middleware import (
+    SERVER_COMPACTION_MIN_TRIGGER,
+    ContextCompactionMiddleware,
+    runs_own_compaction,
+)
 from clara_coder_backend.session import checkpointing as ck
 from clara_coder_backend.session.state import current_session_id, get_session, runtime_config
 from clara_coder_backend.session.user_events import queue_user_event_note
@@ -83,6 +88,11 @@ def compaction(summary: str | None, tool_changes: list[dict[str, Any]] | None = 
     return block
 
 
+def overflow(prompt_tokens: int, window: int) -> dict[str, Any]:
+    """The API's 400 for a prompt that does not fit."""
+    return {'error': f'prompt is too long: {prompt_tokens} tokens > {window} maximum'}
+
+
 class FakeClaude:
     """Scripted ``/v1/messages`` streams. Every thinking block gets a unique signature."""
 
@@ -97,6 +107,9 @@ class FakeClaude:
         self.bodies.append(body)
         self.betas.append([b.strip() for b in request.headers.get('anthropic-beta', '').split(',') if b.strip()])
         item = self.script.pop(0) if self.script else reply(thinking(), text('done'))
+        if 'error' in item:
+            error = {'type': 'invalid_request_error', 'message': item['error']}
+            return httpx2.Response(400, json={'type': 'error', 'error': error})
         return httpx2.Response(200, headers={'content-type': 'text/event-stream'}, content=self._sse(item))
 
     def _sse(self, item: dict[str, Any]) -> bytes:
@@ -643,3 +656,58 @@ async def test_a_tool_defined_in_a_message_is_defined_again_after_a_compaction(
     assert notice['role'] == 'system'
     assert [(b['type'], b['tool']['type']) for b in notice['content']] == [('tool_addition', 'tool_definition')]
     assert notice['content'][0]['tool']['definition']['name'] == 'late_thing'
+
+
+# ---------------------------------------------------------------------------
+# ClaraCoder's own compaction stays off Claude threads
+# ---------------------------------------------------------------------------
+
+
+def test_claras_own_compaction_is_off_for_claude() -> None:
+    assert not runs_own_compaction(_connection(server_compaction=True))
+    # An append-only model whose capabilities did not load: still no cut, it would take the notices away.
+    assert not runs_own_compaction(_connection())
+    # Compacts on the API side without an append-only thread (no mid-conversation system messages).
+    assert not runs_own_compaction(_connection(server_compaction=True, model='claude-sonnet-5'))
+    # Neither: nothing else would compact it.
+    assert runs_own_compaction(_connection(model='claude-opus-4-5'))
+    local = dataclasses.replace(_connection(), provider='llamacpp', model='qwen')
+    assert runs_own_compaction(local)
+    assert runs_own_compaction(None)
+
+
+@pytest.mark.parametrize(('model', 'own'), [('claude-opus-5-5', False), ('claude-opus-4-5', True)])
+@pytest.mark.asyncio(loop_scope='function')
+async def test_an_overflow_on_claude_is_not_answered_with_a_cut(
+    monkeypatch: pytest.MonkeyPatch, session: SessionState, model: str, own: bool
+) -> None:
+    monkeypatch.setattr(runtime_config, 'connections', [_connection(server_compaction=not own, model=model)])
+    events: list[int] = []
+    compact = ContextCompactionMiddleware._compact
+
+    async def spy(self: Any, call: Any, *, level: int = 0) -> bool:
+        events.append(level)
+        return await compact(self, call, level=level)
+
+    monkeypatch.setattr(ContextCompactionMiddleware, '_compact', spy)
+    server = FakeClaude(
+        [
+            reply(thinking('a'), tool_use('read_thing', {'path': 'x'}, 'toolu_1'), stop='tool_use'),
+            overflow(250_000, 2_000),
+        ]
+    )
+    use_server(monkeypatch, server)
+    graph = claude_graph(session, tools_of(read_thing))
+    if own:
+        # An older Claude model keeps the retry: the same reply would have reached a cut.
+        try:
+            await run_turn(graph, 't-overflow', user_turn('go'))
+        except Exception:
+            pass
+        assert events
+        return
+    with pytest.raises(Exception, match='prompt is too long'):
+        await run_turn(graph, 't-overflow', user_turn('go'))
+    # The request failed as it was: no cut, no elision, no notes call, no second attempt.
+    assert events == []
+    assert len(server.bodies) == 2

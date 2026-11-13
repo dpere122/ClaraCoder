@@ -16,6 +16,9 @@ Also, whether compaction is on or off:
 - ``llama-server`` gets a per-step thinking bound.
 
 With compaction on and a cut in place, an edit based on text the model no longer has is refused.
+
+Claude is the exception (:func:`runs_own_compaction`): its threads only grow, so no event runs there, not
+even after an overflow. Claude compacts on its side instead (:func:`uses_server_compaction`).
 """
 
 from __future__ import annotations
@@ -45,7 +48,11 @@ from typing_extensions import NotRequired, override
 
 from clara_coder_backend.config import CLARA_CONTEXT_WINDOW_FALLBACK
 from clara_coder_backend.domain import RuntimeConnection, SessionState
-from clara_coder_backend.llm.anthropic_llm import COMPACTION_EDIT_TYPE, is_compaction_summary
+from clara_coder_backend.llm.anthropic_llm import (
+    COMPACTION_EDIT_TYPE,
+    is_compaction_summary,
+    supports_mid_conversation_system,
+)
 from clara_coder_backend.lang_agent.context_compaction import (
     CHARS_PER_TOKEN,
     NOTES_EVERY_CALLS,
@@ -208,6 +215,22 @@ def uses_server_compaction(connection: RuntimeConnection | None) -> bool:
         return False
     caps = connection.chat_template_reasoning if isinstance(connection.chat_template_reasoning, dict) else {}
     return bool(caps.get('serverCompaction'))
+
+
+def runs_own_compaction(connection: RuntimeConnection | None) -> bool:
+    """False for Claude: a cut or an elision edits the history its threads depend on.
+
+    It invalidates every earlier thinking block (preserved thinking), and it takes the system notices of
+    :class:`~clara_coder_backend.middleware.append_only_context_middleware.AppendOnlyContextMiddleware` out
+    of the view, which that middleware does not send again. So a Claude model that compacts on the API
+    side, or that keeps an append-only thread, never gets an event, not even after an overflow: that
+    request fails with the API's own error. Older Claude models have neither, and nothing else would
+    compact them, so they keep ClaraCoder's compaction. A cut another provider made earlier still shapes
+    the view (it does not move here).
+    """
+    if connection is None or connection.provider != 'anthropic':
+        return True
+    return not (uses_server_compaction(connection) or supports_mid_conversation_system(connection.model or ''))
 
 
 def server_compaction_edit(trigger_tokens: int) -> dict[str, Any]:
@@ -447,8 +470,10 @@ class _ModelCall:
     est: int = 0
     ratio: float = CHARS_PER_TOKEN
     progress_checked: bool = False
-    #: Claude compacts on its side (``compact_20260112``): no events here, only the overflow fallback.
+    #: Claude compacts on its side (``compact_20260112``).
     server_compaction: bool = False
+    #: ClaraCoder's own events (cut, elisions, notes) may run on this call, the overflow retry included.
+    own_compaction: bool = False
 
     @property
     def provider(self) -> str:
@@ -549,8 +574,9 @@ class ContextCompactionMiddleware(AgentMiddleware):
         call.server_compaction = (
             enabled and uses_server_compaction(call.connection) and not cc.get(_SERVER_COMPACTION_FAILED)
         )
+        call.own_compaction = enabled and runs_own_compaction(call.connection)
         block_chars = len(str(cc.get('block') or ''))
-        if enabled and not call.server_compaction and compaction_due(call.est, call.budget(0, block_chars, 0), cc):
+        if call.own_compaction and compaction_due(call.est, call.budget(0, block_chars, 0), cc):
             await self._compact(call)
         level = 0
         while True:
@@ -560,7 +586,7 @@ class ContextCompactionMiddleware(AgentMiddleware):
                 response = await self._model_reply(call)
                 break
             except Exception as exc:
-                info = overflow_info(exc) if enabled else None
+                info = overflow_info(exc) if call.own_compaction else None
                 if info is None or session.abort_event.is_set():
                     raise
                 level = await self._compact_after_overflow(call, info, level)
@@ -799,7 +825,8 @@ class ContextCompactionMiddleware(AgentMiddleware):
                 return {'messages': [HumanMessage(content=COMPACTION_CONTINUE_TEXT)], 'jump_to': 'model'}
             # No summary came back, so nothing was compacted. The empty reply leaves the thread and the model
             # is called again as it was, without asking Claude to compact: the same request would pause on
-            # the same failure until the step limit. ClaraCoder's own compaction covers the rest of the request.
+            # the same failure until the step limit. The trigger sits below the window, so the rest of this
+            # request has room; the next one asks again.
             logger.warning('Claude paused to compact but wrote no summary; going on without server-side compaction')
             saved = state.get('context_compaction') or {}
             return {
@@ -831,7 +858,8 @@ class ContextCompactionMiddleware(AgentMiddleware):
         usage = last.usage_metadata or {}
         used = int(usage.get('input_tokens') or 0) + int(usage.get('output_tokens') or 0)
         saved = state.get('context_compaction') or {}
-        if cut_off and used >= _TRUNCATED_FORCE_RATIO * _thread_window(saved, _active_connection()):
+        connection = _active_connection()
+        if cut_off and runs_own_compaction(connection) and used >= _TRUNCATED_FORCE_RATIO * _thread_window(saved, connection):
             update['context_compaction'] = {**saved, 'force': True}
         return update
 
@@ -859,4 +887,4 @@ class ContextCompactionMiddleware(AgentMiddleware):
         return _capped_result(result, name, cap)
 
 
-__all__ = ['COMPACT_PILL_LABEL', 'ContextCompactionMiddleware']
+__all__ = ['COMPACT_PILL_LABEL', 'ContextCompactionMiddleware', 'runs_own_compaction', 'uses_server_compaction']

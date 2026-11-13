@@ -23,6 +23,8 @@ interface StubConversationFixture {
   messages?: Array<Record<string, unknown>>;
   /** Set by `load-conversation` when Python kept the conversation's checkpoint. */
   contextTokens?: number;
+  /** The composer stored with the conversation. */
+  composer?: Record<string, unknown>;
 }
 
 interface StubRefs {
@@ -147,6 +149,7 @@ function stubElectronApi(
         messages: fixture.messages ?? [],
         themeId: 'clara-dark',
         ...(fixture.contextTokens ? { contextTokens: fixture.contextTokens } : {}),
+        ...(fixture.composer ? { composer: fixture.composer } : {}),
       },
     ]),
   );
@@ -207,6 +210,7 @@ function stubElectronApi(
     patchWorkspaceMonacoScroll: async () => {},
     patchWorkspaceOpenTabs: refs.patchWorkspaceOpenTabs,
     setActiveLlmModel: async (_modelId: string) => ({ ...defaultConfig }),
+    updateConversationComposer: async () => true,
     patchHealthMonitor: async (patch: { logLevel?: string; metricsEnabled?: boolean }) => ({
       ...defaultConfig,
       healthMonitor: { ...defaultConfig.healthMonitor, ...patch },
@@ -1281,5 +1285,91 @@ describe('App', () => {
     fixture.detectChanges();
     expect(app.currentWorkspaceId()).toBeNull();
     expect((fixture.nativeElement as HTMLElement).querySelector('.app-content--no-workspace')).toBeTruthy();
+  });
+  describe('each conversation keeps its own model', () => {
+    const provider = (id: string, modelId: string) => ({
+      id,
+      name: id,
+      provider: 'openai' as const,
+      baseUrl: '',
+      apiKey: '',
+      models: [{ id: modelId, name: modelId, model: modelId, contextWindowTokens: 128_000, optimizationPreset: 'generic' }],
+    });
+    const TWO_MODELS = {
+      activeLlmModelId: 'model-a',
+      llmProviders: [provider('prov-a', 'model-a'), provider('prov-b', 'model-b')],
+    };
+    async function settle(fixture: { detectChanges(): void; whenStable(): Promise<unknown> }): Promise<void> {
+      for (let pass = 0; pass < 3; pass += 1) {
+        fixture.detectChanges();
+        await fixture.whenStable();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    }
+    type ModelApp = {
+      onSelectConversation: (id: string) => Promise<void>;
+      conversationSession: { composerFor: (id: string) => { modelId?: string } };
+    };
+
+    it("switches to an opened conversation's model and keeps a model picked while it is open", async () => {
+      refs = stubElectronApi(
+        [
+          { id: 'on-b', composer: { draft: '', mode: 'agent', autoApply: false, admin: false, modelId: 'model-b' } },
+          { id: 'never-stored' },
+        ],
+        TWO_MODELS,
+      );
+      const api = (window as unknown as { electronAPI: Record<string, unknown> }).electronAPI;
+      let active = 'model-a';
+      const setActiveLlmModel = vi.fn(async (modelId: string) => {
+        active = modelId;
+        return { ...refs.loadedConfig, activeLlmModelId: modelId };
+      });
+      const updateConversationComposer = vi.fn(async () => true);
+      api['setActiveLlmModel'] = setActiveLlmModel;
+      api['updateConversationComposer'] = updateConversationComposer;
+      const fixture = TestBed.createComponent(App);
+      await settle(fixture);
+      const app = fixture.componentInstance as unknown as ModelApp;
+
+      // The first conversation opens on its own model.
+      expect(setActiveLlmModel).toHaveBeenCalledWith('model-b');
+      expect(active).toBe('model-b');
+
+      // One stored before models were kept takes the model the app is on, without switching.
+      setActiveLlmModel.mockClear();
+      await app.onSelectConversation('never-stored');
+      await settle(fixture);
+      expect(setActiveLlmModel).not.toHaveBeenCalled();
+      expect(app.conversationSession.composerFor('never-stored').modelId).toBe('model-b');
+
+      // Picking another model while it is open (Settings, the status bar) is kept with it.
+      refs.configUpdatedHandler?.(null, { ...refs.loadedConfig, activeLlmModelId: 'model-a' });
+      await settle(fixture);
+      expect(app.conversationSession.composerFor('never-stored').modelId).toBe('model-a');
+      expect(updateConversationComposer).toHaveBeenCalledWith('never-stored', expect.objectContaining({ modelId: 'model-a' }));
+      // ...and not with the conversation left.
+      expect(app.conversationSession.composerFor('on-b').modelId).toBe('model-b');
+
+      await app.onSelectConversation('on-b');
+      await settle(fixture);
+      expect(setActiveLlmModel).toHaveBeenLastCalledWith('model-b');
+    });
+
+    it('stays on the model the app is on when the stored one was deleted, and keeps that instead', async () => {
+      refs = stubElectronApi(
+        [{ id: 'gone', composer: { draft: '', mode: 'agent', autoApply: false, admin: false, modelId: 'deleted-model' } }],
+        TWO_MODELS,
+      );
+      const api = (window as unknown as { electronAPI: Record<string, unknown> }).electronAPI;
+      const setActiveLlmModel = vi.fn(async (modelId: string) => ({ ...refs.loadedConfig, activeLlmModelId: modelId }));
+      api['setActiveLlmModel'] = setActiveLlmModel;
+      const fixture = TestBed.createComponent(App);
+      await settle(fixture);
+      const app = fixture.componentInstance as unknown as ModelApp;
+
+      expect(setActiveLlmModel).not.toHaveBeenCalled();
+      expect(app.conversationSession.composerFor('gone').modelId).toBe('model-a');
+    });
   });
 });

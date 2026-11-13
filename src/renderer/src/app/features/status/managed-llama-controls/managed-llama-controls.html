@@ -8,6 +8,7 @@
     <div class="managed-llama-controls__row" (pointerdown)="refreshSwitchable()" (focusin)="refreshSwitchable()">
       <app-pill-select
         class="managed-llama-controls__source-select"
+        [class.is-glowing]="modelGlow()"
         [options]="sourceOptions()"
         [value]="selectedProviderId()"
         [disabled]="!statusBar() && (running() || busy())"

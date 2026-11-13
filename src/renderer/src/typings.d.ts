@@ -236,6 +236,7 @@ declare global {
       adminElevationGranted?: boolean,
       workspaceNotes?: string[],
       continueWithSubagentResults?: boolean,
+      turnSettings?: import('@shared/index').ConversationTurnSettings,
     ) => void;
     abortMessage: (conversationId: string) => Promise<{ ok: boolean; error?: string }>;
     cancelBuildPlan: (conversationId: string, planId: string) => Promise<{ ok: boolean; error?: string }>;
@@ -368,7 +369,14 @@ declare global {
     deleteConversation: (id: string, workspaceId?: string | null) => Promise<void>;
     renameConversation: (id: string, title: string, workspaceId?: string | null) => Promise<void>;
     maybeAutoTitleConversation: (id: string) => Promise<MaybeAutoTitleResult>;
-    newConversation: (workspaceId: string | null) => Promise<Conversation>;
+    newConversation: (
+      workspaceId: string | null,
+      composer?: import('@shared/index').ConversationComposerState,
+    ) => Promise<Conversation>;
+    updateConversationComposer: (
+      id: string,
+      composer: import('@shared/index').ConversationComposerState,
+    ) => Promise<boolean>;
     startTtsStream: (
       text: string,
       voice: string,

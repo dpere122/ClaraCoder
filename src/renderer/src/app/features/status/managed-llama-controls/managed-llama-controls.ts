@@ -31,6 +31,7 @@ import {
   isPinnedAnthropicProviderId,
   anthropicSourceLabel,
   isPinnedLlmSourceId,
+  activeConversationModel,
   managedLlamaSourceDisplayName,
   openRouterSourceLabel,
 } from '@shared/index';
@@ -42,6 +43,8 @@ import { SubagentSourceStatusService } from '../../../core/subagent-source-statu
 type ManagedLlamaPhase = 'idle' | 'starting' | 'downloading' | 'running';
 
 const INVENTORY_SPINNER_TYPE = 'ball-pulse-sync' as const;
+/** How long the status bar menu glows after the model changes (matches the CSS animation). */
+export const MODEL_GLOW_MS = 1600;
 const INVENTORY_SPINNER = {
   fullScreen: false as const,
   bdColor: 'rgba(0,0,0,0)',
@@ -133,6 +136,18 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
   });
 
   protected readonly statusBar = computed(() => this.layout() === 'status-bar');
+  /**
+   * Status bar: the menu glows once when the model the app is on changes, e.g. when a conversation
+   * opens on its own model. Keyed by model ids, so labels resolving later never set it off.
+   */
+  protected readonly modelGlow = signal(false);
+  private readonly shownModelKey = computed(() => {
+    const cfg = this.appConfig();
+    const model = cfg ? activeConversationModel(cfg) : {};
+    return `${model.modelId ?? ''}|${model.claudeModel ?? ''}`;
+  });
+  private lastShownModelKey: string | null = null;
+  private glowTimers: ReturnType<typeof setTimeout>[] = [];
   /** Status bar: the source picked in the menu but not switched to yet (empty: the active one). */
   private readonly pendingProviderId = signal('');
   /** The sources as the connection checks know them. */
@@ -283,6 +298,19 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
       untracked(() => this.startError.set(''));
     });
 
+    effect(() => {
+      const key = this.shownModelKey();
+      const statusBar = this.statusBar();
+      untracked(() => {
+        const previous = this.lastShownModelKey;
+        this.lastShownModelKey = key;
+        // Not on the first config: the bar appearing is not a change.
+        if (statusBar && previous !== null && previous !== key && this.appConfig()) {
+          this.glowModel();
+        }
+      });
+    });
+
     // A pick waits for Switch only while the active source stays what it was.
     effect(() => {
       this.activeProviderId();
@@ -321,7 +349,25 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.clearGlowTimers();
     void this.ngxSpinner.hide(this.inventorySpinnerName);
+  }
+
+  /** Play the glow from the start (a change during one restarts it), then take the class off. */
+  private glowModel(): void {
+    this.clearGlowTimers();
+    this.modelGlow.set(false);
+    this.glowTimers.push(
+      setTimeout(() => this.modelGlow.set(true), 0),
+      setTimeout(() => this.modelGlow.set(false), MODEL_GLOW_MS),
+    );
+  }
+
+  private clearGlowTimers(): void {
+    for (const timer of this.glowTimers) {
+      clearTimeout(timer);
+    }
+    this.glowTimers = [];
   }
 
   private scheduleSpinnerSync(show: boolean): void {

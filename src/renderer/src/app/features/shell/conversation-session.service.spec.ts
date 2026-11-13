@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { Subject } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
+  ConversationComposerState,
   AcceptCommandPayload,
   AppConfig,
   Conversation,
@@ -74,6 +75,7 @@ function mockElectron(overrides: Partial<{
   const llamaServerProcessExitSubject = new Subject<LlamaServerProcessExitEvent>();
   const abortMessage = vi.fn(async () => ({ ok: true }));
   const saveConversation = overrides.saveConversation ?? vi.fn(async () => undefined);
+  const updateConversationComposer = vi.fn(async () => true);
   const convMeta: ConversationMeta = {
     id: 'test-conv',
     title: 'Test',
@@ -148,6 +150,7 @@ function mockElectron(overrides: Partial<{
     }),
     setLastActiveConversation: async () => ({}),
     saveConversation,
+    updateConversationComposer,
     readConversationFromDisk:
       overrides.readConversationFromDisk ??
       (async () => ({ ...convMeta, messages: [], themeId: 'clara-dark' })),
@@ -173,6 +176,7 @@ function mockElectron(overrides: Partial<{
     llamaServerProcessExitSubject,
     abortMessage,
     saveConversation,
+    updateConversationComposer,
   };
 }
 
@@ -193,6 +197,7 @@ describe('ConversationSessionService', () => {
     llamaServerProcessExitSubject: Subject<LlamaServerProcessExitEvent>;
     abortMessage: ReturnType<typeof vi.fn>;
     saveConversation: ReturnType<typeof vi.fn>;
+    updateConversationComposer: ReturnType<typeof vi.fn>;
   } {
     const {
       electron,
@@ -206,6 +211,7 @@ describe('ConversationSessionService', () => {
       llamaServerProcessExitSubject,
       abortMessage,
       saveConversation,
+      updateConversationComposer,
     } = mockElectron(overrides);
     TestBed.configureTestingModule({
       providers: [
@@ -237,6 +243,7 @@ describe('ConversationSessionService', () => {
       llamaServerProcessExitSubject,
       abortMessage,
       saveConversation,
+      updateConversationComposer,
     };
   }
 
@@ -841,5 +848,117 @@ describe('ConversationSessionService', () => {
     const saved = saveConversation.mock.calls.at(-1)?.[0] as Conversation;
     expect(saved.id).toBe('test-conv');
     expect(saved.messages.at(-1)).toMatchObject({ role: 'user', id: turn!.userMessageId, subagentResults: ['alpha'] });
+  });
+  describe('each conversation keeps its own composer', () => {
+    const meta = (id: string): ConversationMeta => ({
+      id,
+      title: id,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      workspaceId: 'ws-1',
+      customTitle: false,
+    });
+    const STORED: ConversationComposerState = {
+      draft: 'half a question',
+      mode: 'plan',
+      autoApply: true,
+      admin: true,
+      thinkingMode: 'off',
+      reasoningEffort: 'high',
+    };
+
+    /** `stored`: conversation id -> its stored composer (absent: none stored yet). */
+    function withConversations(stored: Record<string, ConversationComposerState | undefined>) {
+      const newConversation = vi.fn(async (_ws: string | null, composer?: ConversationComposerState) => ({
+        ...meta('conv-new'),
+        messages: [],
+        themeId: 'clara-dark',
+        ...(composer ? { composer } : {}),
+      }));
+      const ctx = setup({
+        loadConversation: async (id: string) => ({
+          ...meta(id),
+          messages: [],
+          themeId: 'clara-dark',
+          ...(stored[id] ? { composer: stored[id] } : {}),
+        }),
+        newConversation: newConversation as unknown as ElectronService['newConversation'],
+        getConversations: async () => Object.keys(stored).map(meta),
+      });
+      return { ...ctx, newConversation };
+    }
+
+    it('opens a conversation with the composer stored with it, without storing it again', async () => {
+      const { service, updateConversationComposer } = withConversations({ a: STORED });
+      await service.loadConversation('a', 'ws-1');
+      expect(service.composerFor('a')).toEqual(STORED);
+      expect(updateConversationComposer).not.toHaveBeenCalled();
+    });
+
+    it('starts a conversation stored before composers were kept from the defaults, not the open one, and stores that', async () => {
+      const { service, updateConversationComposer } = withConversations({ a: STORED, old: undefined });
+      await service.loadConversation('a', 'ws-1');
+      await service.loadConversation('old', 'ws-1');
+      const expected = { draft: '', mode: 'agent', autoApply: false, admin: false };
+      expect(service.composerFor('old')).toEqual(expected);
+      expect(updateConversationComposer).toHaveBeenCalledWith('old', expected);
+    });
+
+    it('starts a new conversation with the open one\'s mode, Auto Run and thinking, an empty draft and Admin off', async () => {
+      const { service, newConversation } = withConversations({ a: STORED });
+      await service.loadConversation('a', 'ws-1');
+      await service.onNewConversation('ws-1');
+      const expected = { draft: '', mode: 'plan', autoApply: true, admin: false, thinkingMode: 'off', reasoningEffort: 'high' };
+      expect(newConversation).toHaveBeenCalledWith('ws-1', expected);
+      expect(service.activeConversationId()).toBe('conv-new');
+      expect(service.composerFor('conv-new')).toEqual(expected);
+      // The one left keeps its own.
+      expect(service.composerFor('a')).toEqual(STORED);
+    });
+
+    it('stores a draft once typing pauses, and any other change at once with the draft as it is', async () => {
+      vi.useFakeTimers();
+      try {
+        const { service, updateConversationComposer } = withConversations({ a: STORED });
+        await service.loadConversation('a', 'ws-1');
+        service.setComposer('a', { ...STORED, draft: 'half a question, now longer' });
+        expect(service.composerFor('a').draft).toBe('half a question, now longer');
+        expect(updateConversationComposer).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(500);
+        expect(updateConversationComposer).toHaveBeenCalledTimes(1);
+
+        service.setComposer('a', { ...STORED, draft: 'typing again' });
+        service.patchComposer('a', { mode: 'ask', autoApply: false });
+        expect(updateConversationComposer).toHaveBeenCalledTimes(2);
+        expect(updateConversationComposer).toHaveBeenLastCalledWith('a', {
+          ...STORED,
+          draft: 'typing again',
+          mode: 'ask',
+          autoApply: false,
+        });
+        vi.advanceTimersByTime(1000);
+        // The pending draft went out with the mode change: nothing is stored twice.
+        expect(updateConversationComposer).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('stores a draft still waiting when asked to flush', async () => {
+      const { service, updateConversationComposer } = withConversations({ a: STORED });
+      await service.loadConversation('a', 'ws-1');
+      service.setComposer('a', { ...STORED, draft: 'closing the window now' });
+      service.flushComposerSaves();
+      expect(updateConversationComposer).toHaveBeenCalledWith('a', { ...STORED, draft: 'closing the window now' });
+    });
+
+    it('keeps what was typed this run when a conversation is opened again', async () => {
+      const { service } = withConversations({ a: STORED, b: { ...STORED, draft: '' } });
+      await service.loadConversation('a', 'ws-1');
+      service.setComposer('a', { ...STORED, draft: 'not stored yet' });
+      await service.loadConversation('b', 'ws-1');
+      await service.loadConversation('a', 'ws-1');
+      expect(service.composerFor('a').draft).toBe('not stored yet');
+    });
   });
 });

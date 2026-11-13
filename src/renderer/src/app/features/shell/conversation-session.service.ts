@@ -8,6 +8,7 @@ import type {
   AppConfig,
   ChatStructuredContentPart,
   Conversation,
+  ConversationComposerState,
   ConversationMessage,
   ConversationMeta,
   HitlTrailArtifact,
@@ -23,6 +24,9 @@ import type {
   TurnGenerationStats,
 } from '@shared/index';
 import {
+  DEFAULT_CONVERSATION_COMPOSER,
+  newConversationComposer,
+  sameConversationComposer,
   buildTurnFeed,
   clearPrimaryStreamParts,
   promotePrimaryToNudgeParts,
@@ -73,6 +77,8 @@ import { filter, merge, type MonoTypeOperatorFunction } from 'rxjs';
 
 /** How long an interrupt waits for the old turn's `message-done` before sending anyway. */
 const INTERRUPT_DRAIN_TIMEOUT_MS = 5000;
+/** A draft is stored once typing pauses this long (it is kept in memory at once). */
+const COMPOSER_DRAFT_SAVE_DELAY_MS = 500;
 
 /** First conversation the user can type in (sub-agent conversations are read-only). */
 export function firstTopLevelConversation(list: readonly ConversationMeta[]): ConversationMeta {
@@ -180,6 +186,14 @@ export class ConversationSessionService {
   readonly creatingConversation = signal(false);
   /** Set while a sub-agent conversation is open: the conversation that spawned it (read-only view). */
   readonly activeParentConversationId = signal<string | null>(null);
+  /**
+   * Each conversation's composer as it was left: draft, run mode, Auto Run, Admin and thinking. Filled
+   * when a conversation is opened (from its stored state) and kept here while the app runs, so it is
+   * also what a background turn of that conversation sends.
+   */
+  private readonly composerByConversation = signal<Readonly<Record<string, ConversationComposerState>>>({});
+  /** Draft edits waiting to be stored, by conversation (typing is stored once it pauses). */
+  private readonly composerSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Sub-agents spawned this session whose parent turn is still live, oldest first. */
   readonly subagentRuns = signal<readonly SubagentRun[]>([]);
   /** Sub-agent id -> request ids of its approval cards waiting in the parent's dock. */
@@ -291,6 +305,11 @@ export class ConversationSessionService {
   private lastConfig: AppConfig | null = null;
 
   constructor() {
+    // A draft typed just before the window closes or reloads is stored without waiting for the pause.
+    const flushComposers = (): void => this.flushComposerSaves();
+    window.addEventListener('pagehide', flushComposers);
+    inject(DestroyRef).onDestroy(() => window.removeEventListener('pagehide', flushComposers));
+
     effect(() => {
       const convId = this.activeConversationId();
       const messages = this.messages();
@@ -615,6 +634,84 @@ export class ConversationSessionService {
       this.discardLiveTurn(convId);
     }
     this.forgetSubagentRuns(ids);
+  }
+
+  /**
+   * The composer `conversationId` left (defaults for one never opened). A sub-agent's conversation has
+   * no composer of its own: pass its parent's id.
+   */
+  composerFor(conversationId: string | null | undefined): ConversationComposerState {
+    return (conversationId ? this.composerByConversation()[conversationId] : undefined) ?? DEFAULT_CONVERSATION_COMPOSER;
+  }
+
+  /**
+   * Keep `next` as `conversationId`'s composer and store it: a change to the draft alone once typing
+   * pauses, anything else at once (with the draft as it is then).
+   */
+  setComposer(conversationId: string, next: ConversationComposerState): void {
+    const current = this.composerByConversation()[conversationId];
+    if (current && sameConversationComposer(current, next)) {
+      return;
+    }
+    this.composerByConversation.update((all) => ({ ...all, [conversationId]: next }));
+    const onlyDraft = !!current && sameConversationComposer({ ...current, draft: next.draft }, next);
+    this.storeComposer(conversationId, onlyDraft ? COMPOSER_DRAFT_SAVE_DELAY_MS : 0);
+  }
+
+  /** Change some of `conversationId`'s composer (e.g. its thinking) and store it. */
+  patchComposer(conversationId: string, changes: Partial<ConversationComposerState>): void {
+    this.setComposer(conversationId, { ...this.composerFor(conversationId), ...changes });
+  }
+
+  /** Store every draft still waiting (e.g. the window is closing). */
+  flushComposerSaves(): void {
+    for (const id of [...this.composerSaveTimers.keys()]) {
+      this.storeComposer(id, 0);
+    }
+  }
+
+  /**
+   * A conversation is being opened: its composer is the one kept here this run, else the stored one.
+   * One that never stored any (saved before composers were kept per conversation) starts from the
+   * defaults, not from whatever conversation was open before it, and keeps that from then on.
+   */
+  private openComposer(conv: Conversation): void {
+    if (this.composerByConversation()[conv.id]) {
+      return;
+    }
+    if (conv.composer) {
+      this.rememberComposer(conv.id, conv.composer);
+      return;
+    }
+    this.rememberComposer(conv.id, newConversationComposer(null));
+    this.storeComposer(conv.id, 0);
+  }
+
+  private rememberComposer(conversationId: string, composer: ConversationComposerState): void {
+    this.composerByConversation.update((all) => ({ ...all, [conversationId]: composer }));
+  }
+
+  private storeComposer(conversationId: string, delayMs: number): void {
+    const pending = this.composerSaveTimers.get(conversationId);
+    if (pending !== undefined) {
+      clearTimeout(pending);
+      this.composerSaveTimers.delete(conversationId);
+    }
+    const write = (): void => {
+      this.composerSaveTimers.delete(conversationId);
+      const composer = this.composerByConversation()[conversationId];
+      if (!composer || this.deletedConversationIds.has(conversationId)) {
+        return;
+      }
+      void this.electron.updateConversationComposer(conversationId, composer).catch((err: unknown) => {
+        console.error('[ConversationSession] store composer failed:', err);
+      });
+    };
+    if (delayMs <= 0) {
+      write();
+      return;
+    }
+    this.composerSaveTimers.set(conversationId, setTimeout(write, delayMs));
   }
 
   /** Conversations main deleted (e.g. sub-agents of turns a restore removed): drop them here too. */
@@ -1046,9 +1143,11 @@ export class ConversationSessionService {
     this.creatingConversation.set(true);
     try {
       await this.saveCurrentConversation();
-      const conv = await this.electron.newConversation(currentWorkspaceId);
+      const composer = newConversationComposer(this.composerFor(this.activeConversationId()));
+      const conv = await this.electron.newConversation(currentWorkspaceId, composer);
       this.snapshotActiveStreamToBackground();
       this.activeConversation = conv;
+      this.rememberComposer(conv.id, conv.composer ?? composer);
       this.activeConversationId.set(conv.id);
       this.activeParentConversationId.set(null);
       this.messages.set([]);
@@ -1095,6 +1194,9 @@ export class ConversationSessionService {
     }
     this.snapshotActiveStreamToBackground();
     this.activeConversation = conv;
+    if (!conv.parentConversationId) {
+      this.openComposer(conv);
+    }
     this.activeConversationId.set(conv.id);
     this.activeParentConversationId.set(conv.parentConversationId ?? null);
     this.messages.set(conv.messages);

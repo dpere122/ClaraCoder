@@ -434,6 +434,42 @@ describe('MessageBox', () => {
     expect(send.disabled).toBe(true);
   });
 
+  describe('thinking', () => {
+    function gemmaConfig(thinkingMode: 'default' | 'on' | 'off'): AppConfig {
+      const cfg = localLlamaConfig();
+      const model = { ...cfg.llmProviders[0].models[0], optimizationPreset: 'gemma', thinkingMode };
+      return { ...cfg, llmProviders: [{ ...cfg.llmProviders[0], models: [model] }] } as unknown as AppConfig;
+    }
+    function brain(fixture: ComponentFixture<MessageBox>): HTMLButtonElement {
+      return (fixture.nativeElement as HTMLElement).querySelector('.btn-reasoning') as HTMLButtonElement;
+    }
+
+    it("shows the conversation's own setting over the source's, and sends a click to the conversation", async () => {
+      const fixture = TestBed.createComponent(MessageBox);
+      const changes: unknown[] = [];
+      fixture.componentInstance.reasoningEffortChange.subscribe((change) => changes.push(change));
+      fixture.componentRef.setInput('appConfig', gemmaConfig('on'));
+      fixture.componentRef.setInput('composerThinking', { thinkingMode: 'off' });
+      fixture.detectChanges();
+      expect(brain(fixture).getAttribute('aria-pressed')).toBe('false');
+
+      brain(fixture).click();
+      expect(changes).toEqual([{ field: 'thinkingMode', value: 'on' }]);
+    });
+
+    it("shows the source's setting while the conversation set none", async () => {
+      const fixture = TestBed.createComponent(MessageBox);
+      fixture.componentRef.setInput('appConfig', gemmaConfig('off'));
+      fixture.componentRef.setInput('composerThinking', {});
+      fixture.detectChanges();
+      expect(brain(fixture).getAttribute('aria-pressed')).toBe('false');
+
+      fixture.componentRef.setInput('composerThinking', { thinkingMode: 'on' });
+      fixture.detectChanges();
+      expect(brain(fixture).getAttribute('aria-pressed')).toBe('true');
+    });
+  });
+
   describe('entry field', () => {
     async function setup(draft: string): Promise<{
       fixture: ComponentFixture<MessageBox>;

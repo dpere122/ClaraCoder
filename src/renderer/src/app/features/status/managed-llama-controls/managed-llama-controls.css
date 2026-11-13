@@ -42,6 +42,37 @@
   font-size: 11px;
 }
 
+/* The model changed (a conversation opened on its own model, or a switch): the menu glows once. */
+.managed-llama-controls__source-select.is-glowing ::ng-deep .pill-select__trigger {
+  animation: managed-llama-model-glow 1.6s ease-out;
+}
+
+@keyframes managed-llama-model-glow {
+  0% {
+    border-color: var(--t-border, #444);
+    box-shadow: 0 0 0 0 transparent;
+  }
+  15%,
+  45% {
+    border-color: var(--t-primary, #a8b89a);
+    box-shadow:
+      0 0 6px 1px color-mix(in srgb, var(--t-primary, #a8b89a) 80%, transparent),
+      0 0 16px 4px color-mix(in srgb, var(--t-primary, #a8b89a) 40%, transparent);
+  }
+  100% {
+    border-color: var(--t-border, #444);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* No moving light: the border takes the accent for the same moment instead. */
+@media (prefers-reduced-motion: reduce) {
+  .managed-llama-controls__source-select.is-glowing ::ng-deep .pill-select__trigger {
+    animation: none;
+    border-color: var(--t-primary, #a8b89a);
+  }
+}
+
 .managed-llama-controls--status-bar .managed-llama-controls__btn {
   flex-shrink: 0;
   min-width: 3.5rem;

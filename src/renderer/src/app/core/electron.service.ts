@@ -26,7 +26,9 @@ import type {
   AppConfig,
   ChatStructuredContentPart,
   Conversation,
+  ConversationComposerState,
   ConversationMeta,
+  ConversationTurnSettings,
   DeleteConfirmPayload,
   FileEntry,
   HealthLogRecord,
@@ -892,6 +894,8 @@ export class ElectronService {
     workspaceNotes: readonly string[] = [],
     /** The turn hands the main agent its waiting sub-agent reports (see `subagentResultsReady$`). */
     continueWithSubagentResults = false,
+    /** The conversation's own model and thinking; absent fields use the app's (active model, Settings). */
+    turnSettings: ConversationTurnSettings = {},
   ): void {
     this.api?.sendMessage(
       conversationId,
@@ -907,6 +911,7 @@ export class ElectronService {
       adminElevationGranted,
       [...workspaceNotes],
       continueWithSubagentResults,
+      { ...turnSettings },
     );
   }
 
@@ -1265,8 +1270,14 @@ export class ElectronService {
     );
   }
 
-  newConversation(workspaceId: string | null): Promise<Conversation> {
-    return this.api!.newConversation(workspaceId);
+  /** `composer`: what the new conversation's composer starts as. */
+  newConversation(workspaceId: string | null, composer?: ConversationComposerState): Promise<Conversation> {
+    return this.api!.newConversation(workspaceId, composer);
+  }
+
+  /** Store the composer as this conversation left it (draft, mode, Auto Run, Admin, thinking). */
+  updateConversationComposer(id: string, composer: ConversationComposerState): Promise<boolean> {
+    return this.api?.updateConversationComposer?.(id, composer) ?? Promise.resolve(false);
   }
 
   getWorkspaces(): Promise<Workspace[]> {

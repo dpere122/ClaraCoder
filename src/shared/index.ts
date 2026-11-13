@@ -449,6 +449,20 @@ export type {
   SubagentStartedEvent,
 } from './types/subagent';
 export { formatTokensPerSecond, turnTokensPerSecond } from './types/conversation';
+export type {
+  ConversationComposerState,
+  ConversationModel,
+  ConversationThinking,
+  ConversationTurnSettings,
+} from './conversation-composer';
+export {
+  activeConversationModel,
+  DEFAULT_CONVERSATION_COMPOSER,
+  newConversationComposer,
+  normalizeConversationComposer,
+  sameConversationComposer,
+  sameConversationModel,
+} from './conversation-composer';
 export {
   auxiliaryTimelineEmbedsToolStatus,
   CLARA_OUTER_BRIEF_STREAM_TAG,

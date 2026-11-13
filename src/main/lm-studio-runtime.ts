@@ -87,11 +87,16 @@ export async function ensureLmStudioModelLoaded(connection: LlmConnectionConfig)
 
 const loadsInFlight = new Map<string, Promise<boolean>>();
 
-/** Before a turn: load the active model if it needs it, and tell Python its real context size. */
-export async function ensureActiveLmStudioModelLoaded(): Promise<void> {
+/**
+ * Before a turn: load its model if it needs it, and tell Python its real context size. `modelId` is
+ * the model the turn's conversation is on (absent: the active one).
+ */
+export async function ensureActiveLmStudioModelLoaded(modelId?: string): Promise<void> {
   try {
     const config = await loadConfig();
-    const connection = resolveActiveLlmConnection(config);
+    const connection =
+      (modelId ? flattenLlmProvidersToConnections(config.llmProviders).find((c) => c.id === modelId) : undefined) ??
+      resolveActiveLlmConnection(config);
     if (connection?.provider !== 'lmstudio') {
       return;
     }

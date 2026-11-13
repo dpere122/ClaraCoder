@@ -17,6 +17,7 @@ import type {
   ComposerRunMode,
   HitlTrailArtifact,
   LlmReasoningSettingChange,
+  ConversationThinking,
   PlannerProgress,
   StreamPart,
 } from '@shared/index';
@@ -141,6 +142,8 @@ export class ChatActiveStackComponent implements OnDestroy {
   readonly adminElevationPending = input(false);
   readonly adminGrantRequested = output<void>();
   readonly reasoningEffortChange = output<LlmReasoningSettingChange>();
+  /** The open conversation's own thinking settings (unset fields: the source's from Settings). */
+  readonly composerThinking = input<ConversationThinking>({});
 
   protected readonly resolvedContainerSize = computed(() =>
     normalizeChatContainerSize(this.appConfig()?.chatContainerSize),

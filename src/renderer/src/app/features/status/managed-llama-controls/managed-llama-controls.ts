@@ -90,6 +90,10 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
   protected readonly startError = signal('');
   /** The user cancelled the start in flight, so its failure isn't news. */
   private cancelled = false;
+  /** The model this control last started; Cancel stops it even before the config input catches up. */
+  private startingModelId = '';
+  /** A Start or Switch from the status bar is in flight; a second click must not start the model twice. */
+  protected readonly acting = signal(false);
 
   /** Monotonic id for the latest in-flight status probe; stale completions are ignored. */
   private probeRequestId = 0;
@@ -143,6 +147,8 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
   );
   /** When the status bar last asked main which sources answer. */
   private lastProbeAt = 0;
+  /** The source list the last forced probe was for; an unchanged list is not probed again. */
+  private lastProbeKey = '';
 
   /**
    * Custom sources form their own menu section, set apart from the pinned rows. The status bar
@@ -311,13 +317,15 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
       untracked(() => this.pendingProviderId.set(''));
     });
 
-    // Ask main which sources answer, again on every config change (a source's URL or key may be what
-    // changed), as the composer does for the active source.
+    // Ask main which sources answer again when a source's connection changes (its URL or key may be
+    // what changed), as the composer does for the active source. Config re-broadcasts that leave the
+    // sources as they were (conversation switches) don't probe again.
     effect(() => {
       const key = this.switchableSources()
         .map((source) => `${source.id}:${source.connectionId}:${source.launchable}`)
         .join('|');
-      if (key) {
+      if (key && key !== this.lastProbeKey) {
+        this.lastProbeKey = key;
         untracked(() => this.refreshSwitchable(true));
       }
     });
@@ -420,15 +428,20 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
    * starts), Switch while another source is picked, else Start, Cancel or Stop for the local server.
    */
   protected async onAction(): Promise<void> {
-    if (this.startPending()) {
-      const activated = await this.activateSource(this.pendingProviderId());
-      if (activated) {
-        await this.start(activated.modelId, activated.config);
-      }
+    if (this.acting()) {
       return;
     }
-    if (this.switchPending()) {
-      await this.activateSource(this.pendingProviderId());
+    if (this.startPending() || this.switchPending()) {
+      const startAfter = this.startPending();
+      this.acting.set(true);
+      try {
+        const activated = await this.activateSource(this.pendingProviderId());
+        if (activated && startAfter) {
+          await this.start(activated.modelId, activated.config);
+        }
+      } finally {
+        this.acting.set(false);
+      }
       return;
     }
     await this.toggle();
@@ -466,6 +479,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     this.phase.set('starting');
     this.startError.set('');
     this.cancelled = false;
+    this.startingModelId = mid;
     try {
       const res = await this.electron.llamaServerStart({ modelId: mid, config: cfg });
       if (!res.ok) {
@@ -482,7 +496,8 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
 
   protected async stop(): Promise<void> {
     const cfg = this.appConfig();
-    const mid = this.modelId();
+    // Cancel stops the model being started, which may not be the config input's active one yet.
+    const mid = (this.busy() && this.startingModelId) || this.modelId();
     if (!cfg || !mid || (!this.running() && !this.busy())) {
       return;
     }

@@ -47,7 +47,7 @@ function setup(options: { running?: string[]; unreachable?: string[] } = {}) {
     llamaServerStart: vi.fn(async (): Promise<LlamaServerStartResult> => ({ ok: false, error: FAILED })),
     llamaServerStop: vi.fn(async () => ({ ok: true as const })),
     modelManagerListCustomModels: vi.fn(async () => ({ ok: true, models: [] })),
-    setActiveLlmModel: vi.fn(async () => undefined),
+    setActiveLlmModel: vi.fn(async (): Promise<AppConfig | undefined> => undefined),
   };
   TestBed.configureTestingModule({
     imports: [ManagedLlamaControlsComponent],
@@ -139,6 +139,28 @@ describe('swapping the main model in the status bar', () => {
     expect(electron.setActiveLlmModel).toHaveBeenCalledWith('m2');
     expect(electron.llamaServerStart).toHaveBeenCalledTimes(1);
     expect(electron.llamaServerStart.mock.calls[0]).toEqual([expect.objectContaining({ modelId: 'm2' })]);
+  });
+
+  it('starts the picked model once when Start is clicked twice before the switch lands', async () => {
+    const { el, electron, select, settle } = await statusBar(CONFIG);
+    const switched = deferred<AppConfig | undefined>();
+    electron.setActiveLlmModel.mockReturnValueOnce(switched.promise);
+    select.valueChange.emit('b');
+    await settle();
+
+    button(el).click();
+    await settle();
+    expect(button(el).disabled).toBe(true);
+    button(el).click();
+    switched.resolve({ ...CONFIG, activeLlmModelId: 'm2' } as AppConfig);
+    await settle();
+
+    expect(electron.setActiveLlmModel).toHaveBeenCalledTimes(1);
+    expect(electron.llamaServerStart).toHaveBeenCalledTimes(1);
+    expect(electron.llamaServerStart.mock.calls[0]).toEqual([
+      expect.objectContaining({ modelId: 'm2', config: expect.objectContaining({ activeLlmModelId: 'm2' }) }),
+    ]);
+    expect(button(el).disabled).toBe(false);
   });
 
   it('starts a stopped local model while the active one runs, leaving that one up', async () => {

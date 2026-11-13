@@ -371,13 +371,27 @@ describe('migrateConfig workspace tools enableAgentFormatters', () => {
 });
 
 describe('migrateConfig workspace tools turn verification', () => {
-  it('defaults missing settings to on with two fix rounds', () => {
+  it('defaults missing settings to off with two fix rounds', () => {
     const cfg = sampleConfig();
     delete cfg.workspaceTools.verifyAfterEdits;
     delete cfg.workspaceTools.verifyMaxFixRounds;
     const migrated = migrateConfig(cfg);
-    expect(migrated.workspaceTools.verifyAfterEdits).toBe(true);
+    expect(migrated.workspaceTools.verifyAfterEdits).toBe(false);
     expect(migrated.workspaceTools.verifyMaxFixRounds).toBe(2);
+  });
+
+  it('turns off the old default once, at schema 10', () => {
+    const cfg = sampleConfig({ configSchemaVersion: 9 });
+    cfg.workspaceTools.verifyAfterEdits = true;
+    const migrated = migrateConfig(cfg);
+    expect(migrated.workspaceTools.verifyAfterEdits).toBe(false);
+    expect(migrated.configSchemaVersion).toBe(10);
+  });
+
+  it('keeps on when the user turned it on after the switch', () => {
+    const cfg = sampleConfig({ configSchemaVersion: 10 });
+    cfg.workspaceTools.verifyAfterEdits = true;
+    expect(migrateConfig(cfg).workspaceTools.verifyAfterEdits).toBe(true);
   });
 
   it('keeps an explicit off and clamps the fix rounds', () => {

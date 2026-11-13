@@ -511,7 +511,7 @@ class RuntimeToolsRequest(BaseModel):
     )
 
     verifyAfterEdits: bool = Field(
-        default=True,
+        default=False,
         validation_alias=AliasChoices('verifyAfterEdits', 'verify_after_edits'),
     )
 
@@ -548,7 +548,7 @@ class RuntimeToolsRequest(BaseModel):
     @field_validator('verifyAfterEdits', mode='before')
     @classmethod
     def _normalize_verify_after_edits(cls, v: Any) -> Any:
-        return True if v is None else _coerce_boolish(v)
+        return False if v is None else _coerce_boolish(v)
 
     @field_validator('verifyMaxFixRounds', mode='before')
     @classmethod

@@ -239,7 +239,7 @@ def agent_formatters_enabled() -> bool:
 
 def verify_after_edits_enabled() -> bool:
     """True when Settings → Tools has end-of-turn verification on."""
-    return bool(getattr(runtime_config.tools, 'verify_after_edits', True))
+    return bool(getattr(runtime_config.tools, 'verify_after_edits', False))
 
 
 def verify_max_fix_rounds() -> int:

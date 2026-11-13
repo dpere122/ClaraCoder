@@ -728,7 +728,7 @@ export interface WorkspaceToolsConfig {
   enableAgentFormatters?: boolean;
   /**
    * When true, an editing turn that tries to finish is verified first: language-server errors on the
-   * files it touched and the workspace's `.clara/checks.json` commands. Default true.
+   * files it touched and the workspace's `.clara/checks.json` commands. Default false.
    */
   verifyAfterEdits?: boolean;
   /**

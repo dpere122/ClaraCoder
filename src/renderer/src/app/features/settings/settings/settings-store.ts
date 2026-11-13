@@ -437,7 +437,7 @@ export class SettingsStore {
   readonly screenshotRetention = signal<ScreenshotRetentionSettings>({ ...DEFAULT_SCREENSHOT_RETENTION });
   readonly extraUserPath = signal('');
   readonly enableAgentFormatters = signal(false);
-  readonly verifyAfterEdits = signal(true);
+  readonly verifyAfterEdits = signal(false);
   readonly verifyMaxFixRounds = signal(2);
   readonly confirmMove = signal(true);
   /** Null follows the saved tour, so finishing or dismissing it elsewhere also unticks the box. */
@@ -4135,7 +4135,7 @@ export class SettingsStore {
     this.screenshotRetention.set(normalizeScreenshotRetention(wt.screenshotRetention));
     this.extraUserPath.set(wt.extraUserPath ?? '');
     this.enableAgentFormatters.set(!!(wt.enableAgentFormatters ?? false));
-    this.verifyAfterEdits.set(wt.verifyAfterEdits !== false);
+    this.verifyAfterEdits.set(wt.verifyAfterEdits === true);
     this.verifyMaxFixRounds.set(wt.verifyMaxFixRounds ?? 2);
     this.confirmMove.set(config.confirmMove !== false);
 

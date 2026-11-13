@@ -227,7 +227,9 @@ New tools that must not run inside a sub-agent are dropped in
 
 When an editing turn's model answers without tool calls, `TurnVerificationMiddleware`
 (`clara_coder_backend/middleware/turn_verification_middleware.py`) checks the work before the turn
-ends. It is not a tool and takes no schema budget.
+ends. It is not a tool and takes no schema budget. It is off by default ("Verify changes before a turn
+ends" in Settings → Tools): most models check their own work, and a failure sends a model that has
+already given its final answer back to write another.
 
 - **Evidence** (`clara_coder_backend/verify/evidence.py`): error-severity LSP diagnostics on the
   paths journaled this turn, minus the errors each path already had when the turn first touched it;

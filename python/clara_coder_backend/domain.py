@@ -449,7 +449,7 @@ class RuntimeToolsConfig:
     enable_agent_formatters: bool = False
     #: When True, an editing turn that tries to finish is verified first: LSP errors on the files it
     #: touched and the workspace's ``.clara/checks.json`` commands (Settings → Tools).
-    verify_after_edits: bool = True
+    verify_after_edits: bool = False
     #: How many times a failed verification is handed back to the model per turn (0: report only).
     verify_max_fix_rounds: int = 2
 

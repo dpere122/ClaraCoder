@@ -10,7 +10,8 @@ Releases are built by `.github/workflows/release.yml` and published as GitHub Re
 `scripts/release-version.mjs`; read it if anything here seems off.
 
 **Convention:** `package.json` on `master` holds the *next* stable version.
-- Beta = `<package.json version>-beta.<workflow run number>`, published as a pre-release.
+- Beta = `<package.json version>-beta.<n>`, published as a pre-release. `n` counts up from 1 for
+  each version: one above the highest `v<version>-beta.*` tag on the remote when the run starts.
 - Stable = exactly the `package.json` version, from a `vX.Y.Z` tag, created as a **draft**.
 
 So betas of 0.2.1 sort above the 0.2.0 stable release and below 0.2.1.
@@ -35,12 +36,16 @@ git tag -l 'v*' --sort=-v:refname
   that release. Betas would sort *below* it and stable can't reuse it, so do the bump in step S1
   first.
 - `gh run list --workflow release.yml --limit 1` shows whether another release run is still going
-  (runs are serialized per ref, but don't stack them).
+  (beta runs queue behind each other and tag runs queue per tag, but don't stack them).
 
 ## Beta release
 
 1. Pick the ref: `master` unless the user names a branch. The workflow file must exist on the
-   default branch for manual runs, and on the chosen ref.
+   default branch for manual runs, and on the chosen ref. To tell the user the version before
+   dispatching (it asks the remote for the existing beta tags):
+   ```bash
+   node scripts/release-version.mjs --channel beta
+   ```
 2. Dispatch (after confirming):
    ```bash
    gh workflow run release.yml --ref master
@@ -52,7 +57,7 @@ git tag -l 'v*' --sort=-v:refname
    ```bash
    gh run watch <id> --exit-status --interval 30
    ```
-4. On success, a pre-release `v<next>-beta.<run>` exists, with the tag pinned to the built commit:
+4. On success, a pre-release `v<next>-beta.<n>` exists, with the tag pinned to the built commit:
    ```bash
    gh release view v<version> --json tagName,isPrerelease,assets -q '.tagName, .isPrerelease, [.assets[].name]'
    ```
@@ -109,7 +114,7 @@ gh run view <id> --log-failed | grep -iE "error|fail|ERR!|exit code" | head -40
 ```
 
 Fix the cause on a branch and get it merged, then:
-- **Beta:** just dispatch again. The new run number gives a new version.
+- **Beta:** just dispatch again. A failed run published no tag, so the retry gets the same number.
 - **Stable, nothing published:** the publish job only runs after a successful build, so a failed
   build leaves no release. With the user's OK, move the tag to the fixed `master` commit:
   ```bash

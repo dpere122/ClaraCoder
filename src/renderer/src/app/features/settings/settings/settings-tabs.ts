@@ -18,6 +18,7 @@ const SETTINGS_TAB_DESCRIPTIONS: Record<SettingsTab, string> = {
   models: 'Chat sources, model defaults, and Start.',
   modelManager: 'Local models and Hugging Face search for managed llama-server.',
   tools: 'Workspace agent tool limits and edit modes (synced to the Python backend).',
+  subagents: 'Roles the main agent can delegate to.',
   mcp: 'MCP servers whose tools Clara can call. One client, many server configs.',
   lsp: 'The language servers behind code intelligence in the editor and agent tools.',
   monaco:

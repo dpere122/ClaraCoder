@@ -186,6 +186,9 @@ def build_llm(*, disable_thinking: bool = False) -> BaseChatModel:
     ``none`` (or ``minimal``) when that knob is exposed.
     """
     connection = get_active_connection()
+    if connection.thinking_override == 'off':
+        # A sub-agent whose role turns thinking off: the same off switch per provider as a one-shot call.
+        disable_thinking = True
     if connection.provider == 'anthropic':
         # Imported here so OpenAI-compatible sources never pay for the Anthropic SDK import.
         from clara_coder_backend.llm.anthropic_llm import build_anthropic_llm

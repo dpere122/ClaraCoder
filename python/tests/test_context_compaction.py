@@ -643,11 +643,10 @@ def test_strings_user_facing_have_no_em_dash() -> None:
     from clara_coder_backend.lang_agent import context_compaction as module
     from clara_coder_backend.middleware import context_compaction_middleware as middleware
 
-    for text in (module.SUMMARY_REQUEST, module.BLOCK_HEADER, module.PIN_LEAD, middleware.CONTINUE_NUDGE_TEXT):
+    for text in (module.SUMMARY_REQUEST, module.BLOCK_HEADER, module.PIN_LEAD):
         assert '—' not in text
     for name in (
-        '_TRUNCATED_MARKER',
-        '_TRUNCATED_NOTE',
+        '_EMPTY_REPLY_STOP_TEXT',
         '_TRUNCATED_STOP_TEXT',
         '_TRUNCATED_ANSWER_NOTE',
         '_FUTILE_STOP_TEXT',

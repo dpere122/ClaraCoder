@@ -1,0 +1,211 @@
+/* Health → Runtime → Local servers: a list of servers and the selected one's console beside it. */
+:host {
+  display: block;
+}
+
+.llama-servers {
+  border: 1px solid color-mix(in srgb, var(--t-border) 82%, transparent);
+  background: color-mix(in srgb, var(--t-bg-surface) 92%, transparent);
+  box-shadow: var(--t-elev-shadow);
+}
+
+.llama-servers__heading {
+  margin: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--t-border-subtle);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--t-fg);
+}
+
+.llama-servers__body {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  height: clamp(320px, 52vh, 620px);
+}
+
+/* The server list: scrolls on its own, like a file list. */
+.llama-servers__list {
+  min-height: 0;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-right: 1px solid var(--t-border-subtle);
+  background: var(--t-bg-deep);
+}
+
+.llama-servers__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 12px;
+  border: none;
+  border-bottom: 1px solid var(--t-border-subtle);
+  background: transparent;
+  color: var(--t-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.llama-servers__row:hover {
+  background: var(--t-hover-bg);
+}
+
+.llama-servers__row:focus-visible {
+  outline: 1px solid var(--t-primary);
+  outline-offset: -1px;
+}
+
+.llama-servers__row.is-active {
+  background: var(--t-active-bg);
+  box-shadow: inset 2px 0 0 var(--t-primary);
+}
+
+.llama-servers__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llama-servers__row.is-active .llama-servers__name {
+  color: var(--t-primary);
+}
+
+/* One status mark per server: grey off, green running, a spinner while it loads. */
+.llama-servers__light,
+.llama-servers__spinner {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  /* The app theme squares every corner; these stay round. */
+  border-radius: 50% !important;
+}
+
+.llama-servers__light {
+  background: #8b919a;
+}
+
+.llama-servers__light.is-running {
+  background: #3ee889;
+}
+
+.llama-servers__spinner {
+  width: 12px;
+  height: 12px;
+  margin: 0 -1px;
+  border: 2px solid color-mix(in srgb, #ffd84a 30%, transparent);
+  border-top-color: #ffd84a;
+  animation: llama-servers-spin 0.8s linear infinite;
+}
+
+@keyframes llama-servers-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .llama-servers__spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+.llama-servers__empty {
+  padding: 12px;
+  color: var(--t-text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+/* The console: scroll controls above the terminal. */
+.llama-servers__console {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.llama-servers__toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--t-border-subtle);
+}
+
+.llama-servers__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llama-servers__follow {
+  flex: 0 0 auto;
+  margin-right: 6px;
+  color: var(--t-text-muted);
+  font-size: 12px;
+}
+
+.llama-servers__btn {
+  flex: 0 0 auto;
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--t-border);
+  background: transparent;
+  color: var(--t-fg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.llama-servers__btn:hover:not(:disabled) {
+  background: var(--t-hover-bg);
+}
+
+.llama-servers__btn:focus-visible {
+  outline: 1px solid var(--t-primary);
+  outline-offset: 1px;
+}
+
+.llama-servers__btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* There is newer output below: the way back to it stands out. */
+.llama-servers__btn.is-attention {
+  border-color: var(--t-primary);
+  background: var(--t-primary);
+  color: var(--t-on-primary, var(--t-bg-deep));
+  font-weight: 600;
+}
+
+.llama-servers__terminal {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 6px 0 6px 10px;
+  background: var(--t-bg-deep);
+  overflow: hidden;
+}
+
+.llama-servers__note {
+  position: absolute;
+  top: 52px;
+  left: 20px;
+  margin: 0;
+  color: var(--t-text-muted);
+  font-size: 12px;
+  pointer-events: none;
+}

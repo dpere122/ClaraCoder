@@ -17,6 +17,7 @@ vi.mock('../state', () => {
 });
 
 import {
+  isSettingsRenderer,
   isTrustedMainRenderer,
   isTrustedAppRenderer,
   assertTrustedMainRenderer,
@@ -100,6 +101,24 @@ describe('isTrustedAppRenderer', () => {
   it('rejects a destroyed satellite window', () => {
     mainState.settingsWindow = win(wcSettings, true) as never;
     expect(isTrustedAppRenderer(wcSettings)).toBe(false);
+  });
+});
+
+describe('isSettingsRenderer', () => {
+  it('trusts only the live Settings window', () => {
+    mainState.mainWindow = win(wcMain) as never;
+    mainState.settingsWindow = win(wcSettings) as never;
+    mainState.healthWindow = win(wcHealth) as never;
+    expect(isSettingsRenderer(wcSettings as never)).toBe(true);
+    expect(isSettingsRenderer(wcMain as never)).toBe(false);
+    expect(isSettingsRenderer(wcHealth as never)).toBe(false);
+    expect(isSettingsRenderer(wcForeign as never)).toBe(false);
+  });
+
+  it('rejects a destroyed or missing Settings window', () => {
+    expect(isSettingsRenderer(wcSettings as never)).toBe(false);
+    mainState.settingsWindow = win(wcSettings, true) as never;
+    expect(isSettingsRenderer(wcSettings as never)).toBe(false);
   });
 });
 

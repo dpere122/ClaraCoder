@@ -15,6 +15,7 @@ import {
 } from '../../shared';
 import { LSP_WORKSPACE_TRUST_SERVER_IDS } from '../../shared/lsp-registry';
 import { normalizeLspServersSettings, type LspServersSettings } from '../../shared/lsp-settings';
+import { normalizeSubagentsConfig, type SubagentsConfig } from '../../shared/subagents-config';
 import { mainState } from '../state';
 import { unwrapSecret } from '../../shared/types/app-config';
 import { ensurePythonReady } from './server';
@@ -358,6 +359,25 @@ async function refreshLmStudioLiveNctx(config: AppConfig): Promise<void> {
   );
 }
 
+/**
+ * Sub-agent settings for the backend. A role names a source by its Settings id; the backend knows
+ * a source by its connection id (its one model profile's id). A source that is gone keeps its
+ * stale id, which the backend reports through the fallback setting.
+ */
+function wireSubagents(config: AppConfig): SubagentsConfig {
+  const subagents = normalizeSubagentsConfig(config.subagents);
+  const connectionIdBySource = new Map(
+    config.llmProviders.filter((provider) => provider.models.length > 0).map((provider) => [provider.id, provider.models[0].id]),
+  );
+  return {
+    ...subagents,
+    roles: subagents.roles.map((role) => ({
+      ...role,
+      connectionId: role.connectionId ? (connectionIdBySource.get(role.connectionId) ?? role.connectionId) : '',
+    })),
+  };
+}
+
 /** LSP settings the sidecar last accepted; ``null`` before the first sync, when it runs no servers yet. */
 let lastAppliedLspSettings: LspServersSettings | null = null;
 
@@ -464,6 +484,7 @@ async function postRuntimeConfigToPython(
           targetRatio: config.contextCompression.targetRatio,
         },
         lsp,
+        subagents: wireSubagents(config),
         huggingFaceToken: unwrapSecret(config.modelManager?.huggingFaceToken ?? ''),
         mcpServers: wireMcpServers(config),
         activeWorkspacePath: activeWorkspacePath(config),

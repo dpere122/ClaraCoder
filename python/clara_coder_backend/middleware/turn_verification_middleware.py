@@ -26,7 +26,7 @@ from clara_coder_backend.lang_agent.streaming import status_event
 from clara_coder_backend.lang_agent.subagents import has_running_subagents
 from clara_coder_backend.llm.messages import stringify_content
 from clara_coder_backend.lsp.file_policy import lsp_server_for_path
-from clara_coder_backend.middleware.empty_response_middleware import emit_agent_nudge_event
+from clara_coder_backend.middleware.agent_nudge_event import emit_agent_nudge_event
 from clara_coder_backend.session import state as session_state
 from clara_coder_backend.session.file_journal import turn_touched_paths, turn_verify_state
 from clara_coder_backend.session.state import current_session_id, verify_after_edits_enabled, verify_max_fix_rounds

@@ -12,7 +12,7 @@ from langgraph.runtime import Runtime
 from typing_extensions import override
 
 from clara_coder_backend.lang_agent.subagents import has_running_subagents
-from clara_coder_backend.middleware.empty_response_middleware import emit_agent_nudge_event
+from clara_coder_backend.middleware.agent_nudge_event import emit_agent_nudge_event
 from clara_coder_backend.plan.build_plan_store import parse_action_steps, read_build_plan_text
 from clara_coder_backend.session import state as session_state
 from clara_coder_backend.session.state import current_session_id

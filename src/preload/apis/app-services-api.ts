@@ -89,6 +89,7 @@ export const createAppServicesApi = (ipcRenderer: PreloadIpc) => ({
   llamaServerGgufSize: (payload: { path: string }) => ipcRenderer.invoke('llama-server:gguf-size', payload),
   llamaServerGgufProfile: (payload: { path: string }) => ipcRenderer.invoke('llama-server:gguf-profile', payload),
   llamaServerTotalRam: () => ipcRenderer.invoke('llama-server:total-ram'),
+  llamaServerConsoles: () => ipcRenderer.invoke('llama-server:consoles'),
   llamaServerLaunchedCommand: (payload: { modelId: string }) =>
     ipcRenderer.invoke('llama-server:launched-command', payload),
   llamacppManagedListModels: (payload: { modelId: string; config: AppConfig }) =>

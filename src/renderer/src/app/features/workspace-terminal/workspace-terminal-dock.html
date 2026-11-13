@@ -39,7 +39,7 @@
         title="Drag to resize"
       ></div>
       <div class="workspace-terminal-dock__empty">
-        Open a workspace for shell terminals, select a llama.cpp model to view managed server output, or run an agent command to see its output here.
+        Open a workspace for shell terminals, or run an agent command to see its output here.
       </div>
     } @else {
       <div class="workspace-terminal-dock__toolbar">
@@ -104,17 +104,6 @@
           @if (hasWorkspace()) {
             <button type="button" class="workspace-terminal-dock__tab-add" (click)="addTab()" title="New terminal">+</button>
           }
-          @for (llamaTab of llamaTabs(); track llamaTab.id) {
-            <div
-              class="workspace-terminal-dock__tab workspace-terminal-dock__tab--llama"
-              [class.workspace-terminal-dock__tab--active]="llamaTab.id === activeTabId()"
-              role="tab"
-              [attr.aria-selected]="llamaTab.id === activeTabId()"
-              (click)="selectTab(llamaTab.id)"
-            >
-              <span class="workspace-terminal-dock__tab-title">{{ llamaTab.title }}</span>
-            </div>
-          }
         </div>
       </div>
       <div class="workspace-terminal-dock__body">
@@ -165,14 +154,6 @@
           >
             <div class="workspace-terminal-dock__xterm-host" [id]="hostDomId(agentTab.id)"></div>
           </div>
-        }
-        @for (llamaTab of llamaTabs(); track llamaTab.id) {
-          <div
-            class="workspace-terminal-dock__pane"
-            [class.workspace-terminal-dock__pane--hidden]="llamaTab.id !== activeTabId()"
-            [id]="hostDomId(llamaTab.id)"
-            role="tabpanel"
-          ></div>
         }
       </div>
     }

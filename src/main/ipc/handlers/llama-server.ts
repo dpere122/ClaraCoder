@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron';
+import { ipcMain, type WebContents } from 'electron';
 import { totalmem } from 'node:os';
 import * as path from 'node:path';
 import type { AppConfig } from '../../../shared';
@@ -6,6 +6,7 @@ import { findLlmModelLocation } from '../../../shared';
 import { unwrapSecret } from '../../../shared/types/app-config';
 import {
   getManagedChatOpenAiBaseUrl,
+  getManagedLlamaConsoles,
   getManagedLlamaLaunchedCommand,
   getManagedLlamaStatus,
   startManagedLlamaServers,
@@ -24,11 +25,25 @@ import { findAnthropicConnection, refreshAnthropicReasoningForConnection } from 
 import { findLmStudioConnection, refreshLmStudioReasoningForConnection } from '../../lm-studio-runtime';
 import { pingLlmSource } from '../../llm-source-ping';
 import { pythonControlFetch } from '../../python/http-client';
-import { assertTrustedAppRenderer, assertTrustedMainRendererOrThrow } from '../assert-trusted-renderer';
+import {
+  assertTrustedAppRenderer,
+  assertTrustedMainRendererOrThrow,
+  isSettingsRenderer,
+  isTrustedMainRenderer,
+} from '../assert-trusted-renderer';
 
 export interface LlamaServerIpcPayload {
   modelId: string;
   config: AppConfig;
+}
+
+/**
+ * The config a start, stop, status or ping acts on. The main window sends its live config. The
+ * Settings window (its local server list) always gets the saved one, so what it launches is the
+ * command saved in Sources, never a draft from that window.
+ */
+async function configForSender(sender: WebContents, payload: LlamaServerIpcPayload): Promise<AppConfig> {
+  return isTrustedMainRenderer(sender) ? payload.config : loadConfig();
 }
 
 /**
@@ -40,22 +55,18 @@ function normalizeLlamaModelId(raw: unknown): string {
 
 export function registerLlamaServerIpc(): void {
   ipcMain.handle('llama-server:start', async (event, payload: LlamaServerIpcPayload) => {
-    try {
-      assertTrustedMainRendererOrThrow(event);
-    } catch {
+    if (!isTrustedMainRenderer(event.sender) && !isSettingsRenderer(event.sender)) {
       return { ok: false as const, error: 'Untrusted IPC sender' };
     }
     const modelId = normalizeLlamaModelId(payload.modelId);
     if (!modelId) {
       return { ok: false as const, error: 'Missing model id.' };
     }
-    return startManagedLlamaServers(modelId, payload.config);
+    return startManagedLlamaServers(modelId, await configForSender(event.sender, payload));
   });
 
   ipcMain.handle('llama-server:stop', async (event, payload: LlamaServerIpcPayload) => {
-    try {
-      assertTrustedMainRendererOrThrow(event);
-    } catch {
+    if (!isTrustedMainRenderer(event.sender) && !isSettingsRenderer(event.sender)) {
       return { ok: false as const, error: 'Untrusted IPC sender' };
     }
     const modelId = normalizeLlamaModelId(payload.modelId);
@@ -67,29 +78,35 @@ export function registerLlamaServerIpc(): void {
   });
 
   ipcMain.handle('llama-server:status', async (event, payload: LlamaServerIpcPayload) => {
-    try {
-      assertTrustedMainRendererOrThrow(event);
-    } catch {
+    if (!isTrustedMainRenderer(event.sender) && !isSettingsRenderer(event.sender)) {
       return { ok: false as const, error: 'Untrusted IPC sender' };
     }
     const modelId = normalizeLlamaModelId(payload.modelId);
     if (!modelId) {
       return { ok: false as const, error: 'Missing model id.' };
     }
-    return getManagedLlamaStatus(modelId, payload.config);
+    return getManagedLlamaStatus(modelId, await configForSender(event.sender, payload));
+  });
+
+  // Read-only, for the Health window's server list (and any other app window): consoles and states.
+  ipcMain.handle('llama-server:consoles', async (event) => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return [];
+    }
+    return getManagedLlamaConsoles();
   });
 
   ipcMain.handle('llm-source:ping', async (event, payload: LlamaServerIpcPayload) => {
-    try {
-      assertTrustedMainRendererOrThrow(event);
-    } catch {
+    if (!isTrustedMainRenderer(event.sender) && !isSettingsRenderer(event.sender)) {
       return { ok: false as const, error: 'Untrusted IPC sender' };
     }
     const modelId = normalizeLlamaModelId(payload.modelId);
     if (!modelId) {
       return { ok: false as const, error: 'No LLM source selected' };
     }
-    return pingLlmSource(modelId, payload.config);
+    return pingLlmSource(modelId, await configForSender(event.sender, payload));
   });
 
   ipcMain.handle('llama-server:chat-template-reasoning', async (event, payload: { modelId?: string }) => {

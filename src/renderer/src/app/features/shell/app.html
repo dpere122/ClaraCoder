@@ -295,6 +295,7 @@
               (toggleFavorite)='onToggleWorkspaceFavorite($event)'
               (reorderFavorites)='onReorderWorkspaceFavorites($event)'
               (openSources)='onChromeMenuSettingsTab("models")'
+              (openSubagents)='onChromeMenuSettingsTab("subagents")'
               (openModelManager)='onChromeMenuSettingsTab("modelManager")'
               (openDependencies)='onChromeDependencies()'
               (defaultHomePageChange)='onDefaultHomePageChange($event)'
@@ -451,7 +452,6 @@
         <section class='chat-area__dock'>
           <app-workspace-terminal-dock
             [workspacePath]='currentWorkspacePath()'
-            [appConfig]='appConfig()'
             [conversationId]='workspaceSessionId() ?? ""'
             [editorDiagnostics]='monacoDiagnosticsState().diagnostics'
             [editorDiagnosticsRelativePath]='monacoDiagnosticsState().relativePath'

@@ -1,4 +1,4 @@
-import { BrowserWindow, type WebContents } from 'electron';
+import { BrowserWindow, screen, type WebContents } from 'electron';
 import path = require('path');
 import { DEV_SERVER_URL } from '../constants';
 import { mainState } from '../state';
@@ -68,8 +68,37 @@ export function notifySettingsRendererReady(sender: WebContents): void {
   }
 }
 
+const SETTINGS_WINDOW_WIDTH = 1680;
+const SETTINGS_WINDOW_HEIGHT = 980;
+
 /**
- * Non-modal, resizable settings surface (Angular `#/settings`). Reuses preload; notifies renderer
+ * The Settings window's one size. It cannot be resized, so on a display smaller than the design
+ * size it takes the display's work area instead of hanging off the screen.
+ */
+export function settingsWindowSize(workArea: { width: number; height: number } | null): {
+  width: number;
+  height: number;
+} {
+  if (!workArea || workArea.width <= 0 || workArea.height <= 0) {
+    return { width: SETTINGS_WINDOW_WIDTH, height: SETTINGS_WINDOW_HEIGHT };
+  }
+  return {
+    width: Math.min(SETTINGS_WINDOW_WIDTH, Math.floor(workArea.width)),
+    height: Math.min(SETTINGS_WINDOW_HEIGHT, Math.floor(workArea.height)),
+  };
+}
+
+/** Work area of the display the main window is on (Settings opens over it); null when unknown. */
+function workAreaOf(win: BrowserWindow): { width: number; height: number } | null {
+  try {
+    return screen.getDisplayMatching(win.getBounds()).workAreaSize;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Non-modal settings surface of a fixed size (Angular `#/settings`). Reuses preload; notifies renderer
  * when shown/hidden. The main window stays interactive and undimmed while this is open.
  * Optional `tab` opens (or switches) a settings category from the titlebar menu.
  */
@@ -96,15 +125,13 @@ export function createSettingsWindow(tab?: SettingsWindowTab): void {
 
   const icon = resolveAppIconPath();
   mainState.settingsWindow = new BrowserWindow({
-    width: 1680,
-    height: 980,
-    minWidth: 1180,
-    minHeight: 760,
+    ...settingsWindowSize(workAreaOf(mainWindow)),
     ...settingsWindowParentOptions(mainWindow),
     frame: false,
     ...framelessWindowShapeOptions(),
-    resizable: true,
-    maximizable: true,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
     show: false,
     backgroundColor: '#0a0a0a',
     title: 'Clara Coder — Settings',

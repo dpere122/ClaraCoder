@@ -11,6 +11,7 @@ import { SettingsMonaco } from '../settings-monaco/settings-monaco';
 import { SettingsThemes } from '../settings-themes/settings-themes';
 import { SettingsLsp } from '../settings-lsp/settings-lsp';
 import { SettingsMcp } from '../settings-mcp/settings-mcp';
+import { SettingsSubagents } from '../settings-subagents/settings-subagents';
 import { SettingsTools } from '../settings-tools/settings-tools';
 import { SettingsWorkspaces } from '../settings-workspaces/settings-workspaces';
 import { SettingsStore } from './settings-store';
@@ -31,6 +32,7 @@ import { SettingsStore } from './settings-store';
     SettingsModels,
     SettingsModelManager,
     SettingsTools,
+    SettingsSubagents,
     SettingsMcp,
     SettingsLsp,
     SettingsMonaco,

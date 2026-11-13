@@ -1,0 +1,343 @@
+/* Settings → Subagents. Shared form chrome (fields, toggles, buttons) lives in settings/settings.css. */
+
+/* General above Roles on the left; the local servers panel on the right, as tall as both. */
+.settings-subagents {
+  display: grid;
+  /* A fixed width for the panel: its rows are a light, a name and a button, whatever the UI font size. */
+  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-rows: auto auto;
+  align-content: start;
+  gap: 20px 24px;
+  max-width: 96rem;
+}
+
+.settings-subagents__general {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.settings-subagents h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--t-fg);
+}
+
+.settings-subagents__roles {
+  grid-column: 1;
+  grid-row: 2;
+  min-width: 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--t-border-subtle);
+}
+
+/* A panel of its own, spanning both rows; its list fills it and scrolls, like a file list. */
+.settings-subagents__servers {
+  --server-row: 42px;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--t-border);
+  background: var(--t-bg-surface);
+}
+
+.settings-subagents__servers h3 {
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--t-border-subtle);
+}
+
+.settings-subagents__server-list {
+  flex: 1 1 0;
+  min-height: calc(2 * var(--server-row));
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--t-bg-deep);
+}
+
+.settings-subagents__servers .settings-field-hint {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-top: 1px solid var(--t-border-subtle);
+}
+
+/* A window too narrow for two columns: the panel goes below, two rows tall. */
+@media (max-width: 1100px) {
+  .settings-subagents {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-subagents__servers {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .settings-subagents__server-list {
+    flex: 0 0 auto;
+    height: calc(2 * var(--server-row));
+  }
+}
+
+.settings-subagents__server {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--server-row);
+  padding: 0 12px;
+  border-bottom: 1px solid var(--t-border-subtle);
+}
+
+.settings-subagents__server:hover {
+  background: var(--t-hover-bg);
+}
+
+.settings-subagents__server--empty,
+.settings-subagents__server--empty:hover {
+  min-height: calc(2 * var(--server-row));
+  border-bottom: none;
+  background: transparent;
+}
+
+.settings-subagents__server--empty {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--t-text-muted, var(--t-muted));
+}
+
+/* The one status light: grey off, yellow loading, green running. */
+.settings-subagents__light {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  /* The app theme squares every corner; a status light stays round. */
+  border-radius: 50% !important;
+  background: var(--t-text-muted, var(--t-muted));
+  opacity: 0.6;
+}
+
+.settings-subagents__light.is-loading {
+  background: var(--t-warn, #c9a227);
+  opacity: 1;
+}
+
+.settings-subagents__light.is-running {
+  background: var(--t-success, #3ddc97);
+  opacity: 1;
+}
+
+.settings-subagents__server-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-subagents__server .action-button {
+  flex: 0 0 auto;
+  min-width: 4.5rem;
+}
+
+.settings-subagents__limits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+}
+
+/* A number field as wide as its label needs, so the label never overhangs the control. */
+.settings-subagents__limit {
+  width: 7rem;
+}
+
+.settings-subagents__fallback {
+  flex: 1 1 16rem;
+  max-width: 22rem;
+}
+
+.settings-subagents__roles-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+.settings-subagents__main {
+  font-size: 12px;
+  color: var(--t-text-muted, var(--t-muted));
+}
+
+/* Role list on the left, the selected role's editor beside it. */
+.settings-subagents__split {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  border: 1px solid var(--t-border);
+}
+
+.settings-subagents__list-column {
+  flex: 1 1 13rem;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--t-border-subtle);
+  background: var(--t-bg-deep);
+}
+
+/* Scrolls inside the height the editor gives the block, like a file list; Add role stays below it. */
+.settings-subagents__list {
+  flex: 1 1 0;
+  min-height: 9rem;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.settings-subagents__role {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  border-bottom: 1px solid var(--t-border-subtle);
+  background: transparent;
+  color: var(--t-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-subagents__role:hover {
+  background: var(--t-hover-bg);
+}
+
+.settings-subagents__role:focus-visible {
+  outline: 1px solid var(--t-primary);
+  outline-offset: -1px;
+}
+
+.settings-subagents__role.is-active {
+  background: var(--t-active-bg);
+  box-shadow: inset 2px 0 0 var(--t-primary);
+}
+
+.settings-subagents__role-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.settings-subagents__role.is-active .settings-subagents__role-name {
+  color: var(--t-primary);
+}
+
+.settings-subagents__role-line {
+  font-size: 11.5px;
+  color: var(--t-text-muted, var(--t-muted));
+  overflow-wrap: anywhere;
+}
+
+.settings-subagents__role-line.is-accent,
+.settings-subagents__role-line.is-warning {
+  color: var(--t-warn, #c9a227);
+}
+
+.settings-subagents__role.is-off .settings-subagents__role-name {
+  color: var(--t-text-muted, var(--t-muted));
+}
+
+.settings-subagents__list-foot {
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border-top: 1px solid var(--t-border-subtle);
+}
+
+.settings-subagents__list-foot .action-button {
+  width: 100%;
+}
+
+.settings-subagents__editor {
+  flex: 999 1 24rem;
+  min-width: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 16px 16px;
+  background: var(--t-bg-surface);
+}
+
+.settings-subagents__editor--empty {
+  justify-content: center;
+  min-height: 9rem;
+}
+
+.settings-subagents__editor-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.settings-subagents__editor-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-subagents__editor .settings-field-hint.field--full {
+  margin-top: -6px;
+}
+
+.settings-subagents__notice {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--t-warn, #c9a227) 45%, transparent);
+  background: color-mix(in srgb, var(--t-warn, #c9a227) 8%, transparent);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.settings-subagents__notice strong {
+  color: var(--t-warn, #c9a227);
+  font-weight: 600;
+}
+
+.settings-subagents__tools {
+  margin: 0;
+  padding: 0;
+  border: none;
+  min-width: 0;
+}
+
+.settings-subagents__tools legend {
+  padding: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--t-fg);
+}
+
+.settings-subagents__tool-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 20px;
+  padding-top: 4px;
+}
+
+.settings-subagents__tool-list .toggle-row.is-locked {
+  color: var(--t-text-muted, var(--t-muted));
+  cursor: not-allowed;
+}
+
+.settings-subagents__editor textarea {
+  resize: vertical;
+  line-height: 1.5;
+}

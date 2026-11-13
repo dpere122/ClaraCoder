@@ -105,6 +105,7 @@ vi.mock('net', () => {
 });
 
 import {
+  getManagedLlamaConsoles,
   startManagedLlamaServers,
   stopManagedLlamaServers,
   stopAllManagedLlamaServers,
@@ -217,6 +218,41 @@ describe('managed llama-server lifecycle', () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     rmSync(tempBinDir, { recursive: true, force: true });
+  });
+
+  it('keeps the console of each server since its last start, for a window that opens later', async () => {
+    const cfg = makeConfig();
+    const consoleOf = () => getManagedLlamaConsoles().find((entry) => entry.modelId === 'm1');
+    const chatText = () => consoleOf()?.streams.find((entry) => entry.stream === 'chat')?.text ?? '';
+
+    const first = startManagedLlamaServers('m1', cfg);
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalled());
+    procs[0].stdout.write('loading model\n');
+    procs[0].stderr.write('warming up\n');
+    await vi.waitFor(() => expect(chatText()).toContain('warming up'));
+
+    expect(consoleOf()?.phase).toBe('loading');
+    expect(chatText()).toMatch(/\[Starting llama-server\][\s\S]*loading model[\s\S]*warming up/);
+    // A window clears the console on the start event, so the note about it is sent after the event.
+    const sent = sendMock.mock.calls.map(([channel, payload]) => `${channel}:${payload.phase ?? payload.data}`);
+    expect(sent.findIndex((line) => line === 'llama-server-lifecycle:starting')).toBeLessThan(
+      sent.findIndex((line) => line.includes('Starting llama-server')),
+    );
+
+    await stopManagedLlamaServers('m1');
+    await first;
+    // Stopped, and still readable.
+    expect(consoleOf()?.phase).toBe('off');
+    expect(chatText()).toContain('loading model');
+    expect(chatText()).toContain('[llama-server stopped]');
+
+    // The next start begins a fresh console.
+    const second = startManagedLlamaServers('m1', cfg);
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(2));
+    expect(chatText()).not.toContain('loading model');
+    expect(chatText()).toContain('[Starting llama-server]');
+    await stopManagedLlamaServers('m1');
+    await second;
   });
 
   it('rejects a second start while the first is still in flight', async () => {

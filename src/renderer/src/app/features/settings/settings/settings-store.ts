@@ -1,5 +1,15 @@
 import { LSP_SERVER_CATALOG, defaultLspServersSettings, normalizeLspServersSettings, type GdscriptLspSettings, type JavaLspSettings, type LspServersSettings, type PythonLspSettings, type RustLspSettings, type TypescriptLspSettings } from '@shared/lsp-settings';
 import type { DependencyInfo } from '@shared/types/dependencies';
+import { subagentSource } from '@shared/subagent-sources';
+import {
+  SUBAGENT_ROLES_MAX,
+  defaultSubagentsConfig,
+  newSubagentRole,
+  normalizeSubagentsConfig,
+  numberedSubagentRoleName,
+  type SubagentRoleConfig,
+  type SubagentsConfig,
+} from '@shared/subagents-config';
 import { Injectable, afterNextRender, effect, inject, Injector, computed, signal, untracked } from '@angular/core';
 import { NgxSpinnerService } from 'ngx-spinner';
 import { Subscription } from 'rxjs';
@@ -386,6 +396,27 @@ export class SettingsStore {
   readonly ttsDefaultInstructions = signal('');
   readonly editToolsMode = signal<'standard' | 'strict'>('standard');
   readonly mcpServers = signal<McpServerConfig[]>([]);
+  /** Settings → Subagents: the master switch, limits and the roles. */
+  readonly subagents = signal<SubagentsConfig>(defaultSubagentsConfig());
+  /** The role open in the Subagents editor (empty or unknown: the first one). */
+  readonly selectedSubagentRoleId = signal('');
+  readonly selectedSubagentRole = computed(() => {
+    const roles = this.subagents().roles;
+    return roles.find((role) => role.id === this.selectedSubagentRoleId()) ?? roles[0] ?? null;
+  });
+  /** Sources a role can run on: every chat source, by its id in Settings. */
+  readonly subagentSourceOptions = computed(() =>
+    this.sourcesOrdered().flatMap((provider) => {
+      const source = subagentSource(provider, this.sourceDisplayName(provider));
+      /** Applied, so main knows it (a draft source cannot be launched or pinged yet). */
+      return source ? [{ ...source, saved: this.persistedSourceIds()?.has(provider.id) === true }] : [];
+    }),
+  );
+
+  /** The config as last loaded or applied (what main acts on), for IPC calls that carry one. */
+  savedConfig(): AppConfig | null {
+    return this.configSnapshot;
+  }
   readonly mcpStatus = signal<McpHostStatus | null>(null);
   readonly mcpStatusError = signal('');
   readonly mcpOauthBusyId = signal('');
@@ -1082,11 +1113,6 @@ export class SettingsStore {
     } else if (tab === 'models') {
       void this.refreshCustomModelCards();
     }
-  }
-
-  /** Double-clicking the top bar toggles maximize, matching the main window's title bar. */
-  onTopBarDoubleClick(): void {
-    this.electron.windowToggleMaximize();
   }
 
   /** Persist dirty settings without closing the window. */
@@ -3640,6 +3666,53 @@ export class SettingsStore {
     };
   }
 
+  /** Nav line under the Subagents tab. */
+  subagentsNavSummary(): string {
+    const { enabled, roles } = this.subagents();
+    if (!enabled) {
+      return 'Off';
+    }
+    const on = roles.filter((role) => role.enabled).length;
+    return on === 0 ? 'No roles' : `${on} ${on === 1 ? 'role' : 'roles'}`;
+  }
+
+  patchSubagents(patch: Partial<Omit<SubagentsConfig, 'roles'>>): void {
+    this.subagents.update((current) => ({ ...current, ...patch }));
+    this.markSettingsDirty();
+  }
+
+  /** Adds a role with a free name (a copy of `copyOf` when given) and opens it. */
+  addSubagentRole(copyOf?: SubagentRoleConfig): void {
+    const roles = this.subagents().roles;
+    if (roles.length >= SUBAGENT_ROLES_MAX) {
+      return;
+    }
+    const taken = new Set(roles.map((role) => role.name.toLowerCase()));
+    const stem = copyOf ? copyOf.name : 'role';
+    let name = copyOf ? numberedSubagentRoleName(stem, 2) : stem;
+    for (let n = copyOf ? 3 : 2; taken.has(name.toLowerCase()); n += 1) {
+      name = numberedSubagentRoleName(stem, n);
+    }
+    const id = crypto.randomUUID();
+    const role = copyOf ? { ...structuredClone(copyOf), id, name } : newSubagentRole(id, name);
+    this.subagents.update((current) => ({ ...current, roles: [...current.roles, role] }));
+    this.selectedSubagentRoleId.set(id);
+    this.markSettingsDirty();
+  }
+
+  removeSubagentRole(id: string): void {
+    this.subagents.update((current) => ({ ...current, roles: current.roles.filter((role) => role.id !== id) }));
+    this.markSettingsDirty();
+  }
+
+  patchSubagentRole(id: string, patch: Partial<Omit<SubagentRoleConfig, 'id'>>): void {
+    this.subagents.update((current) => ({
+      ...current,
+      roles: current.roles.map((role) => (role.id === id ? { ...role, ...patch } : role)),
+    }));
+    this.markSettingsDirty();
+  }
+
   addMcpServer(): void {
     this.mcpServers.update((list) => [...list, createEmptyMcpServer(crypto.randomUUID())]);
     this.markSettingsDirty();
@@ -3887,6 +3960,7 @@ export class SettingsStore {
       })),
       monacoWorkspaceEditor: structuredClone(this.monacoWorkspaceEditor()),
       lspServers: structuredClone(this.lspServers()),
+      subagents: normalizeSubagentsConfig(this.subagents()),
     };
   }
 
@@ -4037,6 +4111,7 @@ export class SettingsStore {
       normalizeMonacoWorkspaceEditorSettings(config.monacoWorkspaceEditor ?? undefined).settings,
     );
     this.lspServers.set(normalizeLspServersSettings(config.lspServers));
+    this.subagents.set(normalizeSubagentsConfig(config.subagents));
 
     const wt = config.workspaceTools;
     this.editToolsMode.set(wt.editToolsMode === 'strict' ? 'strict' : 'standard');

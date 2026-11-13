@@ -156,7 +156,8 @@ shape; packs carry workflow knowledge.
 ## 9. Sub-agents (`spawn_subagent`, `wait_for_subagents`, `stop_subagent`)
 
 `spawn_subagent(task, name, background=false)` (`clara_coder_backend/tools/spawn_subagent.py`)
-hands a self-contained task to an independent clone of the main agent.
+hands a self-contained task to an independent clone of the main agent. With roles in Settings it
+also takes `role`.
 `wait_for_subagents(names?, timeout_seconds=600)` and `stop_subagent(name)`
 (`clara_coder_backend/tools/subagent_control.py`) address sub-agents by name (unique among a
 session's live ones: a repeated name gets `-2`, `-3`, …) or id. Family `Sub-agents`. The session
@@ -178,9 +179,27 @@ fork, ownership, report delivery and the event contract live in
   still appear (in the parent's dock) and are answered with the child's session id.
 - **Waiting or not:** by default the spawn call waits and returns the report.
   With `background=true` it returns at once ("Started sub-agent `x` in the
-  background …"). Calls in one response run in parallel, up to
-  `CLARA_SUBAGENT_MAX_CONCURRENCY` (default 3) per main session; the rest wait
-  for a slot.
+  background …"). Calls in one response run in parallel, up to the cloud limit
+  in Settings (default 3; `CLARA_SUBAGENT_MAX_CONCURRENCY` until Settings
+  arrive) per main session and source, and one at a time on a local source;
+  the rest wait for a slot.
+- **Roles** (Settings, Subagents; `RuntimeSubagentRole`): the user defines
+  kinds of sub-agent, each with a name, a "when to use it" line, a source and
+  model (or the main agent's), thinking settings (the source's, on or off, and a level),
+  read-only access, allowed tool groups
+  (`SUBAGENT_TOOL_GROUPS`, mapped by `subagent_tool_group`) and extra
+  instructions. With enabled roles, `bound_spawn_subagent_tool()` binds the
+  spawn tool with a `role` argument and lists the roles in its description
+  (name, purpose, read-only), never the source or model: the main agent picks
+  a role, the user decides where it runs. No `role` is still a plain clone.
+  A role on another source or model, or with its own thinking setting, pins
+  that connection for the child's task
+  (`current_connection_override`, read by `get_active_connection()`), so its
+  model client, prompt and per-provider middleware follow it; the semantic
+  index keeps the main source's embedder (`get_main_connection()`). A source
+  that is gone or not running follows the fallback setting: run on the main
+  source with a note in the spawn result, or return a tool error. Turning
+  sub-agents off in Settings unbinds all three tools.
 - **Ownership:** a sub-agent belongs to the conversation, not to the turn. It
   keeps running when the turn ends for any reason (new message, Stop, error).
   Only its report, its card's Stop (`/chat/abort` with the child id),

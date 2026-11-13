@@ -293,7 +293,7 @@ def _gemma_resume_in_thought_channel(data: dict[str, Any], state: GraphStreamSta
     """True when this LLM step should treat untagged leading tokens as thought.
 
     ``gemma_resume_in_thought`` is consumed here. Graph-injected ``HumanMessage``
-    steps (flush leftover drafts, empty/pseudo-tool nudges) must not inherit
+    steps (flush leftover drafts, finish-gate messages) must not inherit
     post-tool thought mode from a prior tool result.
     """
     if not _gemma_thinking_opens_post_tool_channel():

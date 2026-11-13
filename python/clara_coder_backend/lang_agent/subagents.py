@@ -7,6 +7,15 @@ tools except the sub-agent tools and ``propose_theme``; it shares the parent's w
 edit journal, never has Admin, and cannot ask the user anything (its approval cards still work: Electron
 shows them in the parent's dock and answers with the child's session id).
 
+**Roles** (Settings, Subagents: :class:`~clara_coder_backend.domain.RuntimeSubagentRole`). The main agent
+may name a role when it spawns; the user decides in Settings what each role is: the source and model it
+runs on, whether it thinks, whether it is read-only, which tool groups it gets and extra instructions. The
+main agent never picks a source. A role on another source or model, or with its own thinking setting, pins
+that connection for the child's task
+(:data:`~clara_coder_backend.session.state.current_connection_override`), so the model client, prompt and
+per-provider middleware all follow it. The semantic index keeps the main source's embedder. Without a role
+the child is a plain clone on the main agent's source.
+
 **Ownership.** A sub-agent belongs to the parent *conversation*, not to the turn that started it. It runs
 until it reports, or until it is stopped: its card's Stop (``/chat/abort`` with the child id), the main
 agent's ``stop_subagent``, ``/clear`` or ``/dispose`` of the parent, or app shutdown. Ending, interrupting
@@ -52,8 +61,8 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
-from clara_coder_backend.config import CLARA_CONTEXT_WINDOW_FALLBACK, CLARA_SUBAGENT_MAX_CONCURRENCY
-from clara_coder_backend.domain import RuntimeConnection, SessionState
+from clara_coder_backend.config import CLARA_CONTEXT_WINDOW_FALLBACK
+from clara_coder_backend.domain import RuntimeConnection, RuntimeSubagentRole, SessionState
 from clara_coder_backend.lang_agent.loop import AgentLoopOutcome, LangGraphWorkerOutcome
 from clara_coder_backend.lang_agent.subagent_bus import SUBAGENT_BUS
 from clara_coder_backend.session import state
@@ -114,6 +123,13 @@ class SubagentRun:
     parent_turn_id: str = ''
     #: Editor mode of the spawning stream (a queued sub-agent may start after the parent's next turn began).
     apply_mode: bool = False
+    #: The Settings role it runs as; None for a plain clone of the main agent.
+    role: RuntimeSubagentRole | None = None
+    #: The role's source when it differs from the main agent's (pinned for the child's task); None
+    #: follows the main agent's source.
+    connection: RuntimeConnection | None = None
+    #: Told to the main agent with the spawn result (the role fell back to the main source).
+    role_note: str = ''
     started_at: float = field(default_factory=time.monotonic)
     outcome: LangGraphWorkerOutcome = field(default_factory=LangGraphWorkerOutcome)
     announced: asyncio.Event = field(default_factory=asyncio.Event)
@@ -187,24 +203,156 @@ def _is_local_server(connection: RuntimeConnection) -> bool:
     return connection.provider in ('llamacpp', 'lmstudio')
 
 
-def parent_subagent_semaphore(parent: SessionState) -> asyncio.Semaphore:
-    """This parent's concurrency cap (``CLARA_SUBAGENT_MAX_CONCURRENCY``), created on first use.
+def parent_subagent_semaphore(
+    parent: SessionState, connection: RuntimeConnection | None = None
+) -> asyncio.Semaphore:
+    """This parent's concurrency cap on one source (the main agent's unless ``connection`` is given).
 
-    One at a time on a local server: sub-agents alternating on its one slot would evict each other's prefix.
+    The cap is the cloud limit from Settings. One at a time on a local server: sub-agents alternating
+    on its one slot would evict each other's prefix. Created on first use; a changed limit gets a new one.
     """
-    if parent.subagent_semaphore is None:
+    if connection is None:
         connection = _active_connection()
-        local = connection is not None and _is_local_server(connection)
-        parent.subagent_semaphore = asyncio.Semaphore(1 if local else CLARA_SUBAGENT_MAX_CONCURRENCY)
-    return parent.subagent_semaphore
+    local = connection is not None and _is_local_server(connection)
+    limit = 1 if local else max(1, int(state.runtime_config.subagents.cloud_concurrency))
+    key = (connection.id if connection is not None else '', limit)
+    semaphore = parent.subagent_semaphores.get(key)
+    if semaphore is None:
+        semaphore = parent.subagent_semaphores[key] = asyncio.Semaphore(limit)
+    return semaphore
 
 
-def fork_subagent_session(parent_sid: str, parent: SessionState, child_id: str, name: str) -> SessionState:
+# ---------------------------------------------------------------------------
+# Roles
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RoleBinding:
+    """Where a spawn with a role runs: the pinned source, a note for the main agent, or an error."""
+
+    role: RuntimeSubagentRole | None = None
+    #: None follows the main agent's source.
+    connection: RuntimeConnection | None = None
+    note: str = ''
+    error: str = ''
+
+
+def subagents_enabled() -> bool:
+    """Settings allow the main agent to start sub-agents at all."""
+    return bool(state.runtime_config.subagents.enabled)
+
+
+def enabled_subagent_roles() -> list[RuntimeSubagentRole]:
+    """The roles the main agent may name, in Settings order."""
+    return [role for role in state.runtime_config.subagents.roles if role.enabled and role.name.strip()]
+
+
+def find_subagent_role(name: str) -> RuntimeSubagentRole | None:
+    key = (name or '').strip().lower()
+    if not key:
+        return None
+    for role in enabled_subagent_roles():
+        if role.name.strip().lower() == key:
+            return role
+    return None
+
+
+def subagent_roles_description(roles: Iterable[RuntimeSubagentRole]) -> str:
+    """The roles as the spawn tool's description lists them (never names a source or model)."""
+    lines = []
+    for role in roles:
+        what = ' '.join((role.description or '').split()) or 'no description'
+        access = ' Read-only.' if role.read_only else ''
+        lines.append(f'- `{role.name.strip()}`: {what}{access}')
+    return '\n'.join(lines)
+
+
+def _source_problem(connection: RuntimeConnection) -> str:
+    """Why a role's source cannot take a request right now ('' when it can)."""
+    from clara_coder_backend.workspace_index.embeddings_factory import chat_connected
+
+    if not (connection.model or '').strip():
+        return 'its source has no model selected'
+    if connection.provider == 'llamacpp' and not chat_connected(connection)[0]:
+        return 'its local server is not running'
+    return ''
+
+
+def _with_thinking(connection: RuntimeConnection, thinking: str, level: str = '') -> RuntimeConnection:
+    """``connection`` with a role's thinking settings applied (unchanged for the source's own settings).
+
+    Off is the per-provider off switch the model factory uses for one-shot calls, and the thinking mode
+    goes off with it so the stream parsers agree; a level means nothing then. On turns the thinking
+    mode on and lifts an effort that was saved as off. A level replaces the source's reasoning effort;
+    the model factory still drops one the model does not offer.
+    """
+    if thinking == 'off':
+        return dataclasses.replace(connection, thinking_mode='off', thinking_override='off')
+    if thinking == 'on':
+        effort = (connection.reasoning_effort or '').strip().lower()
+        connection = dataclasses.replace(
+            connection,
+            thinking_mode='on',
+            thinking_override='on',
+            reasoning_effort='medium' if effort in ('off', 'none') else connection.reasoning_effort,
+        )
+    if level and level != connection.reasoning_effort:
+        connection = dataclasses.replace(connection, reasoning_effort=level)
+    return connection
+
+
+def bind_subagent_role(role: RuntimeSubagentRole | None) -> RoleBinding:
+    """Resolve a role to the source it runs on now (a snapshot: later Settings edits do not move it).
+
+    A missing or stopped source follows the fallback from Settings: run on the main agent's source
+    with a note, or fail the spawn. The role's thinking setting applies wherever it ends up running.
+    """
+    if role is None:
+        return RoleBinding()
+    main = _active_connection()
+    target = main
+    problem = ''
+    other_source = bool(role.connection_id) and (main is None or role.connection_id != main.id)
+    if other_source:
+        target = next((c for c in state.runtime_config.connections if c.id == role.connection_id), None)
+        if target is None:
+            problem = 'its source is no longer in Settings'
+    if target is not None:
+        # A model id belongs to the source the role names. A role that follows the main agent takes
+        # that source's model: the main source can change, and the id would go to another provider.
+        model = (role.model or '').strip() if role.connection_id else ''
+        if model and model != target.model:
+            target = dataclasses.replace(target, model=model)
+        if other_source:
+            problem = _source_problem(target)
+    note = ''
+    if problem:
+        if state.runtime_config.subagents.fallback == 'fail':
+            return RoleBinding(
+                role=role,
+                error=f'Tool error: role `{role.name}` cannot run now: {problem}. Use another role, or do it yourself.',
+            )
+        note = f'Role `{role.name}` ran on your own model because {problem}.'
+        target = main
+    if target is not None:
+        target = _with_thinking(target, role.thinking, role.thinking_level)
+    return RoleBinding(role=role, connection=None if target is main else target, note=note)
+
+
+def fork_subagent_session(
+    parent_sid: str,
+    parent: SessionState,
+    child_id: str,
+    name: str,
+    role: RuntimeSubagentRole | None = None,
+) -> SessionState:
     """Create and register the child session for one sub-agent.
 
     The workspace attachment is copied (with its own semantic-index batch). LSP state and the edit
     journal are shared by identity: one language-server set and one journal "before" snapshot per path
-    per user turn for the whole family. Auto Run follows the parent; Admin is always off.
+    per user turn for the whole family. Auto Run follows the parent; Admin is always off. ``role``
+    limits its tools and adds to its prompt.
     """
     child = SessionState(
         workspace=dataclasses.replace(parent.workspace, semantic_index_pending=[], prompt_tree_changes=[]),
@@ -213,6 +361,7 @@ def fork_subagent_session(parent_sid: str, parent: SessionState, child_id: str, 
     )
     child.subagent_parent_session_id = parent_sid
     child.subagent_name = name
+    child.subagent_role = role
     child.auto_apply_mode = parent.auto_apply_mode
     child.admin_elevation_granted = False
     child.current_user_message_id = parent.current_user_message_id
@@ -585,7 +734,10 @@ async def run_subagent(run: SubagentRun) -> None:
         except asyncio.TimeoutError:
             logger.debug('sub-agent %s announces itself (no parent stream announcement)', run.child_id)
         _publish_started(run)
-        async with parent_subagent_semaphore(parent):
+        if run.connection is not None:
+            # This task has its own context: the pin reaches the child's whole turn and nothing else.
+            state.current_connection_override.set(run.connection)
+        async with parent_subagent_semaphore(parent, run.connection):
             if run.child.subagent_cancel_requested:
                 run.outcome.mark_aborted()
             else:

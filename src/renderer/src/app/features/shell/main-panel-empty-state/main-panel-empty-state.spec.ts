@@ -40,6 +40,7 @@ describe('MainPanelEmptyStateComponent', () => {
     expect(Array.from(host.querySelectorAll('.home__heading')).map((el) => el.textContent?.trim())).toEqual([
       'Start',
       'Runtime',
+      'Subagents',
     ]);
     expect(host.querySelector('.home__row')).toBeNull();
     expect(host.querySelector('.home__empty')?.textContent).toContain('No workspaces yet');
@@ -173,6 +174,7 @@ describe('MainPanelEmptyStateComponent', () => {
       'Favorites',
       'Recent',
       'Runtime',
+      'Subagents',
     ]);
     const [favRow, recentRow] = Array.from(host.querySelectorAll('.home__row'));
     expect(favRow?.querySelector('.home__row-age')).toBeNull();
@@ -244,6 +246,20 @@ describe('MainPanelEmptyStateComponent', () => {
     checkbox!.checked = false;
     checkbox!.dispatchEvent(new Event('change'));
     expect(changes).toEqual([false]);
+  });
+
+  it('opens the subagent settings from the Subagents heading and from its empty note', () => {
+    const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
+    const opened: string[] = [];
+    fixture.componentInstance.openSubagents.subscribe(() => opened.push('subagents'));
+    fixture.componentRef.setInput('hasWorkspace', false);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+
+    (host.querySelector('[aria-label="Open subagent settings"]') as HTMLButtonElement).click();
+    // No config yet, so no roles: the list offers the same way in.
+    (host.querySelector('app-home-subagents .home-subagents__link') as HTMLButtonElement).click();
+    expect(opened).toEqual(['subagents', 'subagents']);
   });
 
   it('emits addWorkspace, openSources, openModelManager and openDependencies from the Start actions', () => {

@@ -1,5 +1,5 @@
 <div class='settings-window' data-theme-group='settings.window'>
-  <header class='settings-top-bar' (dblclick)='s.onTopBarDoubleClick()'>
+  <header class='settings-top-bar'>
     <h1 class='settings-top-bar__title'>Settings</h1>
     <button
       type='button'
@@ -50,6 +50,8 @@
                 {{ s.themes.find((t) => t.id === s.themeId())?.label ?? s.themeId() }}
               } @else if (tab.id === 'tools') {
                 {{ s.editToolsMode() === 'strict' ? 'Strict edits' : 'Standard edits' }}
+              } @else if (tab.id === 'subagents') {
+                {{ s.subagentsNavSummary() }}
               } @else if (tab.id === 'mcp') {
                 {{ s.mcpEnabledCount() }} enabled
               } @else if (tab.id === 'lsp') {
@@ -115,6 +117,10 @@
 
     @if (s.selectedSettingsTab() === 'tools') {
       <app-settings-tools />
+    }
+
+    @if (s.selectedSettingsTab() === 'subagents') {
+      <app-settings-subagents />
     }
 
     @if (s.selectedSettingsTab() === 'mcp') {

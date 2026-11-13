@@ -111,11 +111,11 @@ def worker_tools_and_map(
     ]
     if not is_subagent:
         tools.append(propose_theme_tool)
-    if include_subagent_tool and not is_subagent:
-        from clara_coder_backend.tools.spawn_subagent import spawn_subagent_tool
+    if include_subagent_tool and not is_subagent and runtime_config.subagents.enabled:
+        from clara_coder_backend.tools.spawn_subagent import bound_spawn_subagent_tool
         from clara_coder_backend.tools.subagent_control import stop_subagent_tool, wait_for_subagents_tool
 
-        tools.extend([spawn_subagent_tool, wait_for_subagents_tool, stop_subagent_tool])
+        tools.extend([bound_spawn_subagent_tool(), wait_for_subagents_tool, stop_subagent_tool])
     if getattr(runtime_config.tools, 'allow_web_access', False):
         from clara_coder_backend.tools.fetch_url import fetch_url_tool
         from clara_coder_backend.tools.screenshot_webpage import screenshot_webpage_tool
@@ -137,9 +137,40 @@ def worker_tools_and_map(
         # MCP tools can have any side effect, and allow-all trust runs them without a card,
         # so read-only surfaces (Ask mode, plan discovery) never bind them.
         tools.extend(bound_mcp_tools())
+    role = session.subagent_role if is_subagent and session is not None else None
+    if role is not None:
+        tools = [t for t in tools if subagent_tool_group(t.name) in role.tool_groups]
+        return tools, {t.name: t for t in tools}
     mapping: dict[str, Any] = dict(TOOL_MAP)
     mapping.update({t.name: t for t in tools})
     return tools, mapping
+
+
+#: Display family (:data:`TOOL_FAMILIES`) to the role tool group that switches it.
+_FAMILY_TOOL_GROUP: dict[str, str] = {
+    'Reads & search': 'read',
+    'Context packs': 'read',
+    'Structured zoom (wsdl/xml/json)': 'read',
+    'LSP': 'lsp',
+    'Edits': 'edit',
+    'Web': 'web',
+    'Process': 'commands',
+}
+_SEARCH_TOOL_NAMES = frozenset({'search_workspace', 'retrieve_workspace_semantic'})
+
+
+def subagent_tool_group(name: str) -> str:
+    """The Settings tool group (:data:`~clara_coder_backend.domain.SUBAGENT_TOOL_GROUPS`) a tool belongs to.
+
+    A tool in no family counts as a read, so a role always has a reason to keep or drop every tool.
+    """
+    from clara_coder_backend.mcp.names import is_mcp_tool_name
+
+    if is_mcp_tool_name(name):
+        return 'mcp'
+    if name in _SEARCH_TOOL_NAMES:
+        return 'search'
+    return _FAMILY_TOOL_GROUP.get(_family_for(name), 'read')
 
 
 def planner_discovery_tools_and_map(

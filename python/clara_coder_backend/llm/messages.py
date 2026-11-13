@@ -722,5 +722,5 @@ def build_system_prompt(
     if session.last_stream_speech_enabled and session.last_stream_tts_provider == 'openai-compatible':
         body = f'{body}\n\n{speech_tts_mood_block()}'
     if session.subagent_parent_session_id:
-        body = f'{body}\n\n{subagent_role_block(session.subagent_name)}'
+        body = f'{body}\n\n{subagent_role_block(session.subagent_name, session.subagent_role)}'
     return f'{body}{_model_prompt_suffix(session, apply_mode)}'

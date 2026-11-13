@@ -65,7 +65,7 @@ def schedule_semantic_index_background(session_id: str, *, ensure_corpus: bool =
 
 
 def _run_semantic_index_background(session_id: str, *, ensure_corpus: bool) -> None:
-    from clara_coder_backend.session.state import get_active_connection, get_session
+    from clara_coder_backend.session.state import get_main_connection, get_session
     from clara_coder_backend.workspace_index.embeddings_factory import (
         build_embedding_model,
         embeddings_available,
@@ -77,7 +77,7 @@ def _run_semantic_index_background(session_id: str, *, ensure_corpus: bool) -> N
     if not root_s:
         return
 
-    conn = get_active_connection()
+    conn = get_main_connection()
     ok, reason = embeddings_available(conn)
     if not ok:
         logger.info('background semantic index skipped session=%s: %s', session_id, reason)

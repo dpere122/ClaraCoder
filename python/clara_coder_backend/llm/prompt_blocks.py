@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from textwrap import dedent
+from typing import Any
 
 from clara_coder_backend.domain import SessionState
 from clara_coder_backend.lsp.file_policy import PRETTIER_MANAGED_SUFFIXES
@@ -94,10 +95,14 @@ def edit_semantics_block() -> str:
     )
 
 
-def subagent_role_block(name: str) -> str:
-    """Role of a sub-agent session (one-shot clone the main agent started with ``spawn_subagent``)."""
+def subagent_role_block(name: str, role: Any = None) -> str:
+    """Role of a sub-agent session (one-shot clone the main agent started with ``spawn_subagent``).
+
+    ``role`` (a :class:`~clara_coder_backend.domain.RuntimeSubagentRole`) adds what Settings say about
+    this kind of sub-agent: what it is for, that it is read-only, and the user's extra instructions.
+    """
     label = ' '.join((name or '').split()) or 'sub-agent'
-    return dedent(
+    base = dedent(
         f"""
         **You are a sub-agent** named `{label}`, working for the main Clara agent, not directly for the user.
         - The task in the first message comes from the main agent. Do that task with your tools; do not
@@ -108,6 +113,18 @@ def subagent_role_block(name: str) -> str:
           changed (paths, key facts, anything left undone). It is not shown to the user as a reply.
         """
     ).strip()
+    if role is None:
+        return base
+    lines = [base]
+    purpose = ' '.join((role.description or '').split())
+    role_line = f'- Your role is `{role.name.strip()}`'
+    lines.append(f'{role_line}: {purpose}' if purpose else f'{role_line}.')
+    if role.read_only:
+        lines.append('- This role is read-only: you inspect and report, and change nothing.')
+    extra = (role.instructions or '').strip()
+    if extra:
+        lines.append(f'\n**Instructions for this role:**\n{extra}')
+    return '\n'.join(lines)
 
 
 def routing_handoff_contract() -> str:

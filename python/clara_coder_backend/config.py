@@ -86,14 +86,6 @@ try:
 except ValueError:
     MAX_AGENT_STEPS = 2000
 
-# When the model returns no visible text, inject a nudge message instead of stopping.
-MAX_AGENT_EMPTY_NUDGES = 2
-# When the model writes <tool_call> / <function=...> in plain text but sends no API ``tool_calls``,
-# re-prompt so the graph can reach the tool node. 0 = disable. Gemma and Qwen presets skip this.
-try:
-    MAX_AGENT_PSEUDO_TOOL_NUDGES = max(0, min(int(env_clara('CLARA_MAX_AGENT_PSEUDO_TOOL_NUDGES', '2') or '2'), 20))
-except ValueError:
-    MAX_AGENT_PSEUDO_TOOL_NUDGES = 2
 # Sub-agents (``spawn_subagent``) one main session runs at once; further spawns wait for a slot.
 CLARA_SUBAGENT_MAX_CONCURRENCY = _env_int('CLARA_SUBAGENT_MAX_CONCURRENCY', 3, 1, 16)
 

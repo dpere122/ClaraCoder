@@ -643,7 +643,7 @@ async def test_subagent_file_journal_is_wrapped_on_the_bus_with_the_spawning_tur
 
 async def test_spawns_beyond_the_cap_wait_for_a_slot(checkpoints, parent_session, bus, use_model, monkeypatch) -> None:
     sid, _parent = parent_session
-    monkeypatch.setattr(subagents, 'CLARA_SUBAGENT_MAX_CONCURRENCY', 1)
+    monkeypatch.setattr(state.runtime_config.subagents, 'cloud_concurrency', 1)
     use_model(
         ScriptedChatModel(
             scripts={

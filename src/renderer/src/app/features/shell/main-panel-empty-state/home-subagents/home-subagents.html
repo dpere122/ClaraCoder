@@ -1,0 +1,26 @@
+@if (!settings().enabled) {
+  <p class="home-subagents__note">Subagents are off.</p>
+} @else if (rows().length === 0) {
+  <p class="home-subagents__note">
+    No roles yet.
+    <button type="button" class="home-subagents__link" (click)="openSettings.emit()">Add a role…</button>
+  </p>
+} @else {
+  <dl class="home-subagents__rows" aria-label="Subagent roles and their sources">
+    @for (row of rows(); track row.id) {
+      <div class="home-subagents__row" [attr.title]="row.source + ': ' + row.status">
+        <dt>{{ row.name }}</dt>
+        <dd>
+          <span
+            class="home-subagents__light"
+            [class.is-loading]="row.state === 'loading'"
+            [class.is-running]="row.state === 'running'"
+            role="img"
+            [attr.aria-label]="row.status"
+          ></span>
+          <span class="home-subagents__source">{{ row.source }}</span>
+        </dd>
+      </div>
+    }
+  </dl>
+}

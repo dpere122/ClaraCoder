@@ -8,15 +8,14 @@ still rejects is compacted harder and retried; the third rejection fails the tur
 
 Also, whether compaction is on or off:
 
-- A reply cut off at the output limit is discarded before any hook can act on it, tool calls included.
+- A reply cut off at the output limit is discarded before any hook can act on it, tool calls included,
+  and the turn ends with a notice (or with the reply's plain text and a note, when that is all it held).
+  The model is never sent a message about it.
 - A tool result that would not fit the window is shortened (the wrapper sits outside the approval reviews
   so approved command output counts).
 - ``llama-server`` gets a per-step thinking bound.
 
 With compaction on and a cut in place, an edit based on text the model no longer has is refused.
-
-:class:`CompactionContinueMiddleware` handles the turn-ending acknowledgement: a text-only reply is final,
-and a model that just lost its messages may only say it will continue.
 """
 
 from __future__ import annotations
@@ -88,7 +87,6 @@ from clara_coder_backend.llm.gemma_output import gemma_reply_is_empty
 from clara_coder_backend.llm.langchain_compat import output_was_truncated
 from clara_coder_backend.llm.messages import (
     assistant_visible_answer,
-    final_assistant_text,
     is_user_turn,
     reasoning_sidecar_text,
     stringify_content,
@@ -96,7 +94,6 @@ from clara_coder_backend.llm.messages import (
 )
 from clara_coder_backend.llm.model_tuning import gemma_optimize_profile_active
 from clara_coder_backend.logging.llm_interaction_logging import log_llm_call_stats
-from clara_coder_backend.middleware.empty_response_middleware import emit_agent_nudge_event
 from clara_coder_backend.session import state as session_state
 from clara_coder_backend.session.state import current_session_id, get_active_connection, runtime_config
 from clara_coder_backend.workspace.paths import normalize_relative_path
@@ -106,26 +103,12 @@ logger = logging.getLogger('clara.agent.compaction')
 #: Label of the status pill an event shows (a normal tool status on the turn's stream).
 COMPACT_PILL_LABEL = 'compact_context'
 
-CONTINUE_NUDGE_TEXT = (
-    'Older messages were removed while you worked. If the request is fully done, restate your final answer; '
-    'otherwise make the next tool call.'
-)
-
-_TRUNCATED_MARKER = '[Reply discarded: it hit the output limit. Nothing from it ran.]'
-_TRUNCATED_NOTE = (
-    'Your last reply hit the output limit and was discarded; no tool call in it ran. Think less and work in '
-    'smaller steps: split a large file into several writes.'
-)
-_EMPTY_REPLY_MARKER = '[Reply discarded: it was empty.]'
-_EMPTY_REPLY_NOTE = (
-    'Your last reply was empty. Make the next tool call, or give your final answer if the request is done.'
-)
 _EMPTY_REPLY_STOP_TEXT = (
     'Stopped: the model returned empty replies several times in a row. Try again, or rephrase the request.'
 )
 _TRUNCATED_STOP_TEXT = (
-    'Stopped: the model hit its output limit three times in a row, so those replies were discarded and nothing '
-    'from them ran. Ask for a smaller step, or raise the output limit or context size in Settings.'
+    'Stopped: the model hit its output limit, so that reply was discarded and nothing from it ran. Ask for a '
+    'smaller step, or raise the output limit or context size in Settings.'
 )
 _TRUNCATED_ANSWER_NOTE = '[Cut off at the output limit. Ask to continue, or raise the limit in Settings.]'
 _FUTILE_STOP_TEXT = (
@@ -133,11 +116,10 @@ _FUTILE_STOP_TEXT = (
     'only repeat the same work. Ask for a narrower step, or start a new conversation.'
 )
 
-#: Truncated replies in a row that get another try; the next one ends the turn.
-_TRUNCATED_RETRIES = 2
 #: Draws of an empty Gemma reply before it is treated as a reply at all: the prompt is cached, so one costs a second.
 _EMPTY_REPLY_REDRAWS = 3
-#: A truncated reply this close to the window forces compaction (the context, not the output cap, cut it).
+#: A truncated reply this close to the window forces compaction on the next call (the context, not the
+#: output cap, cut it), so asking to continue has room.
 _TRUNCATED_FORCE_RATIO = 0.9
 #: Events in a row without progress before the turn is stopped.
 _FUTILE_STOP = 3
@@ -152,7 +134,7 @@ class _CompactionState(AgentState[ResponseT]):
     """One thread's compaction state; whole-dict replace, from the model wrapper and after-model hooks only.
 
     ``{cut_id, block, hint, notes, elided_ids, floor_id, window, window_for, next_soft, notes_call, futile,
-    progress, nudge, truncated, force}``. Never written from tools: parallel writes raise ``InvalidUpdateError``.
+    progress, force}``. Never written from tools: parallel writes raise ``InvalidUpdateError``.
     """
 
     context_compaction: NotRequired[Annotated[dict[str, Any], PrivateStateAttr]]
@@ -315,28 +297,8 @@ def _current_turn(messages: list[BaseMessage]) -> list[BaseMessage]:
     return messages
 
 
-def _nudged_reply(messages: list[BaseMessage]) -> AIMessage | None:
-    """The text-only reply the continue nudge sent back, while only retries have followed the nudge."""
-    for index in range(len(messages) - 1, 0, -1):
-        message = messages[index]
-        if is_user_turn(message) or (isinstance(message, AIMessage) and message.tool_calls):
-            return None
-        if isinstance(message, HumanMessage) and message.content == CONTINUE_NUDGE_TEXT:
-            reply = messages[index - 1]
-            return reply if isinstance(reply, AIMessage) else None
-    return None
-
-
-def _stop_text(messages: list[BaseMessage], stop: str) -> str:
-    """What a harness stop leaves as the final text: the answer the nudge sent back stays, with the reason after it."""
-    reply = _nudged_reply(messages)
-    answer = final_assistant_text(reply).strip() if reply is not None else ''
-    return f'{answer}\n\n{stop}' if answer else stop
-
-
-def _truncated_stop_text(message: AIMessage, earlier: list[BaseMessage]) -> str:
-    """The last cut-off reply's plain text with a note. Nothing else in it is an answer (calls, tool markup,
-    reasoning), and a restatement adds nothing to the answer the nudge sent back (:func:`_stop_text` keeps that)."""
+def _truncated_stop_text(message: AIMessage) -> str:
+    """The cut-off reply's plain text with a note. Nothing else in it is an answer (calls, tool markup, reasoning)."""
     visible = assistant_visible_answer(message)
     if (
         not visible
@@ -344,7 +306,6 @@ def _truncated_stop_text(message: AIMessage, earlier: list[BaseMessage]) -> str:
         or (getattr(message, 'invalid_tool_calls', None) or ())
         or text_uses_pseudo_tool_markup(visible)
         or '<tool_call' in visible
-        or _nudged_reply(earlier) is not None
     ):
         return _TRUNCATED_STOP_TEXT
     return f'{visible}\n\n{_TRUNCATED_ANSWER_NOTE}'
@@ -444,11 +405,7 @@ class ContextCompactionMiddleware(AgentMiddleware):
             pin_ratio=self._pin_ratio,
         )
         if _turn_just_started(call.raw_messages):
-            # A new request: nothing of the last turn's retries, pending nudge or progress applies to it.
-            if cc.get('nudge'):
-                cc['nudge'] = False
-            if cc.get('truncated'):
-                cc['truncated'] = 0
+            # A new request: nothing of the last turn's progress applies to it.
             if cc.get('futile'):
                 cc['futile'] = 0
             cc.pop('progress', None)
@@ -558,7 +515,6 @@ class ContextCompactionMiddleware(AgentMiddleware):
                 'cut_id': cut_id,
                 'elided_ids': [*already, *fresh],
                 'floor_id': messages[-1].id,
-                'nudge': bool(pin) and _nudged_reply(messages) is None,
                 'progress': progress,
             }
             next_cc.pop('force', None)
@@ -682,65 +638,53 @@ class ContextCompactionMiddleware(AgentMiddleware):
     def _futile_stop(self, call: _ModelCall) -> ExtendedModelResponse:
         """End the turn with an explanation instead of another model call: events keep finding no progress."""
         logger.warning('Compaction made no progress %d times in a row; ending the turn', _FUTILE_STOP)
-        call.session.harness_final_text = _stop_text(call.raw_messages, _FUTILE_STOP_TEXT)
+        call.session.harness_final_text = _FUTILE_STOP_TEXT
         call.cc['futile'] = 0
-        call.cc['nudge'] = False
         return ExtendedModelResponse(
             model_response=ModelResponse(result=[AIMessage(content=_FUTILE_STOP_TEXT)]),
             command=Command(update={'context_compaction': call.cc}),
         )
 
-    @hook_config(can_jump_to=['model', 'end'])
+    @hook_config(can_jump_to=['end'])
     @override
     async def aafter_model(self, state: Any, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
-        """Discard a truncated reply: its tool arguments are cut off, and later hooks could promote calls from its text.
+        """End the turn on a truncated reply: its tool arguments are cut off, and later hooks could promote calls from its text.
 
-        Same id: this replaces the message. The third in a row does not raise, a failed turn would delete the thread.
-        An empty Gemma reply gets the same retries: the turn would otherwise end on nothing.
+        Same id: this replaces the message. It does not raise, a failed turn would delete the thread. An empty
+        Gemma reply (after its redraws) ends the turn the same way: it would otherwise end on nothing.
         """
         del runtime  # API contract; unused
         msgs = state.get('messages') or []
         last = msgs[-1] if msgs else None
         if not isinstance(last, AIMessage):
             return None
-        saved = state.get('context_compaction') or {}
         cut_off = output_was_truncated(last)
         if not cut_off and not _is_empty_gemma_reply(last):
-            return {'context_compaction': {**saved, 'truncated': 0}} if saved.get('truncated') else None
-        count = int(saved.get('truncated') or 0) + 1
-        cc = {**saved, 'truncated': count}
+            return None
         kept_kwargs = {
             key: value
             for key, value in (last.additional_kwargs or {}).items()
             if key not in ('tool_calls', 'function_call', 'reasoning_details')
         }
-        stripped = {'tool_calls': [], 'invalid_tool_calls': [], 'additional_kwargs': kept_kwargs}
-        logger.warning('Discarded a reply %s (%d in a row)', 'cut off at the output limit' if cut_off else 'with no content', count)
-        if count > _TRUNCATED_RETRIES:
-            # ``last`` can still hold its cut-off tool calls, so the nudge is looked for before it.
-            earlier = msgs[:-1]
-            stop_text = _truncated_stop_text(last, earlier) if cut_off else _EMPTY_REPLY_STOP_TEXT
-            session = _current_session()
-            if session is not None:
-                session.harness_final_text = _stop_text(earlier, stop_text)
-            return {
-                'messages': [last.model_copy(update={**stripped, 'content': stop_text})],
-                'jump_to': 'end',
-                'context_compaction': cc,
-            }
+        logger.warning('Discarded a reply %s; ending the turn', 'cut off at the output limit' if cut_off else 'with no content')
+        stop_text = _truncated_stop_text(last) if cut_off else _EMPTY_REPLY_STOP_TEXT
+        session = _current_session()
+        if session is not None:
+            session.harness_final_text = stop_text
+        update: dict[str, Any] = {
+            'messages': [
+                last.model_copy(
+                    update={'tool_calls': [], 'invalid_tool_calls': [], 'additional_kwargs': kept_kwargs, 'content': stop_text}
+                )
+            ],
+            'jump_to': 'end',
+        }
         usage = last.usage_metadata or {}
         used = int(usage.get('input_tokens') or 0) + int(usage.get('output_tokens') or 0)
-        if used >= _TRUNCATED_FORCE_RATIO * _thread_window(cc, _active_connection()):
-            cc['force'] = True
-        await emit_agent_nudge_event(reason='truncated')
-        return {
-            'messages': [
-                last.model_copy(update={**stripped, 'content': _TRUNCATED_MARKER if cut_off else _EMPTY_REPLY_MARKER}),
-                HumanMessage(content=_TRUNCATED_NOTE if cut_off else _EMPTY_REPLY_NOTE),
-            ],
-            'jump_to': 'model',
-            'context_compaction': cc,
-        }
+        saved = state.get('context_compaction') or {}
+        if cut_off and used >= _TRUNCATED_FORCE_RATIO * _thread_window(saved, _active_connection()):
+            update['context_compaction'] = {**saved, 'force': True}
+        return update
 
     @override
     async def awrap_tool_call(
@@ -766,37 +710,4 @@ class ContextCompactionMiddleware(AgentMiddleware):
         return _capped_result(result, name, cap)
 
 
-class CompactionContinueMiddleware(AgentMiddleware):
-    """Send the first text-only reply after a mid-turn cut back to the model, once per such reply.
-
-    A text-only reply ends the turn, and one right after losing older messages may only acknowledge the
-    note. An event on the restatement's own call does not arm this again; another cut after more tool calls
-    does. Listed right after the sub-agent results middleware, so its ``after_model`` runs after tool-call
-    promotion has settled whether the reply really has no tool calls, and before the sub-agent wait.
-    """
-
-    state_schema = _CompactionState  # type: ignore[assignment]
-
-    @hook_config(can_jump_to=['model'])
-    @override
-    async def aafter_model(self, state: Any, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
-        del runtime  # API contract; unused
-        cc = state.get('context_compaction') or {}
-        if not cc.get('nudge'):
-            return None
-        msgs = state.get('messages') or []
-        last = msgs[-1] if msgs else None
-        if not isinstance(last, AIMessage) or last.tool_calls or (getattr(last, 'invalid_tool_calls', None) or ()):
-            return None
-        session = _current_session()
-        if session is not None and session.abort_event.is_set():
-            return None
-        await emit_agent_nudge_event(reason='compaction')
-        return {
-            'messages': [HumanMessage(content=CONTINUE_NUDGE_TEXT)],
-            'jump_to': 'model',
-            'context_compaction': {**cc, 'nudge': False},
-        }
-
-
-__all__ = ['COMPACT_PILL_LABEL', 'CONTINUE_NUDGE_TEXT', 'CompactionContinueMiddleware', 'ContextCompactionMiddleware']
+__all__ = ['COMPACT_PILL_LABEL', 'ContextCompactionMiddleware']

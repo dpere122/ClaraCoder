@@ -36,6 +36,9 @@
         >
           <span class="pill-select__check" aria-hidden="true"></span>
           <span class="pill-select__option-label">{{ optionLabel(option) }}</span>
+          @if (optionIndicator(option) === 'running') {
+            <span class="pill-select__indicator is-running" role="img" aria-label="Running" title="Running"></span>
+          }
         </button>
       }
     </div>

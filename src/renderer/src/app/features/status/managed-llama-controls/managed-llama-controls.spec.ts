@@ -106,15 +106,62 @@ describe('swapping the main model in the status bar', () => {
     return { fixture, electron, el, select, optionIds, settle };
   }
 
-  it('offers only sources that would answer now, and always the active one', async () => {
+  it('offers sources that would answer now, every local model it can start, and always the active one', async () => {
     // Active a: stopped. b: running. cloud: fails its connection check.
     const down = await statusBar(WITH_CLOUD, { running: ['m2'], unreachable: ['m9'] });
     expect(down.optionIds()).toEqual(['a', 'b']);
 
     TestBed.resetTestingModule();
     const up = await statusBar(WITH_CLOUD);
-    // b is stopped now and the cloud source answers.
-    expect(up.optionIds()).toEqual(['cloud', 'a']);
+    // b is stopped now, but can be started; the cloud source answers.
+    expect(up.optionIds()).toEqual(['cloud', 'a', 'b']);
+  });
+
+  it('leaves out a local model with no run command when it does not answer', async () => {
+    const bare = { id: 'c', name: 'C', provider: 'llamacpp', baseUrl: '', apiKey: {}, models: [{ id: 'm5', name: 'm5', model: 'm5' }] };
+    const { optionIds } = await statusBar({ ...CONFIG, llmProviders: [...CONFIG.llmProviders, bare] } as unknown as AppConfig, {
+      unreachable: ['m5'],
+    });
+    expect(optionIds()).toEqual(['a', 'b']);
+  });
+
+  it('reads Start for a stopped local model, which it makes active and starts', async () => {
+    const { el, electron, select, settle } = await statusBar(CONFIG);
+    select.valueChange.emit('b');
+    await settle();
+    expect(electron.setActiveLlmModel).not.toHaveBeenCalled();
+    expect(button(el).textContent?.trim()).toBe('Start');
+    expect(button(el).classList.contains('action-button--danger')).toBe(false);
+    expect(button(el).disabled).toBe(false);
+
+    button(el).click();
+    await settle();
+    expect(electron.setActiveLlmModel).toHaveBeenCalledWith('m2');
+    expect(electron.llamaServerStart).toHaveBeenCalledTimes(1);
+    expect(electron.llamaServerStart.mock.calls[0]).toEqual([expect.objectContaining({ modelId: 'm2' })]);
+  });
+
+  it('starts a stopped local model while the active one runs, leaving that one up', async () => {
+    const { el, electron, select, settle } = await statusBar(CONFIG, { running: ['m1'] });
+    select.valueChange.emit('b');
+    await settle();
+    expect(button(el).textContent?.trim()).toBe('Start');
+    button(el).click();
+    await settle();
+    expect(electron.setActiveLlmModel).toHaveBeenCalledWith('m2');
+    expect(electron.llamaServerStart.mock.calls[0]).toEqual([expect.objectContaining({ modelId: 'm2' })]);
+    expect(electron.llamaServerStop).not.toHaveBeenCalled();
+  });
+
+  it('reads Switch for a local model whose server already runs', async () => {
+    const { el, electron, select, settle } = await statusBar(CONFIG, { running: ['m2'] });
+    select.valueChange.emit('b');
+    await settle();
+    expect(button(el).textContent?.trim()).toBe('Switch');
+    button(el).click();
+    await settle();
+    expect(electron.setActiveLlmModel).toHaveBeenCalledWith('m2');
+    expect(electron.llamaServerStart).not.toHaveBeenCalled();
   });
 
   it('picks without switching, then switches from a red Switch button', async () => {
@@ -168,12 +215,48 @@ describe('swapping the main model in the status bar', () => {
     expect(electron.llamaServerStop).not.toHaveBeenCalled();
   });
 
-  it('follows a local server that comes up later', async () => {
-    const { electron, optionIds, settle } = await statusBar(CONFIG);
-    expect(optionIds()).toEqual(['a']);
+  it('marks each local source whose server runs, and follows servers coming up and going down', async () => {
+    const { electron, select, settle } = await statusBar(WITH_CLOUD, { running: ['m2'] });
+    const lit = () =>
+      (select.options() as ReadonlyArray<{ id: string; indicator?: string }>)
+        .filter((o) => o.indicator === 'running')
+        .map((o) => o.id);
+    // The cloud source answers too, but only a local server gets the light.
+    expect(lit()).toEqual(['b']);
+
+    const lifecycle = electron.llamaServerLifecycle$ as Subject<unknown>;
+    lifecycle.next({ phase: 'running', modelId: 'm1' });
+    await settle();
+    expect(lit()).toEqual(['a', 'b']);
+
+    lifecycle.next({ phase: 'stopped', modelId: 'm2' });
+    await settle();
+    expect(lit()).toEqual(['a']);
+  });
+
+  it('draws the light in the open menu', async () => {
+    const { el, select, settle } = await statusBar(CONFIG, { running: ['m2'] });
+    expect(select.options().length).toBe(2);
+    (el.querySelector('.pill-select__trigger') as HTMLButtonElement).click();
+    await settle();
+    const rows = [...document.querySelectorAll('.pill-select__option')].map((row) => ({
+      label: row.querySelector('.pill-select__option-label')?.textContent?.trim(),
+      running: row.querySelector('.pill-select__indicator.is-running')?.getAttribute('aria-label') ?? null,
+    }));
+    expect(rows).toEqual([
+      { label: 'A', running: null },
+      { label: 'B', running: 'Running' },
+    ]);
+  });
+
+  it('follows a local server that comes up later: Start turns into Switch', async () => {
+    const { el, electron, select, settle } = await statusBar(CONFIG);
+    select.valueChange.emit('b');
+    await settle();
+    expect(button(el).textContent?.trim()).toBe('Start');
     (electron.llamaServerLifecycle$ as Subject<unknown>).next({ phase: 'running', modelId: 'm2' });
     await settle();
-    expect(optionIds()).toEqual(['a', 'b']);
+    expect(button(el).textContent?.trim()).toBe('Switch');
   });
 
   it('leaves the home page as it was: every source listed, and a pick switches at once', async () => {
@@ -183,11 +266,27 @@ describe('swapping the main model in the status bar', () => {
     const select = fixture.debugElement.query(By.directive(PillSelectComponent)).componentInstance as PillSelectComponent;
     expect((select.options() as ReadonlyArray<{ id: string }>).map((o) => o.id)).toEqual(['cloud', 'a', 'b']);
     expect(electron.llmSourcePing).not.toHaveBeenCalled();
+    expect((select.options() as ReadonlyArray<{ indicator?: string }>).some((o) => o.indicator)).toBe(false);
 
     select.valueChange.emit('b');
     await render(fixture);
     expect(electron.setActiveLlmModel).toHaveBeenCalledWith('m2');
     expect(button(el).textContent?.trim()).toBe('Start');
+  });
+
+  it('marks running local sources on the home page too, asking only for local server state', async () => {
+    const { fixture, electron } = setup({ running: ['m2'] });
+    fixture.componentRef.setInput('appConfig', WITH_CLOUD);
+    for (let pass = 0; pass < 3; pass += 1) {
+      await render(fixture);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    const select = fixture.debugElement.query(By.directive(PillSelectComponent)).componentInstance as PillSelectComponent;
+    const lit = (select.options() as ReadonlyArray<{ id: string; indicator?: string }>)
+      .filter((o) => o.indicator === 'running')
+      .map((o) => o.id);
+    expect(lit).toEqual(['b']);
+    expect(electron.llmSourcePing).not.toHaveBeenCalled();
   });
 });
 

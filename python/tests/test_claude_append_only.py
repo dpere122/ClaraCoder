@@ -76,7 +76,7 @@ def tool_use(name: str, args: dict[str, Any], call_id: str) -> dict[str, Any]:
     return {'type': 'tool_use', 'id': call_id, 'name': name, 'input': args}
 
 
-def compaction(summary: str, tool_changes: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def compaction(summary: str | None, tool_changes: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     block: dict[str, Any] = {'type': 'compaction', 'content': summary}
     if tool_changes is not None:
         block['tool_changes'] = tool_changes
@@ -501,3 +501,145 @@ def test_notice_blocks_live_in_additional_kwargs() -> None:
     notice = change_notice('update', [{'type': 'tool_removal', 'tool': {'type': 'tool_reference', 'name': 'x'}}], [], ['x'])
     assert notice.additional_kwargs[SYSTEM_BLOCKS_KEY][0] == {'type': 'text', 'text': 'update'}
     assert 'Tools no longer available: x.' in notice.content
+
+
+# ---------------------------------------------------------------------------
+# A compaction is not an answer, and a failed one is not a compaction
+# ---------------------------------------------------------------------------
+
+
+def test_a_compaction_summary_is_not_answer_text() -> None:
+    from langchain_core.messages import AIMessage, AIMessageChunk
+
+    from clara_coder_backend.lang_agent.streaming import aimessage_chunk_sse_delta
+    from clara_coder_backend.llm.messages import final_assistant_text, stringify_content
+
+    block = {'type': 'compaction', 'content': '<summary>read x</summary>', 'index': 0}
+    # Not streamed into the chat as the reply, and not the turn's answer when the call paused on it.
+    assert aimessage_chunk_sse_delta(AIMessageChunk(content=[block])) == ''
+    assert stringify_content([block]) == ''
+    assert final_assistant_text(AIMessage(content=[block])) == ''
+    assert final_assistant_text(AIMessage(content=[block, {'type': 'text', 'text': 'done'}])) == 'done'
+
+
+@pytest.mark.parametrize('stop', ['compaction', 'refusal'])
+@pytest.mark.asyncio(loop_scope='function')
+async def test_a_compaction_without_a_summary_keeps_the_conversation(
+    monkeypatch: pytest.MonkeyPatch, session: SessionState, stop: str
+) -> None:
+    monkeypatch.setattr(runtime_config, 'connections', [_connection(server_compaction=True)])
+    server = FakeClaude(
+        [
+            reply(thinking('a'), tool_use('read_thing', {'path': 'x'}, 'toolu_1'), stop='tool_use'),
+            # The API pauses even when it could not write a summary: the block's content is null and it is a no-op.
+            reply(compaction(None), stop=stop),
+            reply(thinking('b'), text('done')),
+        ]
+    )
+    use_server(monkeypatch, server)
+    await run_turn(claude_graph(session, tools_of(read_thing)), 't-no-summary', user_turn('go'))
+
+    assert len(server.bodies) == 3
+    assert_append_only(server.bodies[:2])
+    last = server.bodies[2]
+    # The request goes out again as it was: everything is still there, nothing claims a summary, and the
+    # failed block does not go back.
+    assert _without_cache_markers(last['messages']) == _without_cache_markers(server.bodies[1]['messages'])
+    assert last['messages'][0]['role'] == 'user'
+    assert 'BODY of x' in json.dumps(last['messages'])
+    assert 'compacted' not in json.dumps(last['messages'])
+    assert all(m['content'] for m in last['messages'])
+    assert '"compaction"' not in json.dumps(last['messages'])
+    assert thinking_signatures(last) == ['sig-1']
+    # Not asked to compact again in this turn: it would pause on the same failure until the step limit.
+    assert 'context_management' not in last
+    # The next request tries again.
+    await run_turn(claude_graph(session, tools_of(read_thing)), 't-no-summary', user_turn('more'))
+    assert server.bodies[3]['context_management']['edits'][0]['type'] == 'compact_20260112'
+    assert_append_only(server.bodies[2:])
+
+
+def test_notices_are_plain_text_for_claude_models_without_system_messages() -> None:
+    from langchain_core.messages import AIMessage
+
+    from clara_coder_backend.middleware.append_only_context_middleware import change_notice
+
+    removal = {'type': 'tool_removal', 'tool': {'type': 'tool_reference', 'name': 'late_thing'}}
+    history = [
+        HumanMessage(content='hi'),
+        AIMessage(content='ok'),
+        HumanMessage(content='more'),
+        change_notice('update', [removal], [], ['late_thing']),
+    ]
+    # A thread that moved from Claude Opus 5.5 to Claude Sonnet 5: ``role: "system"`` in messages is a 400 there.
+    payload = build_anthropic_llm(_connection(model='claude-sonnet-5'), idle_timeout_sec=60)._get_request_payload(history)
+    assert [m['role'] for m in payload['messages']] == ['user', 'assistant', 'user']
+    assert 'Tools no longer available: late_thing.' in json.dumps(payload['messages'][-1])
+    assert INLINE_TOOLS_BETA not in (payload.get('betas') or [])
+    # The model the notice was written for still gets it as a system message.
+    payload = build_anthropic_llm(_connection(), idle_timeout_sec=60)._get_request_payload(history)
+    assert payload['messages'][-1] == {'role': 'system', 'content': [{'type': 'text', 'text': 'update'}, removal]}
+
+
+def test_a_compaction_block_goes_back_with_its_beta_when_compaction_is_off() -> None:
+    from langchain_core.messages import AIMessage
+
+    history = [
+        HumanMessage(content='hi'),
+        AIMessage(content=[{'type': 'compaction', 'content': 'summary', 'index': 0}]),
+        HumanMessage(content='more'),
+    ]
+    # Compaction turned off in Settings after the thread compacted: no edit, but the block still needs its beta.
+    payload = build_anthropic_llm(_connection(), idle_timeout_sec=60)._get_request_payload(history)
+    assert payload['messages'][0]['content'][0] == {'type': 'compaction', 'content': 'summary'}
+    assert COMPACTION_BETA in payload['betas']
+
+
+def test_other_providers_read_a_compaction_summary_as_text() -> None:
+    from langchain_core.messages import AIMessage
+    from langchain_openai.chat_models import base as lc_openai_base
+
+    from clara_coder_backend.llm.langchain_compat import install_langchain_reasoning_content_compat
+
+    install_langchain_reasoning_content_compat()
+    message = AIMessage(
+        content=[
+            {'type': 'compaction', 'content': 'the summary', 'signature': 'csig', 'index': 0},
+            {'type': 'compaction', 'content': None, 'index': 1},
+            {'type': 'text', 'text': 'and on', 'index': 2},
+        ]
+    )
+    wire = lc_openai_base._convert_message_to_dict(message)
+    # An OpenAI-compatible server rejects a content part of a type it does not know.
+    assert [part['type'] for part in wire['content']] == ['text', 'text']
+    assert wire['content'][0]['text'] == 'the summary'
+
+
+@pytest.mark.asyncio(loop_scope='function')
+async def test_a_tool_defined_in_a_message_is_defined_again_after_a_compaction(
+    monkeypatch: pytest.MonkeyPatch, session: SessionState
+) -> None:
+    monkeypatch.setattr(runtime_config, 'connections', [_connection(server_compaction=True)])
+    server = FakeClaude(
+        [
+            reply(thinking('a'), text('first')),
+            reply(thinking('b'), text('second')),
+            # The block records the tools in effect at its end: late_thing was withdrawn by then, so it is not in it.
+            reply(compaction('<summary>so far</summary>', []), stop='compaction'),
+            reply(thinking('c'), text('third')),
+            reply(thinking('d'), text('fourth')),
+        ]
+    )
+    use_server(monkeypatch, server)
+    await run_turn(claude_graph(session, tools_of(read_thing)), 't-redefine', user_turn('one'))
+    await run_turn(claude_graph(session, tools_of(read_thing, late_thing)), 't-redefine', user_turn('two'))
+    await run_turn(claude_graph(session, tools_of(read_thing)), 't-redefine', user_turn('three'))
+    await run_turn(claude_graph(session, tools_of(read_thing, late_thing)), 't-redefine', user_turn('four'))
+
+    assert_append_only(server.bodies)
+    assert [b['type'] for b in server.bodies[2]['messages'][-1]['content']] == ['tool_removal']
+    # Its definition went with the summarized messages and it is not in ``tools``: a reference would not resolve.
+    notice = server.bodies[4]['messages'][-1]
+    assert notice['role'] == 'system'
+    assert [(b['type'], b['tool']['type']) for b in notice['content']] == [('tool_addition', 'tool_definition')]
+    assert notice['content'][0]['tool']['definition']['name'] == 'late_thing'

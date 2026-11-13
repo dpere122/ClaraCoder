@@ -40,7 +40,11 @@ from langgraph.types import Command
 from typing_extensions import NotRequired, override
 
 from clara_coder_backend.domain import RuntimeConnection
-from clara_coder_backend.llm.anthropic_llm import SYSTEM_BLOCKS_KEY, supports_mid_conversation_system
+from clara_coder_backend.llm.anthropic_llm import (
+    SYSTEM_BLOCKS_KEY,
+    is_compaction_summary,
+    supports_mid_conversation_system,
+)
 from clara_coder_backend.middleware.user_event_injection_middleware import with_messages_before
 from clara_coder_backend.session.state import get_active_connection
 
@@ -141,12 +145,15 @@ def _tool_changes(
 
 
 def last_compaction(messages: list[Any]) -> tuple[str, bool]:
-    """``(id, records tool changes)`` of the newest assistant message with a ``compaction`` block, or ``('', False)``."""
+    """``(id, records tool changes)`` of the newest assistant message with a compaction summary, or ``('', False)``.
+
+    A block without a summary replaced nothing, so the notices before it still stand.
+    """
     for message in reversed(messages):
         content = getattr(message, 'content', None)
         if isinstance(message, AIMessage) and isinstance(content, list):
             for block in content:
-                if isinstance(block, dict) and block.get('type') == 'compaction':
+                if is_compaction_summary(block):
                     return str(message.id or ''), 'tool_changes' in block
     return '', False
 
@@ -201,9 +208,20 @@ class AppendOnlyContextMiddleware(AgentMiddleware):
             # over when the block records them (``tool_changes``); without that, tools are back to the first set.
             saved['compaction_id'] = compaction_id
             saved['announced'] = saved.get('system') or ''
+            first = {str(tool.get('name') or ''): tool for tool in saved.get('tools') or []}
             if not carries_tools:
-                saved['in_effect'] = {str(tool.get('name') or ''): tool for tool in saved.get('tools') or []}
+                saved['in_effect'] = first
                 saved['withdrawn'] = []
+            else:
+                # The block records the tools in effect at its end. A withdrawn tool that a message defined is
+                # in neither the block nor ``tools`` now, so a reference to it would not resolve (a 400 on
+                # every retry): forget it, and offering it again defines it again.
+                withdrawn = [name for name in saved.get('withdrawn') or [] if name in first]
+                gone = set(saved.get('withdrawn') or []) - set(withdrawn)
+                saved['withdrawn'] = withdrawn
+                saved['in_effect'] = {
+                    name: tool for name, tool in (saved.get('in_effect') or {}).items() if name not in gone
+                }
         system_update = ''
         if current_system != saved.get('announced'):
             system_update = system_change_text(str(saved.get('announced') or ''), current_system)

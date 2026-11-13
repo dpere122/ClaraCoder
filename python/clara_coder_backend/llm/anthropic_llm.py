@@ -17,7 +17,8 @@ sends them as ``chat_template_reasoning``):
   :data:`SYSTEM_BLOCKS_KEY` goes out as a system message with those blocks (its own text is what other
   providers see). That is how a changed system prompt or tool list reaches a running thread.
 - Server-side compaction (``compact_20260112``) when the compaction middleware asks for it; the
-  ``compaction`` blocks come back in the assistant content and are sent back as received.
+  ``compaction`` blocks come back in the assistant content and are sent back as received (one without a
+  summary is a failed compaction and is left out).
 - Top-level automatic prompt caching (``cache_control``), so the system prompt and tool list are
   billed at cache rates on every agent step after the first.
 - No sampling parameters (current Claude models reject them).
@@ -115,21 +116,48 @@ def place_system_messages(formatted: list[dict[str, Any]]) -> list[dict[str, Any
     return out
 
 
-def _clean_compaction_blocks(formatted: list[dict[str, Any]]) -> None:
+def is_compaction_summary(block: Any) -> bool:
+    """A ``compaction`` block that holds a summary.
+
+    The API also returns the block when it could not write one (``content`` is null, with ``stop_reason``
+    ``compaction`` or ``refusal``). That block is a no-op: nothing before it was replaced.
+    """
+    return (
+        isinstance(block, dict)
+        and block.get('type') == 'compaction'
+        and isinstance(block.get('content'), str)
+        and bool(block['content'])
+    )
+
+
+def _clean_compaction_blocks(formatted: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Compaction blocks as they came, without LangChain's keys; a block without a summary does not go back.
+
+    An assistant message that held nothing else goes with it (the API rejects an empty one).
+    """
+    out: list[dict[str, Any]] = []
     for message in formatted:
         content = message.get('content')
         if message.get('role') != 'assistant' or not isinstance(content, list):
+            out.append(message)
             continue
-        for index, block in enumerate(content):
-            if isinstance(block, dict) and block.get('type') == 'compaction':
-                content[index] = {key: block[key] for key in _COMPACTION_BLOCK_KEYS if key in block}
+        kept: list[Any] = []
+        for block in content:
+            if not (isinstance(block, dict) and block.get('type') == 'compaction'):
+                kept.append(block)
+            elif is_compaction_summary(block):
+                kept.append({key: block[key] for key in _COMPACTION_BLOCK_KEYS if key in block})
+        if kept:
+            out.append({**message, 'content': kept})
+    return out
 
 
 def from_last_compaction(formatted: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The messages from the newest compaction block on: the API drops everything before it anyway.
 
     The block opens its assistant message, so the request starts with it. Without this the body would keep
-    every message the thread ever had, compacted or not.
+    every message the thread ever had, compacted or not. Run after :func:`_clean_compaction_blocks`: only
+    blocks with a summary are left then.
     """
     for index in range(len(formatted) - 1, 0, -1):
         message = formatted[index]
@@ -221,15 +249,21 @@ class ClaraChatAnthropic(ChatAnthropic):
     request_timeout_sec: float = 600.0
 
     def _get_request_payload(self, input_: Any, *, stop: list[str] | None = None, **kwargs: Any) -> dict:
-        messages = [_as_marked_message(message) for message in self._convert_input(input_).to_messages()]
+        messages = self._convert_input(input_).to_messages()
+        if supports_mid_conversation_system(self.model):
+            # Any other Claude model rejects ``role: "system"`` in ``messages``: a thread that moved to one
+            # sends each notice as the text it carries for other providers.
+            messages = [_as_marked_message(message) for message in messages]
         payload = super()._get_request_payload(messages, stop=stop, **kwargs)
-        formatted = from_last_compaction(place_system_messages(payload.get('messages') or []))
-        _clean_compaction_blocks(formatted)
+        # Failed compaction blocks leave before the notices are placed: a system message cannot sit where
+        # the assistant message it preceded was dropped.
+        formatted = from_last_compaction(place_system_messages(_clean_compaction_blocks(payload.get('messages') or [])))
         payload['messages'] = formatted
         betas = list(payload.get('betas') or [])
         if _has_tool_changes(formatted) or _carries_tool_changes(formatted):
             betas = _with_beta(betas, INLINE_TOOLS_BETA)
-        if _uses_server_compaction(payload):
+        if _uses_server_compaction(payload) or _count_blocks(formatted, 'compaction'):
+            # Also without the edit (compaction turned off in Settings, the notes call): the block is a beta type.
             betas = _with_beta(betas, COMPACTION_BETA)
         if betas:
             payload['betas'] = betas

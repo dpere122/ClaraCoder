@@ -120,6 +120,23 @@ def reasoning_details_text(items: Any) -> str:
     return ''.join(parts)
 
 
+def _compaction_blocks_as_text(content: list[Any]) -> list[Any]:
+    """``content`` with Claude ``compaction`` blocks as text blocks (one without a summary is left out).
+
+    An OpenAI-compatible server rejects a content part of a type it does not know. The same list when it
+    holds no such block.
+    """
+    if not any(isinstance(block, dict) and block.get('type') == 'compaction' for block in content):
+        return content
+    out: list[Any] = []
+    for block in content:
+        if not (isinstance(block, dict) and block.get('type') == 'compaction'):
+            out.append(block)
+        elif isinstance(block.get('content'), str) and block['content']:
+            out.append({'type': 'text', 'text': block['content']})
+    return out
+
+
 def output_was_truncated(message: AIMessage) -> bool:
     """True when the model stopped at its output or context limit (OpenAI and Anthropic metadata)."""
     meta = message.response_metadata or {}
@@ -203,7 +220,14 @@ def install_langchain_reasoning_content_compat() -> None:
     _orig_message_to_dict = lc_openai_base._convert_message_to_dict
 
     def _convert_message_to_dict(message: BaseMessage, *args: Any, **kwargs: Any) -> dict:
-        """Wrap message→dict: echo ``reasoning_details`` on assistant turns (OpenRouter tool loops)."""
+        """Wrap message→dict: echo ``reasoning_details`` on assistant turns (OpenRouter tool loops).
+
+        A thread that Claude compacted keeps its ``compaction`` blocks; here they go out as their summary text.
+        """
+        if isinstance(message, AIMessage) and isinstance(message.content, list):
+            content = _compaction_blocks_as_text(message.content)
+            if content is not message.content:
+                message = message.model_copy(update={'content': content or ''})
         out = _orig_message_to_dict(message, *args, **kwargs)
         if isinstance(message, AIMessage) and out.get('role') == 'assistant':
             details = consolidate_reasoning_details((message.additional_kwargs or {}).get('reasoning_details'))

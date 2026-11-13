@@ -36,7 +36,7 @@ from langchain.agents.middleware.types import (
     PrivateStateAttr,
     ResponseT,
 )
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, RemoveMessage, ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.runtime import Runtime
 from langgraph.types import Command
@@ -45,7 +45,7 @@ from typing_extensions import NotRequired, override
 
 from clara_coder_backend.config import CLARA_CONTEXT_WINDOW_FALLBACK
 from clara_coder_backend.domain import RuntimeConnection, SessionState
-from clara_coder_backend.llm.anthropic_llm import COMPACTION_EDIT_TYPE
+from clara_coder_backend.llm.anthropic_llm import COMPACTION_EDIT_TYPE, is_compaction_summary
 from clara_coder_backend.lang_agent.context_compaction import (
     CHARS_PER_TOKEN,
     NOTES_EVERY_CALLS,
@@ -135,7 +135,7 @@ class _CompactionState(AgentState[ResponseT]):
     """One thread's compaction state; whole-dict replace, from the model wrapper and after-model hooks only.
 
     ``{cut_id, block, hint, notes, elided_ids, floor_id, window, window_for, next_soft, notes_call, futile,
-    progress, force}``. Never written from tools: parallel writes raise ``InvalidUpdateError``.
+    progress, force, server_compaction_failed}``. Never written from tools: parallel writes raise ``InvalidUpdateError``.
     """
 
     context_compaction: NotRequired[Annotated[dict[str, Any], PrivateStateAttr]]
@@ -230,23 +230,42 @@ def server_compaction_edit(trigger_tokens: int) -> dict[str, Any]:
     }
 
 
+#: ``context_compaction`` key: Claude paused to compact and wrote no summary; cleared on the next user request.
+_SERVER_COMPACTION_FAILED = 'server_compaction_failed'
+
 COMPACTION_CONTINUE_TEXT = (
     '[Harness note.] The conversation so far was compacted into the summary above. Continue the task from it.'
 )
 
 
 def is_paused_compaction(message: Any) -> bool:
-    """A reply that stopped right after a server-side compaction block (``stop_reason`` ``compaction``)."""
+    """A reply that stopped right after a server-side compaction block.
+
+    ``stop_reason`` is ``compaction``, or ``refusal`` when safeguards blocked the summary: then the reply is
+    the block alone, with null content.
+    """
     if not isinstance(message, AIMessage):
         return False
     meta = message.response_metadata if isinstance(message.response_metadata, dict) else {}
-    return meta.get('stop_reason') == 'compaction'
+    if meta.get('stop_reason') == 'compaction':
+        return True
+    content = message.content if isinstance(message.content, list) else []
+    return (
+        bool(content)
+        and not message.tool_calls
+        and all(isinstance(block, dict) and block.get('type') == 'compaction' for block in content)
+    )
+
+
+def has_compaction_summary(message: AIMessage) -> bool:
+    """False for a compaction that wrote no summary (null content): the API treats that block as a no-op."""
+    content = message.content if isinstance(message.content, list) else []
+    return any(is_compaction_summary(block) for block in content)
 
 
 def _compaction_iterations(message: AIMessage) -> tuple[int, int] | None:
-    """``(tokens before, tokens after)`` when the reply opened with a compaction block, else ``None``."""
-    content = message.content if isinstance(message.content, list) else []
-    if not any(isinstance(block, dict) and block.get('type') == 'compaction' for block in content):
+    """``(tokens before, tokens after)`` when the reply opened with a compaction summary, else ``None``."""
+    if not has_compaction_summary(message):
         return None
     usage = message.usage_metadata or {}
     after = int(usage.get('input_tokens') or 0)
@@ -518,6 +537,8 @@ class ContextCompactionMiddleware(AgentMiddleware):
             if cc.get('futile'):
                 cc['futile'] = 0
             cc.pop('progress', None)
+            # A summary Claude could not write last time is worth one more try per request.
+            cc.pop(_SERVER_COMPACTION_FAILED, None)
             hint = cc.pop('hint', '')
             if hint:
                 # The one change to a block between events: this re-decodes from the first kept message, once.
@@ -525,7 +546,9 @@ class ContextCompactionMiddleware(AgentMiddleware):
         call.view = render_view(request.messages, cc, call.request_cap)
         call.est, call.ratio = estimate_prompt_tokens(call.view, cc, call.overhead_chars)
         enabled = runtime_config.context_compression.enabled
-        call.server_compaction = enabled and uses_server_compaction(call.connection)
+        call.server_compaction = (
+            enabled and uses_server_compaction(call.connection) and not cc.get(_SERVER_COMPACTION_FAILED)
+        )
         block_chars = len(str(cc.get('block') or ''))
         if enabled and not call.server_compaction and compaction_due(call.est, call.budget(0, block_chars, 0), cc):
             await self._compact(call)
@@ -771,8 +794,19 @@ class ContextCompactionMiddleware(AgentMiddleware):
         if not isinstance(last, AIMessage):
             return None
         if is_paused_compaction(last):
-            # Claude stopped after compacting: the block is saved, the model goes on from a user turn.
-            return {'messages': [HumanMessage(content=COMPACTION_CONTINUE_TEXT)], 'jump_to': 'model'}
+            if has_compaction_summary(last):
+                # Claude stopped after compacting: the block is saved, the model goes on from a user turn.
+                return {'messages': [HumanMessage(content=COMPACTION_CONTINUE_TEXT)], 'jump_to': 'model'}
+            # No summary came back, so nothing was compacted. The empty reply leaves the thread and the model
+            # is called again as it was, without asking Claude to compact: the same request would pause on
+            # the same failure until the step limit. ClaraCoder's own compaction covers the rest of the request.
+            logger.warning('Claude paused to compact but wrote no summary; going on without server-side compaction')
+            saved = state.get('context_compaction') or {}
+            return {
+                'messages': [RemoveMessage(id=last.id)] if last.id else [],
+                'context_compaction': {**saved, _SERVER_COMPACTION_FAILED: True},
+                'jump_to': 'model',
+            }
         cut_off = output_was_truncated(last)
         if not cut_off and not _is_empty_gemma_reply(last):
             return None

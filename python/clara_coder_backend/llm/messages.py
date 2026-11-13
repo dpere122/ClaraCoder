@@ -164,6 +164,9 @@ def stringify_content(content: Any) -> str:
                 parts.append(item)
                 continue
             if isinstance(item, dict):
+                if item.get('type') == 'compaction':
+                    # Claude's server-side summary of the conversation: context for the model, not content.
+                    continue
                 text = item.get('text') or item.get('content')
                 if text:
                     parts.append(str(text))

@@ -79,10 +79,12 @@ async def test_a_role_on_another_source_or_model_pins_a_snapshot(sources) -> Non
     other = bind_subagent_role(_role(connection_id='other'))
     assert other.connection is sources.connections[1] and not other.note and not other.error
 
-    sibling = bind_subagent_role(_role(model='small'))
+    sibling = bind_subagent_role(_role(connection_id='main', model='small'))
     assert sibling.connection is not None
     assert (sibling.connection.id, sibling.connection.model) == ('main', 'small')
     assert sources.connections[0].model == 'main-model'
+    # A role that follows the main agent takes its model too: the id may belong to another source.
+    assert bind_subagent_role(_role(model='small')).connection is None
 
     both = bind_subagent_role(_role(connection_id='other', model='tiny'))
     assert (both.connection.id, both.connection.model) == ('other', 'tiny')

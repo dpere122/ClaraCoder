@@ -319,7 +319,9 @@ def bind_subagent_role(role: RuntimeSubagentRole | None) -> RoleBinding:
         if target is None:
             problem = 'its source is no longer in Settings'
     if target is not None:
-        model = (role.model or '').strip()
+        # A model id belongs to the source the role names. A role that follows the main agent takes
+        # that source's model: the main source can change, and the id would go to another provider.
+        model = (role.model or '').strip() if role.connection_id else ''
         if model and model != target.model:
             target = dataclasses.replace(target, model=model)
         if other_source:

@@ -610,7 +610,7 @@ class RuntimeSubagentRole:
     enabled: bool = True
     #: Source it runs on; empty follows the main agent's source.
     connection_id: str = ''
-    #: Model on that source; empty keeps the source's own model.
+    #: Model on the source it names; empty keeps the source's own model. Ignored without ``connection_id``.
     model: str = ''
     #: Never gets Editor tools, whatever mode the chat is in.
     read_only: bool = False

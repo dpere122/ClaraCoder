@@ -170,7 +170,12 @@ describe('SettingsSubagents', () => {
   it('offers a model control that fits the source', async () => {
     const { host, store, refresh } = setup([role('r1', 'explorer')]);
     await refresh();
-    // The main source is Claude: a pick from its catalog.
+    // Same as the main agent: it takes that source's model, so there is nothing to pick.
+    expect(fieldControl(host, 'Model')).toBeNull();
+
+    // Claude: a pick from its catalog.
+    store.patchSubagentRole('r1', { connectionId: 'src-claude' });
+    await refresh();
     const claudePick = fieldControl<HTMLSelectElement>(host, 'Model')!;
     expect([...claudePick.options].map((o) => o.textContent?.trim())).toEqual([
       "The source's model",
@@ -232,8 +237,8 @@ describe('SettingsSubagents', () => {
     await refresh();
     expect(level()!.disabled).toBe(true);
 
-    // Claude: what the role's model reports, here the main agent's model and then an override.
-    store.patchSubagentRole('r1', { connectionId: '', thinking: 'source', thinkingLevel: '' });
+    // Claude: what the role's model reports, here the source's own model and then an override.
+    store.patchSubagentRole('r1', { connectionId: 'src-claude', thinking: 'source', thinkingLevel: '' });
     await refresh();
     expect(options()).toEqual(["The source's setting", 'Low', 'High', 'Max']);
     store.patchSubagentRole('r1', { model: 'claude-small' });

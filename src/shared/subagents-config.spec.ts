@@ -105,6 +105,16 @@ describe('normalizeSubagentsConfig', () => {
     expect(roles.map((r) => r.thinkingLevel)).toEqual(['low', '', '']);
   });
 
+  it('keeps a model only for a role that names its source', () => {
+    const { roles } = normalizeSubagentsConfig({
+      roles: [
+        { ...newSubagentRole('r1', 'pinned'), connectionId: 'src-claude', model: ' claude-small ' },
+        { ...newSubagentRole('r2', 'follower'), model: 'claude-small' },
+      ],
+    });
+    expect(roles.map((role) => role.model)).toEqual(['claude-small', '']);
+  });
+
   it('strips backticks from names and unknown tool groups', () => {
     const { roles } = normalizeSubagentsConfig({
       roles: [{ ...newSubagentRole('r1', '`scout`'), tools: ['read', 'teleport'] }],

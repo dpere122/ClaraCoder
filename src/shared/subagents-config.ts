@@ -51,7 +51,10 @@ export interface SubagentRoleConfig {
   enabled: boolean;
   /** Id of the source (`LlmProviderConfig.id`) it runs on; empty follows the main agent's source. */
   connectionId: string;
-  /** Model on that source; empty keeps the source's own model. */
+  /**
+   * Model on the source the role names; empty keeps the source's own model. Always empty for a
+   * role that follows the main agent's source: it takes that source's model, whichever it is.
+   */
   model: string;
   /** Never gets Editor tools, whatever mode the chat is in. */
   readOnly: boolean;
@@ -185,13 +188,15 @@ export function normalizeSubagentsConfig(raw: unknown): SubagentsConfig {
     }
     ids.add(id);
     names.add(name.toLowerCase());
+    const connectionId = text(role['connectionId'], 200).trim();
     roles.push({
       id,
       name,
       description: text(role['description'], 400),
       enabled: role['enabled'] !== false,
-      connectionId: text(role['connectionId'], 200).trim(),
-      model: text(role['model'], 200).trim(),
+      connectionId,
+      // A model id means something on one source only, and the main agent's source can change.
+      model: connectionId ? text(role['model'], 200).trim() : '',
       readOnly: role['readOnly'] === true,
       thinking: role['thinking'] === 'on' || role['thinking'] === 'off' ? role['thinking'] : 'source',
       thinkingLevel: SUBAGENT_THINKING_LEVELS.find((level) => level.id === role['thinkingLevel'])?.id ?? '',

@@ -197,6 +197,10 @@ export class SettingsSubagents implements OnInit {
 
   /** How the Model control works for the role's source: a Claude pick, free text, or none. */
   protected modelControl(role: SubagentRoleConfig): 'claude' | 'text' | 'none' {
+    if (!role.connectionId) {
+      // It runs on whatever the main agent runs on: a model picked for one source would follow it to the next.
+      return 'none';
+    }
     const provider = this.effectiveSource(role)?.provider;
     if (provider === 'llamacpp') {
       // A managed server runs the one model it was started with.

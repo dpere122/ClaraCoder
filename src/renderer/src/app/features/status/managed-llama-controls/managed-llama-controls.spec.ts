@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PINNED_LM_STUDIO_PROVIDER_ID, type AppConfig, type LlamaServerStartResult } from '@shared/index';
 import { ElectronService } from '../../../core/electron.service';
 import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
-import { ManagedLlamaControlsComponent } from './managed-llama-controls';
+import { MODEL_GLOW_MS, ManagedLlamaControlsComponent } from './managed-llama-controls';
 
 const model = (id: string) => ({
   id,
@@ -309,6 +309,55 @@ describe('swapping the main model in the status bar', () => {
       .map((o) => o.id);
     expect(lit).toEqual(['b']);
     expect(electron.llmSourcePing).not.toHaveBeenCalled();
+  });
+});
+
+describe('the model glow', () => {
+  const glowing = (el: HTMLElement) => !!el.querySelector('.managed-llama-controls__source-select.is-glowing');
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it('glows once in the status bar when the model changes, then stops', async () => {
+    vi.useFakeTimers();
+    try {
+      const { fixture } = setup();
+      fixture.componentRef.setInput('layout', 'status-bar');
+      fixture.detectChanges();
+      vi.advanceTimersByTime(10);
+      fixture.detectChanges();
+      const el = fixture.nativeElement as HTMLElement;
+      // The bar appearing is not a change.
+      expect(glowing(el)).toBe(false);
+
+      // A conversation opened on another model (or a switch): the menu glows.
+      fixture.componentRef.setInput('appConfig', { ...CONFIG, activeLlmModelId: 'm2' });
+      fixture.detectChanges();
+      vi.advanceTimersByTime(10);
+      fixture.detectChanges();
+      expect(glowing(el)).toBe(true);
+
+      vi.advanceTimersByTime(MODEL_GLOW_MS);
+      fixture.detectChanges();
+      expect(glowing(el)).toBe(false);
+
+      // The same config sent again (a conversation switch on the same model) does not glow.
+      fixture.componentRef.setInput('appConfig', { ...CONFIG, activeLlmModelId: 'm2' });
+      fixture.detectChanges();
+      vi.advanceTimersByTime(10);
+      fixture.detectChanges();
+      expect(glowing(el)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not glow on the home page', async () => {
+    const { fixture } = setup();
+    const el = await render(fixture);
+    fixture.componentRef.setInput('appConfig', { ...CONFIG, activeLlmModelId: 'm2' });
+    await render(fixture);
+    await tick();
+    fixture.detectChanges();
+    expect(glowing(el)).toBe(false);
   });
 });
 

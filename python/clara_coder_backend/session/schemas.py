@@ -67,6 +67,28 @@ class ChatRequest(BaseModel):
         default=False,
         validation_alias=AliasChoices('continue_with_subagent_results', 'continueWithSubagentResults'),
     )
+    #: The model this turn's conversation is on (a connection id); absent or unknown: the active one.
+    connection_id: str | None = Field(
+        default=None,
+        max_length=200,
+        validation_alias=AliasChoices('connection_id', 'connectionId'),
+    )
+    #: With ``connection_id``: the model name to use on that source (the Claude source keeps one id
+    #: for every Claude model).
+    model: str | None = Field(default=None, max_length=200)
+    #: The conversation's own thinking switch for this turn (``default`` | ``on`` | ``off``); absent: the
+    #: source's setting from Settings.
+    thinking_mode: Literal['default', 'on', 'off'] | None = Field(
+        default=None,
+        validation_alias=AliasChoices('thinking_mode', 'thinkingMode'),
+    )
+    #: The conversation's own reasoning level for this turn (``''`` is the source's Default); absent: the
+    #: source's setting from Settings. The model factory still drops a level the model does not offer.
+    reasoning_effort: str | None = Field(
+        default=None,
+        max_length=32,
+        validation_alias=AliasChoices('reasoning_effort', 'reasoningEffort'),
+    )
 
     @field_validator('structured_content')
     @classmethod

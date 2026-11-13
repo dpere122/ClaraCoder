@@ -131,6 +131,7 @@
           [adminElevationPending]="adminElevationPending()"
           (adminGrantRequested)="adminGrantRequested.emit()"
           (reasoningEffortChange)="reasoningEffortChange.emit($event)"
+          [composerThinking]="composerThinking()"
         />
       }
       @if (creatingConversation()) {

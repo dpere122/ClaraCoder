@@ -27,6 +27,7 @@ continue with them (``continue_with_subagent_results``).
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from collections.abc import AsyncIterator
 from contextlib import aclosing
@@ -45,11 +46,18 @@ from clara_coder_backend.session.checkpointing import (
 )
 from clara_coder_backend.lang_agent.streaming import model_chunk_sse_line, sse_line, status_event
 from clara_coder_backend.config import MAX_TOOL_STATUS_LINE
-from clara_coder_backend.domain import SessionState
+from clara_coder_backend.domain import RuntimeConnection, SessionState
 from clara_coder_backend.llm.factory import build_llm
 from clara_coder_backend.logging.llm_interaction_logging import log_llm_user_request
 from clara_coder_backend.llm.messages import stringify_content
-from clara_coder_backend.session.state import current_session_id, get_session, touch_session
+from clara_coder_backend.session import state as session_state
+from clara_coder_backend.session.state import (
+    current_connection_override,
+    current_session_id,
+    get_main_connection,
+    get_session,
+    touch_session,
+)
 from clara_coder_backend.session.user_events import INTERRUPTED_TURN_MARKER, queue_interrupted_turn_note
 from clara_coder_backend.lang_agent.subagents import (
     CONTINUE_WITH_REPORTS_TEXT,
@@ -63,6 +71,44 @@ from clara_coder_backend.lang_agent.subagents import (
 from clara_coder_backend.tools.workspace import truncate_text
 
 logger = logging.getLogger('clara.agent')
+
+_THINKING_MODES = frozenset({'default', 'on', 'off'})
+
+
+def conversation_connection(
+    thinking_mode: str | None,
+    reasoning_effort: str | None,
+    connection_id: str | None = None,
+    model: str | None = None,
+) -> RuntimeConnection | None:
+    """The connection a conversation's turn runs on, or ``None`` when it is the active one unchanged.
+
+    ``connection_id`` is the model the conversation is on (a source deleted since falls back to the
+    active one), and ``model`` the model name on it (the Claude source keeps one id for every Claude
+    model). The thinking settings apply as if saved on that source in Settings, for this turn only.
+    """
+    try:
+        main = get_main_connection()
+    except HTTPException:
+        # No source configured: the turn reports that itself.
+        return None
+    wanted = (connection_id or '').strip()
+    connection = main
+    if wanted and wanted != main.id:
+        connection = next((c for c in session_state.runtime_config.connections if c.id == wanted), main)
+    changes: dict[str, str] = {}
+    name = (model or '').strip()
+    if name and connection.id == wanted:
+        changes['model'] = name
+    mode = (thinking_mode or '').strip().lower()
+    if mode in _THINKING_MODES:
+        changes['thinking_mode'] = mode
+    if reasoning_effort is not None:
+        changes['reasoning_effort'] = reasoning_effort.strip().lower()
+    changes = {field: value for field, value in changes.items() if getattr(connection, field) != value}
+    if connection is main and not changes:
+        return None
+    return dataclasses.replace(connection, **changes) if changes else connection
 
 
 async def stream_agent_reply(
@@ -79,6 +125,10 @@ async def stream_agent_reply(
     workspace_notes: list[str] | None = None,
     outcome_sink: LangGraphWorkerOutcome | None = None,
     continue_with_subagent_results: bool = False,
+    thinking_mode: str | None = None,
+    reasoning_effort: str | None = None,
+    connection_id: str | None = None,
+    model: str | None = None,
 ) -> AsyncIterator[str]:
     """Run one user turn and yield SSE lines until ``data: [DONE]``.
 
@@ -110,6 +160,11 @@ async def stream_agent_reply(
     continue_with_subagent_results:
         Ignore ``user_message``: this turn's input is the sub-agent reports waiting on the session (or a
         short "nothing new" line), and history records that text as the user message.
+    thinking_mode, reasoning_effort, connection_id, model:
+        The conversation's own model and thinking (``None``: the active model, and the source's
+        thinking from Settings). They apply to this turn only, through
+        :data:`current_connection_override`, so a turn running at the same time in another
+        conversation keeps its own. Ignored for sub-agents, which follow their role.
     """
     session = get_session(session_id)
     touch_session(session)
@@ -149,6 +204,10 @@ async def stream_agent_reply(
 
     # ContextVar so tools/middleware can resolve the active session without threading ids.
     token = current_session_id.set(session_id)
+    thinking_pin = (
+        None if is_subagent else conversation_connection(thinking_mode, reasoning_effort, connection_id, model)
+    )
+    thinking_token = current_connection_override.set(thinking_pin) if thinking_pin is not None else None
 
     _preview = stringify_content(user_message).strip()
     _structured = not isinstance(user_message, str)
@@ -290,6 +349,12 @@ async def stream_agent_reply(
             # Closed or cancelled before the runner settled (e.g. a sub-agent hard-stopped).
             graph_outcome.mark_aborted(partial_text=graph_outcome.partial_text)
         current_session_id.reset(token)
+        if thinking_token is not None:
+            try:
+                current_connection_override.reset(thinking_token)
+            except ValueError:
+                # Closed from another context (e.g. collected): that context never saw the pin.
+                pass
         if not is_subagent:
             plan_mode = (composer_mode or 'agent').strip().lower() == 'plan'
             _end_parent_turn(session_id, session, graph_outcome, plan_mode=plan_mode)

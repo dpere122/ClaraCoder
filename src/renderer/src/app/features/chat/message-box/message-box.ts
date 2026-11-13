@@ -21,6 +21,7 @@ import {
   type LlamaServerProcessExitEvent,
   type LlmReasoningEffort,
   type LlmReasoningSettingChange,
+  type ConversationThinking,
   type LlmSourcePingResult,
 } from '@shared/index';
 import { LucideAngularModule } from 'lucide-angular';
@@ -101,8 +102,10 @@ export class MessageBox {
   readonly adminGrantRequested = output<void>();
   /** Active app config — drives model/embeddings status beside the context meter. */
   readonly appConfig = input<AppConfig | null>(null);
-  /** User changed Reasoning/Thinking; parent persists onto the active model profile. */
+  /** User changed Reasoning/Thinking; parent keeps it with the open conversation. */
   readonly reasoningEffortChange = output<LlmReasoningSettingChange>();
+  /** The open conversation's own thinking settings; an unset field shows the source's from Settings. */
+  readonly composerThinking = input<ConversationThinking>({});
   private readonly electron = inject(ElectronService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly capsByModel = toSignal(this.electron.chatTemplateReasoning$, {
@@ -191,7 +194,7 @@ export class MessageBox {
    */
   protected readonly reasoningEffortOptions = computed(() => {
     const scanned = this.scannedEffortOptions();
-    if (scanned.length || !this.activeConnection()?.reasoningEffort) {
+    if (scanned.length || !this.savedReasoningEffort()) {
       return scanned;
     }
     return llmEffortSelectOptionsFromCaps(this.liveCaps(), this.activeConnection()?.optimizationPreset);
@@ -207,11 +210,18 @@ export class MessageBox {
   );
   protected readonly claudeModelBusy = signal(false);
 
-  protected readonly thinkingMode = computed(() => this.activeConnection()?.thinkingMode || 'default');
+  /** The conversation's thinking switch, else the source's. */
+  protected readonly thinkingMode = computed(
+    () => this.composerThinking().thinkingMode ?? (this.activeConnection()?.thinkingMode || 'default'),
+  );
+  /** The conversation's reasoning level, else the source's ('' is Default). */
+  private readonly savedReasoningEffort = computed(
+    () => this.composerThinking().reasoningEffort ?? (this.activeConnection()?.reasoningEffort || ''),
+  );
   /** Brain toggle: anything except explicit ``off`` counts as reasoning enabled. */
   protected readonly reasoningEnabled = computed(() => this.thinkingMode() !== 'off');
   protected readonly reasoningEffort = computed(() => {
-    const saved = this.activeConnection()?.reasoningEffort || '';
+    const saved = this.savedReasoningEffort();
     const scanned = this.scannedEffortOptions();
     return scanned.length ? llmComposerEffortValue(scanned, saved) : saved;
   });
@@ -331,12 +341,15 @@ export class MessageBox {
     });
 
     // A saved effort the model does not offer (Default, on/off, another model's) would still be
-    // sent; persist the effort the dropdown shows instead.
+    // sent; keep the effort the dropdown shows instead.
+    // The config is read too: the parent keeps a fitted level only once the conversation's own model
+    // has landed, which can leave both values as they were.
     effect(() => {
+      this.appConfig();
       const shown = this.reasoningEffort();
-      const saved = this.activeConnection()?.reasoningEffort || '';
+      const saved = this.savedReasoningEffort();
       if (shown && shown !== saved) {
-        this.reasoningEffortChange.emit({ field: 'reasoningEffort', value: shown as LlmReasoningEffort });
+        this.reasoningEffortChange.emit({ field: 'reasoningEffort', value: shown as LlmReasoningEffort, fitted: true });
       }
     });
 

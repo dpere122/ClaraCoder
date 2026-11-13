@@ -2,13 +2,16 @@
  * Main chat shell: conversations, workspace chrome, IPC-driven streaming, and layout resize handles.
  * TTS playback lives in {@link TtsPlaybackService}; this component wires signals and `ElectronService` streams.
  */
-import { afterNextRender, Component, computed, effect, HostListener, inject, Injector, model, NgZone, OnDestroy, OnInit, QueryList, signal, untracked, ViewChild, ViewChildren } from '@angular/core';
+import { afterNextRender, Component, computed, effect, HostListener, inject, Injector, linkedSignal, model, NgZone, OnDestroy, OnInit, QueryList, signal, untracked, ViewChild, ViewChildren } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import type {
   AppConfig,
   ChatStructuredContentPart,
   ConversationFileJournalEntry,
   ComposerRunMode,
+  ConversationModel,
+  ConversationThinking,
+  ConversationTurnSettings,
   Workspace,
   WorkspaceFilesChangedMessage,
   WorkspaceOpenTabsState,
@@ -25,9 +28,11 @@ import {
   journalUserIdsToInvert,
   resolveRestoreUserIndex,
   acceptCommandGrantsAdminElevation,
+  activeConversationModel,
+  findLlmModelLocation,
+  sameConversationModel,
   createAdminElevationAcceptPayload,
   isAdminElevationKind,
-  DEFAULT_COMPOSER_RUN_MODE,
   DEFAULT_KOKORO_TTS_VOICE,
   DEFAULT_OPENAI_TTS_VOICE,
   DEFAULT_TTS_PROVIDER,
@@ -35,7 +40,6 @@ import {
   composerApplyMode,
   composerModeForBackend,
   effectiveLmStudioContextTokens,
-  patchLlmModelProfile,
   resolveActiveLlmConnection,
   resolveChatWindowState,
   resolveStartupWorkspaceId,
@@ -233,6 +237,12 @@ export function editorGridSlotView(slot: EditorGridSlot): EditorGridSlotView {
   };
 }
 
+/** What a turn of a conversation sends besides its text: its model and thinking. */
+function turnSettingsOf(composer: ConversationTurnSettings): ConversationTurnSettings {
+  const { modelId, claudeModel, thinkingMode, reasoningEffort } = composer;
+  return { modelId, claudeModel, thinkingMode, reasoningEffort };
+}
+
 @Component({
   selector: 'app-root',
   imports: [
@@ -296,12 +306,27 @@ export class App implements OnInit, OnDestroy {
   /** Errors / hints from talk capture (shown in composer status row). */
   protected readonly talkModeDetailStatus = model('');
   protected readonly talkEnabled = model(false);
+  /**
+   * The open conversation's composer as stored with it. A sub-agent's (read-only) conversation shows
+   * its parent's, without Admin: sub-agents never run elevated.
+   */
+  private readonly activeComposer = computed(() => {
+    const parent = this.conversationSession.activeParentConversationId();
+    const composer = this.conversationSession.composerFor(parent ?? this.activeConversationId());
+    return parent ? { ...composer, admin: false } : composer;
+  });
   /** When true, backend applies proposed edits immediately without diff review pause (`auto_apply_mode`). */
-  protected readonly autoApplyMode = model(false);
+  protected readonly autoApplyMode = linkedSignal(() => this.activeComposer().autoApply);
   /** Per-conversation admin ``run_command`` grant, shown as the composer Admin chip. */
-  protected readonly adminElevationGranted = model(false);
-  private readonly adminElevationByConversation = new Map<string, boolean>();
-  private lastAdminElevationConversationId: string | null = null;
+  protected readonly adminElevationGranted = linkedSignal(() => this.activeComposer().admin);
+  /** What Python was last told about each conversation's Admin chip this run. */
+  private readonly adminElevationSynced = new Map<string, boolean>();
+  /** The conversation the app's model was last matched to (see {@link followConversationModel}). */
+  private modelConversationId: string | null = null;
+  /** A switch to the open conversation's model in flight: the app's model is not recorded until it lands. */
+  private modelSwitch: ({ conversationId: string } & ConversationModel) | null = null;
+  /** Model switches still landing (see {@link followConversationModel}). */
+  private modelSwitchesInFlight = 0;
   /** True while the Admin-chip grant HITL is waiting in this conversation. */
   protected readonly adminElevationPending = computed(() =>
     this.messages().some(
@@ -312,9 +337,14 @@ export class App implements OnInit, OnDestroy {
     ),
   );
   /** Composer run mode: agent (ReAct), ask (read-only), or plan (plan-and-execute). */
-  protected readonly composerMode = model<ComposerRunMode>(DEFAULT_COMPOSER_RUN_MODE);
-  /** Shared composer draft (restore puts the selected user prompt back here). */
-  protected readonly composerDraft = model('');
+  protected readonly composerMode = linkedSignal<ComposerRunMode>(() => this.activeComposer().mode);
+  /** The open conversation's draft (restore puts the selected user prompt back here). */
+  protected readonly composerDraft = linkedSignal(() => this.activeComposer().draft);
+  /** The open conversation's own thinking settings (unset fields: the source's from Settings). */
+  protected readonly composerThinking = computed<ConversationThinking>(() => {
+    const { thinkingMode, reasoningEffort } = this.activeComposer();
+    return { thinkingMode, reasoningEffort };
+  });
   /** Live build-plan markdown streamed from the planner before finalize. */
   protected readonly buildPlanLiveContent = signal<{ relativePath: string; content: string } | null>(null);
   /** Monaco model keys currently receiving live build-plan chunks (skip disk reload). */
@@ -762,51 +792,62 @@ export class App implements OnInit, OnDestroy {
       }
     });
 
+    // Store the composer with the open conversation whenever it changes (its draft once typing
+    // pauses). The composer signals follow the open conversation, so they always describe it.
     effect(() => {
       const convId = this.activeConversationId();
-      if (convId === this.lastAdminElevationConversationId) {
+      const next = {
+        draft: this.composerDraft(),
+        mode: this.composerMode(),
+        autoApply: this.autoApplyMode(),
+        admin: this.adminElevationGranted(),
+      };
+      // A sub-agent's conversation is read-only and has no composer of its own.
+      if (!convId || this.conversationSession.activeParentConversationId()) {
         return;
       }
-      this.lastAdminElevationConversationId = convId;
       untracked(() => {
-        const granted = this.adminElevationByConversation.get(convId ?? '') ?? false;
-        this.adminElevationGranted.set(granted);
-        // Sub-agents never run elevated; their session is not the composer's to change.
-        if (convId && !this.conversationSession.activeParentConversationId()) {
-          void this.electron.syncAdminElevation(convId, granted);
-        }
+        this.conversationSession.setComposer(convId, { ...this.conversationSession.composerFor(convId), ...next });
       });
     });
 
+    // The app runs on the open conversation's model: opening one switches to it, and switching the
+    // model while it is open (status bar, the Claude picker, Settings) is kept with it.
     effect(() => {
+      const convId = this.activeConversationId();
+      const config = this.appConfig();
+      // A sub-agent's conversation is read-only and follows its role, not a model of its own.
+      if (!convId || !config || this.conversationSession.activeParentConversationId()) {
+        return;
+      }
+      untracked(() => this.followConversationModel(convId, config));
+    });
+
+    // Tell Python when a conversation's Admin chip changes. A grant restored with a conversation is
+    // not sent when it opens (that would start the elevated helper, and its UAC prompt, at once): the
+    // next turn carries it, and the helper starts on the first elevated command.
+    effect(() => {
+      const convId = this.activeConversationId();
       const granted = this.adminElevationGranted();
-      const convId = untracked(() => this.activeConversationId());
+      // Sub-agents never run elevated; their session is not the composer's to change.
       if (!convId || untracked(() => this.conversationSession.activeParentConversationId())) {
         return;
       }
-      const previous = this.adminElevationByConversation.get(convId) ?? false;
-      if (previous === granted) {
+      const synced = this.adminElevationSynced.get(convId);
+      this.adminElevationSynced.set(convId, granted);
+      if (synced === granted || (synced === undefined && granted)) {
         return;
       }
-      this.adminElevationByConversation.set(convId, granted);
       void this.electron.syncAdminElevation(convId, granted);
     });
 
     effect(() => {
       // Main keeps the app window's composer (not a bridge tab's) for tabs that join that window.
-      const conversationId = this.activeConversationId();
-      const granted = this.adminElevationGranted();
-      // Right after a conversation switch `granted` can still be the previous conversation's (the
-      // effect above has not run yet); the stored value is what it is about to become.
-      const admin =
-        conversationId === this.lastAdminElevationConversationId
-          ? granted
-          : (this.adminElevationByConversation.get(conversationId ?? '') ?? false);
       this.electron.noteMainWindowComposer({
         mode: this.composerMode(),
         autoApply: this.autoApplyMode(),
-        admin,
-        conversationId,
+        admin: this.adminElevationGranted(),
+        conversationId: this.activeConversationId(),
       });
     });
 
@@ -1445,32 +1486,112 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  async onReasoningEffortChange(change: LlmReasoningSettingChange): Promise<void> {
-    const config = this.appConfig();
-    if (!config) {
+  /**
+   * Keep the app on the open conversation's model. When a conversation opens, switch to the model
+   * stored with it (one deleted since is not switched to); after that, whatever model the app is on
+   * while the conversation is open becomes its model. A conversation stored before models were kept
+   * per conversation takes the model the app is on. Nothing is recorded while a switch is landing,
+   * so a switch made for one conversation is never kept as another's model.
+   */
+  private followConversationModel(convId: string, config: AppConfig): void {
+    const current = activeConversationModel(config);
+    if (convId !== this.modelConversationId) {
+      this.modelConversationId = convId;
+      this.modelSwitch = null;
+      const stored = this.conversationSession.composerFor(convId);
+      const wanted: ConversationModel = { modelId: stored.modelId, claudeModel: stored.claudeModel };
+      if (wanted.modelId && findLlmModelLocation(config.llmProviders, wanted.modelId) && !sameConversationModel(wanted, current)) {
+        this.modelSwitch = { conversationId: convId, ...wanted };
+        void this.switchToConversationModel(convId, wanted, current);
+        return;
+      }
+    }
+    const pending = this.modelSwitch;
+    if (pending?.conversationId === convId) {
+      if (!sameConversationModel(pending, current)) {
+        return;
+      }
+      this.modelSwitch = null;
+    }
+    if (this.modelSwitchesInFlight > 0) {
       return;
     }
-    const current = resolveActiveLlmConnection(config);
-    if (!current) {
+    const stored = this.conversationSession.composerFor(convId);
+    if (!current.modelId || sameConversationModel(stored, current)) {
       return;
     }
-    const unchanged =
-      change.field === 'thinkingMode'
-        ? current.thinkingMode === change.value
-        : (current.reasoningEffort || '') === change.value;
-    if (unchanged) {
-      return;
-    }
+    this.conversationSession.patchComposer(convId, { modelId: current.modelId, claudeModel: current.claudeModel });
+  }
+
+  /** Make `wanted` the app's model for conversation `convId`; when that fails, the model the app is on becomes its own. */
+  private async switchToConversationModel(convId: string, wanted: ConversationModel, current: ConversationModel): Promise<void> {
+    let ok = true;
+    this.modelSwitchesInFlight += 1;
     try {
-      await this.electron.saveConfig({
-        ...config,
-        llmProviders: patchLlmModelProfile(config.llmProviders, config.activeLlmModelId, {
-          [change.field]: change.value,
-        }),
-      });
+      if (wanted.modelId && wanted.modelId !== current.modelId) {
+        const saved = await this.electron.setActiveLlmModel(wanted.modelId);
+        ok = saved?.activeLlmModelId === wanted.modelId;
+        if (saved) {
+          // Use it now: the broadcast of the same config can arrive after this resolves.
+          this.applyIncomingAppConfig(saved);
+        }
+      }
+      if (ok && wanted.claudeModel) {
+        const after = this.appConfig();
+        const onClaude = after ? activeConversationModel({ ...after, activeLlmModelId: wanted.modelId ?? '' }) : {};
+        if (onClaude.claudeModel !== wanted.claudeModel) {
+          ok = (await this.electron.anthropicSetModel({ modelId: wanted.claudeModel })).ok;
+        }
+      }
     } catch (err) {
-      console.error(`[App] persist ${change.field} failed`, err);
+      console.error("[App] switching to the conversation's model failed:", err);
+      ok = false;
+    } finally {
+      this.modelSwitchesInFlight -= 1;
     }
+    if (!ok && this.modelSwitch?.conversationId === convId) {
+      this.modelSwitch = null;
+    }
+    // Record what the open conversation is on now that no switch holds it back.
+    const config = this.appConfig();
+    const openId = this.activeConversationId();
+    if (config && openId && !this.conversationSession.activeParentConversationId()) {
+      // Another conversation was opened while this switch landed: it was matched against the model
+      // the app was on before, so match it again, now, to its own model instead of recording this one.
+      if (openId !== convId && this.modelSwitch?.conversationId !== openId) {
+        this.modelConversationId = null;
+      }
+      this.followConversationModel(openId, config);
+    }
+  }
+
+  /**
+   * The composer's Thinking or Reasoning changed: it belongs to the open conversation, and its turns
+   * send it (the source's own setting in Settings stays the default for conversations that set none).
+   */
+  onReasoningEffortChange(change: LlmReasoningSettingChange): void {
+    const convId = this.activeConversationId();
+    if (!convId || this.conversationSession.isSubagentConversation(convId)) {
+      return;
+    }
+    const stored = this.conversationSession.composerFor(convId);
+    if (stored[change.field] === change.value) {
+      return;
+    }
+    // A level fitted to the model on screen is kept only once that model is the conversation's own:
+    // while its switch lands, the composer shows the previous model's levels.
+    if (change.field === 'reasoningEffort' && change.fitted) {
+      const config = this.appConfig();
+      const onOwnModel =
+        !!config &&
+        this.modelSwitch === null &&
+        this.modelSwitchesInFlight === 0 &&
+        (!stored.modelId || sameConversationModel(stored, activeConversationModel(config)));
+      if (!onOwnModel) {
+        return;
+      }
+    }
+    this.conversationSession.patchComposer(convId, { [change.field]: change.value });
   }
 
   private async loadConversationsForWorkspace(): Promise<void> {
@@ -1488,17 +1609,14 @@ export class App implements OnInit, OnDestroy {
     if (!turn) {
       return;
     }
-    const mode = this.composerMode() === 'plan' ? 'agent' : this.composerMode();
-    const admin =
-      convId === this.activeConversationId()
-        ? this.adminElevationGranted()
-        : (this.adminElevationByConversation.get(convId) ?? false);
+    const composer = this.conversationSession.composerFor(convId);
+    const mode = composer.mode === 'plan' ? 'agent' : composer.mode;
     this.electron.sendMessage(
       convId,
       // Python builds the model input from the waiting reports; this is the transcript marker.
       turn.text,
       composerApplyMode(mode),
-      composerApplyMode(mode) && this.autoApplyMode(),
+      composerApplyMode(mode) && composer.autoApply,
       undefined,
       turn.workspaceId,
       composerModeForBackend(mode),
@@ -1507,9 +1625,10 @@ export class App implements OnInit, OnDestroy {
         ? 'openai-compatible'
         : DEFAULT_TTS_PROVIDER,
       turn.userMessageId,
-      admin,
+      composer.admin,
       this.conversationSession.takeWorkspaceNotes(convId),
       true,
+      turnSettingsOf(composer),
     );
   }
 
@@ -1545,6 +1664,7 @@ export class App implements OnInit, OnDestroy {
     const mode = this.composerMode();
     const speechEnabled = this.speechEnabled();
     const adminElevationGranted = this.adminElevationGranted();
+    const turnSettings = turnSettingsOf(this.conversationSession.composerFor(convId));
     if (interrupting) {
       this.conversationSession.interruptLiveTurn(convId);
     }
@@ -1589,6 +1709,8 @@ export class App implements OnInit, OnDestroy {
         userMessageId,
         adminElevationGranted,
         workspaceNotes,
+        false,
+        turnSettings,
       );
       this.conversationSession.markMessagesDirtyAndAutoSave();
     } catch (err) {
@@ -1699,7 +1821,12 @@ export class App implements OnInit, OnDestroy {
     this.removeContextMetricsForConversation(convId);
     this.conversationSession.removePending(convId);
     this.conversationSession.updateConversationMeta(convId, { updatedAt: new Date().toISOString() });
-    this.composerDraft.set(draft);
+    // The restore awaited: another conversation may be open by now, and its draft is its own.
+    if (this.activeConversationId() === convId) {
+      this.composerDraft.set(draft);
+    } else {
+      this.conversationSession.patchComposer(convId, { draft });
+    }
   }
 
   onSendResponse(text: string): void {

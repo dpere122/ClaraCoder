@@ -192,6 +192,44 @@ describe('chat message stream', () => {
     );
   });
 
+  it("sends the conversation's own model and thinking, and leaves out what it never set", async () => {
+    mocks.pythonSsePost.mockImplementation(async (_path: string, _body: unknown, signal: AbortSignal) =>
+      streamResponse([sse('[DONE]')], signal),
+    );
+    const handler = mocks.onHandlers.get('message')!;
+    const send = (thinking: unknown) =>
+      handler(
+        { reply: vi.fn(), sender: fakeSender() },
+        PARENT,
+        'hi',
+        true,
+        false,
+        undefined,
+        'ws-1',
+        'agent',
+        false,
+        'kokoro',
+        'turn-3',
+        false,
+        [],
+        false,
+        thinking,
+      ) as Promise<void>;
+
+    await send({ thinkingMode: 'off', reasoningEffort: 'high' });
+    expect(mocks.pythonSsePost.mock.calls.at(-1)?.[1]).toMatchObject({ thinking_mode: 'off', reasoning_effort: 'high' });
+
+    // Unset, or a value no model knows: the source's own setting from Settings.
+    await send({ modelId: 'claude-source', claudeModel: 'claude-opus' });
+    expect(mocks.pythonSsePost.mock.calls.at(-1)?.[1]).toMatchObject({ connection_id: 'claude-source', model: 'claude-opus' });
+
+    await send({ reasoningEffort: 'turbo' });
+    const body = mocks.pythonSsePost.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(body).not.toHaveProperty('thinking_mode');
+    expect(body).not.toHaveProperty('reasoning_effort');
+    expect(body).not.toHaveProperty('connection_id');
+  });
+
   it('on abort sends an aborted done and leaves sub-agents to their own channel', async () => {
     mocks.pythonSsePost.mockImplementation(async (_path: string, _body: unknown, signal: AbortSignal) =>
       streamResponse([sse({ type: 'chunk', delta: 'x' })], signal, true),

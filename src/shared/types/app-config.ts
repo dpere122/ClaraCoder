@@ -158,7 +158,8 @@ export const LLM_THINKING_MODE_OPTIONS: readonly { value: GemmaThinkingMode; lab
 
 /** Composer / settings change for the active model's thinking or reasoning control. */
 export type LlmReasoningSettingChange =
-  | { field: 'reasoningEffort'; value: LlmReasoningEffort }
+  /** `fitted`: the composer replaced a saved level the shown model does not offer; not the user's pick. */
+  | { field: 'reasoningEffort'; value: LlmReasoningEffort; fitted?: true }
   | { field: 'thinkingMode'; value: GemmaThinkingMode };
 
 /** How sampling (temperature/top_p/top_k) is chosen for Gemma-class models. */

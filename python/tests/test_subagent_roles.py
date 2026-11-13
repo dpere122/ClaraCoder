@@ -75,6 +75,21 @@ async def test_no_role_and_a_role_on_the_main_source_pin_nothing(sources) -> Non
     assert bind_subagent_role(_role(model='main-model')).connection is None
 
 
+async def test_following_the_main_agent_takes_the_conversations_pinned_model_and_thinking(sources) -> None:
+    # The parent turn pins its conversation's own model and thinking; the child runs in a blank
+    # context, so the binding carries that pin across.
+    pin = dataclasses.replace(sources.connections[1], thinking_mode='off')
+    token = state.current_connection_override.set(pin)
+    try:
+        assert bind_subagent_role(None).connection is pin
+        assert bind_subagent_role(_role()).connection is pin
+        assert bind_subagent_role(_role(connection_id='other')).connection is pin
+        # A role on another source still runs there.
+        assert bind_subagent_role(_role(connection_id='main')).connection is sources.connections[0]
+    finally:
+        state.current_connection_override.reset(token)
+
+
 async def test_a_role_on_another_source_or_model_pins_a_snapshot(sources) -> None:
     other = bind_subagent_role(_role(connection_id='other'))
     assert other.connection is sources.connections[1] and not other.note and not other.error

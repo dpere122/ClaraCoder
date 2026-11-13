@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron';
-import type { LlmStatusPayload, TurnEditedFile } from '../../../shared';
+import { normalizeConversationComposer, type LlmStatusPayload, type TurnEditedFile } from '../../../shared';
 import { pythonControlFetch, pythonLongFetch, pythonSsePost } from '../../python/http-client';
 import { ensurePythonReady } from '../../python/server';
 import {
@@ -99,6 +99,37 @@ function workspaceNotesFromIpc(raw: unknown): string[] {
   return raw.filter((n): n is string => typeof n === 'string' && n.trim().length > 0).map((n) => n.trim());
 }
 
+/** The `/chat/stream` fields for a conversation's own model and thinking. */
+export interface TurnSettingsBody {
+  connection_id?: string;
+  model?: string;
+  thinking_mode?: string;
+  reasoning_effort?: string;
+}
+
+/**
+ * The conversation's own model and thinking as `/chat/stream` fields. A field the conversation never
+ * set (or an unknown value) is left out, and the turn uses the app's: its active model, and the
+ * source's thinking from Settings.
+ */
+export function turnSettingsBodyFromIpc(raw: unknown): TurnSettingsBody {
+  const state = normalizeConversationComposer(raw && typeof raw === 'object' ? { ...raw } : null);
+  const body: TurnSettingsBody = {};
+  if (state?.modelId) {
+    body.connection_id = state.modelId;
+    if (state.claudeModel) {
+      body.model = state.claudeModel;
+    }
+  }
+  if (state?.thinkingMode !== undefined) {
+    body.thinking_mode = state.thinkingMode;
+  }
+  if (state?.reasoningEffort !== undefined) {
+    body.reasoning_effort = state.reasoningEffort;
+  }
+  return body;
+}
+
 /**
  * - `ready` — renderer finished boot (log only).
  * - `open-settings-window` / `close-settings-window` / `settings-window-ready` — settings BrowserWindow.
@@ -157,6 +188,7 @@ export function registerChatIpc(): void {
       adminElevationGranted = false,
       workspaceNotes: unknown = [],
       continueWithSubagentResults = false,
+      turnSettings: unknown = {},
     ) => {
       if (!isTrustedMainRenderer(event.sender)) {
         return;
@@ -194,6 +226,8 @@ export function registerChatIpc(): void {
       if (notes.length > 0) {
         body.workspace_notes = notes;
       }
+      const conversationSettings = turnSettingsBodyFromIpc(turnSettings);
+      Object.assign(body, conversationSettings);
       if (continueWithSubagentResults === true) {
         // The turn hands the main agent the reports of sub-agents that finished with no turn running.
         body.continue_with_subagent_results = true;
@@ -222,7 +256,7 @@ export function registerChatIpc(): void {
       try {
         // A model load can take a while, and Stop must not have to wait for it.
         await Promise.race([
-          ensureActiveLmStudioModelLoaded(),
+          ensureActiveLmStudioModelLoaded(conversationSettings.connection_id),
           new Promise((resolve) => abortController.signal.addEventListener('abort', resolve, { once: true })),
         ]);
         const res = await pythonSsePost('/chat/stream', body, abortController.signal);

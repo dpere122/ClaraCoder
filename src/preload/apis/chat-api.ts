@@ -136,6 +136,7 @@ export const createChatApi = (ipcRenderer: PreloadIpc) => ({
     adminElevationGranted?: boolean,
     workspaceNotes?: string[],
     continueWithSubagentResults?: boolean,
+    turnSettings?: { modelId?: string; claudeModel?: string; thinkingMode?: string; reasoningEffort?: string },
   ) =>
     ipcRenderer.send(
       'message',
@@ -152,6 +153,7 @@ export const createChatApi = (ipcRenderer: PreloadIpc) => ({
       adminElevationGranted ?? false,
       workspaceNotes ?? [],
       continueWithSubagentResults ?? false,
+      turnSettings ?? {},
     ),
   abortMessage: (conversationId: string) => ipcRenderer.invoke('abort-message', conversationId),
   cancelBuildPlan: (conversationId: string, planId: string) =>

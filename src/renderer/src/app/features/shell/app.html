@@ -421,6 +421,7 @@
                 [adminElevationPending]='adminElevationPending()'
                 (adminGrantRequested)='onAdminGrantRequested()'
                 (reasoningEffortChange)='onReasoningEffortChange($event)'
+                [composerThinking]='composerThinking()'
               />
               @if (creatingConversation()) {
                 <div
@@ -532,6 +533,7 @@
         [adminElevationPending]='adminElevationPending()'
         (adminGrantRequested)='onAdminGrantRequested()'
         (reasoningEffortChange)='onReasoningEffortChange($event)'
+        [composerThinking]='composerThinking()'
       />
     </div>
     }

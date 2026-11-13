@@ -11,7 +11,7 @@ import type {
   ConversationSummary,
   TurnEditedFileStatus,
 } from '../shared';
-import { isConversationFileJournalOp } from '../shared';
+import { isConversationFileJournalOp, normalizeConversationComposer, type ConversationComposerState } from '../shared';
 import { FIRST_THEME_ID } from './constants';
 import {
   getAppDataDir,
@@ -48,7 +48,20 @@ function rowToConversationFile(row: ConversationRow): ConversationFile {
     customTitle: customTitleFromSqlite(row.custom_title),
     parentConversationId: row.parent_conversation_id ?? null,
     parentTurnId: row.parent_turn_id ?? null,
+    ...composerFromSqlite(row.composer_json),
   };
+}
+
+function composerFromSqlite(raw: string | null | undefined): Pick<ConversationFile, 'composer'> {
+  if (!raw) {
+    return {};
+  }
+  try {
+    const composer = normalizeConversationComposer(JSON.parse(raw));
+    return composer ? { composer } : {};
+  } catch {
+    return {};
+  }
 }
 
 /** Columns every conversation SELECT reads except the (large) `messages_json`. */
@@ -71,6 +84,8 @@ interface ConversationMetaRow {
 
 interface ConversationRow extends ConversationMetaRow {
   messages_json: string;
+  /** The composer as the conversation left it (JSON); null until first stored. */
+  composer_json: string | null;
 }
 
 interface SummaryRow {
@@ -151,6 +166,14 @@ function migrateCustomTitleColumn(database: SqliteDatabase): void {
   database.exec(
     'ALTER TABLE conversations ADD COLUMN custom_title INTEGER NOT NULL DEFAULT 0',
   );
+}
+
+/** Add the per-conversation composer state when upgrading from older DBs (idempotent). */
+function migrateComposerColumn(database: SqliteDatabase): void {
+  const cols = database.prepare('PRAGMA table_info(conversations)').all() as { name: string }[];
+  if (!cols.some((c) => c.name === 'composer_json')) {
+    database.exec('ALTER TABLE conversations ADD COLUMN composer_json TEXT');
+  }
 }
 
 /** Add the sub-agent parent links when upgrading from older DBs (idempotent). */
@@ -261,6 +284,7 @@ export function openConversationsDb(): void {
   migrateSchema(database);
   migrateCustomTitleColumn(database);
   migrateSubagentColumns(database);
+  migrateComposerColumn(database);
   migrateFileJournalTable(database);
   migrateTurnFilesTable(database);
   importLegacyJsonIfNeeded(database);
@@ -322,7 +346,7 @@ export function getConversationMetaById(id: string): ConversationMeta | null {
 export function getConversationById(id: string): ConversationFile | null {
   const database = getDb();
   const row = database
-    .prepare(`SELECT ${META_COLUMNS}, messages_json FROM conversations WHERE id = ?`)
+    .prepare(`SELECT ${META_COLUMNS}, messages_json, composer_json FROM conversations WHERE id = ?`)
     .get(id) as ConversationRow | undefined;
   return row ? rowToConversationFile(row) : null;
 }
@@ -415,9 +439,9 @@ export function upsertConversation(conv: ConversationFile): void {
     .prepare(
       `INSERT INTO conversations
         (id, workspace_id, title, created_at, updated_at, theme_id, messages_json, custom_title,
-         parent_conversation_id, parent_turn_id)
+         parent_conversation_id, parent_turn_id, composer_json)
        VALUES (@id, @workspace_id, @title, @created_at, @updated_at, @theme_id, @messages_json, @custom_title,
-         @parent_conversation_id, @parent_turn_id)
+         @parent_conversation_id, @parent_turn_id, @composer_json)
        ON CONFLICT(id) DO UPDATE SET
          workspace_id = excluded.workspace_id,
          title = excluded.title,
@@ -441,7 +465,23 @@ export function upsertConversation(conv: ConversationFile): void {
       // A renderer save that does not carry the link (older shapes) keeps the stored one.
       parent_conversation_id: conv.parentConversationId ?? null,
       parent_turn_id: conv.parentTurnId ?? null,
+      // Only a new row takes the composer from the save; updateConversationComposer() keeps it after.
+      composer_json: conv.composer ? JSON.stringify(conv.composer) : null,
     });
+}
+
+/**
+ * Store the composer as the conversation left it. Leaves `updated_at` alone: typing a draft or
+ * flipping a toggle does not move the conversation up the list.
+ */
+export function updateConversationComposer(id: string, composer: ConversationComposerState): boolean {
+  if (deletedConversationIds.has(id)) {
+    return false;
+  }
+  const res = getDb()
+    .prepare('UPDATE conversations SET composer_json = ? WHERE id = ?')
+    .run(JSON.stringify(composer), id);
+  return res.changes > 0;
 }
 
 /** Delete a conversation and its sub-agent conversations (with their journal rows). Returns removed ids. */
@@ -815,6 +855,7 @@ export function openConversationsDbForTests(dbPath: string): void {
   migrateSchema(database);
   migrateCustomTitleColumn(database);
   migrateSubagentColumns(database);
+  migrateComposerColumn(database);
   migrateFileJournalTable(database);
   migrateTurnFilesTable(database);
   db = database;

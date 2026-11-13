@@ -309,7 +309,9 @@ def bind_subagent_role(role: RuntimeSubagentRole | None) -> RoleBinding:
     with a note, or fail the spawn. The role's thinking setting applies wherever it ends up running.
     """
     if role is None:
-        return RoleBinding()
+        # Following the main agent means the conversation's own model and thinking when its turn pins
+        # them: the child runs in a blank context, where only Settings' active source would be seen.
+        return RoleBinding(connection=state.current_connection_override.get())
     main = _active_connection()
     target = main
     problem = ''
@@ -337,7 +339,10 @@ def bind_subagent_role(role: RuntimeSubagentRole | None) -> RoleBinding:
         target = main
     if target is not None:
         target = _with_thinking(target, role.thinking, role.thinking_level)
-    return RoleBinding(role=role, connection=None if target is main else target, note=note)
+    if target is main:
+        # The main agent's source as this turn sees it (the conversation's pin, else Settings').
+        target = state.current_connection_override.get()
+    return RoleBinding(role=role, connection=target, note=note)
 
 
 def fork_subagent_session(

@@ -16,6 +16,7 @@ import type {
   ComposerRunMode,
   ConversationMeta,
   LlmReasoningSettingChange,
+  ConversationThinking,
   PlannerProgress,
   StreamPart,
   ThemeProposalFinishedEvent,
@@ -136,6 +137,8 @@ export class ChatConversationHubComponent implements OnDestroy {
   readonly adminElevationPending = input(false);
   readonly adminGrantRequested = output<void>();
   readonly reasoningEffortChange = output<LlmReasoningSettingChange>();
+  /** The open conversation's own thinking settings (unset fields: the source's from Settings). */
+  readonly composerThinking = input<ConversationThinking>({});
 
   constructor() {
     effect(() => {

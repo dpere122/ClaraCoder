@@ -82,6 +82,10 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
             request.admin_elevation_granted,
             request.workspace_notes,
             continue_with_subagent_results=continuing,
+            thinking_mode=request.thinking_mode,
+            reasoning_effort=request.reasoning_effort,
+            connection_id=request.connection_id,
+            model=request.model,
         )
 
     def on_superseded() -> None:

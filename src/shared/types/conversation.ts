@@ -11,6 +11,7 @@ import type {
 } from './staged-transfer-batch';
 import type { LlmAgentRole, PlannerProgress } from './llm';
 import type { TurnEditedFile } from './turn-edits';
+import type { ConversationComposerState } from '../conversation-composer';
 
 /** One OpenAI-style multimodal block for POST /chat/stream (`structuredContent` / `structured_content`). */
 export type ChatStructuredContentPart = Readonly<Record<string, unknown>>;
@@ -196,6 +197,8 @@ export interface Conversation extends ConversationMeta {
   themeId: string;
   /** From `load-conversation` only (see {@link ConversationFile.contextTokens}). */
   contextTokens?: number;
+  /** From `load-conversation` only (see {@link ConversationFile.composer}). */
+  composer?: ConversationComposerState;
 }
 
 /** On-disk / IPC chat row — same shape as the renderer conversation message. */
@@ -224,6 +227,11 @@ export interface ConversationFile {
    * context meter's last measured reading for it, so the meter resumes instead of estimating.
    */
   contextTokens?: number;
+  /**
+   * Read on load; absent until the conversation's composer was first stored. Saving a conversation
+   * never writes it: `update-conversation-composer` does, so a transcript save cannot undo it.
+   */
+  composer?: ConversationComposerState;
 }
 
 /** Result of IPC `maybe-auto-title-conversation` (model-generated sidebar title). */

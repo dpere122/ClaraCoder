@@ -12,7 +12,10 @@ export const createConversationApi = (ipcRenderer: PreloadIpc) => ({
   renameConversation: (id: string, title: string, workspaceId?: string | null) =>
     ipcRenderer.invoke('rename-conversation', id, title, workspaceId),
   maybeAutoTitleConversation: (id: string) => ipcRenderer.invoke('maybe-auto-title-conversation', id),
-  newConversation: (workspaceId: string | null) => ipcRenderer.invoke('new-conversation', workspaceId),
+  newConversation: (workspaceId: string | null, composer?: unknown) =>
+    ipcRenderer.invoke('new-conversation', workspaceId, composer),
+  updateConversationComposer: (id: string, composer: unknown) =>
+    ipcRenderer.invoke('update-conversation-composer', id, composer),
   setConversationTheme: (id: string, themeId: string) => ipcRenderer.invoke('set-conversation-theme', id, themeId),
   getActiveConversationId: () => ipcRenderer.invoke('get-active-conversation-id'),
   getMainWindowView: () => ipcRenderer.invoke('get-main-window-view'),

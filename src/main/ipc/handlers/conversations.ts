@@ -2,7 +2,7 @@ import { ipcMain } from 'electron';
 import { assertTrustedMainRenderer, assertTrustedMainRendererOrThrow } from '../assert-trusted-renderer';
 import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
-import type { ConversationFile } from '../../../shared';
+import { normalizeConversationComposer, type ConversationFile } from '../../../shared';
 import { FIRST_THEME_ID } from '../../constants';
 import { mainState } from '../../state';
 import {
@@ -22,6 +22,7 @@ import {
   listChildConversationIds,
   markConversationsDeleted,
   updateAutoConversationTitle,
+  updateConversationComposer,
   updateConversationTheme,
   updateConversationTitleAndLock,
   upsertConversation,
@@ -249,7 +250,7 @@ export function registerConversationsIpc(): void {
     }
   });
 
-  ipcMain.handle('new-conversation', async (event, workspaceId: string | null) => {
+  ipcMain.handle('new-conversation', async (event, workspaceId: string | null, rawComposer?: unknown) => {
     try {
       assertTrustedMainRenderer(event);
     } catch {
@@ -275,6 +276,11 @@ export function registerConversationsIpc(): void {
       themeId: FIRST_THEME_ID,
       customTitle: false,
     };
+    // What the composer starts as (the renderer carries over the mode, Auto Run and thinking).
+    const composer = normalizeConversationComposer(rawComposer);
+    if (composer) {
+      conv.composer = composer;
+    }
 
     if (workspaceId) {
       await fs.mkdir(getWorkspaceConversationsDir(workspaceId), { recursive: true });
@@ -305,6 +311,24 @@ export function registerConversationsIpc(): void {
       updateConversationTheme(id, themeId, new Date().toISOString());
     } catch (err) {
       console.error('Failed to update conversation theme:', err);
+    }
+  });
+
+  ipcMain.handle('update-conversation-composer', async (event, id: unknown, rawComposer: unknown) => {
+    try {
+      assertTrustedMainRenderer(event);
+    } catch {
+      return false;
+    }
+    const composer = normalizeConversationComposer(rawComposer);
+    if (typeof id !== 'string' || !id || !composer) {
+      return false;
+    }
+    try {
+      return updateConversationComposer(id, composer);
+    } catch (err) {
+      console.error('Failed to store the conversation composer:', err);
+      return false;
     }
   });
 

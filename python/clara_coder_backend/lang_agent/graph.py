@@ -51,6 +51,7 @@ from clara_coder_backend.middleware.turn_verification_middleware import TurnVeri
 from clara_coder_backend.middleware.tool_batch_middleware import ToolBatchMiddleware
 from clara_coder_backend.middleware.tool_harness_feedback_middleware import prepend_harness_feedback_middleware
 from clara_coder_backend.middleware.user_event_injection_middleware import UserEventInjectionMiddleware
+from clara_coder_backend.middleware.append_only_context_middleware import AppendOnlyContextMiddleware
 from clara_coder_backend.session.user_events import drain_user_event_notes
 from clara_coder_backend.lang_agent.subagents import (
     drain_subagent_reports,
@@ -164,6 +165,7 @@ def build_clara_single_outer_graph(
         core_middleware.append(gates[0] if len(gates) == 1 else FinishGatesMiddleware(gates))
     core_middleware += [
         UserEventInjectionMiddleware(),
+        AppendOnlyContextMiddleware(),
         ContextPackActivationMiddleware(),
         ConnectionParallelToolCallsMiddleware(),
         ToolBatchMiddleware(),

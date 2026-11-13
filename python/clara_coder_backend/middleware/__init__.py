@@ -9,7 +9,8 @@ Modules
 ``parallel_tool_middleware`` — inject ``parallel_tool_calls`` from runtime
 ``tool_batch_middleware`` — tag each tool call with the model message (batch) that issued it
 ``vision_tool_middleware`` — vision / multimodal tool message shaping
-``user_event_injection_middleware`` — inject queued user events into the turn
+``user_event_injection_middleware`` — inject queued user events into the turn (and keep them in the thread)
+``append_only_context_middleware`` — a Claude thread keeps its first system prompt and tools; changes are appended
 ``gemma_native_tool_middleware`` — promote Gemma ``<|tool_call>`` markup into API tool_calls
 ``pseudo_tool_xml_middleware`` — recover pseudo tool calls from XML-ish text
 ``tool_harness_feedback_middleware`` — harness feedback injection

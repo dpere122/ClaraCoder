@@ -45,6 +45,7 @@ from typing_extensions import NotRequired, override
 
 from clara_coder_backend.config import CLARA_CONTEXT_WINDOW_FALLBACK
 from clara_coder_backend.domain import RuntimeConnection, SessionState
+from clara_coder_backend.llm.anthropic_llm import COMPACTION_EDIT_TYPE
 from clara_coder_backend.lang_agent.context_compaction import (
     CHARS_PER_TOKEN,
     NOTES_EVERY_CALLS,
@@ -189,6 +190,107 @@ def _emit_status(
     queue.put_nowait((f'compact:{status_id}', {'event': 'subagent_sse', 'data': payload}))
 
 
+#: The API's floor for the ``compact_20260112`` trigger.
+SERVER_COMPACTION_MIN_TRIGGER = 50_000
+
+
+def _reserve_for(window: int) -> int:
+    return int(min(max(0.15 * window, 2048), 16000))
+
+
+def uses_server_compaction(connection: RuntimeConnection | None) -> bool:
+    """Claude with a model that compacts on the API side (Models API ``compact_20260112``).
+
+    There the conversation only grows, so earlier thinking stays valid: a compaction block starts the
+    checked history over instead of a cut rewriting it.
+    """
+    if connection is None or connection.provider != 'anthropic':
+        return False
+    caps = connection.chat_template_reasoning if isinstance(connection.chat_template_reasoning, dict) else {}
+    return bool(caps.get('serverCompaction'))
+
+
+def server_compaction_edit(trigger_tokens: int) -> dict[str, Any]:
+    """``context_management`` for a request that may compact on the API side.
+
+    ``pause_after_compaction``: the reply is the compaction block alone. A block streamed in a reply carries no
+    record of the tool changes it summarized, so thinking written right after it, in the same reply, would be
+    bound to tools the next request cannot show. Paused, the thread saves the block, appends
+    :data:`COMPACTION_CONTINUE_TEXT` (and whatever the append-only middleware announces again), and the next
+    call's thinking is bound to exactly what later requests send.
+    """
+    return {
+        'edits': [
+            {
+                'type': COMPACTION_EDIT_TYPE,
+                'trigger': {'type': 'input_tokens', 'value': int(trigger_tokens)},
+                'pause_after_compaction': True,
+            }
+        ]
+    }
+
+
+COMPACTION_CONTINUE_TEXT = (
+    '[Harness note.] The conversation so far was compacted into the summary above. Continue the task from it.'
+)
+
+
+def is_paused_compaction(message: Any) -> bool:
+    """A reply that stopped right after a server-side compaction block (``stop_reason`` ``compaction``)."""
+    if not isinstance(message, AIMessage):
+        return False
+    meta = message.response_metadata if isinstance(message.response_metadata, dict) else {}
+    return meta.get('stop_reason') == 'compaction'
+
+
+def _compaction_iterations(message: AIMessage) -> tuple[int, int] | None:
+    """``(tokens before, tokens after)`` when the reply opened with a compaction block, else ``None``."""
+    content = message.content if isinstance(message.content, list) else []
+    if not any(isinstance(block, dict) and block.get('type') == 'compaction' for block in content):
+        return None
+    usage = message.usage_metadata or {}
+    after = int(usage.get('input_tokens') or 0)
+    metadata = message.response_metadata if isinstance(message.response_metadata, dict) else {}
+    iterations = metadata.get('usage_iterations')
+    summary = sum(
+        int(entry.get('output_tokens') or 0)
+        for entry in iterations or []
+        if isinstance(entry, dict) and entry.get('type') == 'compaction'
+    )
+    if is_paused_compaction(message) and summary:
+        # Nothing ran after the block: the next call starts from the summary (the caller adds the fixed overhead).
+        after = summary
+    before = 0
+    for entry in iterations or []:
+        if isinstance(entry, dict) and entry.get('type') == 'compaction':
+            # What the summarizer read: uncached input plus what it read from or wrote to the cache.
+            read = sum(
+                int(entry.get(key) or 0)
+                for key in ('input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens')
+            )
+            before = max(before, read)
+    return before, after
+
+
+def _report_server_compaction(call: _ModelCall, response: Any) -> None:
+    """Tell the meter and the log when Claude compacted during this call."""
+    reply = response.result[-1] if getattr(response, 'result', None) else None
+    if not isinstance(reply, AIMessage):
+        return
+    tokens = _compaction_iterations(reply)
+    if tokens is None:
+        return
+    before, after = tokens
+    before = before or call.est
+    if is_paused_compaction(reply):
+        # ``after`` is the summary alone; the next call also carries the system prompt and the tools.
+        after += int(call.overhead_chars / call.ratio)
+    status_id = f'compact-{next(_status_ids)}'
+    _emit_status(call.session, status_id, f'{_thousands(before)} → {_thousands(after)} tokens', 'complete')
+    _emit_compressed(call.session, before, after, 0, 0)
+    logger.info('Claude compacted the context on its side: %d -> %d tokens (window %d)', before, after, call.window)
+
+
 def _emit_compressed(session: SessionState, before: int, after: int, tool_messages: int, rounds: int) -> None:
     """``context_compressed`` for the context meter; tokens are absolute full-prompt estimates."""
     queue = session.hitl_sse_queue
@@ -326,6 +428,8 @@ class _ModelCall:
     est: int = 0
     ratio: float = CHARS_PER_TOKEN
     progress_checked: bool = False
+    #: Claude compacts on its side (``compact_20260112``): no events here, only the overflow fallback.
+    server_compaction: bool = False
 
     @property
     def provider(self) -> str:
@@ -348,10 +452,15 @@ class _ModelCall:
         return int((self.overhead_chars + sum(message_chars(message) for message in view)) / self.ratio)
 
     def agent_request(self) -> Any:
-        return self.request.override(
-            messages=self.view,
-            model_settings=bounded_step_settings(self.request, self.provider, self.window, self.est),
-        )
+        settings = bounded_step_settings(self.request, self.provider, self.window, self.est)
+        if self.server_compaction:
+            settings = {**settings, 'context_management': server_compaction_edit(self.server_trigger_tokens())}
+        return self.request.override(messages=self.view, model_settings=settings)
+
+    def server_trigger_tokens(self) -> int:
+        """Where Claude compacts: Clara's own soft trigger, within what the API accepts."""
+        trigger = self.budget(0, 0, 0).trigger
+        return max(SERVER_COMPACTION_MIN_TRIGGER, min(trigger, self.window - _reserve_for(self.window)))
 
     def budget(self, pin_chars: int, notes_chars: int, digest_chars: int) -> Budget:
         return compute_budget(
@@ -416,8 +525,9 @@ class ContextCompactionMiddleware(AgentMiddleware):
         call.view = render_view(request.messages, cc, call.request_cap)
         call.est, call.ratio = estimate_prompt_tokens(call.view, cc, call.overhead_chars)
         enabled = runtime_config.context_compression.enabled
+        call.server_compaction = enabled and uses_server_compaction(call.connection)
         block_chars = len(str(cc.get('block') or ''))
-        if enabled and compaction_due(call.est, call.budget(0, block_chars, 0), cc):
+        if enabled and not call.server_compaction and compaction_due(call.est, call.budget(0, block_chars, 0), cc):
             await self._compact(call)
         level = 0
         while True:
@@ -440,6 +550,8 @@ class ContextCompactionMiddleware(AgentMiddleware):
     async def _model_reply(self, call: _ModelCall) -> Any:
         """The agent call. An empty Gemma reply is drawn again as is: a note about it only confuses the model."""
         response = await call.handler(call.agent_request())
+        if call.server_compaction:
+            _report_server_compaction(call, response)
         for _ in range(_EMPTY_REPLY_REDRAWS):
             reply = response.result[0] if getattr(response, 'result', None) else None
             if not isinstance(reply, AIMessage) or not _is_empty_gemma_reply(reply) or output_was_truncated(reply):
@@ -645,7 +757,7 @@ class ContextCompactionMiddleware(AgentMiddleware):
             command=Command(update={'context_compaction': call.cc}),
         )
 
-    @hook_config(can_jump_to=['end'])
+    @hook_config(can_jump_to=['end', 'model'])
     @override
     async def aafter_model(self, state: Any, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
         """End the turn on a truncated reply: its tool arguments are cut off, and later hooks could promote calls from its text.
@@ -658,6 +770,9 @@ class ContextCompactionMiddleware(AgentMiddleware):
         last = msgs[-1] if msgs else None
         if not isinstance(last, AIMessage):
             return None
+        if is_paused_compaction(last):
+            # Claude stopped after compacting: the block is saved, the model goes on from a user turn.
+            return {'messages': [HumanMessage(content=COMPACTION_CONTINUE_TEXT)], 'jump_to': 'model'}
         cut_off = output_was_truncated(last)
         if not cut_off and not _is_empty_gemma_reply(last):
             return None

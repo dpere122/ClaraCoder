@@ -19,6 +19,8 @@ export interface AnthropicCatalogModel {
   retiresAt?: string;
   vision: boolean;
   adaptiveThinking: boolean;
+  /** Server-side compaction (the ``compact_20260112`` context-management edit). */
+  serverCompaction?: boolean;
   /** Effort levels the model accepts, lowest to highest. Empty when it has no effort control. */
   effortLevels: string[];
   structuredOutputs: boolean;
@@ -66,6 +68,7 @@ export function anthropicReasoningCaps(model: AnthropicCatalogModel | undefined)
     enableThinking: false,
     reasoningEffortValues: model?.effortLevels.length ? [...model.effortLevels] : null,
     adaptiveThinking: model?.adaptiveThinking === true,
+    serverCompaction: model?.serverCompaction === true,
   };
 }
 

@@ -135,6 +135,7 @@ def _chat_template_reasoning_dict(
             list(caps.reasoningEffortValues) if caps.reasoningEffortValues is not None else None
         ),
         'adaptiveThinking': bool(caps.adaptiveThinking),
+        'serverCompaction': bool(caps.serverCompaction),
         'vision': caps.vision,
     }
 

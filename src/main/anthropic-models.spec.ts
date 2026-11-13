@@ -47,6 +47,7 @@ function modelInfo(overrides: Partial<ModelInfo> = {}): ModelInfo {
         xhigh: leaf(true),
         max: leaf(true),
       },
+      context_management: { supported: true, compact_20260112: leaf(true) },
     } as unknown as ModelInfo['capabilities'],
     ...overrides,
   } as ModelInfo;
@@ -78,11 +79,13 @@ describe('parseAnthropicModel', () => {
       adaptiveThinking: true,
       effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
       structuredOutputs: true,
+      serverCompaction: true,
     });
     expect(anthropicReasoningCaps(model!)).toEqual({
       enableThinking: false,
       reasoningEffortValues: ['low', 'medium', 'high', 'xhigh', 'max'],
       adaptiveThinking: true,
+      serverCompaction: true,
     });
   });
 

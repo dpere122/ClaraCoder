@@ -314,6 +314,7 @@ class ChatTemplateReasoningCapsRequest(BaseModel):
     reasoningEffortValues: list[str] | None = None
     # Claude only: the Models API says the model accepts ``thinking: {type: "adaptive"}``.
     adaptiveThinking: bool = False
+    serverCompaction: bool = False
     # llama-server only: ``modalities.vision`` from ``GET /props``; None when the server does not say.
     vision: bool | None = None
 

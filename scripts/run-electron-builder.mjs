@@ -1,12 +1,16 @@
 /**
  * Runs electron-builder after clearing `release/`. If that folder is still locked
  * (Windows EBUSY), uses `release-pack-<timestamp>/` so NSIS can still produce an .exe.
+ *
+ * With Azure signing credentials in the environment the Windows build is signed, and the app and
+ * its installer are checked for that signature afterwards (see windows-signing.mjs).
  */
 import fs from 'fs';
 import path from 'path';
 import { spawnSync, execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { verifyPackedRuntime } from './verify-packed-runtime.mjs';
+import { AZURE_SIGNING, assertSigned, azureSigningArgs } from './windows-signing.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.join(__dirname, '..');
@@ -58,6 +62,17 @@ async function tryRemoveReleaseDir() {
   return false;
 }
 
+/** The packed app's own executable(s): what the updater compares an installer's signer with. */
+function findUnpackedExes(outDir) {
+  const dir = path.join(outDir, 'win-unpacked');
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((ent) => ent.isFile() && /\.exe$/i.test(ent.name))
+    .map((ent) => path.join(dir, ent.name))
+    .sort();
+}
+
 function findArtifacts(outDir) {
   if (!fs.existsSync(outDir)) return [];
   const out = [];
@@ -71,6 +86,13 @@ function findArtifacts(outDir) {
 
 async function main() {
   const ebArgs = process.argv.slice(2);
+  const signingArgs = azureSigningArgs();
+  if (signingArgs.length) {
+    console.log(`Signing as ${AZURE_SIGNING.publisherName} (Azure Artifact Signing, ${AZURE_SIGNING.certificateProfileName}).`);
+    ebArgs.unshift(...signingArgs);
+  } else if (process.platform === 'win32') {
+    console.log('No Azure signing credentials in the environment: this build is unsigned.');
+  }
 
   let outputDir = path.join(projectRoot, 'release');
   const cleared = await tryRemoveReleaseDir();
@@ -101,6 +123,17 @@ async function main() {
   }
 
   const artifacts = findArtifacts(outputDir);
+  if (signingArgs.length) {
+    const signed = [...findUnpackedExes(outputDir), ...artifacts.filter((p) => /\.exe$/i.test(p))];
+    try {
+      assertSigned(signed);
+    } catch (err) {
+      console.error(err && err.message ? err.message : err);
+      process.exit(1);
+    }
+    console.log(`
+Signed by ${AZURE_SIGNING.publisherName}: ${signed.length} file(s) verified.`);
+  }
   if (artifacts.length) {
     console.log('\nArtifacts (installer / bundles):');
     for (const p of artifacts) {

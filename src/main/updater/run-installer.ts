@@ -37,14 +37,59 @@ export function readAuthenticode(file: string): Promise<AuthenticodeInfo> {
   });
 }
 
+/** The attributes of a certificate subject (`CN=Jane Doe, O="Doe, Inc.", C=US`), keys in upper case. */
+export function subjectAttributes(subject: string): Map<string, string> {
+  const parts: string[] = [];
+  let current = '';
+  let quoted = false;
+  for (const char of subject) {
+    if (char === '"') quoted = !quoted;
+    if (char === ',' && !quoted) {
+      parts.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  parts.push(current);
+  const attributes = new Map<string, string>();
+  for (const part of parts) {
+    const eq = part.indexOf('=');
+    if (eq <= 0) continue;
+    const key = part.slice(0, eq).trim().toUpperCase();
+    let value = part.slice(eq + 1).trim();
+    if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+      value = value.slice(1, -1).replace(/""/g, '"');
+    }
+    if (!attributes.has(key)) attributes.set(key, value);
+  }
+  return attributes;
+}
+
+/**
+ * Who a certificate names: common name, organization and country. The city and state are left out.
+ * An individual's certificate carries their home city, so a move would otherwise read as another
+ * publisher and every installed copy would refuse its updates. Null when the subject has no CN.
+ */
+export function publisherIdentity(subject: string): string | null {
+  const attributes = subjectAttributes(subject);
+  const name = attributes.get('CN');
+  if (!name) return null;
+  return JSON.stringify([name, attributes.get('O') ?? '', attributes.get('C') ?? '']);
+}
+
 /**
  * When the running app is code-signed, the installer must carry a valid signature from the same
- * signer. Unsigned builds (today's CI output) skip this; the hash checks still apply.
+ * publisher. Unsigned builds skip this; the hash checks still apply.
  */
 export function compareSignatures(app: AuthenticodeInfo, installer: AuthenticodeInfo): string | null {
   if (app.status !== 'Valid' || !app.subject) return null;
   if (installer.status !== 'Valid') return `Installer signature is ${installer.status}`;
-  if (installer.subject !== app.subject) return 'Installer is signed by a different publisher than this app';
+  if (installer.subject === app.subject) return null;
+  const expected = publisherIdentity(app.subject);
+  if (expected === null || !installer.subject || publisherIdentity(installer.subject) !== expected) {
+    return 'Installer is signed by a different publisher than this app';
+  }
   return null;
 }
 

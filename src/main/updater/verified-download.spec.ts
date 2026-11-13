@@ -11,7 +11,7 @@ import {
   parseUpdateInfoYaml,
   type ExpectedInstaller,
 } from './verified-download';
-import { compareSignatures, installerArgs } from './run-installer';
+import { compareSignatures, installerArgs, publisherIdentity, subjectAttributes } from './run-installer';
 
 const PAYLOAD = Buffer.from('pretend this is an NSIS installer'.repeat(50));
 const SHA512 = createHash('sha512').update(PAYLOAD).digest('base64');
@@ -179,6 +179,29 @@ describe('installer hand-off', () => {
     expect(compareSignatures(app, { status: 'Valid', subject: 'CN=Clara Coder' })).toBeNull();
     expect(compareSignatures(app, { status: 'NotSigned', subject: null })).toMatch(/NotSigned/);
     expect(compareSignatures(app, { status: 'Valid', subject: 'CN=Someone Else' })).toMatch(/different publisher/);
+  });
+
+  it('knows a publisher by name, organization and country, wherever they live', () => {
+    const app = { status: 'Valid', subject: 'CN=Jane Doe, O=Jane Doe, L=Springfield, S=il, C=US' };
+    const signedBy = (subject: string | null) => compareSignatures(app, { status: 'Valid', subject });
+    // An individual's certificate names their city: after a move it is still the same publisher.
+    expect(signedBy('CN=Jane Doe, O=Jane Doe, L=Portland, S=OR, C=US')).toBeNull();
+    expect(signedBy('C=US, S=OR, L=Portland, O=Jane Doe, CN=Jane Doe')).toBeNull();
+    expect(signedBy('CN=Jane Doe, O=Jane Doe, L=Springfield, S=il, C=CA')).toMatch(/different publisher/);
+    expect(signedBy('CN=Jane Doe, O=Doe Holdings, L=Springfield, S=il, C=US')).toMatch(/different publisher/);
+    expect(signedBy('CN=Jane Doe Jr, O=Jane Doe, L=Springfield, S=il, C=US')).toMatch(/different publisher/);
+    expect(signedBy('O=Jane Doe, L=Springfield, S=il, C=US')).toMatch(/different publisher/);
+    expect(signedBy(null)).toMatch(/different publisher/);
+    // A name is one value even with a comma in it, and cannot pass for the attributes it spells out.
+    expect(subjectAttributes('CN="Doe, Jane", O="Doe ""and"" Co, Inc.", c=US')).toEqual(
+      new Map([
+        ['CN', 'Doe, Jane'],
+        ['O', 'Doe "and" Co, Inc.'],
+        ['C', 'US'],
+      ]),
+    );
+    expect(signedBy('CN="Jane Doe, O=Jane Doe, C=US"')).toMatch(/different publisher/);
+    expect(publisherIdentity('L=Springfield')).toBeNull();
   });
 
   it('shows the NSIS progress page for restart-and-install and stays silent on quit', () => {

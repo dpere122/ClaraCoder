@@ -179,7 +179,8 @@ def aimessage_chunk_sse_delta(chunk: BaseMessageChunk) -> str:
                 parts.append(block)
             elif isinstance(block, dict):
                 btype = str(block.get('type') or '').strip().lower()
-                if btype in ('tool_use', 'tool_call', 'function'):
+                # ``compaction``: Claude's summary of the conversation (its ``content``), which is not a reply.
+                if btype in ('tool_use', 'tool_call', 'function', 'compaction'):
                     continue
                 t = block.get('text')
                 if isinstance(t, str):

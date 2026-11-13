@@ -193,6 +193,7 @@ export function chatTemplateReasoningWire(
     enableThinking: caps.enableThinking,
     reasoningEffortValues: caps.reasoningEffortValues == null ? null : [...caps.reasoningEffortValues],
     ...(caps.adaptiveThinking !== undefined ? { adaptiveThinking: caps.adaptiveThinking } : {}),
+    ...(caps.serverCompaction !== undefined ? { serverCompaction: caps.serverCompaction } : {}),
     ...(caps.vision !== undefined ? { vision: caps.vision } : {}),
   };
 }

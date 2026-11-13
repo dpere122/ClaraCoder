@@ -82,6 +82,7 @@ export function parseAnthropicModel(info: ModelInfo): AnthropicCatalogModel | nu
     deprecated: info.lifecycle === 'deprecated',
     vision: supported(caps?.image_input),
     adaptiveThinking: supported(caps?.thinking?.types?.adaptive),
+    serverCompaction: supported(caps?.context_management?.compact_20260112),
     effortLevels,
     structuredOutputs: supported(caps?.structured_outputs),
   };

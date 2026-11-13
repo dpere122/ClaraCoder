@@ -13,6 +13,8 @@ export interface ChatTemplateReasoningCaps {
   reasoningEffortValues: readonly string[] | null;
   /** Claude only: the model accepts ``thinking: {type: "adaptive"}`` (from the Models API). */
   adaptiveThinking?: boolean;
+  /** Claude only: the model takes server-side compaction (``compact_20260112``, from the Models API). */
+  serverCompaction?: boolean;
   /** llama-server only: ``modalities.vision`` from ``GET /props``; absent when the server does not say. */
   vision?: boolean;
 }

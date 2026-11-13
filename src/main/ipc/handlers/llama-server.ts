@@ -25,17 +25,16 @@ import { findAnthropicConnection, refreshAnthropicReasoningForConnection } from 
 import { findLmStudioConnection, refreshLmStudioReasoningForConnection } from '../../lm-studio-runtime';
 import { pingLlmSource } from '../../llm-source-ping';
 import { pythonControlFetch } from '../../python/http-client';
-import { assertTrustedAppRenderer, assertTrustedMainRendererOrThrow, isTrustedMainRenderer } from '../assert-trusted-renderer';
-import { mainState } from '../../state';
+import {
+  assertTrustedAppRenderer,
+  assertTrustedMainRendererOrThrow,
+  isSettingsRenderer,
+  isTrustedMainRenderer,
+} from '../assert-trusted-renderer';
 
 export interface LlamaServerIpcPayload {
   modelId: string;
   config: AppConfig;
-}
-
-function isSettingsRenderer(sender: WebContents): boolean {
-  const win = mainState.settingsWindow;
-  return !!win && !win.isDestroyed() && sender === win.webContents;
 }
 
 /**

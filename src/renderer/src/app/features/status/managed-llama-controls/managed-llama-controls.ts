@@ -289,7 +289,8 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
       untracked(() => this.pendingProviderId.set(''));
     });
 
-    // Status bar: ask main which sources answer, again whenever the list of sources changes.
+    // Status bar: ask main which sources answer, again on every config change (a source's URL or key
+    // may be what changed), as the composer does for the active source.
     effect(() => {
       const key = this.switchableSources()
         .map((source) => `${source.id}:${source.connectionId}:${source.launchable}`)

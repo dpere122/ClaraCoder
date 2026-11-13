@@ -3,6 +3,7 @@ import {
   defaultSubagentsConfig,
   newSubagentRole,
   normalizeSubagentsConfig,
+  numberedSubagentRoleName,
   subagentThinkingLevelOptions,
 } from './subagents-config';
 
@@ -19,6 +20,22 @@ describe('subagentThinkingLevelOptions', () => {
     // A list the source reports wins, in the catalog's order, without levels Settings does not know.
     expect(ids('generic', ['max', 'low', 'high', 'turbo'])).toEqual(['low', 'high', 'max']);
     expect(ids('generic', [])).toEqual(['minimal', 'low', 'medium', 'high', 'xhigh']);
+  });
+});
+
+describe('numberedSubagentRoleName', () => {
+  it('puts the number after the name', () => {
+    expect(numberedSubagentRoleName('explorer', 2)).toBe('explorer 2');
+  });
+
+  it('shortens a long name so its copy survives a save', () => {
+    const long = 'a role name that fills the whole name cap';
+    const original = newSubagentRole('r1', long.slice(0, 40));
+    const copyName = numberedSubagentRoleName(original.name, 2);
+    expect(copyName.length).toBeLessThanOrEqual(40);
+    expect(copyName.endsWith(' 2')).toBe(true);
+    const { roles } = normalizeSubagentsConfig({ roles: [original, newSubagentRole('r2', copyName)] });
+    expect(roles.map((role) => role.name)).toEqual([original.name, copyName]);
   });
 });
 

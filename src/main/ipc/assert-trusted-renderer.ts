@@ -11,6 +11,11 @@ function isOwnedAppWindow(sender: WebContents, win: BrowserWindow | null): boole
   return !!win && !win.isDestroyed() && sender === win.webContents;
 }
 
+/** True when the IPC sender is the Settings window. */
+export function isSettingsRenderer(sender: WebContents): boolean {
+  return isOwnedAppWindow(sender, mainState.settingsWindow);
+}
+
 /** Main, settings, health, dependencies, or updater window — trusted app-owned UI surfaces. */
 export function isTrustedAppRenderer(sender: WebContents): boolean {
   if (isTrustedMainRenderer(sender)) {

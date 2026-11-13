@@ -151,6 +151,15 @@ export function cleanSubagentRoleName(value: unknown): string {
 }
 
 /**
+ * `stem` with a number after it, inside the name cap: the stem gives way, never the number, so
+ * cleaning the name on save cannot cut it back to a name that is already taken.
+ */
+export function numberedSubagentRoleName(stem: string, n: number): string {
+  const suffix = ` ${n}`;
+  return `${stem.slice(0, SUBAGENT_ROLE_NAME_MAX - suffix.length).trimEnd()}${suffix}`;
+}
+
+/**
  * Coerce stored or edited settings into a valid shape. Roles keep their order; a role without an id
  * or name is dropped, and a repeated id or name (case-insensitive) keeps the first.
  */

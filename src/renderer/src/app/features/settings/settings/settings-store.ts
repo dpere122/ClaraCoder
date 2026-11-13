@@ -6,6 +6,7 @@ import {
   defaultSubagentsConfig,
   newSubagentRole,
   normalizeSubagentsConfig,
+  numberedSubagentRoleName,
   type SubagentRoleConfig,
   type SubagentsConfig,
 } from '@shared/subagents-config';
@@ -1114,7 +1115,6 @@ export class SettingsStore {
     }
   }
 
-  /** Double-clicking the top bar toggles maximize, matching the main window's title bar. */
   /** Persist dirty settings without closing the window. */
   async applySettings(): Promise<void> {
     if (this.settingsSaveAction() !== null || !this.settingsDirty()) {
@@ -3689,9 +3689,9 @@ export class SettingsStore {
     }
     const taken = new Set(roles.map((role) => role.name.toLowerCase()));
     const stem = copyOf ? copyOf.name : 'role';
-    let name = copyOf ? `${stem} 2` : stem;
+    let name = copyOf ? numberedSubagentRoleName(stem, 2) : stem;
     for (let n = copyOf ? 3 : 2; taken.has(name.toLowerCase()); n += 1) {
-      name = `${stem} ${n}`;
+      name = numberedSubagentRoleName(stem, n);
     }
     const id = crypto.randomUUID();
     const role = copyOf ? { ...structuredClone(copyOf), id, name } : newSubagentRole(id, name);

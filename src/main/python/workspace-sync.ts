@@ -359,7 +359,6 @@ async function refreshLmStudioLiveNctx(config: AppConfig): Promise<void> {
   );
 }
 
-/** LSP settings the sidecar last accepted; ``null`` before the first sync, when it runs no servers yet. */
 /**
  * Sub-agent settings for the backend. A role names a source by its Settings id; the backend knows
  * a source by its connection id (its one model profile's id). A source that is gone keeps its
@@ -379,6 +378,7 @@ function wireSubagents(config: AppConfig): SubagentsConfig {
   };
 }
 
+/** LSP settings the sidecar last accepted; ``null`` before the first sync, when it runs no servers yet. */
 let lastAppliedLspSettings: LspServersSettings | null = null;
 
 /** Trusted workspace folders the sidecar last accepted, as one comparable string; ``null`` before the first sync. */

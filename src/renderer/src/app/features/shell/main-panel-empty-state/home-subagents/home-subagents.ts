@@ -86,7 +86,8 @@ export class HomeSubagentsComponent {
       const dir = this.customModelsDir();
       untracked(() => void this.loadInventory(dir));
     });
-    // Ask main about the sources the roles use, again whenever that set or the main source changes.
+    // Ask main about the sources the roles use, again on every config change: the set, the main
+    // source, or a source's own URL or key may be what changed.
     effect(() => {
       const used = this.roleSources().flatMap(({ source }) => (source ? [source] : []));
       const key = [...new Set(used.map((source) => `${source.id}:${source.connectionId}:${source.launchable}`))].join('|');

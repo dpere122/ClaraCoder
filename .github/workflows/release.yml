@@ -85,7 +85,14 @@ jobs:
 
       # --publish never: electron-builder would otherwise auto-publish on a CI tag build.
       # The publish job below creates the release so the tag is pinned to this commit.
+      # Signed through Azure Artifact Signing (scripts/windows-signing.mjs). In this repository a
+      # release without the secrets fails instead of going out unsigned; a fork builds unsigned.
       - name: Build installer
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          CLARA_REQUIRE_SIGNING: ${{ github.repository == 'dpere122/ClaraCoder' && '1' || '' }}
         run: npm run pack -- --publish never
 
       - uses: actions/upload-artifact@v4

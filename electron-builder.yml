@@ -74,6 +74,8 @@ asarUnpack:
   - "**/node_modules/@huggingface/xetchunk-wasm/**/*"
   - "**/node_modules/@huggingface/blake3-jit/**/*"
 
+# Signing is not configured here: scripts/windows-signing.mjs adds win.azureSignOptions when the
+# Azure credentials are in the environment (release builds), so a local pack stays unsigned.
 # artifactName: no spaces. GitHub turns spaces in asset names into dots, so the file name
 # latest.yml records would no longer match the uploaded asset.
 win:

@@ -180,6 +180,16 @@ Managed chat servers keep llama-server's default 8 GiB host-RAM prompt cache, wh
 
 </details>
 
+### Code signing (Windows)
+
+Release builds are signed through [Azure Artifact Signing](https://learn.microsoft.com/azure/artifact-signing/). The release workflow passes three repository secrets to the build: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`. They belong to a Microsoft Entra app registration that holds the Certificate Profile Signer role on the signing account. The account, profile and publisher name are in `scripts/windows-signing.mjs`.
+
+- A local `npm run pack` has none of the three and builds unsigned.
+- With all three set, the app and its installer are signed, then checked for a valid signature from the publisher. A failed check fails the build.
+- A release in this repository fails without the secrets instead of going out unsigned (`CLARA_REQUIRE_SIGNING`). A fork builds unsigned.
+
+A signed app only installs an update signed by the same publisher (name, organization and country). Changing the certificate's name therefore cuts existing installs off from updates.
+
 ### Day-to-day commands
 
 | Command                     | Purpose |

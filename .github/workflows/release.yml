@@ -1,8 +1,9 @@
 # Builds installers and publishes them as GitHub Releases, which the in-app updater
 # (electron-updater, GitHub provider) reads.
 #
-#   beta:   Actions → Release → Run workflow (pick a branch). Publishes v<next>-beta.<run>
+#   beta:   Actions → Release → Run workflow (pick a branch). Publishes v<next>-beta.<n>
 #           as a pre-release right away; only users who opted into beta updates get it.
+#           n counts up from 1 for each version (one above its highest beta tag so far).
 #   stable: push a tag matching package.json, e.g. `git tag v0.2.0 && git push origin v0.2.0`.
 #           Creates a DRAFT release. Updaters ignore drafts, so smoke-test the installer
 #           and then publish the draft to ship it. Afterwards bump package.json to the next version.
@@ -20,8 +21,10 @@ on:
 permissions:
   contents: read
 
+# One beta at a time, whatever branch it builds: a beta's number comes from the tags that exist
+# when its run starts, so two at once would pick the same one. Tag runs queue per tag.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event_name == 'workflow_dispatch' && 'beta' || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -38,7 +41,7 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then
             node scripts/release-version.mjs --channel stable --tag "$GITHUB_REF_NAME"
           else
-            node scripts/release-version.mjs --channel beta --build "$GITHUB_RUN_NUMBER"
+            node scripts/release-version.mjs --channel beta
           fi
 
   build:

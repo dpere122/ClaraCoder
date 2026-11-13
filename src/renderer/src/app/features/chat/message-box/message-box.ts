@@ -342,11 +342,14 @@ export class MessageBox {
 
     // A saved effort the model does not offer (Default, on/off, another model's) would still be
     // sent; keep the effort the dropdown shows instead.
+    // The config is read too: the parent keeps a fitted level only once the conversation's own model
+    // has landed, which can leave both values as they were.
     effect(() => {
+      this.appConfig();
       const shown = this.reasoningEffort();
       const saved = this.savedReasoningEffort();
       if (shown && shown !== saved) {
-        this.reasoningEffortChange.emit({ field: 'reasoningEffort', value: shown as LlmReasoningEffort });
+        this.reasoningEffortChange.emit({ field: 'reasoningEffort', value: shown as LlmReasoningEffort, fitted: true });
       }
     });
 

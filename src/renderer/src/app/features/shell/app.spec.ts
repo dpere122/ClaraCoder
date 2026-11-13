@@ -1356,6 +1356,44 @@ describe('App', () => {
       expect(setActiveLlmModel).toHaveBeenLastCalledWith('model-b');
     });
 
+    it("goes back to the open conversation's model when a switch made for the one left lands late", async () => {
+      const composer = (modelId: string) => ({ draft: '', mode: 'agent', autoApply: false, admin: false, modelId });
+      refs = stubElectronApi(
+        [
+          { id: 'on-b', composer: composer('model-b') },
+          { id: 'on-a', composer: composer('model-a') },
+        ],
+        TWO_MODELS,
+      );
+      const api = (window as unknown as { electronAPI: Record<string, unknown> }).electronAPI;
+      let landSlowSwitch: (() => void) | null = null;
+      const setActiveLlmModel = vi.fn(async (modelId: string) => {
+        const saved = { ...refs.loadedConfig, activeLlmModelId: modelId };
+        if (modelId === 'model-b' && !landSlowSwitch) {
+          // The switch for on-b is slow (Python busy): it lands after on-a was opened.
+          await new Promise<void>((resolve) => (landSlowSwitch = resolve));
+        }
+        return saved;
+      });
+      api['setActiveLlmModel'] = setActiveLlmModel;
+      const fixture = TestBed.createComponent(App);
+      await settle(fixture);
+      const app = fixture.componentInstance as unknown as ModelApp;
+      expect(setActiveLlmModel).toHaveBeenCalledWith('model-b');
+
+      // on-a is stored on the model the app is still on, so opening it switches nothing...
+      await app.onSelectConversation('on-a');
+      await settle(fixture);
+      expect(setActiveLlmModel).toHaveBeenCalledTimes(1);
+
+      // ...until on-b's switch lands: on-a goes back to its own model and keeps it.
+      (landSlowSwitch as (() => void) | null)?.();
+      await settle(fixture);
+      expect(setActiveLlmModel).toHaveBeenLastCalledWith('model-a');
+      expect(app.conversationSession.composerFor('on-a').modelId).toBe('model-a');
+      expect(app.conversationSession.composerFor('on-b').modelId).toBe('model-b');
+    });
+
     it('stays on the model the app is on when the stored one was deleted, and keeps that instead', async () => {
       refs = stubElectronApi(
         [{ id: 'gone', composer: { draft: '', mode: 'agent', autoApply: false, admin: false, modelId: 'deleted-model' } }],

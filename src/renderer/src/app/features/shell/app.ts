@@ -1556,6 +1556,11 @@ export class App implements OnInit, OnDestroy {
     const config = this.appConfig();
     const openId = this.activeConversationId();
     if (config && openId && !this.conversationSession.activeParentConversationId()) {
+      // Another conversation was opened while this switch landed: it was matched against the model
+      // the app was on before, so match it again, now, to its own model instead of recording this one.
+      if (openId !== convId && this.modelSwitch?.conversationId !== openId) {
+        this.modelConversationId = null;
+      }
       this.followConversationModel(openId, config);
     }
   }
@@ -1569,8 +1574,22 @@ export class App implements OnInit, OnDestroy {
     if (!convId || this.conversationSession.isSubagentConversation(convId)) {
       return;
     }
-    if (this.conversationSession.composerFor(convId)[change.field] === change.value) {
+    const stored = this.conversationSession.composerFor(convId);
+    if (stored[change.field] === change.value) {
       return;
+    }
+    // A level fitted to the model on screen is kept only once that model is the conversation's own:
+    // while its switch lands, the composer shows the previous model's levels.
+    if (change.field === 'reasoningEffort' && change.fitted) {
+      const config = this.appConfig();
+      const onOwnModel =
+        !!config &&
+        this.modelSwitch === null &&
+        this.modelSwitchesInFlight === 0 &&
+        (!stored.modelId || sameConversationModel(stored, activeConversationModel(config)));
+      if (!onOwnModel) {
+        return;
+      }
     }
     this.conversationSession.patchComposer(convId, { [change.field]: change.value });
   }
@@ -1802,7 +1821,12 @@ export class App implements OnInit, OnDestroy {
     this.removeContextMetricsForConversation(convId);
     this.conversationSession.removePending(convId);
     this.conversationSession.updateConversationMeta(convId, { updatedAt: new Date().toISOString() });
-    this.composerDraft.set(draft);
+    // The restore awaited: another conversation may be open by now, and its draft is its own.
+    if (this.activeConversationId() === convId) {
+      this.composerDraft.set(draft);
+    } else {
+      this.conversationSession.patchComposer(convId, { draft });
+    }
   }
 
   onSendResponse(text: string): void {

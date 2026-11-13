@@ -1143,7 +1143,10 @@ export class ConversationSessionService {
     this.creatingConversation.set(true);
     try {
       await this.saveCurrentConversation();
-      const composer = newConversationComposer(this.composerFor(this.activeConversationId()));
+      // A sub-agent's view has no composer of its own: start from its parent's.
+      const composer = newConversationComposer(
+        this.composerFor(this.activeParentConversationId() ?? this.activeConversationId()),
+      );
       const conv = await this.electron.newConversation(currentWorkspaceId, composer);
       this.snapshotActiveStreamToBackground();
       this.activeConversation = conv;

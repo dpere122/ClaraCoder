@@ -19,6 +19,8 @@ export interface PillSelectOption {
   label: string;
   group?: string;
   title?: string;
+  /** A status light after the label; `running` is green. */
+  indicator?: 'running';
 }
 
 /** Select trigger with a themed menu (flat IDE style). Native selects cannot theme the open list. */
@@ -105,6 +107,10 @@ export class PillSelectComponent {
   protected optionTitle(option: object): string | null {
     const title = (option as { title?: string }).title;
     return title?.trim() ? title : null;
+  }
+
+  protected optionIndicator(option: object): PillSelectOption['indicator'] | null {
+    return (option as { indicator?: PillSelectOption['indicator'] }).indicator ?? null;
   }
 
   protected groupHeading(index: number): string {

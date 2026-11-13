@@ -380,6 +380,8 @@
         "is-selected",
         "pill-select__check",
         "pill-select__option-label",
+        "pill-select__indicator",
+        "is-running",
         "context-capacity",
         "context-capacity--compact",
         "context-capacity--healthy",
@@ -1693,6 +1695,8 @@
         "is-selected",
         "pill-select__check",
         "pill-select__option-label",
+        "pill-select__indicator",
+        "is-running",
         "tcd-backdrop",
         "tcd-panel",
         "tcd-header",
@@ -1840,7 +1844,9 @@
         "pill-select__option",
         "is-selected",
         "pill-select__check",
-        "pill-select__option-label"
+        "pill-select__option-label",
+        "pill-select__indicator",
+        "is-running"
       ]
     },
     {
@@ -2113,7 +2119,9 @@
         "pill-select__option",
         "is-selected",
         "pill-select__check",
-        "pill-select__option-label"
+        "pill-select__option-label",
+        "pill-select__indicator",
+        "is-running"
       ]
     },
     {
@@ -2409,6 +2417,8 @@
         "is-selected",
         "pill-select__check",
         "pill-select__option-label",
+        "pill-select__indicator",
+        "is-running",
         "llama-servers",
         "llama-servers__heading",
         "llama-servers__body",
@@ -2416,7 +2426,6 @@
         "llama-servers__row",
         "llama-servers__spinner",
         "llama-servers__light",
-        "is-running",
         "llama-servers__name",
         "llama-servers__empty",
         "llama-servers__console",
@@ -3443,7 +3452,8 @@
         "pill-select__option",
         "is-selected",
         "pill-select__check",
-        "pill-select__option-label"
+        "pill-select__option-label",
+        "pill-select__indicator"
       ]
     },
     {
@@ -3999,7 +4009,9 @@
         "pill-select__option",
         "is-selected",
         "pill-select__check",
-        "pill-select__option-label"
+        "pill-select__option-label",
+        "pill-select__indicator",
+        "is-running"
       ]
     },
     {
@@ -4256,7 +4268,9 @@
         "pill-select__option",
         "is-selected",
         "pill-select__check",
-        "pill-select__option-label"
+        "pill-select__option-label",
+        "pill-select__indicator",
+        "is-running"
       ]
     },
     {
@@ -4354,6 +4368,8 @@
         "pill-select__option",
         "pill-select__check",
         "pill-select__option-label",
+        "pill-select__indicator",
+        "is-running",
         "editor-outline",
         "editor-outline__toolbar",
         "editor-outline__toolbar-btn",
@@ -4450,6 +4466,8 @@
         "pill-select__option",
         "pill-select__check",
         "pill-select__option-label",
+        "pill-select__indicator",
+        "is-running",
         "editor-outline",
         "editor-outline__toolbar",
         "editor-outline__toolbar-btn",

@@ -131,6 +131,19 @@
   white-space: nowrap;
 }
 
+/* Status light after an option's label, the same green as the home page's running sources. */
+.pill-select__indicator {
+  flex: 0 0 auto;
+  width: 0.5rem;
+  height: 0.5rem;
+  /* The app theme squares every corner; a status light stays round. */
+  border-radius: 50% !important;
+}
+
+.pill-select__indicator.is-running {
+  background: #3ee889;
+}
+
 /* Check mark on the chosen option, painted in the accent through a mask like the chevron. */
 .pill-select__check {
   flex-shrink: 0;

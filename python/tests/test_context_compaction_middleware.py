@@ -3451,7 +3451,7 @@ async def test_subagent_concurrency_per_provider(session: SessionState, provider
     set_window(32768, provider)
     parent = SessionState()
     assert parent_subagent_semaphore(parent)._value == limit
-    assert parent_subagent_semaphore(parent) is parent.subagent_semaphore
+    assert list(parent.subagent_semaphores.values()) == [parent_subagent_semaphore(parent)]
 
 
 @pytest.mark.parametrize(

@@ -13,6 +13,8 @@ const model = (id: string) => ({
   model: id,
   llamaCppManaged: { chatRunCommand: 'llama-server --port {{PORT}} -m /m.gguf', embeddingRunCommand: '' },
 });
+const CLOUD = { id: 'cloud', name: 'Cloud', provider: 'openai', baseUrl: '', apiKey: {}, models: [{ id: 'm9', name: 'm9', model: 'm9' }] };
+
 const CONFIG = {
   activeLlmModelId: 'm1',
   llmProviders: [
@@ -29,11 +31,19 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function setup() {
+/** `running`: model ids of local servers that are up. `unreachable`: model ids whose connection check fails. */
+function setup(options: { running?: string[]; unreachable?: string[] } = {}) {
   const electron = {
     llamaServerLifecycle$: new Subject<unknown>(),
     llamaServerProcessExit$: new Subject<unknown>(),
-    llamaServerStatus: vi.fn(async () => ({ ok: true, running: false, starting: false })),
+    llamaServerStatus: vi.fn(async ({ modelId }: { modelId: string }) => ({
+      ok: true,
+      running: options.running?.includes(modelId) ?? false,
+      starting: false,
+    })),
+    llmSourcePing: vi.fn(async ({ modelId }: { modelId: string }) =>
+      options.unreachable?.includes(modelId) ? { ok: false, error: 'down' } : { ok: true },
+    ),
     llamaServerStart: vi.fn(async (): Promise<LlamaServerStartResult> => ({ ok: false, error: FAILED })),
     llamaServerStop: vi.fn(async () => ({ ok: true as const })),
     modelManagerListCustomModels: vi.fn(async () => ({ ok: true, models: [] })),
@@ -73,6 +83,111 @@ describe('the source menu', () => {
       ['a', 'Custom'],
       ['b', 'Custom'],
     ]);
+  });
+});
+
+describe('swapping the main model in the status bar', () => {
+  const WITH_CLOUD = { ...CONFIG, llmProviders: [...CONFIG.llmProviders, CLOUD] } as unknown as AppConfig;
+
+  async function statusBar(config: AppConfig, options: { running?: string[]; unreachable?: string[] } = {}) {
+    const { fixture, electron } = setup(options);
+    fixture.componentRef.setInput('appConfig', config);
+    fixture.componentRef.setInput('layout', 'status-bar');
+    const settle = async () => {
+      for (let pass = 0; pass < 2; pass += 1) {
+        await render(fixture);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      return render(fixture);
+    };
+    const el = await settle();
+    const select = fixture.debugElement.query(By.directive(PillSelectComponent)).componentInstance as PillSelectComponent;
+    const optionIds = () => (select.options() as ReadonlyArray<{ id: string }>).map((o) => o.id);
+    return { fixture, electron, el, select, optionIds, settle };
+  }
+
+  it('offers only sources that would answer now, and always the active one', async () => {
+    // Active a: stopped. b: running. cloud: fails its connection check.
+    const down = await statusBar(WITH_CLOUD, { running: ['m2'], unreachable: ['m9'] });
+    expect(down.optionIds()).toEqual(['a', 'b']);
+
+    TestBed.resetTestingModule();
+    const up = await statusBar(WITH_CLOUD);
+    // b is stopped now and the cloud source answers.
+    expect(up.optionIds()).toEqual(['cloud', 'a']);
+  });
+
+  it('picks without switching, then switches from a red Switch button', async () => {
+    const { el, electron, select, settle } = await statusBar(WITH_CLOUD);
+    expect(button(el).textContent?.trim()).toBe('Start');
+    expect(button(el).classList.contains('action-button--danger')).toBe(false);
+
+    select.valueChange.emit('cloud');
+    await settle();
+    expect(electron.setActiveLlmModel).not.toHaveBeenCalled();
+    expect(select.value()).toBe('cloud');
+    expect(button(el).textContent?.trim()).toBe('Switch');
+    expect(button(el).classList.contains('action-button--danger')).toBe(true);
+    expect(button(el).disabled).toBe(false);
+
+    button(el).click();
+    await settle();
+    expect(electron.setActiveLlmModel).toHaveBeenCalledWith('m9');
+    expect(electron.llamaServerStart).not.toHaveBeenCalled();
+  });
+
+  it('goes back to the server button when the active source is picked again or becomes active', async () => {
+    const { el, fixture, select, settle } = await statusBar(WITH_CLOUD);
+    select.valueChange.emit('cloud');
+    await settle();
+    select.valueChange.emit('a');
+    await settle();
+    expect(button(el).textContent?.trim()).toBe('Start');
+    expect(select.value()).toBe('a');
+
+    // The switch landed: cloud is active, a hosted source with no server button.
+    select.valueChange.emit('cloud');
+    await settle();
+    fixture.componentRef.setInput('appConfig', { ...WITH_CLOUD, activeLlmModelId: 'm9' });
+    await settle();
+    expect(select.value()).toBe('cloud');
+    expect(button(el)?.textContent?.trim()).not.toBe('Switch');
+  });
+
+  it('lets the model be swapped while the active local server runs', async () => {
+    const { el, electron, select, settle } = await statusBar(WITH_CLOUD, { running: ['m1'] });
+    expect(button(el).textContent?.trim()).toBe('Stop');
+    expect(select.disabled()).toBe(false);
+
+    select.valueChange.emit('cloud');
+    await settle();
+    expect(button(el).textContent?.trim()).toBe('Switch');
+    button(el).click();
+    await settle();
+    expect(electron.setActiveLlmModel).toHaveBeenCalledWith('m9');
+    expect(electron.llamaServerStop).not.toHaveBeenCalled();
+  });
+
+  it('follows a local server that comes up later', async () => {
+    const { electron, optionIds, settle } = await statusBar(CONFIG);
+    expect(optionIds()).toEqual(['a']);
+    (electron.llamaServerLifecycle$ as Subject<unknown>).next({ phase: 'running', modelId: 'm2' });
+    await settle();
+    expect(optionIds()).toEqual(['a', 'b']);
+  });
+
+  it('leaves the home page as it was: every source listed, and a pick switches at once', async () => {
+    const { fixture, electron } = setup({ unreachable: ['m9'] });
+    fixture.componentRef.setInput('appConfig', WITH_CLOUD);
+    const el = await render(fixture);
+    const select = fixture.debugElement.query(By.directive(PillSelectComponent)).componentInstance as PillSelectComponent;
+    expect((select.options() as ReadonlyArray<{ id: string }>).map((o) => o.id)).toEqual(['cloud', 'a', 'b']);
+    expect(electron.llmSourcePing).not.toHaveBeenCalled();
+
+    select.valueChange.emit('b');
+    await render(fixture);
+    expect(electron.setActiveLlmModel).toHaveBeenCalledWith('m2');
+    expect(button(el).textContent?.trim()).toBe('Start');
   });
 });
 

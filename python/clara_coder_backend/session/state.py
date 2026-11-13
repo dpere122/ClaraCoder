@@ -20,6 +20,7 @@ import time
 from fastapi import HTTPException
 
 from clara_coder_backend.config import (
+    CLARA_SUBAGENT_MAX_CONCURRENCY,
     DEFAULT_LM_STUDIO_BASE_URL,
     DEFAULT_LM_STUDIO_MODEL,
     DEFAULT_OPENAI_BASE_URL,
@@ -34,6 +35,7 @@ from clara_coder_backend.domain import (
     RuntimeConfig,
     RuntimeConnection,
     RuntimeHostConfig,
+    RuntimeSubagentsConfig,
     RuntimeToolsConfig,
     SessionState,
 )
@@ -53,6 +55,13 @@ current_tool_call_id: contextvars.ContextVar[str] = contextvars.ContextVar('curr
 # ``worker_apply_mode``, a read-only stream sees False while an Editor stream overlaps it.
 current_stream_apply_mode: contextvars.ContextVar[bool | None] = contextvars.ContextVar(
     'current_stream_apply_mode', default=None
+)
+
+# Source pinned for the current task instead of the active one: a sub-agent whose role runs on another
+# source or model (None everywhere else). Set in the sub-agent's own task, so its model client, prompt
+# and per-provider middleware all resolve to it through :func:`get_active_connection`.
+current_connection_override: contextvars.ContextVar[RuntimeConnection | None] = contextvars.ContextVar(
+    'current_connection_override', default=None
 )
 
 # All known sessions; created on demand via get_session().
@@ -108,6 +117,7 @@ def build_default_runtime_config() -> RuntimeConfig:
             max_file_read_lines=MAX_FILE_READ_LINES,
             max_search_results=MAX_SEARCH_RESULTS,
         ),
+        subagents=RuntimeSubagentsConfig(cloud_concurrency=CLARA_SUBAGENT_MAX_CONCURRENCY),
     )
 
 
@@ -253,7 +263,22 @@ def mutation_tools_blocked_reason(session_id: str | None = None) -> str | None:
 
 
 def get_active_connection() -> RuntimeConnection:
-    """Resolve the LLM connection matching active_connection_id, or fall back to the first."""
+    """The LLM connection the current task talks to.
+
+    A sub-agent pinned to its role's source gets that one (:data:`current_connection_override`);
+    everything else gets :func:`get_main_connection`.
+    """
+    pinned = current_connection_override.get()
+    if pinned is not None:
+        return pinned
+    return get_main_connection()
+
+
+def get_main_connection() -> RuntimeConnection:
+    """The connection matching active_connection_id (else the first), ignoring any sub-agent pin.
+
+    For state shared by a whole conversation family, such as the workspace's semantic index.
+    """
     if not runtime_config.connections:
         raise HTTPException(status_code=500, detail='No LLM connections are configured.')
 

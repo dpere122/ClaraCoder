@@ -39,6 +39,7 @@ import type {
   LlamaServerOutputEvent,
   LlamaServerProcessExitEvent,
   LlamaServerStartResult,
+  LlamaServerConsoleSnapshot,
   LlamaServerStatusResult,
   EmbeddingsStatusResult,
   GgufProfile,
@@ -1798,6 +1799,11 @@ export class ElectronService {
 
   llamaServerTotalRam(): Promise<number | null> {
     return this.api?.llamaServerTotalRam?.() ?? Promise.resolve(null);
+  }
+
+  /** Every managed llama-server main knows, with its state and the console text it has kept. */
+  llamaServerConsoles(): Promise<LlamaServerConsoleSnapshot[]> {
+    return this.api?.llamaServerConsoles?.() ?? Promise.resolve([]);
   }
 
   llamaServerLaunchedCommand(payload: {

@@ -170,6 +170,22 @@
             </div>
           </section>
 
+          <section class="home__section" aria-labelledby="home-subagents">
+            <div class="home__heading-row">
+              <h2 class="home__heading" id="home-subagents">Subagents</h2>
+              <button
+                type="button"
+                class="home__heading-action"
+                title="Subagent settings"
+                aria-label="Open subagent settings"
+                (click)="openSubagents.emit()"
+              >
+                <lucide-icon name="settings" [size]="14" />
+              </button>
+            </div>
+            <app-home-subagents [appConfig]="appConfig()" (openSettings)="openSubagents.emit()" />
+          </section>
+
           <label class="home__default" title="Open this home page on start instead of the last workspace">
             <input type="checkbox" [checked]="defaultHomePage()" (change)="onDefaultHomePageChange($event)" />
             <span>Use as default Home page</span>

@@ -628,6 +628,41 @@ class RuntimeContextCompressionRequest(BaseModel):
         return _coerce_boolish(v)
 
 
+class SubagentRoleRequest(BaseModel):
+    """One role from Settings, Subagents."""
+
+    id: str = ''
+    name: str = ''
+    description: str = ''
+    enabled: bool = True
+    #: Empty follows the main agent's source.
+    connectionId: str = ''
+    #: Empty keeps the source's own model.
+    model: str = ''
+    readOnly: bool = False
+    #: ``source`` keeps the source's own thinking settings.
+    thinking: Literal['source', 'on', 'off'] = 'source'
+    #: Reasoning effort; empty (or a level the backend does not know) keeps the source's own.
+    thinkingLevel: str = ''
+    #: Allowed tool groups; unknown names are dropped.
+    tools: list[str] = Field(default_factory=list)
+    instructions: str = ''
+
+
+class RuntimeSubagentsRequest(BaseModel):
+    """Settings, Subagents."""
+
+    enabled: bool = True
+    cloudConcurrency: int = Field(default=3, ge=1, le=16)
+    fallback: Literal['main', 'fail'] = 'main'
+    roles: list[SubagentRoleRequest] = Field(default_factory=list, max_length=32)
+
+    @field_validator('enabled', mode='before')
+    @classmethod
+    def _normalize_enabled(cls, v: Any) -> Any:
+        return _coerce_boolish(v)
+
+
 class McpSecretEntryRequest(BaseModel):
     key: str = ''
     value: str = ''
@@ -783,6 +818,8 @@ class RuntimeConfigRequest(BaseModel):
     tools: RuntimeToolsRequest | None = None
     contextCompression: RuntimeContextCompressionRequest | None = None
     lsp: RuntimeLspRequest | None = None
+    #: Omitted (``None``) keeps the current sub-agent settings.
+    subagents: RuntimeSubagentsRequest | None = None
     huggingFaceToken: str = ''
     mcpServers: list[McpServerRequest] = Field(default_factory=list)
     activeWorkspacePath: str = ''

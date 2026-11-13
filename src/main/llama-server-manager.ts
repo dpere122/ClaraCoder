@@ -2,6 +2,7 @@
  * Managed ``llama-server`` subprocesses: dynamic ports, shell commands from settings, health probes.
  */
 import { spawn, type ChildProcess, type SpawnOptions } from 'child_process';
+import type { LlamaServerConsoleSnapshot } from '../shared/types/llama-server-ipc';
 import { existsSync, promises as fs, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import * as net from 'net';
 import { totalmem } from 'os';
@@ -154,9 +155,75 @@ function invalidateManagedStatusCache(modelId?: string): void {
   }
 }
 
+/** Console text kept per server since its last start; older output is dropped past this. */
+const CONSOLE_MAX_CHARS = 400_000;
+/** modelId, then stream: what each server has printed since its last start. */
+const consoles = new Map<string, Map<StreamKind, string>>();
+
+function recordConsole(modelId: string, stream: StreamKind, data: string): void {
+  let streams = consoles.get(modelId);
+  if (!streams) {
+    streams = new Map();
+    consoles.set(modelId, streams);
+  }
+  streams.set(stream, ((streams.get(stream) ?? '') + data).slice(-CONSOLE_MAX_CHARS));
+}
+
+/** A dim line of the app's own in a server's console (start, ready, stop, exit). */
+function consoleNote(modelId: string, stream: StreamKind, text: string): void {
+  sendToRenderer('llama-server-output', {
+    modelId,
+    stream,
+    fd: 'stdout',
+    data: `\x1b[90m[${text}]\x1b[0m\n`,
+  });
+}
+
+/** The app's own console line for a lifecycle event, sent after the event itself. */
+function lifecycleNote(payload: unknown): (() => void) | null {
+  const event = payload as { phase?: string; modelId?: string };
+  const modelId = event?.modelId;
+  if (!modelId) {
+    return null;
+  }
+  const text =
+    event.phase === 'starting'
+      ? 'Starting llama-server'
+      : event.phase === 'downloading'
+        ? 'Downloading the model'
+        : event.phase === 'running'
+          ? 'llama-server ready'
+          : event.phase === 'stopped'
+            ? 'llama-server stopped'
+            : '';
+  if (event.phase === 'starting') {
+    // A fresh start is a fresh console.
+    consoles.delete(modelId);
+  }
+  return text ? () => consoleNote(modelId, 'chat', text) : null;
+}
+
 function sendToRenderer(channel: string, payload: unknown): void {
+  // A window clears a server's console when it starts, so the note about an event follows the event.
+  let after: (() => void) | null = null;
+  if (channel === 'llama-server-output') {
+    const chunk = payload as { modelId: string; stream: StreamKind; data: string };
+    recordConsole(chunk.modelId, chunk.stream, chunk.data);
+  } else if (channel === 'llama-server-lifecycle') {
+    after = lifecycleNote(payload);
+  } else if (channel === 'llama-server-process-exit') {
+    const exit = payload as { modelId: string; stream: StreamKind; code: number | null; signal: string | null };
+    const how = exit.signal ? `signal ${exit.signal}` : `code ${exit.code ?? 'unknown'}`;
+    after = () => consoleNote(exit.modelId, exit.stream, `Process exited (${how})`);
+  }
   try {
     mainState.mainWindow?.webContents.send(channel, payload);
+  } catch {
+    /* window gone */
+  }
+  // The Health window shows every server's console and state.
+  try {
+    mainState.healthWindow?.webContents.send(channel, payload);
   } catch {
     /* window gone */
   }
@@ -167,6 +234,23 @@ function sendToRenderer(channel: string, payload: unknown): void {
       /* window gone */
     }
   }
+  after?.();
+}
+
+/** Every server main knows: the ones running or loading, and the stopped ones whose console it still holds. */
+export function getManagedLlamaConsoles(): LlamaServerConsoleSnapshot[] {
+  const ids = new Set<string>([...running.keys(), ...consoles.keys()]);
+  return [...ids].map((modelId) => {
+    const slot = running.get(modelId);
+    return {
+      modelId,
+      phase: slot ? (slot.ready ? 'running' : 'loading') : 'off',
+      streams: [...(consoles.get(modelId) ?? new Map<StreamKind, string>()).entries()].map(([stream, text]) => ({
+        stream,
+        text,
+      })),
+    };
+  });
 }
 
 function isCurrent(modelId: string, generation: number): boolean {
@@ -921,7 +1005,7 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
       return failStart(
         modelId,
         generation,
-        `Chat llama-server did not become healthy in time (no HTTP 200 from http://${st.chatHealthHost}:${chatPort}/health). See the llama.cpp server terminal tab for output.`,
+        `Chat llama-server did not become healthy in time (no HTTP 200 from http://${st.chatHealthHost}:${chatPort}/health). See its console in Health, Runtime.`,
       );
     }
 
@@ -989,7 +1073,7 @@ export async function startManagedLlamaServers(modelId: string, config: AppConfi
         return failStart(
           modelId,
           generation,
-          'Embedding llama-server did not become healthy in time. See the llama.cpp server terminal tab for output.',
+          'Embedding llama-server did not become healthy in time. See its console in Health, Runtime.',
         );
       }
     }
@@ -1028,7 +1112,7 @@ function shortEarlyExitError(label: string, proc: ChildProcess, logBuf: StreamBu
     code !== null ? `exit ${code}` : sig != null ? `signal ${sig}` : 'exited unexpectedly';
   const output = lastOutputForStream(logBuf, kind);
   return (
-    `${label} llama-server process ended (${why}). See the llama.cpp server terminal tab for process output.` +
+    `${label} llama-server process ended (${why}). See its console in Health, Runtime.` +
     `${hfWarmHintFromLogs(logBuf, kind)}${output ? `\nLast output:\n${output}` : ''}`
   );
 }

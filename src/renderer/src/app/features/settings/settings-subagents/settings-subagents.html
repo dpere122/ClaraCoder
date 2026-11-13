@@ -1,0 +1,279 @@
+<div class='settings-pane settings-subagents'>
+  <section class='form-section settings-subagents__general' aria-labelledby='subagents-general-title'>
+    <h3 id='subagents-general-title'>General</h3>
+    <label class='toggle-row'>
+      <input
+        type='checkbox'
+        [ngModel]='s.subagents().enabled'
+        (ngModelChange)='s.patchSubagents({ enabled: $event })'
+      />
+      <span>Let the main agent start subagents</span>
+    </label>
+    <div class='settings-subagents__limits'>
+      <label class='field settings-subagents__limit'>
+        <span>Cloud limit</span>
+        <input
+          type='number'
+          [min]='limits.cloudMin'
+          [max]='limits.cloudMax'
+          [ngModel]='s.subagents().cloudConcurrency'
+          (ngModelChange)='onCloudLimitChange($event)'
+          title='Subagents one conversation runs at once on a cloud source'
+        />
+      </label>
+      <label class='field settings-subagents__limit'>
+        <span>Local limit</span>
+        <input type='number' value='1' disabled title='A local source runs one subagent at a time' />
+      </label>
+      <label class='field settings-subagents__fallback'>
+        <span>When a role's source is unavailable</span>
+        <select [ngModel]='s.subagents().fallback' (ngModelChange)='onFallbackChange($event)'>
+          <option value='main'>Run it on the main agent's source</option>
+          <option value='fail'>Fail and tell the main agent</option>
+        </select>
+      </label>
+    </div>
+  </section>
+
+  <section class='form-section settings-subagents__roles' aria-labelledby='subagents-roles-title'>
+    <div class='settings-subagents__roles-head'>
+      <h3 id='subagents-roles-title'>Roles</h3>
+      @if (mainSource(); as main) {
+        <span class='settings-subagents__main'>Main agent runs on {{ main.label }}</span>
+      }
+    </div>
+
+    <div class='settings-subagents__split'>
+      <div class='settings-subagents__list-column'>
+        <ul class='settings-subagents__list' aria-label='Roles'>
+          @for (role of s.subagents().roles; track role.id) {
+            <li>
+              <button
+                type='button'
+                class='settings-subagents__role'
+                [class.is-active]='s.selectedSubagentRole()?.id === role.id'
+                [class.is-off]='!role.enabled'
+                [attr.aria-current]="s.selectedSubagentRole()?.id === role.id ? 'true' : null"
+                (click)='selectRole(role)'
+              >
+                <span class='settings-subagents__role-name'>{{ role.name }}</span>
+                <span class='settings-subagents__role-line' [class.is-warning]='sourceMissing(role)'>{{ sourceSummary(role) }}</span>
+                <span class='settings-subagents__role-line' [class.is-accent]='role.enabled && role.readOnly'>{{ accessSummary(role) }}</span>
+              </button>
+            </li>
+          }
+        </ul>
+        <div class='settings-subagents__list-foot'>
+          <button type='button' class='action-button' [disabled]='!canAddRole()' (click)='s.addSubagentRole()'>
+            Add role
+          </button>
+        </div>
+      </div>
+
+      @if (s.selectedSubagentRole(); as role) {
+        <div class='settings-subagents__editor'>
+          <div class='settings-subagents__editor-head'>
+            <label class='toggle-row'>
+              <input
+                type='checkbox'
+                [ngModel]='role.enabled'
+                (ngModelChange)='s.patchSubagentRole(role.id, { enabled: $event })'
+              />
+              <span>Available to the main agent</span>
+            </label>
+            <div class='settings-subagents__editor-actions'>
+              <button type='button' class='action-button' [disabled]='!canAddRole()' (click)='s.addSubagentRole(role)'>
+                Duplicate
+              </button>
+              <button type='button' class='action-button action-button--danger' (click)='deleteRole(role)'>Delete</button>
+            </div>
+          </div>
+
+          <div class='form-grid'>
+            <label class='field'>
+              <span>Name</span>
+              <input
+                #nameInput
+                type='text'
+                maxlength='40'
+                autocomplete='off'
+                spellcheck='false'
+                [value]='role.name'
+                (change)='onRename(role, nameInput)'
+              />
+            </label>
+            <label class='field'>
+              <span>Access</span>
+              <select [ngModel]='role.readOnly' (ngModelChange)='s.patchSubagentRole(role.id, { readOnly: $event })'>
+                <option [ngValue]='false'>Follows the chat's Editor or Ask mode</option>
+                <option [ngValue]='true'>Read only, always</option>
+              </select>
+            </label>
+            @if (nameError()) {
+              <p class='settings-field-hint settings-field-hint--warning field--full' role='alert'>{{ nameError() }}</p>
+            }
+            <label class='field field--full'>
+              <span>When the main agent should use it</span>
+              <input
+                type='text'
+                maxlength='400'
+                autocomplete='off'
+                placeholder='Finding where something lives across many files. Changes nothing.'
+                [ngModel]='role.description'
+                (ngModelChange)='s.patchSubagentRole(role.id, { description: $event })'
+              />
+            </label>
+            <label class='field' [class.field--full]="modelControl(role) === 'none'">
+              <span>Source</span>
+              <select [ngModel]='role.connectionId' (ngModelChange)='onSourceChange(role, $event)'>
+                <option value=''>Same as main agent</option>
+                @if (sourceMissing(role)) {
+                  <option [value]='role.connectionId'>Source removed</option>
+                }
+                @if (unavailableSource(role); as source) {
+                  <option [value]='source.id'>{{ unavailableLabel(source) }}</option>
+                }
+                @for (source of availableSources(); track source.id) {
+                  <option [value]='source.id'>{{ source.label }}</option>
+                }
+              </select>
+            </label>
+            @switch (modelControl(role)) {
+              @case ('claude') {
+                <label class='field'>
+                  <span>Model</span>
+                  <select [ngModel]='role.model' (ngModelChange)='s.patchSubagentRole(role.id, { model: $event })'>
+                    <option value=''>The source's model</option>
+                    @for (model of claudeOptions(role); track model.id) {
+                      <option [value]='model.id'>{{ model.label }}</option>
+                    }
+                  </select>
+                </label>
+              }
+              @case ('text') {
+                <label class='field'>
+                  <span>Model</span>
+                  <input
+                    type='text'
+                    maxlength='200'
+                    autocomplete='off'
+                    spellcheck='false'
+                    [placeholder]="sourceModel(role) || 'The source\'s model'"
+                    [ngModel]='role.model'
+                    (ngModelChange)='s.patchSubagentRole(role.id, { model: $event.trim() })'
+                  />
+                </label>
+              }
+            }
+            <label class='field'>
+              <span>Thinking</span>
+              <select [ngModel]='role.thinking' (ngModelChange)='s.patchSubagentRole(role.id, { thinking: $event })'>
+                <option value='source'>The source's setting</option>
+                <option value='on'>On</option>
+                <option value='off'>{{ thinkingOffLabel(role) }}</option>
+              </select>
+            </label>
+            @if (thinkingLevels(role); as levels) {
+              @if (levels.length > 0) {
+                <label class='field'>
+                  <span>Thinking level</span>
+                  <select
+                    [disabled]="role.thinking === 'off'"
+                    [ngModel]='role.thinkingLevel'
+                    (ngModelChange)='s.patchSubagentRole(role.id, { thinkingLevel: $event })'
+                  >
+                    <option value=''>The source's setting</option>
+                    @for (level of levels; track level.id) {
+                      <option [value]='level.id'>{{ level.label }}</option>
+                    }
+                  </select>
+                </label>
+              }
+            }
+          </div>
+
+          @if (otherSource(role); as source) {
+            <p class='settings-subagents__notice' role='note'>
+              Not the chat's source. Files and search results this role reads go to
+              <strong>{{ source.label }}</strong>@if (source.local) {, which runs on this machine}.
+            </p>
+          }
+          @if (sourceMissing(role)) {
+            <p class='settings-subagents__notice' role='note'>
+              This role's source is no longer in Sources. Pick another, or it follows the setting above.
+            </p>
+          }
+
+          <fieldset class='settings-subagents__tools'>
+            <legend>Tools</legend>
+            <div class='settings-subagents__tool-list'>
+              @for (group of toolGroups; track group.id) {
+                <label class='toggle-row' [class.is-locked]='toolLocked(role, group.id)'>
+                  <input
+                    type='checkbox'
+                    [disabled]='toolLocked(role, group.id)'
+                    [ngModel]='toolChecked(role, group.id)'
+                    (ngModelChange)='onToolToggle(role, group.id, $event)'
+                  />
+                  <span>{{ group.label }}</span>
+                </label>
+              }
+            </div>
+          </fieldset>
+
+          <label class='field'>
+            <span>Extra instructions</span>
+            <textarea
+              rows='4'
+              maxlength='4000'
+              [ngModel]='role.instructions'
+              (ngModelChange)='s.patchSubagentRole(role.id, { instructions: $event })'
+            ></textarea>
+          </label>
+        </div>
+      } @else {
+        <div class='settings-subagents__editor settings-subagents__editor--empty'>
+          <p class='settings-field-hint'>
+            No roles yet. The main agent starts copies of itself on its own source. Add a role to give a kind of
+            work its own model, access and tools.
+          </p>
+        </div>
+      }
+    </div>
+  </section>
+
+  <section class='settings-subagents__servers' aria-labelledby='subagents-servers-title'>
+    <h3 id='subagents-servers-title'>Local servers</h3>
+    <ul class='settings-subagents__server-list'>
+      @for (server of localServers(); track server.id) {
+        <li class='settings-subagents__server'>
+          <span
+            class='settings-subagents__light'
+            [class.is-loading]="phase(server) === 'loading'"
+            [class.is-running]="phase(server) === 'running'"
+            role='img'
+            [attr.aria-label]='phaseLabel(server)'
+            [title]='phaseLabel(server)'
+          ></span>
+          <span class='settings-subagents__server-name' [title]='server.label'>{{ server.label }}</span>
+          <button
+            type='button'
+            class='action-button'
+            [disabled]='!server.saved'
+            [title]="server.saved ? '' : 'Apply this source first'"
+            (click)='toggleServer(server)'
+          >
+            {{ serverAction(server) }}
+          </button>
+        </li>
+      } @empty {
+        <li class='settings-subagents__server settings-subagents__server--empty'>
+          No local models with a run command. Add one in Sources.
+        </li>
+      }
+    </ul>
+    @if (serverError()) {
+      <p class='settings-field-hint settings-field-hint--warning' role='alert'>{{ serverError() }}</p>
+    }
+  </section>
+</div>

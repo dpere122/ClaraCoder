@@ -35,7 +35,9 @@ import {
   openRouterSourceLabel,
 } from '@shared/index';
 import { filter, merge } from 'rxjs';
+import { subagentSources } from '@shared/subagent-sources';
 import { ElectronService } from '../../../core/electron.service';
+import { SubagentSourceStatusService } from '../../../core/subagent-source-status.service';
 
 type ManagedLlamaPhase = 'idle' | 'starting' | 'downloading' | 'running';
 
@@ -50,11 +52,18 @@ const INVENTORY_SPINNER = {
 
 /**
  * LLM source picker + managed ``llama-server`` Start/Stop controls, shown in
- * the status bar and the home Runtime panel. A dropdown lists every
- * LLM source and switches the active one; the Start/Stop button is enabled
+ * the status bar and the home Runtime panel. The Start/Stop button is enabled
  * only for a managed (non-URL-only) llamacpp source — i.e. the local llama
  * server — and disabled for everything else. An inline loading spinner shows
  * while the local model inventory (source labels) is being fetched.
+ *
+ * On the home page the dropdown lists every LLM source and picking one makes it
+ * active at once, so a stopped local model can be picked and started there.
+ *
+ * In the workspace's status bar it swaps the main agent's model between sources
+ * that would answer now: a running local server, or any other source that passes
+ * main's connection check (the active one is always listed). Picking one only
+ * selects it; the button then reads Switch, in red, and makes it active.
  */
 @Component({
   selector: 'app-managed-llama-controls',
@@ -67,6 +76,7 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
   private readonly destroyRef = inject(DestroyRef);
   private readonly inj = inject(Injector);
   private readonly ngxSpinner = inject(NgxSpinnerService);
+  private readonly sourceStatus = inject(SubagentSourceStatusService);
 
   /** Live app config from the shell; drives the active source and start/stop IPC calls. */
   readonly appConfig = input<AppConfig | null>(null);
@@ -122,14 +132,38 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     return [...head, ...rest.filter((p) => p.provider !== 'llamacpp'), ...rest.filter((p) => p.provider === 'llamacpp')];
   });
 
-  /** Custom sources form their own menu section, set apart from the pinned rows. */
-  protected readonly sourceOptions = computed(() =>
-    this.sources().map((provider) => ({
+  protected readonly statusBar = computed(() => this.layout() === 'status-bar');
+  /** Status bar: the source picked in the menu but not switched to yet (empty: the active one). */
+  private readonly pendingProviderId = signal('');
+  /** The sources as the connection checks know them. */
+  private readonly switchableSources = computed(() =>
+    subagentSources(this.sources(), (provider) => this.sourceLabel(provider)),
+  );
+  /** When the status bar last asked main which sources answer. */
+  private lastProbeAt = 0;
+
+  /**
+   * Custom sources form their own menu section, set apart from the pinned rows. The status bar
+   * lists only what the main agent can be swapped to now, plus the active and the picked source.
+   */
+  protected readonly sourceOptions = computed(() => {
+    const options = this.sources().map((provider) => ({
       id: provider.id,
       label: this.sourceLabel(provider),
       group: isPinnedLlmSourceId(provider.id) ? '' : 'Custom',
-    })),
-  );
+    }));
+    if (!this.statusBar()) {
+      return options;
+    }
+    const answering = new Set(
+      this.switchableSources()
+        .filter((source) => this.sourceStatus.available(source))
+        .map((source) => source.id),
+    );
+    const shown = this.selectedProviderId();
+    const active = this.activeProviderId();
+    return options.filter((option) => option.id === active || option.id === shown || answering.has(option.id));
+  });
 
   protected readonly show = computed(() => this.sources().length > 0);
 
@@ -141,6 +175,15 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
       return '';
     }
     return findLlmModelLocation(cfg.llmProviders, mid)?.provider.id ?? '';
+  });
+
+  /** What the dropdown shows: the status bar's pick while one waits to be switched to, else the active source. */
+  protected readonly selectedProviderId = computed(() => this.pendingProviderId() || this.activeProviderId());
+
+  /** Status bar: a source other than the active one is picked, so the button switches to it. */
+  protected readonly switchPending = computed(() => {
+    const pending = this.pendingProviderId();
+    return this.statusBar() && pending !== '' && pending !== this.activeProviderId();
   });
 
   /** Active model location; null when the active source is not a managed local llama server. */
@@ -180,6 +223,9 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
   );
 
   protected readonly actionLabel = computed(() => {
+    if (this.switchPending()) {
+      return 'Switch';
+    }
     if (this.running()) {
       return 'Stop';
     }
@@ -235,6 +281,22 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     effect(() => {
       this.modelId();
       untracked(() => this.startError.set(''));
+    });
+
+    // A pick waits for Switch only while the active source stays what it was.
+    effect(() => {
+      this.activeProviderId();
+      untracked(() => this.pendingProviderId.set(''));
+    });
+
+    // Status bar: ask main which sources answer, again whenever the list of sources changes.
+    effect(() => {
+      const key = this.switchableSources()
+        .map((source) => `${source.id}:${source.connectionId}:${source.launchable}`)
+        .join('|');
+      if (this.statusBar() && key) {
+        untracked(() => this.refreshSwitchable(true));
+      }
     });
 
     // Keep the local model inventory in sync with the configured custom models dir
@@ -299,8 +361,41 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     }
   }
 
-  /** Switch the active LLM source to the chosen provider (its first model preset). */
+  /**
+   * Asks main which sources answer now (status bar only). Runs when the list of sources changes and
+   * when the user reaches for the menu, at most every few seconds.
+   */
+  protected refreshSwitchable(force = false): void {
+    const cfg = this.appConfig();
+    const now = Date.now();
+    if (!cfg || !this.statusBar() || (!force && now - this.lastProbeAt < 5000)) {
+      return;
+    }
+    this.lastProbeAt = now;
+    void this.sourceStatus.probe(cfg, this.switchableSources());
+  }
+
+  /** The dropdown changed: the home page switches at once, the status bar waits for Switch. */
   protected async onSourceChange(providerId: string): Promise<void> {
+    if (this.statusBar()) {
+      this.startError.set('');
+      this.pendingProviderId.set(providerId === this.activeProviderId() ? '' : providerId);
+      return;
+    }
+    await this.activateSource(providerId);
+  }
+
+  /** The button: Switch while another source is picked, else Start, Cancel or Stop for the local server. */
+  protected async onAction(): Promise<void> {
+    if (this.switchPending()) {
+      await this.activateSource(this.pendingProviderId());
+      return;
+    }
+    await this.toggle();
+  }
+
+  /** Make the chosen provider (its first model preset) the active LLM source. */
+  private async activateSource(providerId: string): Promise<void> {
     const cfg = this.appConfig();
     const provider = cfg?.llmProviders.find((p) => p.id === providerId);
     const mid = provider?.models[0]?.id;

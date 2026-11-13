@@ -8,6 +8,7 @@ export const SETTINGS_TAB_ENTRIES = [
   { id: 'models', label: 'Sources' },
   { id: 'modelManager', label: 'Model Manager' },
   { id: 'tools', label: 'Tools' },
+  { id: 'subagents', label: 'Subagents' },
   { id: 'mcp', label: 'MCP' },
   { id: 'lsp', label: 'LSP' },
   { id: 'monaco', label: 'Editor' },

@@ -5,26 +5,27 @@
     role="group"
     aria-label="LLM source and managed llama-server controls"
   >
-    <div class="managed-llama-controls__row">
+    <div class="managed-llama-controls__row" (pointerdown)="refreshSwitchable()" (focusin)="refreshSwitchable()">
       <app-pill-select
         class="managed-llama-controls__source-select"
         [options]="sourceOptions()"
-        [value]="activeProviderId()"
-        [disabled]="running() || busy()"
+        [value]="selectedProviderId()"
+        [disabled]="!statusBar() && (running() || busy())"
         [attr.aria-busy]="inventoryLoading() ? 'true' : null"
         [menuFitContent]="layout() === 'status-bar'"
         ariaLabel="Active LLM source"
         (valueChange)="onSourceChange($event)"
       />
-      @if (showManagedStart()) {
+      @if (showManagedStart() || switchPending()) {
       <button
         type="button"
         class="action-button action-button--primary managed-llama-controls__btn"
-        [class.action-button--danger]="running() || busy()"
+        [class.action-button--danger]="running() || busy() || switchPending()"
         [class.managed-llama-controls__btn--loading]="inventoryLoading()"
-        [disabled]="!isLocalLlama() || !chatRunCommand().trim()"
+        [disabled]="!switchPending() && (!isLocalLlama() || !chatRunCommand().trim())"
         [attr.aria-busy]="inventoryLoading() ? 'true' : null"
-        (click)="toggle()"
+        [attr.title]="switchPending() ? 'Make this the main agent\'s model' : null"
+        (click)="onAction()"
       >
         <span
           class="managed-llama-controls__spinner-host"

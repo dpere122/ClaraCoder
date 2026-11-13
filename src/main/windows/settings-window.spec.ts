@@ -3,8 +3,11 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const workArea = vi.hoisted(() => ({ width: 1920, height: 1040 }));
+
 vi.mock('electron', () => ({
   BrowserWindow: vi.fn(),
+  screen: { getDisplayMatching: vi.fn(() => ({ workAreaSize: workArea })) },
 }));
 
 vi.mock('../state', () => {
@@ -36,6 +39,7 @@ import {
   notifySettingsRendererReady,
   parseSettingsWindowTab,
   resetSettingsTabDelivery,
+  settingsWindowSize,
   SETTINGS_WINDOW_TABS,
 } from './settings-window';
 
@@ -44,6 +48,7 @@ function fakeWin() {
   return {
     isDestroyed: () => false,
     focus: vi.fn(),
+    getBounds: () => ({ x: 0, y: 0, width: 1200, height: 800 }),
     webContents: { send, isDestroyed: () => false },
   };
 }
@@ -161,5 +166,46 @@ describe('parseSettingsWindowTab', () => {
     expect(parseSettingsWindowTab('help')).toBeUndefined();
     expect(parseSettingsWindowTab(undefined)).toBeUndefined();
     expect(parseSettingsWindowTab(3)).toBeUndefined();
+  });
+});
+
+describe('settings window size', () => {
+  beforeEach(() => {
+    resetSettingsTabDelivery();
+    mainState.mainWindow = fakeWin() as never;
+    mainState.settingsWindow = null as never;
+    workArea.width = 1920;
+    workArea.height = 1040;
+    vi.mocked(BrowserWindow).mockClear();
+  });
+
+  function createdOptions(): Record<string, unknown> {
+    vi.mocked(BrowserWindow).mockImplementationOnce(function () {
+      return { ...fakeWin(), on: vi.fn(), removeMenu: vi.fn(), loadFile: vi.fn(), loadURL: vi.fn() } as never;
+    });
+    createSettingsWindow();
+    return vi.mocked(BrowserWindow).mock.calls[0][0] as Record<string, unknown>;
+  }
+
+  it('opens at its one size and cannot be resized or maximized', () => {
+    expect(createdOptions()).toMatchObject({
+      width: 1680,
+      height: 980,
+      resizable: false,
+      maximizable: false,
+      fullscreenable: false,
+    });
+  });
+
+  it('fits a display smaller than its design size', () => {
+    workArea.width = 1366;
+    workArea.height = 728;
+    expect(createdOptions()).toMatchObject({ width: 1366, height: 728, resizable: false });
+  });
+
+  it('falls back to the design size when the display is unknown', () => {
+    expect(settingsWindowSize(null)).toEqual({ width: 1680, height: 980 });
+    expect(settingsWindowSize({ width: 0, height: 0 })).toEqual({ width: 1680, height: 980 });
+    expect(settingsWindowSize({ width: 2560.5, height: 900.9 })).toEqual({ width: 1680, height: 900 });
   });
 });

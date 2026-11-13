@@ -1,0 +1,63 @@
+<section class='llama-servers' aria-labelledby='llama-servers-title'>
+  <h3 class='llama-servers__heading' id='llama-servers-title'>Local servers</h3>
+  <div class='llama-servers__body'>
+    <ul class='llama-servers__list' aria-label='Local servers'>
+      @for (row of rows(); track row.key) {
+        <li>
+          <button
+            type='button'
+            class='llama-servers__row'
+            [class.is-active]='selected()?.key === row.key'
+            [attr.aria-current]="selected()?.key === row.key ? 'true' : null"
+            [attr.title]='row.label'
+            (click)='select(row)'
+          >
+            @if (row.phase === 'loading') {
+              <span class='llama-servers__spinner' role='img' aria-label='Loading'></span>
+            } @else {
+              <span
+                class='llama-servers__light'
+                [class.is-running]="row.phase === 'running'"
+                role='img'
+                [attr.aria-label]="row.phase === 'running' ? 'Running' : 'Off'"
+              ></span>
+            }
+            <span class='llama-servers__name'>{{ row.label }}</span>
+          </button>
+        </li>
+      } @empty {
+        <li class='llama-servers__empty'>No local models with a run command. Add one in Sources.</li>
+      }
+    </ul>
+
+    <div class='llama-servers__console'>
+      <div class='llama-servers__toolbar' role='toolbar' aria-label='Console scrolling'>
+        <span class='llama-servers__title'>{{ selected()?.label ?? 'No server' }}</span>
+        <span class='llama-servers__follow' aria-live='polite'>{{ atBottom() ? 'Following' : 'Paused' }}</span>
+        <button type='button' class='llama-servers__btn' [disabled]='atTop()' title='Go to the first line' (click)='scrollToTop()'>
+          Top
+        </button>
+        <button type='button' class='llama-servers__btn' [disabled]='atTop()' title='Scroll up one page' (click)='scrollPage(-1)'>
+          Page up
+        </button>
+        <button type='button' class='llama-servers__btn' [disabled]='atBottom()' title='Scroll down one page' (click)='scrollPage(1)'>
+          Page down
+        </button>
+        <button
+          type='button'
+          class='llama-servers__btn'
+          [class.is-attention]='!atBottom()'
+          [disabled]='atBottom()'
+          title='Go to the newest line and follow new output'
+          (click)='scrollToLatest()'
+        >
+          Latest
+        </button>
+      </div>
+      <div class='llama-servers__terminal' #terminalHost></div>
+      @if (selected() && !hasOutput()) {
+        <p class='llama-servers__note'>No output yet. This server has not been started since the app opened.</p>
+      }
+    </div>
+  </div>
+</section>

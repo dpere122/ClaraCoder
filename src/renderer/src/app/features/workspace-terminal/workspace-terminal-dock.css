@@ -210,19 +210,6 @@
   display: flex;
 }
 
-.workspace-terminal-dock__tab--llama {
-  margin-left: auto;
-  border: none;
-  border-bottom: 1px solid transparent;
-  background: transparent;
-  color: color-mix(in srgb, var(--t-primary) 92%, var(--t-text-muted));
-}
-
-.workspace-terminal-dock__tab--llama.workspace-terminal-dock__tab--active {
-  border-bottom-color: var(--t-primary);
-  background: transparent;
-}
-
 .workspace-terminal-dock__tab--agent-command {
   color: var(--t-run-command-tab);
 }

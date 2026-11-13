@@ -268,7 +268,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Health window frame and background behind the header and tabs.",
     selector: "[data-theme-group=\"health.window\"]",
     component: "app/features/health/health-monitor",
-    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-code-text", "--t-elev-shadow", "--t-error", "--t-fg", "--t-font", "--t-font-mono", "--t-hover-bg", "--t-input-bg", "--t-input-fg", "--t-log-level-debug", "--t-log-level-error", "--t-log-level-info", "--t-log-level-warning", "--t-on-primary", "--t-primary", "--t-process-a", "--t-success", "--t-text-muted", "--t-warn"],
+    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-code-text", "--t-elev-shadow", "--t-error", "--t-fg", "--t-font", "--t-font-mono", "--t-hover-bg", "--t-input-bg", "--t-input-fg", "--t-log-level-debug", "--t-log-level-error", "--t-log-level-info", "--t-log-level-warning", "--t-on-primary", "--t-primary", "--t-process-a", "--t-success", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {

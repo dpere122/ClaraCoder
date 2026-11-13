@@ -1,0 +1,82 @@
+/* Home → Subagents: rows shaped like the Runtime status rows above them. */
+:host {
+  display: block;
+  border-top: 1px solid var(--t-border-subtle);
+}
+
+.home-subagents__rows {
+  margin: 0;
+}
+
+.home-subagents__row {
+  display: grid;
+  grid-template-columns: 7.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 2rem;
+  border-bottom: 1px solid var(--t-border-subtle);
+}
+
+.home-subagents__row dt {
+  overflow: hidden;
+  color: var(--t-text-muted);
+  font-size: 0.8rem;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-subagents__row dd {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  margin: 0;
+}
+
+/* The one status light: grey not connected or off, yellow loading, green connected or running. */
+.home-subagents__light {
+  flex: 0 0 auto;
+  width: 0.5rem;
+  height: 0.5rem;
+  /* The app theme squares every corner; a status light stays round. */
+  border-radius: 50% !important;
+  background: #8b919a;
+}
+
+.home-subagents__light.is-loading {
+  background: #ffd84a;
+}
+
+.home-subagents__light.is-running {
+  background: #3ee889;
+}
+
+.home-subagents__source {
+  overflow: hidden;
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-subagents__note {
+  margin: 0;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--t-border-subtle);
+  color: var(--t-text-muted);
+  font-size: 0.8rem;
+}
+
+.home-subagents__link {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--t-fg);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.home-subagents__link:hover {
+  color: var(--t-primary);
+}

@@ -1,4 +1,5 @@
 import type { LspServersSettings } from '../lsp-settings';
+import type { SubagentsConfig } from '../subagents-config';
 import type { LmStudioSettings } from '../lm-studio-ipc';
 import type { OpenAiCompatSettings } from '../openai-compat';
 import type { Workspace } from './workspace';
@@ -1631,6 +1632,8 @@ export interface AppConfig {
   monacoWorkspaceEditor?: MonacoWorkspaceEditorSettings;
   /** Options for the integrated language servers (Settings → LSP; synced to the Python backend). */
   lspServers?: LspServersSettings;
+  /** Roles the main agent can delegate to (Settings → Subagents; synced to the Python backend). */
+  subagents?: SubagentsConfig;
   /** Per-workspace Monaco scroll positions for open file tabs (client-only). */
   workspaceMonacoScrollByWorkspaceId?: WorkspaceMonacoScrollByWorkspaceId;
   /** Per-workspace open editor tabs restored when switching workspaces (client-only). */

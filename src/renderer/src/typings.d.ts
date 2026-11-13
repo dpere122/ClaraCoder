@@ -22,6 +22,7 @@ import type {
   RuntimeHealthSnapshot,
   CudaGpuDevice,
   LspDashboardStatus,
+  LlamaServerConsoleSnapshot,
   LlamaServerLifecycleEvent,
   LlamaServerOutputEvent,
   LlamaServerProcessExitEvent,
@@ -470,6 +471,7 @@ declare global {
     llamaServerGgufSize: (payload: { path: string }) => Promise<number | null>;
     llamaServerGgufProfile: (payload: { path: string }) => Promise<GgufProfile | null>;
     llamaServerTotalRam: () => Promise<number | null>;
+    llamaServerConsoles?: () => Promise<LlamaServerConsoleSnapshot[]>;
     llamaServerLaunchedCommand: (payload: {
       modelId: string;
     }) => Promise<{ ok: true; command: string | null } | { ok: false; error: string }>;

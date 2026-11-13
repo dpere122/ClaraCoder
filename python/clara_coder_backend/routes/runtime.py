@@ -20,7 +20,11 @@ from clara_coder_backend.domain import (
     RuntimeMcpServer,
     RuntimePythonLspConfig,
     RuntimeRustLspConfig,
+    RuntimeSubagentRole,
+    RuntimeSubagentsConfig,
     RuntimeToolsConfig,
+    SUBAGENT_THINKING_LEVELS,
+    SUBAGENT_TOOL_GROUPS,
     RuntimeTypescriptLspConfig,
 )
 from clara_coder_backend.runtime.http_url_normalize import normalize_bind_all_host_url
@@ -29,6 +33,7 @@ from clara_coder_backend.session.schemas import (
     ChatTemplateReasoningCapsRequest,
     RuntimeConfigRequest,
     RuntimeLspRequest,
+    RuntimeSubagentsRequest,
 )
 from clara_coder_backend.workspace.workspace_text_io import validate_workspace_encoding
 from clara_coder_backend.session import state
@@ -169,6 +174,38 @@ def _sidecar_marker() -> str:
     if not token:
         return ''
     return hashlib.sha256(token.encode('utf-8')).hexdigest()[:16]
+
+
+def _runtime_subagents_config(request: RuntimeSubagentsRequest) -> RuntimeSubagentsConfig:
+    """Settings roles as the runtime keeps them: named, unique by name, known tool groups only."""
+    roles: list[RuntimeSubagentRole] = []
+    seen: set[str] = set()
+    for item in request.roles:
+        name = ' '.join((item.name or '').split())
+        if not name or name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        roles.append(
+            RuntimeSubagentRole(
+                id=(item.id or '').strip() or name,
+                name=name,
+                description=(item.description or '').strip(),
+                enabled=bool(item.enabled),
+                connection_id=(item.connectionId or '').strip(),
+                model=(item.model or '').strip(),
+                read_only=bool(item.readOnly),
+                thinking='' if item.thinking == 'source' else item.thinking,
+                thinking_level=item.thinkingLevel if item.thinkingLevel in SUBAGENT_THINKING_LEVELS else '',
+                tool_groups=frozenset(group for group in item.tools if group in SUBAGENT_TOOL_GROUPS),
+                instructions=(item.instructions or '').strip(),
+            )
+        )
+    return RuntimeSubagentsConfig(
+        enabled=bool(request.enabled),
+        cloud_concurrency=int(request.cloudConcurrency),
+        fallback=request.fallback,
+        roles=roles,
+    )
 
 
 @router.get('/health')
@@ -333,6 +370,8 @@ async def set_runtime_config(request: RuntimeConfigRequest) -> dict[str, bool]:
     cfg.tools = tools_cfg
     cfg.context_compression = context_compression_cfg
     cfg.lsp = lsp_cfg
+    if request.subagents is not None:
+        cfg.subagents = _runtime_subagents_config(request.subagents)
     prev_trusted = cfg.trusted_workspace_keys
     if request.trustedWorkspacePaths is not None:
         from clara_coder_backend.workspace.trust import trusted_workspace_keys

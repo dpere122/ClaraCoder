@@ -10,7 +10,7 @@ from langchain_core.tools import tool
 
 from clara_coder_backend.config import CLARA_LLAMA_INDEX_MAX_FILES
 from clara_coder_backend.tools.tool_conventions import VERIFY_READ, describe
-from clara_coder_backend.session.state import current_session_id, get_active_connection, get_session
+from clara_coder_backend.session.state import current_session_id, get_main_connection, get_session
 from clara_coder_backend.workspace_index.embeddings_factory import build_embedding_model, resolve_embedding_model_id
 from clara_coder_backend.workspace_index.incremental import flush_semantic_index_patches
 from clara_coder_backend.workspace_index.index_build import load_or_rebuild_workspace_index
@@ -47,7 +47,8 @@ def _retrieve_semantic_impl(query: str, top_k: int) -> str:
     k = max(1, min(int(top_k), 25))
 
     try:
-        conn = get_active_connection()
+        # The index is shared by the conversation family: a sub-agent on another source uses the same embedder.
+        conn = get_main_connection()
         mid = resolve_embedding_model_id(conn)
         embed_model, err = build_embedding_model(conn)
         if embed_model is None:

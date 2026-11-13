@@ -1,4 +1,5 @@
 import { normalizeLspServersSettings } from '../../shared/lsp-settings';
+import { normalizeSubagentsConfig } from '../../shared/subagents-config';
 import { normalizeLmStudioSettings } from '../../shared/lm-studio-ipc';
 import { normalizeOpenAiCompatSettings } from '../../shared/openai-compat';
 import { createHash, randomUUID } from 'crypto';
@@ -1659,6 +1660,13 @@ export function migrateConfig(config: AppConfig): AppConfig {
   const lspNorm = normalizeLspServersSettings(lspPrev);
   if (JSON.stringify(lspPrev) !== JSON.stringify(lspNorm)) {
     (newConfig as AppConfig).lspServers = lspNorm;
+    migrated = true;
+  }
+
+  const subagentsPrev = (newConfig as AppConfig).subagents;
+  const subagentsNorm = normalizeSubagentsConfig(subagentsPrev);
+  if (JSON.stringify(subagentsPrev) !== JSON.stringify(subagentsNorm)) {
+    (newConfig as AppConfig).subagents = subagentsNorm;
     migrated = true;
   }
 

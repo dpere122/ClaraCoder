@@ -33,13 +33,17 @@ from clara_coder_backend.lang_agent.subagents import (
     SUBAGENT_NAME_MAX_CHARS,
     SUBAGENT_STARTED_EVENT,
     SubagentRun,
+    bind_subagent_role,
     claim_subagent_report,
     detached_subagent_note,
+    enabled_subagent_roles,
+    find_subagent_role,
     fork_subagent_session,
     forget_subagent_run,
     register_subagent_run,
     start_subagent,
     subagent_report,
+    subagent_roles_description,
     unique_subagent_name,
     wait_for_runs,
 )
@@ -69,30 +73,33 @@ def _background_started_text(run: SubagentRun) -> str:
     )
 
 
-@tool(
-    SPAWN_SUBAGENT_NAME,
-    description=describe(
-        'Hand a task to a sub-agent (an independent copy of you with your tools) and get its report',
-        when='work splits into independent parts (separate areas to investigate or edit); '
-        'several calls in one response run in parallel. `background=true` if you have other work meanwhile',
-        not_='small steps you can do yourself, follow-ups to an earlier sub-agent (it ends after reporting), '
-        'or anything that needs the user (sub-agents cannot ask)',
-        shape='`task` must stand alone: the sub-agent sees none of this chat. Give each sub-agent disjoint files',
-        verify='read the files a report says changed before relying on them',
-    ),
-    response_format='content_and_artifact',
+_SPAWN_DESCRIPTION = describe(
+    'Hand a task to a sub-agent (an independent copy of you with your tools) and get its report',
+    when='work splits into independent parts (separate areas to investigate or edit); '
+    'several calls in one response run in parallel. `background=true` if you have other work meanwhile',
+    not_='small steps you can do yourself, follow-ups to an earlier sub-agent (it ends after reporting), '
+    'or anything that needs the user (sub-agents cannot ask)',
+    shape='`task` must stand alone: the sub-agent sees none of this chat. Give each sub-agent disjoint files',
+    verify='read the files a report says changed before relying on them',
 )
-async def spawn_subagent_tool(
-    task: Annotated[str, 'complete instructions: goal, relevant paths, constraints, what to report back'],
-    name: Annotated[str, 'short unique label shown to the user, e.g. "api-tests"'],
-    tool_call_id: Annotated[str, InjectedToolCallId],
+
+_TASK_HELP = 'complete instructions: goal, relevant paths, constraints, what to report back'
+_NAME_HELP = 'short unique label shown to the user, e.g. "api-tests"'
+_BACKGROUND_HELP = (
+    'return at once; the report reaches you by itself before a later step (or via wait_for_subagents), '
+    'and if you finish first the turn waits for it'
+)
+
+
+async def _spawn(
+    *,
+    task: str,
+    name: str,
+    role_name: str,
+    background: bool,
+    tool_call_id: str,
     config: RunnableConfig,
-    background: Annotated[
-        bool,
-        'return at once; the report reaches you by itself before a later step (or via wait_for_subagents), '
-        'and if you finish first the turn waits for it',
-    ] = False,
-    callbacks: Callbacks = None,
+    callbacks: Callbacks,
 ) -> tuple[str, dict[str, Any]]:
     sid = (current_session_id.get() or '').strip()
     parent = state.sessions.get(sid) if sid else None
@@ -103,11 +110,25 @@ async def spawn_subagent_tool(
     task_text = (task or '').strip()
     if not task_text:
         return 'Tool error: `task` is empty; describe the whole job the sub-agent should do.', {}
+    role = None
+    if (role_name or '').strip():
+        role = find_subagent_role(role_name)
+        if role is None:
+            known = ', '.join(f'`{r.name.strip()}`' for r in enabled_subagent_roles()) or 'none'
+            return (
+                f'Tool error: no role named `{role_name.strip()}`. Roles: {known}. '
+                'Omit `role` for a copy of yourself.',
+                {},
+            )
+    binding = bind_subagent_role(role)
+    if binding.error:
+        return binding.error, {}
     label = unique_subagent_name(parent, _clean_name(name))
 
     child_id = uuid.uuid4().hex
-    child = fork_subagent_session(sid, parent, child_id, label)
+    child = fork_subagent_session(sid, parent, child_id, label, role)
     stream_mode = current_stream_apply_mode.get()
+    editor = bool(stream_mode if stream_mode is not None else parent.worker_apply_mode)
     run = SubagentRun(
         parent_session_id=sid,
         parent=parent,
@@ -118,8 +139,11 @@ async def spawn_subagent_tool(
         background=bool(background),
         parent_turn_id=parent.current_user_message_id,
         # The spawning stream's mode, not the composer toggle: plan discovery runs read-only and plan
-        # execution runs as Editor whatever the toolbar says.
-        apply_mode=bool(stream_mode if stream_mode is not None else parent.worker_apply_mode),
+        # execution runs as Editor whatever the toolbar says. A read-only role never gets Editor.
+        apply_mode=editor and not (role is not None and role.read_only),
+        role=role,
+        connection=binding.connection,
+        role_note=binding.note,
     )
     artifact = {'subagent': {'conversation_id': child_id, 'name': label}}
     # Findable before the start event is dispatched: the parent stream may map it right away.
@@ -147,8 +171,9 @@ async def spawn_subagent_tool(
         # No parent run to announce on (e.g. a direct call); the child announces itself after a short wait.
         logger.debug('sub-agent start event not dispatched', exc_info=True)
     child_task = start_subagent(run)
+    note = f'{run.role_note}\n\n' if run.role_note else ''
     if run.background:
-        return _background_started_text(run), artifact
+        return note + _background_started_text(run), artifact
 
     try:
         # ``wait``, not ``await child_task``: cancelling this call must not cancel the child.
@@ -160,10 +185,70 @@ async def spawn_subagent_tool(
     if not child_task.done():  # pragma: no cover - ``wait`` without timeout returns only when done
         return detached_subagent_note(run), artifact
     report = claim_subagent_report(parent, child_id)
-    return (report.text if report is not None else subagent_report(run)), artifact
+    return note + (report.text if report is not None else subagent_report(run)), artifact
+
+
+@tool(SPAWN_SUBAGENT_NAME, description=_SPAWN_DESCRIPTION, response_format='content_and_artifact')
+async def spawn_subagent_tool(
+    task: Annotated[str, _TASK_HELP],
+    name: Annotated[str, _NAME_HELP],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    config: RunnableConfig,
+    background: Annotated[bool, _BACKGROUND_HELP] = False,
+    callbacks: Callbacks = None,
+) -> tuple[str, dict[str, Any]]:
+    return await _spawn(
+        task=task,
+        name=name,
+        role_name='',
+        background=background,
+        tool_call_id=tool_call_id,
+        config=config,
+        callbacks=callbacks,
+    )
+
+
+@tool(SPAWN_SUBAGENT_NAME, description=_SPAWN_DESCRIPTION, response_format='content_and_artifact')
+async def spawn_subagent_role_tool(
+    task: Annotated[str, _TASK_HELP],
+    name: Annotated[str, _NAME_HELP],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    config: RunnableConfig,
+    role: Annotated[str, 'one of the roles in this description; omit for a copy of yourself'] = '',
+    background: Annotated[bool, _BACKGROUND_HELP] = False,
+    callbacks: Callbacks = None,
+) -> tuple[str, dict[str, Any]]:
+    return await _spawn(
+        task=task,
+        name=name,
+        role_name=role,
+        background=background,
+        tool_call_id=tool_call_id,
+        config=config,
+        callbacks=callbacks,
+    )
+
+
+def bound_spawn_subagent_tool() -> Any:
+    """The spawn tool for the roles in Settings now.
+
+    Without roles it is the plain tool. With roles it takes ``role`` and its description lists them
+    (name, when to use, read-only), never the source or model behind one.
+    """
+    roles = enabled_subagent_roles()
+    if not roles:
+        return spawn_subagent_tool
+    description = (
+        f'{_SPAWN_DESCRIPTION}\n'
+        'Roles (pass one as `role` when it fits the task; each has its own tools and may run on another model):\n'
+        f'{subagent_roles_description(roles)}'
+    )
+    return spawn_subagent_role_tool.model_copy(update={'description': description})
 
 
 __all__ = [
     'SPAWN_SUBAGENT_NAME',
+    'bound_spawn_subagent_tool',
+    'spawn_subagent_role_tool',
     'spawn_subagent_tool',
 ]

@@ -217,8 +217,11 @@ class SessionAgentState:
     subagent_name: str = ''
     #: Running sub-agent turns by child session id (parent sessions only).
     subagent_children: dict[str, asyncio.Task] = field(default_factory=dict)
-    #: Caps this parent's concurrent sub-agents; created on the first spawn (binds to the running loop).
-    subagent_semaphore: asyncio.Semaphore | None = None
+    #: The Settings role this sub-agent runs as (:class:`RuntimeSubagentRole`); None for a plain clone.
+    subagent_role: Any = None
+    #: Caps this parent's concurrent sub-agents per source (key: connection id and limit); each is
+    #: created on the first spawn that needs it (binds to the running loop).
+    subagent_semaphores: dict[tuple[str, int], asyncio.Semaphore] = field(default_factory=dict)
     #: Workspace-relative paths this sub-agent mutated (every mutation, not only the journaled first one).
     subagent_touched_paths: set[str] = field(default_factory=set)
     #: Results for spawn calls an ended turn left open, by the call's ``tool_call_id`` (parent only).
@@ -315,6 +318,9 @@ class RuntimeConnection:
     max_output_tokens: int = 0
     #: Gemma / LM Studio thinking: ``default`` | ``on`` | ``off`` (not OpenAI ``reasoning_effort`` tiers).
     thinking_mode: str = 'default'
+    #: ``on`` | ``off`` on a sub-agent's pinned copy whose role sets thinking; empty everywhere else.
+    #: ``off`` builds the client with thinking pinned off, the way one-shot internal calls do.
+    thinking_override: str = ''
     #: Legacy sampling-preset label (UI removed); inference uses ``top_p`` / ``top_k`` directly.
     sampling_preset: str = 'provider-default'
     #: Optional Chat Completions ``top_p`` (else ``None`` / omit).
@@ -585,6 +591,52 @@ class RuntimeLspConfig:
     rust: RuntimeRustLspConfig = field(default_factory=RuntimeRustLspConfig)
 
 
+#: Reasoning effort levels a sub-agent role can ask for (Settings → Subagents), weakest first.
+SUBAGENT_THINKING_LEVELS: tuple[str, ...] = ('minimal', 'low', 'medium', 'high', 'xhigh', 'max')
+
+#: Tool groups a sub-agent role can be limited to (Settings → Subagents).
+SUBAGENT_TOOL_GROUPS: tuple[str, ...] = ('read', 'search', 'lsp', 'web', 'commands', 'mcp', 'edit')
+
+
+@dataclass(frozen=True)
+class RuntimeSubagentRole:
+    """One kind of sub-agent the main agent can start (Settings → Subagents)."""
+
+    id: str
+    #: What the main agent passes as ``spawn_subagent``'s ``role``.
+    name: str
+    #: When the main agent should use it (part of the spawn tool's description).
+    description: str = ''
+    enabled: bool = True
+    #: Source it runs on; empty follows the main agent's source.
+    connection_id: str = ''
+    #: Model on that source; empty keeps the source's own model.
+    model: str = ''
+    #: Never gets Editor tools, whatever mode the chat is in.
+    read_only: bool = False
+    #: ``on`` | ``off``; empty keeps the source's own thinking settings.
+    thinking: str = ''
+    #: Reasoning effort for this role (``low``, ``medium``, ...); empty keeps the source's own level.
+    thinking_level: str = ''
+    #: Allowed tool groups (:data:`SUBAGENT_TOOL_GROUPS`).
+    tool_groups: frozenset[str] = frozenset(SUBAGENT_TOOL_GROUPS)
+    #: Appended to the sub-agent's system prompt.
+    instructions: str = ''
+
+
+@dataclass
+class RuntimeSubagentsConfig:
+    """Settings → Subagents. With no roles the main agent starts plain clones of itself."""
+
+    enabled: bool = True
+    #: Sub-agents one main session runs at once on a cloud source (a local source runs one).
+    cloud_concurrency: int = 3
+    #: A role's source is missing or not running: ``main`` runs it on the main agent's source,
+    #: ``fail`` returns an error to the main agent.
+    fallback: str = 'main'
+    roles: list[RuntimeSubagentRole] = field(default_factory=list)
+
+
 @dataclass
 class RuntimeConfig:
     """Full runtime settings chosen in the desktop UI and POSTed to /runtime-config."""
@@ -596,6 +648,7 @@ class RuntimeConfig:
     tools: RuntimeToolsConfig = field(default_factory=RuntimeToolsConfig)
     context_compression: RuntimeContextCompressionConfig = field(default_factory=RuntimeContextCompressionConfig)
     lsp: RuntimeLspConfig = field(default_factory=RuntimeLspConfig)
+    subagents: RuntimeSubagentsConfig = field(default_factory=RuntimeSubagentsConfig)
     mcp_servers: list[RuntimeMcpServer] = field(default_factory=list)
     #: Active workspace directory. MCP stdio cwd and the advertised root follow this path.
     active_workspace_path: str = ''

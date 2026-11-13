@@ -29,7 +29,7 @@ export type LlamacppManagedListModelsResult = { ok: true; models: string[] } | {
 /** Which managed ``llama-server`` process a stream belongs to (chat vs embedding). */
 export type LlamaServerStreamKind = 'chat' | 'embed';
 
-/** Chunk forwarded to the llama.cpp terminal tab (stdout and stderr). */
+/** Chunk of a managed server's console (stdout and stderr), shown in Health, Runtime. */
 export interface LlamaServerOutputEvent {
   modelId: string;
   stream: LlamaServerStreamKind;
@@ -43,6 +43,19 @@ export interface LlamaServerProcessExitEvent {
   stream: LlamaServerStreamKind;
   code: number | null;
   signal: string | null;
+}
+
+/** A managed server as one status light shows it. */
+export type LlamaServerInstancePhase = 'off' | 'loading' | 'running';
+
+/**
+ * One managed llama-server's console as main has kept it: everything since its last start (capped),
+ * so a window opened later can show what it missed. Live output follows as ``llama-server-output``.
+ */
+export interface LlamaServerConsoleSnapshot {
+  modelId: string;
+  phase: LlamaServerInstancePhase;
+  streams: { stream: LlamaServerStreamKind; text: string }[];
 }
 
 export type LlamaServerLifecycleEvent =

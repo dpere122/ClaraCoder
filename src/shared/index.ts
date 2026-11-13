@@ -179,6 +179,8 @@ export {
 export type {
   EmbeddingsLoadStatus,
   EmbeddingsStatusResult,
+  LlamaServerConsoleSnapshot,
+  LlamaServerInstancePhase,
   LlamaServerLifecycleEvent,
   LlamaServerOutputEvent,
   LlamaServerProcessExitEvent,
@@ -622,6 +624,20 @@ export type {
   LspServersSettings,
 } from './lsp-settings';
 export { LSP_SERVER_CATALOG, defaultLspServersSettings, normalizeLspServersSettings } from './lsp-settings';
+export type {
+  SubagentFallback,
+  SubagentRoleConfig,
+  SubagentThinking,
+  SubagentThinkingLevel,
+  SubagentToolGroup,
+  SubagentsConfig,
+} from './subagents-config';
+export {
+  SUBAGENT_TOOL_GROUPS,
+  defaultSubagentsConfig,
+  newSubagentRole,
+  normalizeSubagentsConfig,
+} from './subagents-config';
 export type {
   LspEditorFeature,
   LspEditorFeatureResponse,

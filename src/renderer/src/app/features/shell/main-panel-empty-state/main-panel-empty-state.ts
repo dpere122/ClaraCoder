@@ -10,6 +10,7 @@ import {
 import { LucideAngularModule } from 'lucide-angular';
 import { LlamaStatusIndicator } from '../../status/llama-status-indicator/llama-status-indicator';
 import { ManagedLlamaControlsComponent } from '../../status/managed-llama-controls/managed-llama-controls';
+import { HomeSubagentsComponent } from './home-subagents/home-subagents';
 
 @Component({
   selector: 'app-main-panel-empty-state',
@@ -20,6 +21,7 @@ import { ManagedLlamaControlsComponent } from '../../status/managed-llama-contro
     CdkDragHandle,
     ManagedLlamaControlsComponent,
     LlamaStatusIndicator,
+    HomeSubagentsComponent,
   ],
   templateUrl: './main-panel-empty-state.html',
   styleUrl: './main-panel-empty-state.css',
@@ -40,6 +42,7 @@ export class MainPanelEmptyStateComponent {
   readonly toggleFavorite = output<string>();
   readonly reorderFavorites = output<string[]>();
   readonly openSources = output<void>();
+  readonly openSubagents = output<void>();
   readonly openModelManager = output<void>();
   readonly openDependencies = output<void>();
   readonly defaultHomePageChange = output<boolean>();

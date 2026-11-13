@@ -20,11 +20,11 @@
       <button
         type="button"
         class="action-button action-button--primary managed-llama-controls__btn"
-        [class.action-button--danger]="running() || busy() || switchPending()"
+        [class.action-button--danger]="startPending() ? false : running() || busy() || switchPending()"
         [class.managed-llama-controls__btn--loading]="inventoryLoading()"
-        [disabled]="!switchPending() && (!isLocalLlama() || !chatRunCommand().trim())"
+        [disabled]="acting() || (!switchPending() && (!isLocalLlama() || !chatRunCommand().trim()))"
         [attr.aria-busy]="inventoryLoading() ? 'true' : null"
-        [attr.title]="switchPending() ? 'Make this the main agent\'s model' : null"
+        [attr.title]="startPending() ? 'Start this model and make it the main agent\'s model' : switchPending() ? 'Make this the main agent\'s model' : null"
         (click)="onAction()"
       >
         <span

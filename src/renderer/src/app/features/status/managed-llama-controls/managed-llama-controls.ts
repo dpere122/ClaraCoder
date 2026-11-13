@@ -13,7 +13,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
-import { PillSelectComponent } from '../../../shared/pill-select/pill-select';
+import { PillSelectComponent, type PillSelectOption } from '../../../shared/pill-select/pill-select';
 import type {
   AppConfig,
   LlamaServerLifecycleEvent,
@@ -61,9 +61,11 @@ const INVENTORY_SPINNER = {
  * active at once, so a stopped local model can be picked and started there.
  *
  * In the workspace's status bar it swaps the main agent's model between sources
- * that would answer now: a running local server, or any other source that passes
- * main's connection check (the active one is always listed). Picking one only
- * selects it; the button then reads Switch, in red, and makes it active.
+ * that would answer now (a running local server, or any other source that passes
+ * main's connection check) and every local model the app can start; the active
+ * one is always listed. Picking one only selects it; the button then reads
+ * Switch, in red, and makes it active, or Start for a stopped local model, which
+ * makes it active and starts its server.
  */
 @Component({
   selector: 'app-managed-llama-controls',
@@ -88,6 +90,10 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
   protected readonly startError = signal('');
   /** The user cancelled the start in flight, so its failure isn't news. */
   private cancelled = false;
+  /** The model this control last started; Cancel stops it even before the config input catches up. */
+  private startingModelId = '';
+  /** A Start or Switch from the status bar is in flight; a second click must not start the model twice. */
+  protected readonly acting = signal(false);
 
   /** Monotonic id for the latest in-flight status probe; stale completions are ignored. */
   private probeRequestId = 0;
@@ -141,23 +147,32 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
   );
   /** When the status bar last asked main which sources answer. */
   private lastProbeAt = 0;
+  /** The source list the last forced probe was for; an unchanged list is not probed again. */
+  private lastProbeKey = '';
 
   /**
    * Custom sources form their own menu section, set apart from the pinned rows. The status bar
-   * lists only what the main agent can be swapped to now, plus the active and the picked source.
+   * lists what the main agent can be swapped to now, every local model the app can start, and the
+   * active and the picked source.
    */
   protected readonly sourceOptions = computed(() => {
-    const options = this.sources().map((provider) => ({
+    const running = new Set(
+      this.switchableSources()
+        .filter((source) => source.launchable && this.sourceStatus.serverPhase(source) === 'running')
+        .map((source) => source.id),
+    );
+    const options = this.sources().map((provider): PillSelectOption & { id: string } => ({
       id: provider.id,
       label: this.sourceLabel(provider),
       group: isPinnedLlmSourceId(provider.id) ? '' : 'Custom',
+      ...(running.has(provider.id) ? { indicator: 'running' as const } : {}),
     }));
     if (!this.statusBar()) {
       return options;
     }
     const answering = new Set(
       this.switchableSources()
-        .filter((source) => this.sourceStatus.available(source))
+        .filter((source) => source.launchable || this.sourceStatus.available(source))
         .map((source) => source.id),
     );
     const shown = this.selectedProviderId();
@@ -184,6 +199,16 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
   protected readonly switchPending = computed(() => {
     const pending = this.pendingProviderId();
     return this.statusBar() && pending !== '' && pending !== this.activeProviderId();
+  });
+
+  /** Status bar: the picked source is a local model whose server is off, so the button starts it. */
+  protected readonly startPending = computed(() => {
+    if (!this.switchPending()) {
+      return false;
+    }
+    const pending = this.pendingProviderId();
+    const source = this.switchableSources().find((s) => s.id === pending);
+    return !!source?.launchable && this.sourceStatus.serverPhase(source) === 'off';
   });
 
   /** Active model location; null when the active source is not a managed local llama server. */
@@ -223,6 +248,9 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
   );
 
   protected readonly actionLabel = computed(() => {
+    if (this.startPending()) {
+      return 'Start';
+    }
     if (this.switchPending()) {
       return 'Switch';
     }
@@ -289,13 +317,15 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
       untracked(() => this.pendingProviderId.set(''));
     });
 
-    // Status bar: ask main which sources answer, again on every config change (a source's URL or key
-    // may be what changed), as the composer does for the active source.
+    // Ask main which sources answer again when a source's connection changes (its URL or key may be
+    // what changed), as the composer does for the active source. Config re-broadcasts that leave the
+    // sources as they were (conversation switches) don't probe again.
     effect(() => {
       const key = this.switchableSources()
         .map((source) => `${source.id}:${source.connectionId}:${source.launchable}`)
         .join('|');
-      if (this.statusBar() && key) {
+      if (key && key !== this.lastProbeKey) {
+        this.lastProbeKey = key;
         untracked(() => this.refreshSwitchable(true));
       }
     });
@@ -363,17 +393,24 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
   }
 
   /**
-   * Asks main which sources answer now (status bar only). Runs when the list of sources changes and
+   * Asks main which sources answer now: every source in the status bar, only the local servers'
+   * state (for their running lights) on the home page. Runs when the list of sources changes and
    * when the user reaches for the menu, at most every few seconds.
    */
   protected refreshSwitchable(force = false): void {
     const cfg = this.appConfig();
     const now = Date.now();
-    if (!cfg || !this.statusBar() || (!force && now - this.lastProbeAt < 5000)) {
+    if (!cfg || (!force && now - this.lastProbeAt < 5000)) {
+      return;
+    }
+    const sources = this.statusBar()
+      ? this.switchableSources()
+      : this.switchableSources().filter((source) => source.launchable);
+    if (sources.length === 0) {
       return;
     }
     this.lastProbeAt = now;
-    void this.sourceStatus.probe(cfg, this.switchableSources());
+    void this.sourceStatus.probe(cfg, sources);
   }
 
   /** The dropdown changed: the home page switches at once, the status bar waits for Switch. */
@@ -386,25 +423,41 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     await this.activateSource(providerId);
   }
 
-  /** The button: Switch while another source is picked, else Start, Cancel or Stop for the local server. */
+  /**
+   * The button: Start while a stopped local model is picked (it becomes active and its server
+   * starts), Switch while another source is picked, else Start, Cancel or Stop for the local server.
+   */
   protected async onAction(): Promise<void> {
-    if (this.switchPending()) {
-      await this.activateSource(this.pendingProviderId());
+    if (this.acting()) {
+      return;
+    }
+    if (this.startPending() || this.switchPending()) {
+      const startAfter = this.startPending();
+      this.acting.set(true);
+      try {
+        const activated = await this.activateSource(this.pendingProviderId());
+        if (activated && startAfter) {
+          await this.start(activated.modelId, activated.config);
+        }
+      } finally {
+        this.acting.set(false);
+      }
       return;
     }
     await this.toggle();
   }
 
-  /** Make the chosen provider (its first model preset) the active LLM source. */
-  private async activateSource(providerId: string): Promise<void> {
+  /** Make the chosen provider (its first model preset) the active LLM source; returns its model id and the new config. */
+  private async activateSource(providerId: string): Promise<{ modelId: string; config: AppConfig } | null> {
     const cfg = this.appConfig();
     const provider = cfg?.llmProviders.find((p) => p.id === providerId);
     const mid = provider?.models[0]?.id;
-    if (!mid) {
-      return;
+    if (!cfg || !mid) {
+      return null;
     }
     this.startError.set('');
-    await this.electron.setActiveLlmModel(mid);
+    const next = await this.electron.setActiveLlmModel(mid);
+    return { modelId: mid, config: next ?? { ...cfg, activeLlmModelId: mid } };
   }
 
   protected async toggle(): Promise<void> {
@@ -415,15 +468,18 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
     }
   }
 
-  protected async start(): Promise<void> {
-    const cfg = this.appConfig();
-    const mid = this.modelId();
-    if (!cfg || !mid || this.busy() || this.running()) {
+  /** Starts the active local server, or `modelId` when it was just made active and the config input has not caught up. */
+  protected async start(modelId?: string, config?: AppConfig): Promise<void> {
+    const cfg = config ?? this.appConfig();
+    const mid = modelId ?? this.modelId();
+    // The phase is still the previously active server's when a just-picked model is started.
+    if (!cfg || !mid || (!modelId && (this.busy() || this.running()))) {
       return;
     }
     this.phase.set('starting');
     this.startError.set('');
     this.cancelled = false;
+    this.startingModelId = mid;
     try {
       const res = await this.electron.llamaServerStart({ modelId: mid, config: cfg });
       if (!res.ok) {
@@ -440,7 +496,8 @@ export class ManagedLlamaControlsComponent implements OnDestroy {
 
   protected async stop(): Promise<void> {
     const cfg = this.appConfig();
-    const mid = this.modelId();
+    // Cancel stops the model being started, which may not be the config input's active one yet.
+    const mid = (this.busy() && this.startingModelId) || this.modelId();
     if (!cfg || !mid || (!this.running() && !this.busy())) {
       return;
     }

@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -70,5 +73,39 @@ describe('signature check', () => {
     );
     // Signing was on, so "nothing to check" is a failure too.
     expect(() => assertSigned([], AZURE_SIGNING.publisherName, read)).toThrow(/no file to check/);
+  });
+});
+
+describe('what a signed build signs (win.signExts)', () => {
+  const require = createRequire(import.meta.url);
+  const root = path.join(__dirname, '..');
+  const config = require('js-yaml').load(readFileSync(path.join(root, 'electron-builder.yml'), 'utf8'));
+  // electron-builder's own rule, on this repository's patterns.
+  const { WinPackager } = require('app-builder-lib');
+  const signs = (file: string): boolean =>
+    WinPackager.prototype.shouldSignFile.call({ platformSpecificBuildOptions: { signExts: config.win.signExts } }, file, true);
+  const unpacked = 'release/win-unpacked/';
+
+  it("signs ClaraCoder's own programs", () => {
+    expect(signs(`${unpacked}Clara Coder.exe`)).toBe(true);
+    expect(signs(`${unpacked}resources/elevate.exe`)).toBe(true);
+    expect(signs('release/Clara-Coder-0.4.8-Windows-x64.exe')).toBe(true);
+    expect(signs('release/Clara-Coder-0.4.8-Windows-x64.__uninstaller.exe')).toBe(true);
+    expect(signs('release/Clara-Coder-1.0.0-beta.3-Windows-arm64.exe')).toBe(true);
+  });
+
+  it('leaves bundled programs as they came', () => {
+    for (const file of [
+      'resources/runtime-python/python.exe',
+      'resources/runtime-python/pythonw.exe',
+      'resources/runtime-python/Scripts/black.exe',
+      'resources/runtime-python/Lib/site-packages/nodejs_wheel/node.exe',
+      'resources/runtime-python/Lib/site-packages/pip/_vendor/distlib/t64.exe',
+      'resources/ripgrep/rg.exe',
+      'resources/app.asar.unpacked/node_modules/node-pty/prebuilds/win32-x64/conpty/OpenConsole.exe',
+      'resources/app.asar.unpacked/node_modules/node-pty/build/Release/winpty-agent.exe',
+    ]) {
+      expect(signs(unpacked + file), file).toBe(false);
+    }
   });
 });

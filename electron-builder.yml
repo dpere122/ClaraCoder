@@ -85,6 +85,17 @@ win:
       arch:
         - x64
   artifactName: Clara-Coder-${version}-Windows-${arch}.${ext}
+  # What a signed build signs: the app, its installer and uninstaller, and electron-builder's
+  # elevation helper. electron-builder would otherwise sign every bundled .exe as the publisher
+  # (Python, node, ripgrep, pip's launchers) and replace the signatures Microsoft and OpenJS put
+  # on theirs. A path matches by its ending; "!.exe" turns the rest away. No effect when unsigned.
+  signExts:
+    - "Clara Coder.exe"
+    - "-Windows-x64.exe"
+    - "-Windows-arm64.exe"
+    - "__uninstaller.exe"
+    - "elevate.exe"
+    - "!.exe"
 
 nsis:
   oneClick: false

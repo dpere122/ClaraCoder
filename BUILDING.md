@@ -186,6 +186,7 @@ Release builds are signed through [Azure Artifact Signing](https://learn.microso
 
 - A local `npm run pack` has none of the three and builds unsigned.
 - With all three set, the app and its installer are signed, then checked for a valid signature from the publisher. A failed check fails the build.
+- Only ClaraCoder's own programs are signed (`win.signExts` in `electron-builder.yml`). The bundled Python, node and ripgrep keep the signatures they came with.
 - A release in this repository fails without the secrets instead of going out unsigned (`CLARA_REQUIRE_SIGNING`). A fork builds unsigned.
 
 A signed app only installs an update signed by the same publisher (name, organization and country). Changing the certificate's name therefore cuts existing installs off from updates.

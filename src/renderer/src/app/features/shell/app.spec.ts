@@ -365,6 +365,29 @@ describe('App', () => {
       expect(app.currentWorkspaceId()).toBeNull();
     });
 
+    it('does not start a conversation from File > New Agent until the sidecar is ready', async () => {
+      refs = stubElectronApi(undefined, { currentWorkspaceId: 'ws-b', workspaces });
+      const push = stubSidecarStarting();
+      const fixture = TestBed.createComponent(App);
+      await fixture.whenStable();
+      const onNewConversation = vi.fn();
+      const app = fixture.componentInstance as unknown as {
+        onMenuFileCommand(command: { action: string }): void;
+        onChromeNewAgent(): void;
+        onNewConversation: typeof onNewConversation;
+      };
+      app.onNewConversation = onNewConversation;
+
+      app.onMenuFileCommand({ action: 'new-agent' });
+      app.onChromeNewAgent();
+      expect(onNewConversation).not.toHaveBeenCalled();
+
+      push('ready');
+      app.onMenuFileCommand({ action: 'new-agent' });
+      app.onChromeNewAgent();
+      expect(onNewConversation).toHaveBeenCalledTimes(2);
+    });
+
     it('covers the chat panel of an open workspace until the sidecar is ready', async () => {
       refs = stubElectronApi(undefined, { currentWorkspaceId: 'ws-b', workspaces });
       const push = stubSidecarStarting();

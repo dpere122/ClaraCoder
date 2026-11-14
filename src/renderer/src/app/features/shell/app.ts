@@ -2623,7 +2623,12 @@ export class App implements OnInit, OnDestroy {
 
   protected onChromeNewAgent(): void {
     this.closeChromeMenu();
-    if (!this.hasOpenWorkspace()) {
+    this.newAgentFromMenu();
+  }
+
+  /** File > New Agent, from either menu: like the chat panel's own button, held back while the sidecar boots. */
+  private newAgentFromMenu(): void {
+    if (!this.hasOpenWorkspace() || this.sidecarLoading()) {
       return;
     }
     void this.onNewConversation();
@@ -2668,10 +2673,7 @@ export class App implements OnInit, OnDestroy {
         this.workspacePanel?.beginCreateFromMenu('folder');
         break;
       case 'new-agent':
-        if (!this.hasOpenWorkspace()) {
-          return;
-        }
-        void this.onNewConversation();
+        this.newAgentFromMenu();
         break;
       case 'new-terminal':
         if (!this.hasOpenWorkspace()) {

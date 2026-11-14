@@ -145,7 +145,7 @@
               type='button'
               class='chrome-dropdown-menu-item'
               role='menuitem'
-              [disabled]='!hasOpenWorkspace()'
+              [disabled]='!hasOpenWorkspace() || sidecarLoading()'
               (mouseenter)='onChromeFileItemEnter()'
               (mousedown)='onChromeMenuItemMousedown($event); onChromeNewAgent()'
             >

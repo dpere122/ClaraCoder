@@ -14,7 +14,7 @@ import { LucideAngularModule } from 'lucide-angular';
 import { GridSpinnerComponent } from '../../../shared/grid-spinner/grid-spinner';
 import { ConversationManager } from '../conversation-manager/conversation-manager';
 import { ChatActiveStackComponent } from '../chat-active-stack/chat-active-stack';
-import type { ChatMessage, TurnActivity } from '../chat-box/chat-box';
+import type { ChatMessage, TurnActivityView } from '../chat-box/chat-box';
 import type { ChatContextFile } from '../chat-context-bar/chat-context-file';
 import type { ChatContextDroppedPath } from '../chat-context-bar/chat-context-drop';
 import type { AcceptCommandFinishedEvent } from '@shared/index';
@@ -37,7 +37,7 @@ export class ChatConversationHubComponent {
   readonly conversations = input<ConversationMeta[]>([]);
   readonly activeConversationId = input<string | null>(null);
   /** Live turn activity per streaming conversation (drives the list-row spinner). */
-  readonly conversationActivity = input<ReadonlyMap<string, TurnActivity>>(new Map());
+  readonly conversationActivity = input<ReadonlyMap<string, TurnActivityView>>(new Map());
   readonly creatingConversation = input(false);
   /** The Python sidecar is still booting: the panel is covered until chats can reach it. */
   readonly sidecarLoading = input(false);

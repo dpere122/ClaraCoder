@@ -123,14 +123,14 @@
   <ng-template #activityIcon let-act>
     <span
       class="conv-activity"
-      [class]="'conv-activity--' + act"
+      [class]="'conv-activity--' + act.activity"
       role="status"
-      [attr.aria-label]="activityLabel(act)"
-      [attr.title]="activityLabel(act)"
+      [attr.aria-label]="activityLabel(act.activity)"
+      [attr.title]="activityLabel(act.activity)"
     >
-      @if (activitySpinnerKind(act); as kind) {
+      @if (act.spinner; as kind) {
         <app-tool-spinner class="conv-activity__spinner" [kind]="kind" />
-      } @else if (act === 'review') {
+      } @else if (act.activity === 'review') {
         <lucide-icon name="circle-alert" [size]="14" />
       } @else {
         <span class="conv-activity__cursor" aria-hidden="true"></span>

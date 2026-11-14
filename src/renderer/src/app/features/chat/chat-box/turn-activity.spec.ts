@@ -1,6 +1,13 @@
 import type { StreamPart, TurnFeedItem } from '@shared/index';
 import { toolTrailStatusStreamTag } from '@shared/index';
-import { inFlightToolSpinnerKind, resolveTurnActivity, turnActivitySpinnerKind } from './chat-box-display';
+import {
+  PREFILL_STYLES,
+  inFlightToolGlyph,
+  inFlightToolSpinnerKind,
+  prefillStyleFor,
+  resolveTurnActivity,
+  turnActivitySpinner,
+} from './chat-box-display';
 import { toolGlyph, toolSpinnerKind } from './tool-spinner-kind';
 
 describe('resolveTurnActivity', () => {
@@ -60,6 +67,12 @@ describe('inFlightToolSpinnerKind', () => {
 
   it('is null when tools are not active', () => {
     expect(inFlightToolSpinnerKind([running('read_workspace_file')], false)).toBeNull();
+  });
+
+  it("names the latest running tool's own glyph, the icon its pill shows", () => {
+    expect(inFlightToolGlyph([running('read_workspace_file'), running('fetch_url')], true)).toBe('fetch');
+    expect(inFlightToolGlyph([running('fetch_url'), running('replace_workspace_lines')], true)).toBe('edit-lines');
+    expect(inFlightToolGlyph([running('fetch_url')], false)).toBeNull();
   });
 });
 
@@ -135,12 +148,31 @@ describe('toolGlyph', () => {
   });
 });
 
-describe('turnActivitySpinnerKind', () => {
+describe('turnActivitySpinner', () => {
   it('maps each spinning activity to its spinner, and shows none while replying or awaiting review', () => {
     for (const kind of ['prefill', 'think', 'read', 'write', 'run', 'web'] as const) {
-      expect(turnActivitySpinnerKind(kind)).toBe(kind);
+      expect(turnActivitySpinner(kind)).toBe(kind);
     }
-    expect(turnActivitySpinnerKind('reply')).toBeNull();
-    expect(turnActivitySpinnerKind('review')).toBeNull();
+    expect(turnActivitySpinner('reply')).toBeNull();
+    expect(turnActivitySpinner('review')).toBeNull();
+  });
+
+  it("draws a running tool with its own glyph, whatever the tool's category", () => {
+    expect(turnActivitySpinner('web', 'fetch')).toBe('fetch');
+    expect(turnActivitySpinner('write', 'edit-lines')).toBe('edit-lines');
+    expect(turnActivitySpinner('read', 'read-file')).toBe('read-file');
+  });
+
+  it('keeps the glyph out of the activities that are not a tool run', () => {
+    expect(turnActivitySpinner('think', 'fetch')).toBe('think');
+    expect(turnActivitySpinner('reply', 'fetch')).toBeNull();
+    expect(turnActivitySpinner('review', 'fetch')).toBeNull();
+  });
+
+  it("uses the turn's own prefill spinner", () => {
+    expect(turnActivitySpinner('prefill', null, 'prefill-decipher')).toBe('prefill-decipher');
+    const style = prefillStyleFor('conv-1', 4);
+    expect(PREFILL_STYLES).toContain(style);
+    expect(prefillStyleFor('conv-1', 4)).toBe(style);
   });
 });

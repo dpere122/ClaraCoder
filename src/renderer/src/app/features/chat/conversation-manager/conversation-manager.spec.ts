@@ -29,6 +29,25 @@ describe('ConversationManager', () => {
     });
   });
 
+  it("draws the running tool's own glyph on the row, as its pill does in the chat", () => {
+    const fixture = TestBed.createComponent(ConversationManager);
+    fixture.componentRef.setInput('conversations', [meta('c1', 'Fetch docs'), meta('c2', 'Idle chat')]);
+    fixture.componentRef.setInput('activity', new Map([['c1', { activity: 'web', spinner: 'fetch' }]]));
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+
+    const icons = host.querySelectorAll('.conv-activity');
+    expect(icons.length).toBe(1);
+    expect(icons[0]!.classList).toContain('conv-activity--web');
+    expect(icons[0]!.getAttribute('aria-label')).toBe('Browsing the web');
+    expect(icons[0]!.querySelector('app-tool-spinner .ts-fetch')).not.toBeNull();
+
+    fixture.componentRef.setInput('activity', new Map([['c1', { activity: 'review', spinner: null }]]));
+    fixture.detectChanges();
+    expect(host.querySelector('.conv-activity app-tool-spinner')).toBeNull();
+    expect(host.querySelector('.conv-activity--review')).not.toBeNull();
+  });
+
   it('shows matching sub-agents under a parent the user collapsed before filtering', async () => {
     const fixture = TestBed.createComponent(ConversationManager);
     fixture.componentRef.setInput('conversations', [

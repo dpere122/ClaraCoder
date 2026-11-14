@@ -44,16 +44,19 @@ import type { ChatHubView } from '../chat/chat-conversation-hub/chat-conversatio
 import {
   buildChatDisplayRows,
   hitlArtifactsExcludingPlanConfirm,
+  inFlightToolGlyph,
   inFlightToolSpinnerKind,
+  prefillStyleFor,
   resolveLiveAssistantTurn,
   resolvePrimaryStreamLiveText,
   resolveTurnActivity,
+  turnActivitySpinner,
   turnHasPendingHitlArtifacts,
   type ChatMessage,
-  type TurnActivity,
+  type TurnActivityView,
 } from '../chat/chat-box/chat-box';
 import { LiveTurnActivityService } from '../chat/chat-box/live-turn-activity';
-import { toolSpinnerKind } from '../chat/chat-box/tool-spinner-kind';
+import { toolGlyph, toolSpinnerKind } from '../chat/chat-box/tool-spinner-kind';
 import { GenerationRateService } from '../chat/chat-box/generation-rate';
 import { ElectronService, type DoneMessage } from '../../core/electron.service';
 import { TtsPlaybackService } from '../../core/tts-playback.service';
@@ -219,33 +222,39 @@ export class ConversationSessionService {
 
   /**
    * What each streaming conversation is doing right now (same resolver as the live processing
-   * row), so the conversation list can show the matching spinner on every pending row. For the
-   * active conversation, the spinner the mounted chat box is showing wins when there is one.
+   * row) and the spinner drawn for it, so the conversation list shows the matching icon on every
+   * pending row: a running tool's own glyph, as in its pill. For the active conversation, what the
+   * mounted chat box is showing wins when there is one.
    */
-  readonly conversationActivity = computed<ReadonlyMap<string, TurnActivity>>(() => {
+  readonly conversationActivity = computed<ReadonlyMap<string, TurnActivityView>>(() => {
     this.backgroundStreamVersion();
     const activeId = this.activeConversationId();
-    const out = new Map<string, TurnActivity>();
+    const out = new Map<string, TurnActivityView>();
     for (const id of this.pendingIds()) {
       if (id === activeId) {
         const shown = this.liveTurnActivity.shown();
         if (shown?.conversationId === id) {
-          out.set(id, shown.activity);
+          out.set(id, { activity: shown.activity, spinner: shown.spinner });
           continue;
         }
         const parts = this.streamingParts();
         const toolsActive = this.processingToolsActive();
         const finalText = this.streamingFinalText();
-        out.set(
-          id,
-          resolveTurnActivity({
-            feed: buildTurnFeed(parts, finalText),
-            primaryLiveText: resolvePrimaryStreamLiveText(finalText, parts, toolsActive),
-            toolsActive,
-            toolKind: inFlightToolSpinnerKind(parts, toolsActive),
-            awaitingReview: this.activeAwaitingReview(),
-          }),
-        );
+        const activity = resolveTurnActivity({
+          feed: buildTurnFeed(parts, finalText),
+          primaryLiveText: resolvePrimaryStreamLiveText(finalText, parts, toolsActive),
+          toolsActive,
+          toolKind: inFlightToolSpinnerKind(parts, toolsActive),
+          awaitingReview: this.activeAwaitingReview(),
+        });
+        out.set(id, {
+          activity,
+          spinner: turnActivitySpinner(
+            activity,
+            inFlightToolGlyph(parts, toolsActive),
+            prefillStyleFor(id, this.messages().length).spinner,
+          ),
+        });
         continue;
       }
       const parts = this.backgroundStreamParts.get(id) ?? [];
@@ -253,20 +262,24 @@ export class ConversationSessionService {
       const toolsActive = runLabels.length > 0 || parts.some(isInFlightToolPart);
       const finalText = this.pendingFinalText.get(id);
       const latestRunLabel = runLabels[runLabels.length - 1];
-      out.set(
-        id,
-        resolveTurnActivity({
-          feed: buildTurnFeed(parts, finalText),
-          primaryLiveText: resolvePrimaryStreamLiveText(finalText, parts, toolsActive),
-          toolsActive,
-          // The latest live run names the spinner; parts are the fallback once runs settle.
-          toolKind:
-            latestRunLabel != null
-              ? toolSpinnerKind(latestRunLabel, '')
-              : inFlightToolSpinnerKind(parts, toolsActive),
-          awaitingReview: this.backgroundAwaitingReview.has(id),
-        }),
-      );
+      const activity = resolveTurnActivity({
+        feed: buildTurnFeed(parts, finalText),
+        primaryLiveText: resolvePrimaryStreamLiveText(finalText, parts, toolsActive),
+        toolsActive,
+        // The latest live run names the spinner; parts are the fallback once runs settle.
+        toolKind:
+          latestRunLabel != null
+            ? toolSpinnerKind(latestRunLabel, '')
+            : inFlightToolSpinnerKind(parts, toolsActive),
+        awaitingReview: this.backgroundAwaitingReview.has(id),
+      });
+      out.set(id, {
+        activity,
+        spinner: turnActivitySpinner(
+          activity,
+          latestRunLabel != null ? toolGlyph(latestRunLabel, '') : inFlightToolGlyph(parts, toolsActive),
+        ),
+      });
     }
     return out;
   });

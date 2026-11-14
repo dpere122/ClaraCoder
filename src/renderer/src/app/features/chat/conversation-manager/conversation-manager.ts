@@ -3,9 +3,8 @@ import { NgTemplateOutlet } from '@angular/common';
 import type { ConversationMeta } from '@shared/index';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
-import { turnActivitySpinnerKind, type TurnActivity } from '../chat-box/chat-box';
+import type { TurnActivity, TurnActivityView } from '../chat-box/chat-box';
 import { ToolSpinnerComponent } from '../chat-box/tool-spinner/tool-spinner';
-import type { SpinnerKind } from '../chat-box/tool-spinner-kind';
 import {
   buildConversationTree,
   conversationAgeLabel,
@@ -43,7 +42,7 @@ export class ConversationManager {
   readonly conversations = input<ConversationMeta[]>([]);
   readonly activeId = input<string | null>(null);
   /** Live turn activity per streaming conversation; rows not in the map are idle. */
-  readonly activity = input<ReadonlyMap<string, TurnActivity>>(new Map());
+  readonly activity = input<ReadonlyMap<string, TurnActivityView>>(new Map());
 
   readonly selectConversation = output<string>();
   readonly deleteConversation = output<string>();
@@ -97,10 +96,6 @@ export class ConversationManager {
   protected clearFilter(event: Event): void {
     event.stopPropagation();
     this.setFilter('');
-  }
-
-  protected activitySpinnerKind(activity: TurnActivity): SpinnerKind | null {
-    return turnActivitySpinnerKind(activity);
   }
 
   protected activityLabel(activity: TurnActivity): string {

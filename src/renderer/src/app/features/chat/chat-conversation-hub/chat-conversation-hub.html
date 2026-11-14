@@ -68,11 +68,15 @@
       </button>
     </div>
 
-    <div class="chat-hub__body-wrap" [class.chat-hub__body-wrap--loading]="busy()">
+    <div
+      class="chat-hub__body-wrap"
+      [class.chat-hub__body-wrap--loading]="busy()"
+      [class.chat-hub__body-wrap--switching]="workspaceLoading()"
+    >
       @if (showingList()) {
         <app-conversation-manager
           class="chat-hub__body"
-          [attr.inert]="sidecarLoading() ? '' : null"
+          [attr.inert]="sidecarLoading() || workspaceLoading() ? '' : null"
           [conversations]="conversations()"
           [activeId]="activeConversationId()"
           [activity]="conversationActivity()"
@@ -83,7 +87,7 @@
       } @else {
         <app-chat-active-stack
           class="chat-hub__body"
-          [attr.inert]="sidecarLoading() ? '' : null"
+          [attr.inert]="sidecarLoading() || workspaceLoading() ? '' : null"
           layout="sidebar"
           [messages]="messages()"
           [conversationId]="activeConversationId()"
@@ -141,11 +145,11 @@
           class="chat-hub__loading-overlay"
           role="status"
           aria-live="polite"
-          [attr.aria-label]="sidecarLoading() ? 'Starting backend' : 'Starting new conversation'"
+          [attr.aria-label]="busyReason().label"
         >
           <app-grid-spinner class="chat-hub__loading-spinner" />
-          @if (sidecarLoading()) {
-            <span class="chat-hub__loading-text" aria-hidden="true">Starting backend…</span>
+          @if (busyReason().text) {
+            <span class="chat-hub__loading-text" aria-hidden="true">{{ busyReason().text }}</span>
           }
         </div>
       }

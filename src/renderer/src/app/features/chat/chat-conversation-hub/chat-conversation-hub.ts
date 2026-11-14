@@ -22,6 +22,24 @@ import type { TurnDiffOpenRequest } from '../chat-box/turn-edits-footer/turn-edi
 
 export type ChatHubView = 'conversations' | 'activeChat';
 
+/** What the spinner over the chat is waiting for: its accessible name and the text under it. */
+export interface ChatBusyReason {
+  label: string;
+  /** Empty for a new conversation, which starts fast enough to need none. */
+  text: string;
+}
+
+/** The sidecar outranks a workspace's conversation: nothing loads until it is up. */
+export function chatBusyReason(sidecarLoading: boolean, workspaceLoading: boolean): ChatBusyReason {
+  if (sidecarLoading) {
+    return { label: 'Starting backend', text: 'Starting backend…' };
+  }
+  if (workspaceLoading) {
+    return { label: 'Loading conversation', text: 'Loading conversation…' };
+  }
+  return { label: 'Starting new conversation', text: '' };
+}
+
 @Component({
   selector: 'app-chat-conversation-hub',
   imports: [LucideAngularModule, ConversationManager, ChatActiveStackComponent, GridSpinnerComponent],
@@ -41,8 +59,16 @@ export class ChatConversationHubComponent {
   readonly creatingConversation = input(false);
   /** The Python sidecar is still booting: the panel is covered until chats can reach it. */
   readonly sidecarLoading = input(false);
-  /** Either reason to blur the body and show the spinner over it. */
-  protected readonly busy = computed(() => this.creatingConversation() || this.sidecarLoading());
+  /**
+   * A workspace was just entered and its conversation is not loaded yet. The body still shows the
+   * workspace just left, so it is hidden outright instead of blurred.
+   */
+  readonly workspaceLoading = input(false);
+  /** Any reason to cover the body and show the spinner over it. */
+  protected readonly busy = computed(
+    () => this.creatingConversation() || this.sidecarLoading() || this.workspaceLoading(),
+  );
+  protected readonly busyReason = computed(() => chatBusyReason(this.sidecarLoading(), this.workspaceLoading()));
 
   readonly newConversation = output<void>();
   readonly selectConversation = output<string>();
@@ -122,6 +148,10 @@ export class ChatConversationHubComponent {
   protected readonly showingList = computed(() => this.expanded() || this.view() === 'conversations');
 
   protected readonly activeConversationTitle = computed(() => {
+    if (this.workspaceLoading()) {
+      // The open conversation is still the previous workspace's.
+      return 'Loading…';
+    }
     const id = this.activeConversationId();
     const title = id ? this.conversations().find((c) => c.id === id)?.title?.trim() : '';
     return title || 'New conversation';

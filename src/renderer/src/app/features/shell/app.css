@@ -475,6 +475,11 @@
   pointer-events: none;
 }
 
+/* Entering a workspace: the chat still holds the one just left, so it is hidden, not blurred. */
+.chat-area__chat-expanded-overlay--switching > app-chat-active-stack {
+  visibility: hidden;
+}
+
 .chat-area__new-conv-loading-overlay {
   position: absolute;
   inset: 0;

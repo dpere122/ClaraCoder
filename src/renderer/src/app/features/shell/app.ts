@@ -53,7 +53,7 @@ import {
   unwrapSecret,
 } from '@shared/index';
 import { ChatActiveStackComponent } from '../chat/chat-active-stack/chat-active-stack';
-import { ChatConversationHubComponent } from '../chat/chat-conversation-hub/chat-conversation-hub';
+import { ChatConversationHubComponent, chatBusyReason } from '../chat/chat-conversation-hub/chat-conversation-hub';
 import type { ChatMessage } from '../chat/chat-box/chat-box';
 import {
   type ChatContextFile,
@@ -287,8 +287,16 @@ export class App implements OnInit, OnDestroy {
   protected readonly creatingConversation = this.conversationSession.creatingConversation;
   /** The Python sidecar is still booting: no workspace can be entered and the chat panel is covered. */
   protected readonly sidecarLoading = inject(SidecarStatusService).loading;
-  /** Either reason to blur the expanded chat and show the spinner over it. */
-  protected readonly chatBusy = computed(() => this.creatingConversation() || this.sidecarLoading());
+  /** A workspace was just entered and its conversation is not on screen yet: the chat is hidden. */
+  protected readonly workspaceConversationLoading = this.conversationSession.workspaceConversationLoading;
+  /** Any reason to cover the expanded chat and show the spinner over it. */
+  protected readonly chatBusy = computed(
+    () => this.creatingConversation() || this.sidecarLoading() || this.workspaceConversationLoading(),
+  );
+  /** What the spinner over the expanded chat is waiting for, named as the chat sidebar names it. */
+  protected readonly chatBusyReason = computed(() =>
+    chatBusyReason(this.sidecarLoading(), this.workspaceConversationLoading()),
+  );
 
   protected readonly appConfig = signal<AppConfig | null>(null);
   protected readonly pinned = model(false);
@@ -2092,13 +2100,16 @@ export class App implements OnInit, OnDestroy {
     await this.persistOpenTabsNow(this.openTabsOwnedWorkspaceId, this.editorGrid(), this.focusedSlotId());
     await this.electron.setCurrentWorkspace(workspaceId);
     this.acknowledgeSessionWorkspace();
-    this.currentWorkspaceId.set(workspaceId);
-    // Refresh config to get updated workspaces
-    const config = await this.electron.loadConfig();
-    this.workspaces.set(config.workspaces);
+    // The chat still holds the workspace just left: cover it until this one's conversation loads.
+    await this.conversationSession.whileWorkspaceLoads(async () => {
+      this.currentWorkspaceId.set(workspaceId);
+      // Refresh config to get updated workspaces
+      const config = await this.electron.loadConfig();
+      this.workspaces.set(config.workspaces);
 
-    // Load conversations for the new workspace
-    await this.loadConversationsForWorkspace();
+      // Load conversations for the new workspace
+      await this.loadConversationsForWorkspace();
+    });
   }
 
   /**
@@ -3280,23 +3291,31 @@ export class App implements OnInit, OnDestroy {
     const skipTargetPython = this.pendingIds().has(targetId);
     const conv = await this.electron.readConversationFromDisk(targetId);
 
-    if (conv.workspaceId !== this.currentWorkspaceId()) {
-      const canLeave = await this.prepareWorkspaceLeave(this.currentWorkspaceId());
-      if (!canLeave) {
-        return;
-      }
-      await this.persistOpenTabsNow(this.openTabsOwnedWorkspaceId, this.editorGrid(), this.focusedSlotId());
-      await this.electron.setCurrentWorkspace(conv.workspaceId);
-      const config = await this.electron.loadConfig();
-      this.workspaces.set(config.workspaces);
-      this.acknowledgeSessionWorkspace();
+    const open = async (): Promise<void> => {
+      await this.conversationSession.loadConversation(conv.id, conv.workspaceId, { skipPythonResync: skipTargetPython });
+      this.chatHubView.set('activeChat');
+    };
+    if (conv.workspaceId === this.currentWorkspaceId()) {
+      await open();
+      return;
+    }
+
+    const canLeave = await this.prepareWorkspaceLeave(this.currentWorkspaceId());
+    if (!canLeave) {
+      return;
+    }
+    await this.persistOpenTabsNow(this.openTabsOwnedWorkspaceId, this.editorGrid(), this.focusedSlotId());
+    await this.electron.setCurrentWorkspace(conv.workspaceId);
+    const config = await this.electron.loadConfig();
+    this.workspaces.set(config.workspaces);
+    this.acknowledgeSessionWorkspace();
+    // The chat still holds the workspace just left: cover it until the conversation loads.
+    await this.conversationSession.whileWorkspaceLoads(async () => {
       this.currentWorkspaceId.set(config.currentWorkspaceId);
       const list = await this.electron.getConversations(conv.workspaceId);
       this.conversations.set(list);
-    }
-
-    await this.conversationSession.loadConversation(conv.id, conv.workspaceId, { skipPythonResync: skipTargetPython });
-    this.chatHubView.set('activeChat');
+      await open();
+    });
   }
 
   protected onWindowMinimize(): void {

@@ -410,6 +410,65 @@ describe('App', () => {
     });
   });
 
+  describe('while a workspace loads its conversation', () => {
+    const workspaces = [
+      { id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'ws-b', name: 'B', path: 'C:/tmp/b', createdAt: '2026-01-01T00:00:00.000Z' },
+    ];
+
+    it('hides the chat of the workspace just left behind the loading spinner', async () => {
+      refs = stubElectronApi(
+        [{ id: 'conv-a', title: 'From workspace A', workspaceId: 'ws-a', messages: [{ role: 'user', text: 'old prompt' }] }],
+        { currentWorkspaceId: 'ws-a', workspaces },
+      );
+      const api = window.electronAPI as unknown as { loadConversation: (...args: unknown[]) => Promise<unknown> };
+      const loadConversation = api.loadConversation;
+      const fixture = TestBed.createComponent(App);
+      await fixture.whenStable();
+      const host = fixture.nativeElement as HTMLElement;
+      // The startup load of workspace A counts too: wait for its conversation to be on screen.
+      await vi.waitFor(() => {
+        fixture.detectChanges();
+        expect(host.querySelector('.chat-hub__body-wrap--switching')).toBeNull();
+      });
+      expect(host.querySelector('.chat-hub__body')?.textContent).toContain('From workspace A');
+
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      api.loadConversation = async (...args) => {
+        await gate;
+        return loadConversation(...args);
+      };
+      const app = fixture.componentInstance as unknown as {
+        currentWorkspaceId: { (): string | null };
+        onWorkspaceChanged(id: string | null): Promise<void>;
+      };
+      const switching = app.onWorkspaceChanged('ws-b');
+      await vi.waitFor(() => expect(app.currentWorkspaceId()).toBe('ws-b'));
+      fixture.detectChanges();
+
+      expect(host.querySelector('.chat-hub__body-wrap--switching')).toBeTruthy();
+      expect(host.querySelector('.chat-hub__loading-overlay app-grid-spinner')).toBeTruthy();
+      expect(host.querySelector('.chat-hub__loading-text')?.textContent).toContain('Loading conversation');
+      expect(host.querySelector('.chat-hub__body')?.hasAttribute('inert')).toBe(true);
+      // With no editor tab the chat is expanded into the main panel: that copy is hidden too.
+      expect(host.querySelector('.chat-area__chat-expanded-overlay--switching')).toBeTruthy();
+      expect(host.querySelector('.chat-area__new-conv-loading-text')?.textContent).toContain('Loading conversation');
+
+      release();
+      await switching;
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(host.querySelector('.chat-hub__body-wrap--switching')).toBeNull();
+      expect(host.querySelector('.chat-hub__loading-overlay')).toBeNull();
+      expect(host.querySelector('.chat-area__chat-expanded-overlay--switching')).toBeNull();
+      expect(host.querySelector('.chat-hub__body')?.hasAttribute('inert')).toBe(false);
+    });
+  });
+
   describe('default expanded chat with no editor tab', () => {
     const workspaces = [
       { id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' },

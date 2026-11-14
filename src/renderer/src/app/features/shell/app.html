@@ -372,10 +372,11 @@
             <div
               class='chat-area__chat-expanded-overlay'
               [class.chat-area__chat-expanded-overlay--loading]='chatBusy()'
+              [class.chat-area__chat-expanded-overlay--switching]='workspaceConversationLoading()'
             >
               <app-chat-active-stack
                 class='chat-area__panel-host'
-                [attr.inert]='sidecarLoading() ? "" : null'
+                [attr.inert]='sidecarLoading() || workspaceConversationLoading() ? "" : null'
                 layout='expanded'
                 [messages]='messages()'
                 [conversationId]='activeConversationId()'
@@ -432,11 +433,11 @@
                   class='chat-area__new-conv-loading-overlay'
                   role='status'
                   aria-live='polite'
-                  [attr.aria-label]='sidecarLoading() ? "Starting backend" : "Starting new conversation"'
+                  [attr.aria-label]='chatBusyReason().label'
                 >
                   <app-grid-spinner class='chat-area__new-conv-loading-spinner' />
-                  @if (sidecarLoading()) {
-                    <span class='chat-area__new-conv-loading-text' aria-hidden='true'>Starting backend…</span>
+                  @if (chatBusyReason().text) {
+                    <span class='chat-area__new-conv-loading-text' aria-hidden='true'>{{ chatBusyReason().text }}</span>
                   }
                 </div>
               }
@@ -481,6 +482,7 @@
         [conversationActivity]='conversationActivity()'
         [creatingConversation]='creatingConversation()'
         [sidecarLoading]='sidecarLoading()'
+        [workspaceLoading]='workspaceConversationLoading()'
         (newConversation)='onNewConversation()'
         (selectConversation)='onSelectConversation($event)'
         (deleteConversation)='onDeleteConversation($event)'

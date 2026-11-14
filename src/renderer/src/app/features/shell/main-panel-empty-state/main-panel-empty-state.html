@@ -20,6 +20,7 @@
                     type="button"
                     class="home__action"
                     [title]="'Open ' + ws.path + ' and the conversation the main window is on'"
+                    [disabled]="sidecarLoading()"
                     (click)="joinMainWindow.emit()"
                   >
                     <lucide-icon name="monitor" [size]="15" />
@@ -28,7 +29,13 @@
                 </li>
               }
               <li>
-                <button type="button" class="home__action" data-tutorial="home-add-workspace" (click)="addWorkspace.emit()">
+                <button
+                  type="button"
+                  class="home__action"
+                  data-tutorial="home-add-workspace"
+                  [disabled]="sidecarLoading()"
+                  (click)="addWorkspace.emit()"
+                >
                   <lucide-icon name="folder-plus" [size]="15" />
                   <span>Add workspace…</span>
                 </button>
@@ -90,7 +97,13 @@
                     >
                       <lucide-icon name="grip-vertical" [size]="13" />
                     </button>
-                    <button type="button" class="home__row-main" [title]="ws.path" (click)="openWorkspace.emit(ws.id)">
+                    <button
+                      type="button"
+                      class="home__row-main"
+                      [title]="ws.path"
+                      [disabled]="sidecarLoading()"
+                      (click)="openWorkspace.emit(ws.id)"
+                    >
                       <lucide-icon name="star" [size]="14" class="home__row-icon home__row-icon--favorite" />
                       <span class="home__row-name">{{ ws.name }}</span>
                       <span class="home__row-path">{{ ws.path }}</span>
@@ -117,7 +130,13 @@
                 @for (ws of recentOnlyWorkspaces(); track ws.id) {
                   <li class="home__row">
                     <span class="home__row-lead" aria-hidden="true"></span>
-                    <button type="button" class="home__row-main" [title]="ws.path" (click)="openWorkspace.emit(ws.id)">
+                    <button
+                      type="button"
+                      class="home__row-main"
+                      [title]="ws.path"
+                      [disabled]="sidecarLoading()"
+                      (click)="openWorkspace.emit(ws.id)"
+                    >
                       <lucide-icon name="folder" [size]="14" class="home__row-icon" />
                       <span class="home__row-name">{{ ws.name }}</span>
                       <span class="home__row-path">{{ ws.path }}</span>
@@ -159,6 +178,15 @@
               </button>
             </div>
             <div class="home__runtime">
+              @if (sidecarLoading()) {
+                <div class="home__runtime-backend" role="status">
+                  <span class="home__runtime-label">Backend</span>
+                  <span class="home__runtime-starting">
+                    <app-grid-spinner />
+                    Starting…
+                  </span>
+                </div>
+              }
               <div class="home__runtime-source">
                 <span class="home__runtime-label">Source</span>
                 <app-managed-llama-controls class="home__runtime-controls" [appConfig]="appConfig()" />

@@ -644,6 +644,13 @@ declare global {
     healthMetrics: () => Promise<HealthMetricsSnapshot>;
     listCudaGpus?: () => Promise<CudaGpuDevice[]>;
     healthRuntimeSnapshot: () => Promise<RuntimeHealthSnapshot>;
+    sidecarStartupState?: () => Promise<import('@shared/index').SidecarStartupState>;
+    onSidecarStartupState?: (
+      callback: (event: unknown, state: import('@shared/index').SidecarStartupState) => void,
+    ) => void;
+    offSidecarStartupState?: (
+      callback: (event: unknown, state: import('@shared/index').SidecarStartupState) => void,
+    ) => void;
     getLspDashboardStatus: (
       sessionId: string,
     ) => Promise<{ ok: true; status: LspDashboardStatus } | { ok: false; error: string }>;

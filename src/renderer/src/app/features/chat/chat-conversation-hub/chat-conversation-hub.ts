@@ -1,16 +1,4 @@
-import {
-  afterNextRender,
-  Component,
-  computed,
-  effect,
-  inject,
-  Injector,
-  input,
-  model,
-  OnDestroy,
-  output,
-  untracked,
-} from '@angular/core';
+import { Component, computed, input, model, output } from '@angular/core';
 import type {
   AppConfig,
   ComposerRunMode,
@@ -23,7 +11,7 @@ import type {
 } from '@shared/index';
 import { DEFAULT_COMPOSER_RUN_MODE } from '@shared/index';
 import { LucideAngularModule } from 'lucide-angular';
-import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
+import { GridSpinnerComponent } from '../../../shared/grid-spinner/grid-spinner';
 import { ConversationManager } from '../conversation-manager/conversation-manager';
 import { ChatActiveStackComponent } from '../chat-active-stack/chat-active-stack';
 import type { ChatMessage, TurnActivity } from '../chat-box/chat-box';
@@ -32,27 +20,15 @@ import type { ChatContextDroppedPath } from '../chat-context-bar/chat-context-dr
 import type { AcceptCommandFinishedEvent } from '@shared/index';
 import type { TurnDiffOpenRequest } from '../chat-box/turn-edits-footer/turn-edits-footer';
 
-const NEW_CONV_HUB_SPINNER = {
-  fullScreen: false as const,
-  bdColor: 'rgba(0,0,0,0)',
-  size: 'medium' as const,
-  color: 'var(--t-primary)',
-  type: 'ball-atom' as const,
-};
-
 export type ChatHubView = 'conversations' | 'activeChat';
 
 @Component({
   selector: 'app-chat-conversation-hub',
-  imports: [LucideAngularModule, ConversationManager, ChatActiveStackComponent, NgxSpinnerComponent],
+  imports: [LucideAngularModule, ConversationManager, ChatActiveStackComponent, GridSpinnerComponent],
   templateUrl: './chat-conversation-hub.html',
   styleUrl: './chat-conversation-hub.css',
 })
-export class ChatConversationHubComponent implements OnDestroy {
-  private readonly ngxSpinner = inject(NgxSpinnerService);
-  private readonly inj = inject(Injector);
-  private destroyed = false;
-
+export class ChatConversationHubComponent {
   readonly view = model<ChatHubView>('activeChat');
   readonly expanded = model(false);
   /** When true, the entire chat sidebar collapses to a thin bar with only the un-collapse button. */
@@ -63,8 +39,10 @@ export class ChatConversationHubComponent implements OnDestroy {
   /** Live turn activity per streaming conversation (drives the list-row spinner). */
   readonly conversationActivity = input<ReadonlyMap<string, TurnActivity>>(new Map());
   readonly creatingConversation = input(false);
-
-  protected readonly newConvSpinnerName = 'new-conv-hub';
+  /** The Python sidecar is still booting: the panel is covered until chats can reach it. */
+  readonly sidecarLoading = input(false);
+  /** Either reason to blur the body and show the spinner over it. */
+  protected readonly busy = computed(() => this.creatingConversation() || this.sidecarLoading());
 
   readonly newConversation = output<void>();
   readonly selectConversation = output<string>();
@@ -140,13 +118,6 @@ export class ChatConversationHubComponent implements OnDestroy {
   /** The open conversation's own thinking settings (unset fields: the source's from Settings). */
   readonly composerThinking = input<ConversationThinking>({});
 
-  constructor() {
-    effect(() => {
-      const creating = this.creatingConversation();
-      untracked(() => this.scheduleNewConvSpinnerSync(creating));
-    });
-  }
-
   /** The sidebar body shows the conversation list (always, while the chat is expanded into the main panel). */
   protected readonly showingList = computed(() => this.expanded() || this.view() === 'conversations');
 
@@ -187,26 +158,5 @@ export class ChatConversationHubComponent implements OnDestroy {
   protected onSelectFromList(id: string): void {
     this.selectConversation.emit(id);
     this.view.set('activeChat');
-  }
-
-  ngOnDestroy(): void {
-    this.destroyed = true;
-    void this.ngxSpinner.hide(this.newConvSpinnerName);
-  }
-
-  private scheduleNewConvSpinnerSync(creating: boolean): void {
-    afterNextRender(
-      () => {
-        if (this.destroyed) {
-          return;
-        }
-        if (creating) {
-          void this.ngxSpinner.show(this.newConvSpinnerName, NEW_CONV_HUB_SPINNER);
-        } else {
-          void this.ngxSpinner.hide(this.newConvSpinnerName);
-        }
-      },
-      { injector: this.inj },
-    );
   }
 }

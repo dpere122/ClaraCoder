@@ -5,7 +5,8 @@
 import { mkdir } from 'fs/promises';
 import { app, BrowserWindow } from 'electron';
 import { registerPrivilegedSchemes } from './protocol/register-privileged';
-import { ensurePythonServer, stopPythonSidecar } from './python/server';
+import { ensurePythonServer, isPythonHealthy, stopPythonSidecar } from './python/server';
+import { getSidecarStartupState, setSidecarStartupState } from './python/sidecar-status';
 import { registerNemoTtsStreamProtocol } from './protocol/nemo-tts';
 import { registerNemoAssetProtocol } from './protocol/nemo-asset';
 import { registerClaraThemeAssetProtocol } from './protocol/clara-theme-asset';
@@ -105,10 +106,14 @@ app
       console.error('[Main] Orphan llama-server reap failed:', err);
     });
     await userPathReady;
+    let sidecarUp = false;
     try {
       await ensurePythonServer();
+      sidecarUp = true;
     } catch (err) {
       console.error('[Main] Python sidecar unavailable — UI already open:', err);
+      // Now, not after the syncs below: each waits out its own timeout on a dead sidecar.
+      setSidecarStartupState('failed');
     }
     const config = await reconcileLostWorkspacesOnStartup();
     // Ensure the Model Manager library root exists (default: ~/ClaraCoder/models).
@@ -129,6 +134,10 @@ app
     } catch (err) {
       console.error('[Main] Python sync at startup failed:', err);
     }
+    // After the config sync, so a workspace opened now talks to a configured sidecar.
+    if (sidecarUp) {
+      setSidecarStartupState('ready');
+    }
     // Refreshes MCP OAuth tokens that expired while the app was closed, then keeps them fresh.
     rearmMcpOAuthRefresh();
     // Sub-agents report on their own channel: they can outlive the chat turn that started them.
@@ -137,6 +146,12 @@ app
   .catch((err) => {
     console.error(err);
     createMainWindow();
+    // Startup stopped part-way: don't leave the window waiting on a state nothing will settle.
+    if (getSidecarStartupState() === 'starting') {
+      void isPythonHealthy()
+        .catch(() => false)
+        .then((healthy) => setSidecarStartupState(healthy ? 'ready' : 'failed'));
+    }
     // Waits for a sidecar that comes up later (e.g. after a runtime install).
     startSubagentEventPump();
   });

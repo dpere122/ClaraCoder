@@ -2,7 +2,7 @@
  * Main chat shell: conversations, workspace chrome, IPC-driven streaming, and layout resize handles.
  * TTS playback lives in {@link TtsPlaybackService}; this component wires signals and `ElectronService` streams.
  */
-import { afterNextRender, Component, computed, effect, HostListener, inject, Injector, linkedSignal, model, NgZone, OnDestroy, OnInit, QueryList, signal, untracked, ViewChild, ViewChildren } from '@angular/core';
+import { Component, computed, effect, HostListener, inject, linkedSignal, model, NgZone, OnDestroy, OnInit, QueryList, signal, untracked, ViewChild, ViewChildren } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import type {
   AppConfig,
@@ -149,6 +149,7 @@ import { planOpenWorkspaceImageTab } from './app-image-file-tabs';
 import { WorkspaceTerminalDockComponent } from '../workspace-terminal/workspace-terminal-dock';
 import { isBrowserBridgeTab } from '../../core/dev-bridge/bridge-tab';
 import { CoreDependenciesStatusService, coreDependenciesNeeded } from '../../core/core-dependencies-status.service';
+import { SidecarStatusService } from '../../core/sidecar-status.service';
 import { ElectronService, type MainWindowView } from '../../core/electron.service';
 import { TtsPlaybackService } from '../../core/tts-playback.service';
 import { ThemedConfirmDialogService } from '../../shared/themed-confirm-dialog/themed-confirm-dialog.service';
@@ -165,16 +166,8 @@ import {
 import { askWorkspaceTrust } from '../../shared/themed-confirm-dialog/format-workspace-trust-prompt';
 import { normalizePathSlashes, workspaceRelativePathIfUnderRoot } from '../../utils/workspace-relative-path';
 import { LucideAngularModule } from 'lucide-angular';
-import { NgxSpinnerComponent, NgxSpinnerService } from 'ngx-spinner';
+import { GridSpinnerComponent } from '../../shared/grid-spinner/grid-spinner';
 import type { AcceptCommandFinishedEvent, SubagentResultsReadyEvent } from '@shared/index';
-
-const NEW_CONV_EXPANDED_SPINNER = {
-  fullScreen: false as const,
-  bdColor: 'rgba(0,0,0,0)',
-  size: 'medium' as const,
-  color: 'var(--t-primary)',
-  type: 'ball-atom' as const,
-};
 
 function parentRelativePath(relativePath: string): string {
   const norm = normalizePathSlashes(relativePath);
@@ -260,7 +253,7 @@ function turnSettingsOf(composer: ConversationTurnSettings): ConversationTurnSet
     ThemedConfirmDialogComponent,
     ThemedPromptDialogComponent,
     EditorGridComponent,
-    NgxSpinnerComponent,
+    GridSpinnerComponent,
   ],
   templateUrl: './app.html',
   styleUrl: './app.css'
@@ -270,11 +263,8 @@ export class App implements OnInit, OnDestroy {
   @ViewChild(WorkspaceComponent) private workspacePanel?: WorkspaceComponent;
   @ViewChild(WorkspaceTerminalDockComponent) private workspaceTerminalDock?: WorkspaceTerminalDockComponent;
   private readonly monacoStore = inject(WorkspaceMonacoModelStore);
-  private readonly ngxSpinner = inject(NgxSpinnerService);
-  private readonly inj = inject(Injector);
   private readonly tutorial = inject(TutorialCoordinator);
   private shellDestroyed = false;
-  protected readonly newConvExpandedSpinnerName = 'new-conv-expanded';
   protected readonly conversationSession = inject(ConversationSessionService);
   protected readonly messages = this.conversationSession.messages;
   protected readonly pendingIds = this.conversationSession.pendingIds;
@@ -295,6 +285,10 @@ export class App implements OnInit, OnDestroy {
   protected readonly chatHubView = this.conversationSession.chatHubView;
   protected readonly processingToolsActive = this.conversationSession.processingToolsActive;
   protected readonly creatingConversation = this.conversationSession.creatingConversation;
+  /** The Python sidecar is still booting: no workspace can be entered and the chat panel is covered. */
+  protected readonly sidecarLoading = inject(SidecarStatusService).loading;
+  /** Either reason to blur the expanded chat and show the spinner over it. */
+  protected readonly chatBusy = computed(() => this.creatingConversation() || this.sidecarLoading());
 
   protected readonly appConfig = signal<AppConfig | null>(null);
   protected readonly pinned = model(false);
@@ -927,12 +921,6 @@ export class App implements OnInit, OnDestroy {
     });
 
     effect(() => {
-      const creating = this.creatingConversation();
-      const expanded = this.chatExpanded();
-      untracked(() => this.scheduleNewConvExpandedSpinnerSync(creating && expanded));
-    });
-
-    effect(() => {
       this.chatCollapsed();
       this.chatExpanded();
       untracked(() => {
@@ -1155,7 +1143,6 @@ export class App implements OnInit, OnDestroy {
     this.shellDestroyed = true;
     this.clearChromeRecentCloseTimer();
     this.stopLmStudioContextPoll();
-    void this.ngxSpinner.hide(this.newConvExpandedSpinnerName);
     void this.tts.invalidateSpeechPipeline();
     window.removeEventListener('resize', this.boundOnWindowResize);
     this.flushSidebarWidthPersist();
@@ -1198,22 +1185,6 @@ export class App implements OnInit, OnDestroy {
     const card = res.models.find((c) => c.id === conn.model);
     const n = card ? effectiveLmStudioContextTokens(card) : 0;
     this.electron.applyLiveContextWindow(conn.id, n > 0 ? n : undefined);
-  }
-
-  private scheduleNewConvExpandedSpinnerSync(show: boolean): void {
-    afterNextRender(
-      () => {
-        if (this.shellDestroyed) {
-          return;
-        }
-        if (show) {
-          void this.ngxSpinner.show(this.newConvExpandedSpinnerName, NEW_CONV_EXPANDED_SPINNER);
-        } else {
-          void this.ngxSpinner.hide(this.newConvExpandedSpinnerName);
-        }
-      },
-      { injector: this.inj },
-    );
   }
 
   private normalizeSidebarWidthPercent(value: number | undefined): number {
@@ -2106,6 +2077,10 @@ export class App implements OnInit, OnDestroy {
     if (workspaceId === this.currentWorkspaceId()) {
       return;
     }
+    // Closing is always allowed; opening waits for the sidecar the workspace syncs to.
+    if (workspaceId !== null && this.sidecarLoading()) {
+      return;
+    }
     // Save current conversation before switching
     await this.conversationSession.saveCurrentConversation();
 
@@ -2198,6 +2173,9 @@ export class App implements OnInit, OnDestroy {
   }
 
   async onAddWorkspace(): Promise<void> {
+    if (this.sidecarLoading()) {
+      return;
+    }
     const selected = await this.electron.openDirectoryDialog();
     if (selected) {
       const existing = this.workspaces().find((workspace) => workspace.path === selected);
@@ -3269,7 +3247,7 @@ export class App implements OnInit, OnDestroy {
 
   private async handleOpenWorkspace(workspacePath: string): Promise<void> {
     const normalizedPath = workspacePath.trim();
-    if (!normalizedPath) return;
+    if (!normalizedPath || this.sidecarLoading()) return;
 
     const existing = this.workspaces().find((workspace) => workspace.path === normalizedPath);
     if (existing) {

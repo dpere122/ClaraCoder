@@ -723,6 +723,7 @@ export type {
   HealthMetricsSnapshot,
   GpuInfo,
   RuntimeHealthSnapshot,
+  SidecarStartupState,
 } from './types/health';
 export {
   DEFAULT_THUMB_MAX_EDGE,

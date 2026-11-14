@@ -4,6 +4,7 @@ import type {
   HealthMetricsSnapshot,
   LspDashboardStatus,
   RuntimeHealthSnapshot,
+  SidecarStartupState,
   CudaGpuDevice,
   LspEditorFeature,
   LspEditorFeatureResponse,
@@ -35,6 +36,11 @@ export const createLspHealthApi = (ipcRenderer: PreloadIpc) => ({
   listCudaGpus: () => ipcRenderer.invoke('gpu-cuda-inventory') as Promise<CudaGpuDevice[]>,
   healthRuntimeSnapshot: () =>
     ipcRenderer.invoke('health-runtime-snapshot') as Promise<RuntimeHealthSnapshot>,
+  sidecarStartupState: () => ipcRenderer.invoke('sidecar-startup-state') as Promise<SidecarStartupState>,
+  onSidecarStartupState: (callback: (event: unknown, state: SidecarStartupState) => void) =>
+    ipcRenderer.on('sidecar:startup-state', callback),
+  offSidecarStartupState: (callback: (event: unknown, state: SidecarStartupState) => void) =>
+    ipcRenderer.removeListener('sidecar:startup-state', callback),
   getLspDashboardStatus: (sessionId: string) =>
     ipcRenderer.invoke('get-lsp-dashboard-status', sessionId) as Promise<
       { ok: true; status: LspDashboardStatus } | { ok: false; error: string }

@@ -1972,6 +1972,19 @@ export class ElectronService {
     return this.api?.healthRuntimeSnapshot?.() ?? Promise.resolve(null);
   }
 
+  /** Whether the Python sidecar is still booting; `ready` when there is no app to ask. */
+  sidecarStartupState(): Promise<import('@shared/index').SidecarStartupState> {
+    return this.api?.sidecarStartupState?.() ?? Promise.resolve('ready');
+  }
+
+  onSidecarStartupState(callback: (state: import('@shared/index').SidecarStartupState) => void): () => void {
+    const handler = (_event: unknown, state: import('@shared/index').SidecarStartupState) => {
+      this.zone.run(() => callback(state));
+    };
+    this.api?.onSidecarStartupState?.(handler);
+    return () => this.api?.offSidecarStartupState?.(handler);
+  }
+
   getLspDashboardStatus(
     sessionId: string,
   ): Promise<{ ok: true; status: LspDashboardStatus } | { ok: false; error: string }> {

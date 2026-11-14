@@ -410,6 +410,121 @@ describe('App', () => {
     });
   });
 
+  describe('closing the app while an agent is running', () => {
+    type Ask = (event: unknown, request: { runningAgents: number }) => void;
+
+    /** Mounts the app with the close-confirm IPC stubbed; `ask` is the main process holding a close. */
+    async function mount(): Promise<{ ask: Ask; answer: Mock; open: Mock }> {
+      refs = stubElectronApi();
+      let ask: Ask = () => undefined;
+      const answer = vi.fn();
+      Object.assign(window.electronAPI as object, {
+        onAppCloseConfirmRequest: (cb: Ask) => {
+          ask = cb;
+        },
+        answerAppCloseConfirm: answer,
+      });
+      const fixture = TestBed.createComponent(App);
+      await fixture.whenStable();
+      const app = fixture.componentInstance as unknown as { themedConfirm: { open: Mock } };
+      const open = vi.fn(async () => 'cancel');
+      app.themedConfirm.open = open;
+      return { ask: (event, request) => ask(event, request), answer, open };
+    }
+
+    it('asks before closing and tells the main process to go ahead on confirm', async () => {
+      const { ask, answer, open } = await mount();
+      open.mockResolvedValue('confirm');
+
+      ask(null, { runningAgents: 1 });
+      await vi.waitFor(() => expect(answer).toHaveBeenCalledWith(true));
+      expect(open.mock.calls[0]![0]).toMatchObject({
+        title: 'Agent still running',
+        message: 'An agent is still working. Close Clara Coder and stop it?',
+        confirmText: 'Close and stop',
+      });
+    });
+
+    it('keeps the app open when the user declines, and names how many agents would stop', async () => {
+      const { ask, answer, open } = await mount();
+
+      ask(null, { runningAgents: 3 });
+      await vi.waitFor(() => expect(answer).toHaveBeenCalledWith(false));
+      expect((open.mock.calls[0]![0] as { message: string }).message).toContain('3 agents are still working');
+    });
+
+    it('shows one dialog when a second close attempt arrives while it is open', async () => {
+      const { ask, answer, open } = await mount();
+      let choose!: (result: string) => void;
+      open.mockImplementation(() => new Promise<string>((resolve) => (choose = resolve)));
+
+      ask(null, { runningAgents: 1 });
+      ask(null, { runningAgents: 1 });
+      expect(open).toHaveBeenCalledTimes(1);
+      choose('confirm');
+      await vi.waitFor(() => expect(answer).toHaveBeenCalledTimes(1));
+    });
+  });
+
+  describe('while a workspace loads its conversation', () => {
+    const workspaces = [
+      { id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'ws-b', name: 'B', path: 'C:/tmp/b', createdAt: '2026-01-01T00:00:00.000Z' },
+    ];
+
+    it('hides the chat of the workspace just left behind the loading spinner', async () => {
+      refs = stubElectronApi(
+        [{ id: 'conv-a', title: 'From workspace A', workspaceId: 'ws-a', messages: [{ role: 'user', text: 'old prompt' }] }],
+        { currentWorkspaceId: 'ws-a', workspaces },
+      );
+      const api = window.electronAPI as unknown as { loadConversation: (...args: unknown[]) => Promise<unknown> };
+      const loadConversation = api.loadConversation;
+      const fixture = TestBed.createComponent(App);
+      await fixture.whenStable();
+      const host = fixture.nativeElement as HTMLElement;
+      // The startup load of workspace A counts too: wait for its conversation to be on screen.
+      await vi.waitFor(() => {
+        fixture.detectChanges();
+        expect(host.querySelector('.chat-hub__body-wrap--switching')).toBeNull();
+      });
+      expect(host.querySelector('.chat-hub__body')?.textContent).toContain('From workspace A');
+
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      api.loadConversation = async (...args) => {
+        await gate;
+        return loadConversation(...args);
+      };
+      const app = fixture.componentInstance as unknown as {
+        currentWorkspaceId: { (): string | null };
+        onWorkspaceChanged(id: string | null): Promise<void>;
+      };
+      const switching = app.onWorkspaceChanged('ws-b');
+      await vi.waitFor(() => expect(app.currentWorkspaceId()).toBe('ws-b'));
+      fixture.detectChanges();
+
+      expect(host.querySelector('.chat-hub__body-wrap--switching')).toBeTruthy();
+      expect(host.querySelector('.chat-hub__loading-overlay app-grid-spinner')).toBeTruthy();
+      expect(host.querySelector('.chat-hub__loading-text')?.textContent).toContain('Loading conversation');
+      expect(host.querySelector('.chat-hub__body')?.hasAttribute('inert')).toBe(true);
+      // With no editor tab the chat is expanded into the main panel: that copy is hidden too.
+      expect(host.querySelector('.chat-area__chat-expanded-overlay--switching')).toBeTruthy();
+      expect(host.querySelector('.chat-area__new-conv-loading-text')?.textContent).toContain('Loading conversation');
+
+      release();
+      await switching;
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(host.querySelector('.chat-hub__body-wrap--switching')).toBeNull();
+      expect(host.querySelector('.chat-hub__loading-overlay')).toBeNull();
+      expect(host.querySelector('.chat-area__chat-expanded-overlay--switching')).toBeNull();
+      expect(host.querySelector('.chat-hub__body')?.hasAttribute('inert')).toBe(false);
+    });
+  });
+
   describe('default expanded chat with no editor tab', () => {
     const workspaces = [
       { id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' },

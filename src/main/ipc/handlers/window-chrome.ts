@@ -1,6 +1,10 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
-import { assertTrustedAppRenderer } from '../assert-trusted-renderer';
+import { assertTrustedAppRenderer, isTrustedMainRenderer } from '../assert-trusted-renderer';
 import { openDocumentation } from '../../menu/application-menu';
+import {
+  answerMainWindowCloseConfirm,
+  APP_CLOSE_CONFIRM_ANSWER_CHANNEL,
+} from '../../windows/main-window-close-guard';
 
 /**
  * Frameless window controls (minimize / maximize / close).
@@ -47,6 +51,14 @@ export function registerWindowChromeIpc(): void {
       return;
     }
     BrowserWindow.fromWebContents(event.sender)?.close();
+  });
+
+  // Answer to the "an agent is still running" dialog a held close of the main window raised.
+  ipcMain.on(APP_CLOSE_CONFIRM_ANSWER_CHANNEL, (event, proceed: unknown) => {
+    if (!isTrustedMainRenderer(event.sender)) {
+      return;
+    }
+    answerMainWindowCloseConfirm(proceed === true);
   });
 
   ipcMain.on('app-quit', (event) => {

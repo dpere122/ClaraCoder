@@ -45,6 +45,62 @@ function render(items: TurnFeedItem[], thinkingDisplay: ChatThinkingDisplay): HT
   return fixture.nativeElement as HTMLElement;
 }
 
+describe('StreamTurnFeedComponent folded turn work', () => {
+  const edit: TurnFeedItem = {
+    kind: 'tool',
+    part: {
+      streamTag: toolTrailStatusStreamTag('e1'),
+      label: 'replace_workspace_lines',
+      text: 'Updated `b.py` (line-range; 1 → 2 lines).',
+      toolChainState: 'complete',
+    },
+  };
+  const turn: TurnFeedItem[] = [read, { kind: 'markdown', text: 'Now the edit.' }, edit, { kind: 'markdown', text: 'Fixed it.' }];
+
+  function mount(items: TurnFeedItem[], live = false) {
+    const fixture = TestBed.createComponent(StreamTurnFeedComponent);
+    fixture.componentRef.setInput('items', items);
+    fixture.componentRef.setInput('live', live);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('shows a finished turn as one pill and its reply', () => {
+    const el = mount(turn).nativeElement as HTMLElement;
+    const pills = el.querySelectorAll('app-stream-tool-pill');
+    expect(pills.length).toBe(1);
+    expect(pills[0]!.querySelector('.stream-tool-pill__name')?.textContent).toContain('Read a.py, edited b.py');
+    expect(pills[0]!.querySelectorAll('.stream-tool-pill__icon').length).toBe(2);
+    const prose = [...el.querySelectorAll('.stream-turn-feed__markdown')].map((md) => md.textContent?.trim());
+    expect(prose).toEqual(['Fixed it.']);
+  });
+
+  it('opens to the rows as they streamed, each stretch still its own block', () => {
+    const fixture = mount(turn);
+    const el = fixture.nativeElement as HTMLElement;
+    el.querySelector<HTMLButtonElement>('.stream-turn-feed__work > app-stream-tool-pill button')!.click();
+    fixture.detectChanges();
+    const body = el.querySelector('.stream-turn-feed__work > .stream-turn-feed__activity-body');
+    expect(body?.querySelectorAll(':scope > .stream-turn-feed__activity').length).toBe(2);
+    expect(body?.querySelector(':scope > .stream-turn-feed__markdown')?.textContent).toContain('Now the edit.');
+    // The reply stays below the pill, outside the opened work.
+    expect(el.querySelector('.stream-turn-feed > .stream-turn-feed__markdown')?.textContent).toContain('Fixed it.');
+  });
+
+  it('keeps the rows in the open while the turn is live', () => {
+    const el = mount(turn, true).nativeElement as HTMLElement;
+    expect(el.querySelector('.stream-turn-feed__work')).toBeNull();
+    expect(el.querySelectorAll('.stream-turn-feed > .stream-turn-feed__activity').length).toBe(2);
+    expect(el.querySelectorAll('.stream-turn-feed > .stream-turn-feed__markdown').length).toBe(2);
+  });
+
+  it('does not wrap a turn whose work is a single stretch', () => {
+    const el = mount([read, edit, { kind: 'markdown', text: 'Fixed it.' }]).nativeElement as HTMLElement;
+    expect(el.querySelector('.stream-turn-feed__work')).toBeNull();
+    expect(el.querySelectorAll('.stream-turn-feed > .stream-turn-feed__activity').length).toBe(1);
+  });
+});
+
 describe('StreamTurnFeedComponent activity blocks', () => {
   it('keeps the streaming reasoning box in view under a closed block (live preview display)', () => {
     const el = render([read, thinking], 'preview');

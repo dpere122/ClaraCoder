@@ -133,6 +133,11 @@
   pointer-events: none;
 }
 
+/* Entering a workspace: the body still holds the one just left, so it is hidden, not blurred. */
+.chat-hub__body-wrap--switching .chat-hub__body {
+  visibility: hidden;
+}
+
 .chat-hub__loading-overlay {
   position: absolute;
   inset: 0;

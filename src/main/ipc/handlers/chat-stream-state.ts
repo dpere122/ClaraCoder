@@ -87,6 +87,11 @@ export function hasActiveChatStream(conversationId: string): boolean {
   return streamAbortControllers.has(conversationId);
 }
 
+/** How many `/chat/stream` turns are open, across every conversation and workspace. */
+export function activeChatStreamCount(): number {
+  return streamAbortControllers.size;
+}
+
 /** True when `controller`'s stream was cancelled by a newer stream for the same conversation. */
 export function wasChatStreamSuperseded(controller: AbortController): boolean {
   return supersededControllers.has(controller);

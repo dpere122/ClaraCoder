@@ -109,6 +109,62 @@ export function activityLayout(
   return blocks.size > 0 ? { blocks, hidden, working } : EMPTY_LAYOUT;
 }
 
+/** A finished turn's work folded behind one pill, so the transcript reads prompt, work, reply. */
+export interface TurnWorkLayout {
+  /** Top-level rows of the work, in order: activity block leads, prose between tools, HITL rows. */
+  rows: readonly number[];
+  /** Every item inside the work's activity blocks, for the pill's summary. */
+  members: readonly number[];
+  /** Index of the reply shown after the pill, or -1 when the turn ended without one. */
+  reply: number;
+}
+
+/**
+ * Fold everything before a finished turn's reply behind one pill. The reply is the prose the feed
+ * ends on; a turn that ended on tools has none and folds whole. Returns `null` while the turn is
+ * live (it streams row by row), and when the work is already a single row: one activity block is
+ * its own pill, and prose alone is not work.
+ */
+export function turnWorkLayout(
+  items: readonly TurnFeedItem[],
+  roleOf: (index: number) => FeedDisplayRole,
+  live: boolean,
+  activity: ActivityLayout,
+  chipHidden: ReadonlySet<number>,
+): TurnWorkLayout | null {
+  if (live) {
+    return null;
+  }
+  const last = items[items.length - 1];
+  const reply = last?.kind === 'markdown' && last.text.trim() ? items.length - 1 : -1;
+  const end = reply >= 0 ? reply : items.length;
+  const rows: number[] = [];
+  const members: number[] = [];
+  let worked = false;
+  for (let index = 0; index < end; index++) {
+    const block = activity.blocks.get(index);
+    if (block) {
+      rows.push(index);
+      members.push(...block);
+      worked = true;
+      continue;
+    }
+    if (activity.hidden.has(index)) {
+      continue;
+    }
+    const item = items[index]!;
+    if (item.kind === 'markdown') {
+      if (item.text) {
+        rows.push(index);
+      }
+    } else if (roleOf(index) === 'chip' && !chipHidden.has(index)) {
+      rows.push(index);
+      worked = true;
+    }
+  }
+  return worked && rows.length > 1 ? { rows, members, reply } : null;
+}
+
 /**
  * Activity pill text. The headline names what the model did between prose, from its tool calls
  * in order. Time is thinking plus tool run time; parallel calls from one LLM step overlap, so

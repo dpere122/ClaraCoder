@@ -128,6 +128,10 @@ export const createAppServicesApi = (ipcRenderer: PreloadIpc) => ({
   windowToggleMaximize: () => ipcRenderer.send('window-toggle-maximize'),
   windowClose: () => ipcRenderer.send('window-close'),
   appQuit: () => ipcRenderer.send('app-quit'),
+  /** A close was held because agents are running: ask the user, then answer with `answerAppCloseConfirm`. */
+  onAppCloseConfirmRequest: (callback: (event: unknown, request: { runningAgents: number }) => void) =>
+    ipcRenderer.on('app-close-confirm-request', callback),
+  answerAppCloseConfirm: (proceed: boolean) => ipcRenderer.send('app-close-confirm-answer', proceed),
   windowIsMaximized: () => ipcRenderer.invoke('window-is-maximized') as Promise<boolean>,
   listSystemFonts: () => ipcRenderer.invoke('list-system-fonts') as Promise<SystemFontInfo[]>,
   onWindowMaximizedChanged: (callback: (maximized: boolean) => void) => {

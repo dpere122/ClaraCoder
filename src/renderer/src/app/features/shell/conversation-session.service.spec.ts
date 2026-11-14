@@ -511,6 +511,35 @@ describe('ConversationSessionService', () => {
     expect(service.activeConversationId()).toBe('conv-b');
   });
 
+  it('reports a workspace as loading until its conversation is open, and after a failed load', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { service } = setup();
+    const electron = TestBed.inject(ElectronService);
+    const loadConversation = electron.loadConversation.bind(electron);
+    electron.loadConversation = async (...args) => {
+      await gate;
+      return loadConversation(...args);
+    };
+    expect(service.workspaceConversationLoading()).toBe(false);
+
+    const first = service.loadConversationsForWorkspace('ws-1');
+    const second = service.loadConversationsForWorkspace('ws-1');
+    expect(service.workspaceConversationLoading()).toBe(true);
+    release();
+    await first;
+    await second;
+    expect(service.workspaceConversationLoading()).toBe(false);
+
+    electron.loadConversation = async () => {
+      throw new Error('load failed');
+    };
+    await expect(service.loadConversationsForWorkspace('ws-1')).rejects.toThrow('load failed');
+    expect(service.workspaceConversationLoading()).toBe(false);
+  });
+
   it('aborts pending streams and clears loading when the active llama-server stops', async () => {
     const { service, configSubject, llamaServerLifecycleSubject, abortMessage } = setup();
     service.activeConversationId.set('test-conv');

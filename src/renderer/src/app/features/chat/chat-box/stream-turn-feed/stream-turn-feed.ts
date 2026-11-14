@@ -46,7 +46,7 @@ import {
   queueableItems,
   splitQueuedFeed,
 } from './stream-preview-queue';
-import { activityGlyphs, activityLayout, activitySummary, type ActivitySummary } from './activity-blocks';
+import { activityGlyphs, activityLayout, activitySummary, turnWorkLayout, type ActivitySummary } from './activity-blocks';
 import { settlingChipIndices, toolChipGroupParts, toolChipLayout } from './tool-chip-groups';
 
 /** How long chips that just left the live preview play their settle animation (see the CSS). */
@@ -179,6 +179,34 @@ export class StreamTurnFeedComponent {
     }
     return out;
   });
+
+  /** A finished turn's work before its reply, folded behind one pill (`null`: rows show as they are). */
+  readonly turnWork = computed(() => {
+    const roles = this.displayRoles();
+    return turnWorkLayout(
+      this.items(),
+      (index) => roles[index] ?? 'hidden',
+      this.live(),
+      this.activityLayout(),
+      this.toolChipLayout().hidden,
+    );
+  });
+
+  /** Pill text and still glyphs for the folded work: every stretch of the turn summed as one. */
+  readonly turnWorkPill = computed(() => {
+    const work = this.turnWork();
+    if (!work) {
+      return null;
+    }
+    const items = this.items();
+    return {
+      summary: activitySummary(items, work.members, this.toolChipLayout().merged),
+      glyphs: activityGlyphs(items, work.members),
+    };
+  });
+
+  /** Whether the folded work shows its timeline; closed until the user opens it. */
+  readonly turnWorkOpen = signal(false);
 
   private readonly toolPillExpansion = inject(ToolPillExpansion);
   /** Activity blocks the user opened or closed, by lead item key (see {@link trackItem}). */
@@ -352,6 +380,10 @@ export class StreamTurnFeedComponent {
     const key = this.trackItem(this.items()[lead]!, lead);
     const open = !this.isActivityOpen(lead, members);
     this.activityOverride.update((prev) => new Map(prev).set(key, open));
+  }
+
+  toggleTurnWork(): void {
+    this.turnWorkOpen.update((open) => !open);
   }
 
   /**

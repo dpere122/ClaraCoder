@@ -65,6 +65,20 @@ export function activeStreamWorkspaceSwitchPrompt(count: number): ThemedConfirmO
   };
 }
 
+/** Copy for closing the app while agents are still working (`count` of them). */
+export function closeAppWithRunningAgentsPrompt(count: number): ThemedConfirmOpenOptions {
+  return {
+    title: 'Agent still running',
+    message:
+      count > 1
+        ? `${count} agents are still working. Close Clara Coder and stop them?`
+        : 'An agent is still working. Close Clara Coder and stop it?',
+    cancelText: 'Keep open',
+    confirmText: 'Close and stop',
+    variant: 'warning',
+  };
+}
+
 export function detachedFileClosePrompt(relativePath: string): ThemedConfirmOpenOptions {
   return {
     title: 'File removed from workspace',

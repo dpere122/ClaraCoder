@@ -100,11 +100,12 @@
       }
     }
   </ng-template>
-  @for (item of items(); track trackItem(item, $index)) {
-    @if (activity.blocks.get($index); as members) {
-      @let open = isActivityOpen($index, members);
-      @let working = activity.working.has($index);
-      @let summary = activitySummaries().get($index);
+  <!-- One top-level row: an activity block, or a row that stands alone (prose, a HITL row). -->
+  <ng-template #row let-item let-index="index">
+    @if (activity.blocks.get(index); as members) {
+      @let open = isActivityOpen(index, members);
+      @let working = activity.working.has(index);
+      @let summary = activitySummaries().get(index);
       @let step = activityLiveStep(open, members);
       @let name = activityName(step, working, open, summary);
       <div
@@ -116,7 +117,7 @@
           <app-stream-tool-pill
             [name]="name"
             [nameTitle]="summary?.title ?? ''"
-            [icons]="activityGlyphs().get($index) ?? []"
+            [icons]="activityGlyphs().get(index) ?? []"
             [meta]="activityMeta(step, summary)"
             [duration]="summary?.duration ?? ''"
             durationTitle="Time spent thinking and running tools"
@@ -127,7 +128,7 @@
             [shimmer]="!!step && spinnerHost() === 'pill'"
             [spinner]="!!step && spinnerHost() === 'pill'"
             [spinnerKind]="hostedSpinnerGlyph()"
-            (toggle)="toggleActivity($index, members)"
+            (toggle)="toggleActivity(index, members)"
           />
         }
         @if (!open && previewShowsBody() && activityHostsPreview(members)) {
@@ -142,8 +143,41 @@
           </div>
         }
       </div>
-    } @else if (!activity.hidden.has($index)) {
-      <ng-container *ngTemplateOutlet="entry; context: { $implicit: item, index: $index }" />
+    } @else if (!activity.hidden.has(index)) {
+      <ng-container *ngTemplateOutlet="entry; context: { $implicit: item, index: index }" />
+    }
+  </ng-template>
+  @if (turnWork(); as work) {
+    <!-- Finished turn: everything before the reply folds behind one pill; opening it shows the rows as they streamed. -->
+    @let pill = turnWorkPill();
+    @let workOpen = turnWorkOpen();
+    <div class="stream-turn-feed__activity stream-turn-feed__work" [class.stream-turn-feed__activity--open]="workOpen">
+      <app-stream-tool-pill
+        [name]="pill?.summary?.headline || 'Worked'"
+        [nameTitle]="pill?.summary?.title ?? ''"
+        [icons]="pill?.glyphs ?? []"
+        [meta]="pill?.summary?.outcomes ?? ''"
+        [duration]="pill?.summary?.duration ?? ''"
+        durationTitle="Time spent thinking and running tools"
+        [state]="pill?.summary?.failed ? 'error' : 'complete'"
+        [expandable]="true"
+        [expanded]="workOpen"
+        (toggle)="toggleTurnWork()"
+      />
+      @if (workOpen) {
+        <div class="stream-turn-feed__activity-body">
+          @for (index of work.rows; track trackItem(items()[index]!, index)) {
+            <ng-container *ngTemplateOutlet="row; context: { $implicit: items()[index], index: index }" />
+          }
+        </div>
+      }
+    </div>
+    @if (work.reply >= 0) {
+      <ng-container *ngTemplateOutlet="entry; context: { $implicit: items()[work.reply], index: work.reply }" />
+    }
+  } @else {
+    @for (item of items(); track trackItem(item, $index)) {
+      <ng-container *ngTemplateOutlet="row; context: { $implicit: item, index: $index }" />
     }
   }
 </div>

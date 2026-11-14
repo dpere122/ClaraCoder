@@ -196,6 +196,7 @@
         "stream-turn-feed__activity",
         "stream-turn-feed__activity--open",
         "stream-turn-feed__activity-body",
+        "stream-turn-feed__work",
         "turn-edits",
         "turn-edits--expanded",
         "turn-edits__header",
@@ -293,8 +294,7 @@
         "aq__answered",
         "aq__nav",
         "aq__nav-btn",
-        "aq__dots",
-        "aq__dot"
+        "aq__dots"
       ]
     },
     {
@@ -1165,6 +1165,7 @@
         "stream-turn-feed__activity",
         "stream-turn-feed__activity--open",
         "stream-turn-feed__activity-body",
+        "stream-turn-feed__work",
         "turn-edits",
         "turn-edits--expanded",
         "turn-edits__header",
@@ -1244,8 +1245,7 @@
         "ts-emerge",
         "ts-orbit",
         "ts-halt",
-        "ts-turn",
-        "ts-plug"
+        "ts-turn"
       ]
     },
     {
@@ -1452,6 +1452,7 @@
         "stream-turn-feed__activity",
         "stream-turn-feed__activity--open",
         "stream-turn-feed__activity-body",
+        "stream-turn-feed__work",
         "turn-edits",
         "turn-edits--expanded",
         "turn-edits__header",
@@ -1549,8 +1550,7 @@
         "aq__answered",
         "aq__nav",
         "aq__nav-btn",
-        "aq__dots",
-        "aq__dot"
+        "aq__dots"
       ]
     },
     {
@@ -3478,6 +3478,7 @@
         "chat-hub__collapse",
         "chat-hub__body-wrap",
         "chat-hub__body-wrap--loading",
+        "chat-hub__body-wrap--switching",
         "chat-hub__body",
         "chat-hub__loading-overlay",
         "chat-hub__loading-spinner",
@@ -3662,8 +3663,7 @@
         "subagent-card__activity",
         "subagent-card__text",
         "hitl-composer-dock",
-        "hitl-composer-dock--open",
-        "hitl-composer-dock__panel"
+        "hitl-composer-dock--open"
       ]
     },
     {
@@ -3713,6 +3713,7 @@
         "chat-area__tab-panel--image",
         "chat-area__chat-expanded-overlay",
         "chat-area__chat-expanded-overlay--loading",
+        "chat-area__chat-expanded-overlay--switching",
         "chat-area__new-conv-loading-overlay",
         "chat-area__new-conv-loading-spinner",
         "chat-area__new-conv-loading-text",
@@ -3897,8 +3898,7 @@
         "home-subagents__source",
         "chat-area__tab-strip",
         "is-overlay-dragging",
-        "chat-area__tab-strip-scroller",
-        "chat-area__tab-strip-tabs"
+        "chat-area__tab-strip-scroller"
       ]
     },
     {

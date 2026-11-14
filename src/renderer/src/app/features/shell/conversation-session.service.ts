@@ -187,6 +187,14 @@ export class ConversationSessionService {
   readonly chatHubView = signal<ChatHubView>('activeChat');
   /** True while save + `new-conversation` IPC is in flight (drives the chat-panel overlay). */
   readonly creatingConversation = signal(false);
+  /** Workspace entries whose conversation has not loaded yet; overlapping ones each count. */
+  private readonly workspaceLoads = signal(0);
+  /**
+   * True from the moment a workspace is entered until its conversation is on screen. Until then
+   * the transcript, list and composer still belong to the workspace just left, so the chat panel
+   * hides them behind its loading spinner.
+   */
+  readonly workspaceConversationLoading = computed(() => this.workspaceLoads() > 0);
   /** Set while a sub-agent conversation is open: the conversation that spawned it (read-only view). */
   readonly activeParentConversationId = signal<string | null>(null);
   /**
@@ -1126,22 +1134,38 @@ export class ConversationSessionService {
     await Promise.all(ids.map((id) => this.electron.abortMessage(id)));
   }
 
-  async loadConversationsForWorkspace(currentWorkspaceId: string | null): Promise<void> {
-    const wsId = currentWorkspaceId;
-    const config = await this.electron.loadConfig();
-    const list = await this.electron.getConversations(wsId);
-    this.conversations.set(list);
-
-    if (list.length === 0) {
-      await this.onNewConversation(currentWorkspaceId);
-    } else {
-      const key = wsId ?? '';
-      const remembered = config.lastActiveConversationByWorkspaceId?.[key];
-      const match = remembered ? list.find((c) => c.id === remembered) : undefined;
-      // Open a conversation the user can type in, never a (read-only) sub-agent's.
-      const conv = (match && !match.parentConversationId ? match : undefined) ?? firstTopLevelConversation(list);
-      await this.loadConversation(conv.id, conv.workspaceId);
+  /**
+   * Run `work`, the switch to another workspace through the load of its conversation, with
+   * {@link workspaceConversationLoading} set. Callers that change the workspace themselves wrap
+   * the change too, so the flag turns on in the same tick as the workspace.
+   */
+  async whileWorkspaceLoads<T>(work: () => Promise<T>): Promise<T> {
+    this.workspaceLoads.update((n) => n + 1);
+    try {
+      return await work();
+    } finally {
+      this.workspaceLoads.update((n) => n - 1);
     }
+  }
+
+  async loadConversationsForWorkspace(currentWorkspaceId: string | null): Promise<void> {
+    await this.whileWorkspaceLoads(async () => {
+      const wsId = currentWorkspaceId;
+      const config = await this.electron.loadConfig();
+      const list = await this.electron.getConversations(wsId);
+      this.conversations.set(list);
+
+      if (list.length === 0) {
+        await this.onNewConversation(currentWorkspaceId);
+      } else {
+        const key = wsId ?? '';
+        const remembered = config.lastActiveConversationByWorkspaceId?.[key];
+        const match = remembered ? list.find((c) => c.id === remembered) : undefined;
+        // Open a conversation the user can type in, never a (read-only) sub-agent's.
+        const conv = (match && !match.parentConversationId ? match : undefined) ?? firstTopLevelConversation(list);
+        await this.loadConversation(conv.id, conv.workspaceId);
+      }
+    });
   }
 
   async refreshConversationList(currentWorkspaceId: string | null): Promise<void> {

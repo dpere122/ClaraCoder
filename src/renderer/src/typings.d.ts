@@ -993,6 +993,9 @@ declare global {
     windowToggleMaximize: () => void;
     windowClose: () => void;
     appQuit: () => void;
+    /** A close was held because agents are running: ask the user, then answer. */
+    onAppCloseConfirmRequest?: (callback: (event: unknown, request: { runningAgents: number }) => void) => void;
+    answerAppCloseConfirm?: (proceed: boolean) => void;
     windowIsMaximized: () => Promise<boolean>;
     onWindowMaximizedChanged: (callback: (maximized: boolean) => void) => void;
     onEditorFindRequested: (callback: () => void) => void;

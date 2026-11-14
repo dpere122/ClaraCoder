@@ -43,6 +43,19 @@ app-stream-turn-feed .stream-turn-feed__activity-body {
   border-left: 1px solid color-mix(in srgb, var(--t-primary) 30%, var(--t-border-subtle));
 }
 
+/*
+ * Folded work of a finished turn, opened: the prose written between tools reads as it did while
+ * it streamed (smaller, muted), so only the reply below the pill reads as the answer.
+ */
+app-stream-turn-feed .stream-turn-feed__work > .stream-turn-feed__activity-body > .stream-turn-feed__markdown {
+  margin: 0.15rem 0;
+}
+
+app-stream-turn-feed .stream-turn-feed__work > .stream-turn-feed__activity-body > .stream-turn-feed__markdown .assistant-md {
+  font-size: 0.9em;
+  color: var(--t-secondary);
+}
+
 app-stream-turn-feed .stream-turn-feed {
   display: flex;
   flex-direction: row;

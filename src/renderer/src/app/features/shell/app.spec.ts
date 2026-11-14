@@ -410,6 +410,62 @@ describe('App', () => {
     });
   });
 
+  describe('closing the app while an agent is running', () => {
+    type Ask = (event: unknown, request: { runningAgents: number }) => void;
+
+    /** Mounts the app with the close-confirm IPC stubbed; `ask` is the main process holding a close. */
+    async function mount(): Promise<{ ask: Ask; answer: Mock; open: Mock }> {
+      refs = stubElectronApi();
+      let ask: Ask = () => undefined;
+      const answer = vi.fn();
+      Object.assign(window.electronAPI as object, {
+        onAppCloseConfirmRequest: (cb: Ask) => {
+          ask = cb;
+        },
+        answerAppCloseConfirm: answer,
+      });
+      const fixture = TestBed.createComponent(App);
+      await fixture.whenStable();
+      const app = fixture.componentInstance as unknown as { themedConfirm: { open: Mock } };
+      const open = vi.fn(async () => 'cancel');
+      app.themedConfirm.open = open;
+      return { ask: (event, request) => ask(event, request), answer, open };
+    }
+
+    it('asks before closing and tells the main process to go ahead on confirm', async () => {
+      const { ask, answer, open } = await mount();
+      open.mockResolvedValue('confirm');
+
+      ask(null, { runningAgents: 1 });
+      await vi.waitFor(() => expect(answer).toHaveBeenCalledWith(true));
+      expect(open.mock.calls[0]![0]).toMatchObject({
+        title: 'Agent still running',
+        message: 'An agent is still working. Close Clara Coder and stop it?',
+        confirmText: 'Close and stop',
+      });
+    });
+
+    it('keeps the app open when the user declines, and names how many agents would stop', async () => {
+      const { ask, answer, open } = await mount();
+
+      ask(null, { runningAgents: 3 });
+      await vi.waitFor(() => expect(answer).toHaveBeenCalledWith(false));
+      expect((open.mock.calls[0]![0] as { message: string }).message).toContain('3 agents are still working');
+    });
+
+    it('shows one dialog when a second close attempt arrives while it is open', async () => {
+      const { ask, answer, open } = await mount();
+      let choose!: (result: string) => void;
+      open.mockImplementation(() => new Promise<string>((resolve) => (choose = resolve)));
+
+      ask(null, { runningAgents: 1 });
+      ask(null, { runningAgents: 1 });
+      expect(open).toHaveBeenCalledTimes(1);
+      choose('confirm');
+      await vi.waitFor(() => expect(answer).toHaveBeenCalledTimes(1));
+    });
+  });
+
   describe('while a workspace loads its conversation', () => {
     const workspaces = [
       { id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' },

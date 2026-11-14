@@ -445,6 +445,7 @@ export class ElectronService {
   private readonly workspaceFilesChangedSubject = new Subject<WorkspaceFilesChangedMessage>();
   private readonly openWorkspaceSubject = new Subject<string>();
   private readonly openConversationSubject = new Subject<string>();
+  private readonly appCloseConfirmRequestSubject = new Subject<{ runningAgents: number }>();
   private readonly scriptOutputSubject = new Subject<ScriptOutputMessage>();
   private readonly scriptCompleteSubject = new Subject<ScriptCompleteMessage>();
   private readonly workspacePtyDataSubject = new Subject<WorkspacePtyDataMessage>();
@@ -514,6 +515,8 @@ export class ElectronService {
   readonly workspaceFilesChanged$ = this.workspaceFilesChangedSubject.asObservable();
   readonly openWorkspace$ = this.openWorkspaceSubject.asObservable();
   readonly openConversation$ = this.openConversationSubject.asObservable();
+  /** The main process held a close because agents are running; answer with {@link answerAppCloseConfirm}. */
+  readonly appCloseConfirmRequest$ = this.appCloseConfirmRequestSubject.asObservable();
   readonly scriptOutput$ = this.scriptOutputSubject.asObservable();
   readonly scriptComplete$ = this.scriptCompleteSubject.asObservable();
   readonly workspacePtyData$ = this.workspacePtyDataSubject.asObservable();
@@ -818,6 +821,9 @@ export class ElectronService {
     });
     this.api?.onOpenConversation((_event, conversationId) => {
       this.zone.run(() => this.openConversationSubject.next(conversationId));
+    });
+    this.api?.onAppCloseConfirmRequest?.((_event, request) => {
+      this.zone.run(() => this.appCloseConfirmRequestSubject.next(request));
     });
     this.api?.onScriptOutput((_event, data) => {
       this.zone.run(() => this.scriptOutputSubject.next(data));
@@ -2703,6 +2709,11 @@ export class ElectronService {
 
   appQuit(): void {
     this.api?.appQuit();
+  }
+
+  /** Answer a held close: `true` closes the app and stops the running agents. */
+  answerAppCloseConfirm(proceed: boolean): void {
+    this.api?.answerAppCloseConfirm?.(proceed);
   }
 
   windowIsMaximized(): Promise<boolean> {

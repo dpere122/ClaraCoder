@@ -111,6 +111,11 @@ export function startSubagentEventPump(): void {
   void pumpLoop(pumpAbort.signal, relay);
 }
 
+/** Sub-agents still running; they outlive the chat turn that started them. */
+export function runningSubagentCount(): number {
+  return relay?.runningIds().length ?? 0;
+}
+
 export function stopSubagentEventPump(): void {
   pumpAbort?.abort();
   pumpAbort = null;

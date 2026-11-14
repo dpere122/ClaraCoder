@@ -161,6 +161,7 @@ import {
   unsavedWorkspaceSwitchPrompt,
   detachedFileClosePrompt,
   activeBuildPlanClosePrompt,
+  closeAppWithRunningAgentsPrompt,
   closeWorkspacePrompt,
 } from '../../shared/themed-confirm-dialog/format-unsaved-workspace-detail';
 import { askWorkspaceTrust } from '../../shared/themed-confirm-dialog/format-workspace-trust-prompt';
@@ -1118,6 +1119,10 @@ export class App implements OnInit, OnDestroy {
 
     this.electron.openConversation$.pipe(takeUntilDestroyed()).subscribe((conversationId) => {
       void this.handleOpenConversation(conversationId);
+    });
+
+    this.electron.appCloseConfirmRequest$.pipe(takeUntilDestroyed()).subscribe(({ runningAgents }) => {
+      void this.confirmAppClose(runningAgents);
     });
   }
 
@@ -3332,6 +3337,27 @@ export class App implements OnInit, OnDestroy {
 
   protected onWindowClose(): void {
     this.electron.windowClose();
+  }
+
+  /** A close attempt is waiting on the dialog below; a repeat attempt must not open a second one. */
+  private confirmingAppClose = false;
+
+  /**
+   * The main process held a close (titlebar, File > Exit, Alt+F4) because agents are running:
+   * ask, and answer either way so a declined close is not left pending.
+   */
+  private async confirmAppClose(runningAgents: number): Promise<void> {
+    if (this.confirmingAppClose) {
+      return;
+    }
+    this.confirmingAppClose = true;
+    let proceed = false;
+    try {
+      proceed = (await this.themedConfirm.open(closeAppWithRunningAgentsPrompt(runningAgents))) === 'confirm';
+    } finally {
+      this.confirmingAppClose = false;
+      this.electron.answerAppCloseConfirm(proceed);
+    }
   }
 
   private currentTranscriptFallbackTokens(): number {

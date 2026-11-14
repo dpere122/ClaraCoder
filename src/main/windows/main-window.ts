@@ -12,6 +12,7 @@ import {
 } from '../utils/harden-browser-window';
 import { attachBrowserWindowRevealFallbacks } from '../utils/reveal-browser-window';
 import { registerSelectableTextContextMenu } from '../utils/register-selectable-text-context-menu';
+import { guardMainWindowClose } from './main-window-close-guard';
 
 /** Preload bundle lives next to main output: `dist/preload/preload.js`. */
 function preloadPath(): string {
@@ -97,6 +98,7 @@ export function createMainWindow(): void {
   win.on('maximize', broadcastMaximized);
   win.on('unmaximize', broadcastMaximized);
   win.webContents.on('did-finish-load', broadcastMaximized);
+  guardMainWindowClose(win);
   win.on('closed', () => {
     if (mainState.mainWindow === win) {
       mainState.mainWindow = null;

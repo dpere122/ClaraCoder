@@ -11,6 +11,7 @@
  * - One chronological feed: thought pills, nudge pills, tool pills, and rendered markdown (`buildTurnFeed`).
  * - Clara briefs (planning prose before / between tool calls) render as markdown in place.
  * - Backend `final_text` replaces the trailing `agent` reply segment with the clean reply.
+ * - A finished turn folds everything before its reply behind one expandable pill (`turnWorkLayout`).
  * - HITL change rows merge into the feed; interactive reviews live in the composer dock.
  *
  * Display helpers and types are re-exported below for parent components and tests.
@@ -590,6 +591,7 @@ export class ChatBox implements OnDestroy {
         hitlArtifactsExcludingPlanConfirm(row.artifacts),
       ),
       row.assistant?.text,
+      { wholeReply: true },
     );
   }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { hitlTrailStreamTag, toolTrailStatusStreamTag, type StreamPart, type TurnFeedItem } from '@shared/index';
-import { activityLayout, activitySummary } from './activity-blocks';
+import { activityLayout, activitySummary, turnWorkLayout } from './activity-blocks';
 import type { FeedDisplayRole } from './stream-preview-queue';
 import { toolChipLayout } from './tool-chip-groups';
 
@@ -154,7 +154,49 @@ describe('activityLayout', () => {
   });
 });
 
+describe('turnWorkLayout', () => {
+  function work(items: TurnFeedItem[], live = false) {
+    const roleOf = rolesOf(items);
+    const chipHidden = toolChipLayout(items, roleOf, live).hidden;
+    return turnWorkLayout(items, roleOf, live, activityLayout(items, roleOf, live, chipHidden), chipHidden);
+  }
+
+  it('folds every stretch and the prose between them, leaving the reply out', () => {
+    const items = [thought(), read('a.py'), md('Now the edit.'), edit('a.py'), md('Fixed it.')];
+    expect(work(items)).toEqual({ rows: [0, 2, 3], members: [0, 1, 3], reply: 4 });
+  });
+
+  it('folds prose written ahead of the first tool', () => {
+    expect(work([md('Let me look.'), read('a.py'), md()])).toEqual({ rows: [0, 1], members: [1], reply: 2 });
+  });
+
+  it('folds HITL rows with the stretches around them', () => {
+    const items = [read('a.py'), hitl, edit('a.py'), md()];
+    expect(work(items)).toEqual({ rows: [0, 1, 2], members: [0, 2], reply: 3 });
+  });
+
+  it('folds a turn that ended on tools whole: it has no reply', () => {
+    const items = [read('a.py'), md('Now the edit.'), edit('a.py')];
+    expect(work(items)).toEqual({ rows: [0, 1, 2], members: [0, 2], reply: -1 });
+  });
+
+  it('leaves a single stretch alone: its activity block is already one pill', () => {
+    expect(work([thought(), read('a.py'), edit('a.py'), md()])).toBeNull();
+    expect(work([thought(), read('a.py')])).toBeNull();
+    expect(work([md()])).toBeNull();
+  });
+
+  it('never folds a live turn', () => {
+    expect(work([thought(), read('a.py'), md('Now the edit.'), edit('a.py'), md('Fixed it.')], true)).toBeNull();
+  });
+});
+
 describe('activitySummary', () => {
+  it('sums every stretch of a folded turn into one headline', () => {
+    const items = [read('a.py', { toolDurationMs: 1_000 }), md('Now the edit.'), edit('b.py', { toolDurationMs: 2_000 }), md()];
+    expect(activitySummary(items, [0, 2], new Set())).toMatchObject({ headline: 'Read a.py, edited b.py', duration: '3s' });
+  });
+
   it('counts thoughts and tools and sums thinking plus tool time', () => {
     const items = [thought(4_000), read('a.py', { toolDurationMs: 1_000 }), edit('a.py', { toolDurationMs: 2_000 })];
     expect(activitySummary(items, [0, 1, 2], new Set())).toEqual({

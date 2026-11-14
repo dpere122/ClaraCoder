@@ -241,6 +241,28 @@ describe('buildTurnFeed', () => {
     ]);
   });
 
+  it('wholeReply: leaves the reply whole, joining only the prose before it', () => {
+    const tool: StreamPart = { streamTag: 'tool-trail:read', label: 'read_workspace_file', text: 'done' };
+    const parts: StreamPart[] = [
+      { streamTag: 'clara', label: '', text: "I'll start" },
+      tool,
+      { streamTag: 'clara', label: '', text: ' by reading `src/`.' },
+      { streamTag: 'tool-trail:edit', label: 'replace_workspace_lines', text: 'done' },
+    ];
+    expect(buildTurnFeed([parts[0]!, tool], 'by reading it. Done.', { wholeReply: true })).toEqual([
+      { kind: 'markdown', text: "I'll start" },
+      { kind: 'tool', part: tool },
+      { kind: 'markdown', text: 'by reading it. Done.' },
+    ]);
+    // A continuation emptied into the prose before it leaves no blank block ahead of the reply.
+    expect(buildTurnFeed(parts.slice(0, 3), 'Done.', { wholeReply: true })).toEqual([
+      { kind: 'markdown', text: "I'll start by reading `src/`." },
+      { kind: 'tool', part: tool },
+      { kind: 'markdown', text: 'Done.' },
+    ]);
+    expect(buildTurnFeed(parts, 'Done.', { wholeReply: true }).map((item) => item.kind)).toEqual(['markdown', 'tool', 'tool', 'markdown']);
+  });
+
   it('mends an inline code span the tool calls cut in two', () => {
     const parts: StreamPart[] = [
       { streamTag: 'agent', label: '', text: 'Now adding a comment above `add()` in `' },

@@ -610,10 +610,13 @@ function joinSplitSentences(items: TurnFeedItem[]): TurnFeedItem[] {
  * prose between tool calls render as markdown in place, so they stay visible between tools.
  * When `finalText` is set, the trailing `agent` reply segment is omitted and a single markdown
  * block is appended at the end (backend `final_text` / persisted `assistant.text`).
+ * `wholeReply` keeps that block out of the sentence joining: a finished turn folds everything
+ * before its reply behind one pill, so the reply must not lose its opening words to hidden prose.
  */
 export function buildTurnFeed(
   parts: readonly StreamPart[],
   finalText?: string | null,
+  options: { wholeReply?: boolean } = {},
 ): TurnFeedItem[] {
   const normalized = mergeReadPreviewIntoToolTrailParts(
     parts.map(normalizeStreamPart).filter((p): p is StreamPart => p !== null),
@@ -650,6 +653,15 @@ export function buildTurnFeed(
       continue;
     }
     items.push({ kind: 'tool', part });
+  }
+  if (final && options.wholeReply) {
+    const work = joinSplitSentences(items);
+    // An emptied trailing block only marks prose still streaming after the tools: the reply follows.
+    const last = work[work.length - 1];
+    if (last?.kind === 'markdown' && !last.text) {
+      work.pop();
+    }
+    return [...work, { kind: 'markdown', text: final }];
   }
   if (final) {
     items.push({ kind: 'markdown', text: final });

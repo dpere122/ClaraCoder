@@ -294,8 +294,7 @@
         "aq__answered",
         "aq__nav",
         "aq__nav-btn",
-        "aq__dots",
-        "aq__dot"
+        "aq__dots"
       ]
     },
     {
@@ -1246,8 +1245,7 @@
         "ts-emerge",
         "ts-orbit",
         "ts-halt",
-        "ts-turn",
-        "ts-plug"
+        "ts-turn"
       ]
     },
     {
@@ -1552,8 +1550,7 @@
         "aq__answered",
         "aq__nav",
         "aq__nav-btn",
-        "aq__dots",
-        "aq__dot"
+        "aq__dots"
       ]
     },
     {

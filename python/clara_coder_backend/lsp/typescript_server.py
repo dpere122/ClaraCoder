@@ -13,15 +13,17 @@ Resolution order (see :func:`resolve_typescript_lsp_spawn`):
 1. ``CLARA_TYPESCRIPT_LSP_COMMAND`` — full argv override.
 2. ``<workspace-or-ancestor>/node_modules/.bin/vtsls`` (when the user has Node
    and vtsls installed locally).
-3. **Bundled vtsls run via the Electron binary in Node mode** — Clara ships
-   ``@vtsls/language-server`` (which bundles its own ``tsserver``) inside the
-   app and runs it with the Electron executable under
+3. **The managed vtsls from Dependencies, run via the Electron binary in Node
+   mode** — the ``vtsls`` dependency downloads ``@vtsls/language-server`` (which
+   brings its own TypeScript) into ``<runtime>/vtsls/<version>/node_modules``,
+   and Clara runs it with the Electron executable under
    ``ELECTRON_RUN_AS_NODE=1``. This is how VS Code runs its TypeScript server:
-   no separate Node.js install and no on-demand download are required.
-4. ``npx -y -p @vtsls/language-server -- vtsls --stdio`` fallback (needs system
-   Node; downloads on first use).
+   no separate Node.js install is required.
 
-vtsls bundles its own TypeScript, so plain JS workspaces (empty
+Nothing is downloaded when the server starts: with none of the above, the
+resolver returns None and the plugin asks the user to open Dependencies.
+
+vtsls brings its own TypeScript, so plain JS workspaces (empty
 ``package.json``, no ``node_modules/typescript``) work without extra setup.
 """
 
@@ -37,9 +39,12 @@ from pathlib import Path
 
 logger = logging.getLogger('clara.lsp.typescript_server')
 
-__all__ = ['TypescriptLspSpawn', 'build_typescript_lsp_command', 'resolve_typescript_lsp_spawn']
+__all__ = [
+    'TypescriptLspSpawn',
+    'resolve_typescript_lsp_spawn',
+    'typescript_lsp_unavailable_message',
+]
 
-_VTLSLS_NPM_PACKAGE = '@vtsls/language-server'
 _VTLSLS_BIN_NAME = 'vtsls'
 
 
@@ -76,36 +81,48 @@ def _find_workspace_vtsls(workspace_root: Path, *, max_hops: int = 24) -> Path |
     return None
 
 
-def _bundled_vtsls_spawn() -> TypescriptLspSpawn | None:
-    """Run the in-app bundled vtsls via the Electron binary in Node mode.
+def _electron_exec_path() -> Path | None:
+    """The Electron executable the Electron main process passes to the backend, when it exists."""
 
-    Requires both ``CLARA_ELECTRON_EXEC_PATH`` (the Electron executable, passed
-    from the Electron main process to the Python sidecar) and
-    ``CLARA_VTSLS_BUNDLED_ENTRY`` (the bundled ``vtsls.js`` entry path) to be
-    set and point at existing files. Returns ``None`` when the bundle is absent
-    (e.g. dev without ``npm run bundle:vtsls``) so the caller falls back to npx.
+    raw = env_clara('CLARA_ELECTRON_EXEC_PATH', '').strip()
+    if not raw:
+        return None
+    path = Path(raw)
+    return path if path.is_file() else None
+
+
+def _managed_vtsls_entry() -> Path | None:
+    from clara_coder_backend.runtime.deps.providers import vtsls
+
+    return vtsls.installed_binary()
+
+
+def _managed_vtsls_spawn() -> TypescriptLspSpawn | None:
+    """Run the vtsls installed from Dependencies via the Electron binary in Node mode.
+
+    Returns None when vtsls is not installed (or is being replaced) or when the
+    Electron executable (``CLARA_ELECTRON_EXEC_PATH``) is unknown.
     """
 
-    electron = env_clara('CLARA_ELECTRON_EXEC_PATH', '').strip()
-    entry = env_clara('CLARA_VTSLS_BUNDLED_ENTRY', '').strip()
-    if not electron or not entry:
+    entry = _managed_vtsls_entry()
+    if entry is None:
         return None
-    if not Path(electron).is_file() or not Path(entry).is_file():
-        logger.warning(
-            'bundled vtsls env set but path missing electron=%s entry=%s; falling back',
-            electron,
-            entry,
-        )
+    electron = _electron_exec_path()
+    if electron is None:
+        logger.warning('managed vtsls installed at %s but CLARA_ELECTRON_EXEC_PATH is not a file', entry)
         return None
     return TypescriptLspSpawn(
-        command=[electron, entry, '--stdio'],
+        command=[str(electron), str(entry), '--stdio'],
         # Force the Electron binary to behave as a plain Node.js runtime.
         env={'ELECTRON_RUN_AS_NODE': '1'},
     )
 
 
-def resolve_typescript_lsp_spawn(workspace_root: Path) -> TypescriptLspSpawn:
-    """Return argv (+ optional env) to run vtsls over stdio for ``workspace_root``."""
+def resolve_typescript_lsp_spawn(workspace_root: Path) -> TypescriptLspSpawn | None:
+    """Return argv (+ optional env) to run vtsls over stdio for ``workspace_root``, or None.
+
+    None means no vtsls can run; :func:`typescript_lsp_unavailable_message` says why.
+    """
 
     root = Path(workspace_root).resolve()
     raw = env_clara('CLARA_TYPESCRIPT_LSP_COMMAND', '').strip()
@@ -120,18 +137,25 @@ def resolve_typescript_lsp_spawn(workspace_root: Path) -> TypescriptLspSpawn:
         logger.info('typescript LSP command local bin workspace=%s command=%s', root, cmd)
         return TypescriptLspSpawn(cmd)
 
-    bundled = _bundled_vtsls_spawn()
-    if bundled is not None:
-        logger.info('typescript LSP command bundled (electron-as-node) workspace=%s command=%s', root, bundled.command)
-        return bundled
+    managed = _managed_vtsls_spawn()
+    if managed is not None:
+        logger.info('typescript LSP command managed (electron-as-node) workspace=%s command=%s', root, managed.command)
+        return managed
 
-    npx = 'npx.cmd' if os.name == 'nt' else 'npx'
-    cmd = [npx, '-y', '-p', _VTLSLS_NPM_PACKAGE, '--', _VTLSLS_BIN_NAME, '--stdio']
-    logger.info('typescript LSP command npx fallback workspace=%s command=%s', root, cmd)
-    return TypescriptLspSpawn(cmd)
+    logger.info('typescript LSP not available workspace=%s', root)
+    return None
 
 
-def build_typescript_lsp_command(workspace_root: Path) -> list[str]:
-    """Return just the argv for vtsls (back-compat helper; see :func:`resolve_typescript_lsp_spawn`)."""
+def typescript_lsp_unavailable_message() -> str:
+    """What the user sees when :func:`resolve_typescript_lsp_spawn` finds no vtsls to run."""
 
-    return list(resolve_typescript_lsp_spawn(workspace_root).command)
+    from clara_coder_backend.runtime.deps.providers import vtsls
+
+    if _managed_vtsls_entry() is not None:
+        raw = env_clara('CLARA_ELECTRON_EXEC_PATH', '').strip()
+        where = f' ({raw} does not exist)' if raw else ' (CLARA_ELECTRON_EXEC_PATH is not set)'
+        return (
+            f'{vtsls.LABEL} is installed, but the Electron executable that runs it was not found{where}. '
+            'Start the backend from Clara, or set CLARA_TYPESCRIPT_LSP_COMMAND.'
+        )
+    return f'{vtsls.LABEL} is not installed. Open Dependencies and download “{vtsls.LABEL}”, then retry.'

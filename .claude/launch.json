@@ -9,6 +9,13 @@
       "url": "http://127.0.0.1:4200"
     },
     {
+      "name": "clara-dev-bridge-sa",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", ".claude/worktrees/sa", "run", "dev:bridge"],
+      "port": 4200,
+      "url": "http://127.0.0.1:4200"
+    },
+    {
       "name": "spinner-preview",
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "4317", "--bind", "127.0.0.1", "--directory", "src/renderer/public"],

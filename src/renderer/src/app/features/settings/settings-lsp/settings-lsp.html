@@ -252,7 +252,21 @@
   } @else if (server().id === 'typescript') {
     <div class='form-section'>
       <h4>Language server</h4>
-      <p class='panel__copy'>vtsls · ships with Clara</p>
+      <div class='settings-lsp-status'>
+        <div>
+          @if (vtsls(); as dep) {
+            <p class='panel__copy'>
+              vtsls · {{ dependencyStatus(dep) }}
+            </p>
+            @if (dep.path) {
+              <p class='settings-field-hint settings-lsp-status__path'>{{ dep.path }}</p>
+            }
+          } @else {
+            <p class='panel__copy'>vtsls</p>
+          }
+        </div>
+        <button type='button' class='action-button' (click)='openDependencies()'>Open Dependencies</button>
+      </div>
       <p class='settings-field-hint'>
         One server handles TypeScript and JavaScript, and these settings apply to both. A project's
         <code>tsconfig.json</code> or <code>jsconfig.json</code> still sets its own compiler options. Changing a

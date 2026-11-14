@@ -20,6 +20,7 @@ describe('groupDependencies', () => {
   it('orders rows into Required, Language servers, and Voice', () => {
     const groups = groupDependencies([
       dep('whisper'),
+      dep('vtsls'),
       dep('rust-analyzer'),
       dep('gdls'),
       dep('java-lsp'),
@@ -28,7 +29,7 @@ describe('groupDependencies', () => {
     ]);
     expect(groups.map((g) => [g.label, g.deps.map((d) => d.id)])).toEqual([
       ['Required', ['llama-server']],
-      ['Language servers', ['java-lsp', 'gdls', 'rust-analyzer']],
+      ['Language servers', ['java-lsp', 'gdls', 'rust-analyzer', 'vtsls']],
       ['Voice', ['kokoro', 'whisper']],
     ]);
     expect(groups.find((g) => g.id === 'voice')?.comingSoon).toBe(true);

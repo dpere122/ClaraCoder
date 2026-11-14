@@ -1,6 +1,6 @@
 /**
  * Post-pack checks for the electron-builder unpacked tree: bundled CPython,
- * runtime manifest, backend sources, and vtsls entry.
+ * runtime manifest, backend sources, and ripgrep.
  *
  * Usage:
  *   node scripts/verify-packed-runtime.mjs
@@ -109,19 +109,6 @@ function checkResourcesDir(resourcesDir, failures) {
   const reqTxt = path.join(resourcesDir, 'python', 'requirements.txt');
   if (!existsSync(reqTxt)) {
     failures.push(`missing requirements.txt: ${reqTxt}`);
-  }
-
-  const vtsls = path.join(
-    resourcesDir,
-    'vtsls',
-    'node_modules',
-    '@vtsls',
-    'language-server',
-    'bin',
-    'vtsls.js',
-  );
-  if (!existsSync(vtsls)) {
-    failures.push(`missing vtsls entry: ${vtsls}`);
   }
 
   const rg = path.join(resourcesDir, 'ripgrep', process.platform === 'win32' ? 'rg.exe' : 'rg');

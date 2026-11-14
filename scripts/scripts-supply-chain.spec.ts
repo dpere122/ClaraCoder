@@ -1,6 +1,6 @@
 /**
- * Tests for security/scripts-supply-chain — exact-semver pinning and
- * SHA256 verification of downloaded portable Python.
+ * Tests for security/scripts-supply-chain — SHA256 verification of downloaded
+ * portable Python and ripgrep.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
@@ -8,33 +8,8 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { EXACT_SEMVER } from './assemble-vtsls-bundle.mjs';
 import { EXPECTED_SHA256, sha256File, verifyArchiveSha256 } from './bundle-portable-python.mjs';
 import { EXPECTED_RG_SHA256, RG_VERSION, rgAssetStem, verifyRgArchiveSha256 } from './bundle-ripgrep.mjs';
-
-describe('EXACT_SEMVER (vtsls version pin)', () => {
-  it.each(['0.3.0', '1.2.3', '0.3.0-beta.1', '10.20.30-rc.4'])(
-    'accepts exact semver: %s',
-    (v) => {
-      expect(EXACT_SEMVER.test(v)).toBe(true);
-    },
-  );
-
-  it.each([
-    'latest',
-    'next',
-    'beta',
-    '^1.2.3',
-    '~1.2.3',
-    '>=0.3.0',
-    '0.3.x',
-    '*',
-    '0.3',
-    '',
-  ])('rejects dist-tags / ranges / partial: %s', (v) => {
-    expect(EXACT_SEMVER.test(v)).toBe(false);
-  });
-});
 
 describe('EXPECTED_SHA256 (portable Python assets)', () => {
   it('has an entry for every supported platform asset', () => {

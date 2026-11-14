@@ -20,7 +20,6 @@ import {
   getWorkspaceSemanticIndexDir,
   getWorkspaceStagingDir,
   getBundledRipgrep,
-  getBundledVtslsEntry,
   PYTHON_ENV_KEYS_TO_STRIP,
   pythonIsolationEnv,
 } from '../paths';
@@ -285,10 +284,9 @@ export function startPythonServer(): ChildProcess {
       CLARA_RUNTIME_PYTHON_DIR: getRuntimePythonDir(),
       CLARA_RUNTIME_BIN_DIR: getRuntimeBinDir(),
       CLARA_CUSTOM_MODELS_DIR: process.env.CLARA_CUSTOM_MODELS_DIR || getDefaultCustomModelsDir(),
-      // Lets the Python sidecar run the bundled vtsls LSP via the Electron binary in
-      // Node mode (ELECTRON_RUN_AS_NODE=1) without requiring a system Node install.
+      // Lets the Python sidecar run the vtsls LSP installed from Dependencies via the Electron
+      // binary in Node mode (ELECTRON_RUN_AS_NODE=1) without requiring a system Node install.
       CLARA_ELECTRON_EXEC_PATH: process.execPath,
-      CLARA_VTSLS_BUNDLED_ENTRY: getBundledVtslsEntry() ?? '',
       CLARA_RG_PATH: getBundledRipgrep() ?? '',
       ...(hfToken ? { HF_TOKEN: hfToken, HUGGING_FACE_HUB_TOKEN: hfToken } : {}),
       ...pythonIsolationEnv(),

@@ -1,9 +1,9 @@
 /**
  * Shared types for the runtime dependency download framework
- * (llama-server, Java LSP, gdls, rust-analyzer, Kokoro, Whisper).
+ * (llama-server, Java LSP, gdls, rust-analyzer, vtsls, Kokoro, Whisper).
  */
 
-export type DependencyId = 'llama-server' | 'java-lsp' | 'gdls' | 'rust-analyzer' | 'kokoro' | 'whisper';
+export type DependencyId = 'llama-server' | 'java-lsp' | 'gdls' | 'rust-analyzer' | 'vtsls' | 'kokoro' | 'whisper';
 
 export type DependencyState = 'missing' | 'installed' | 'updating' | 'error';
 
@@ -100,6 +100,7 @@ export const DEPENDENCY_IDS: readonly DependencyId[] = [
   'java-lsp',
   'gdls',
   'rust-analyzer',
+  'vtsls',
   'kokoro',
   'whisper',
 ] as const;
@@ -109,6 +110,7 @@ export const DEPENDENCY_LABELS: Record<DependencyId, string> = {
   'java-lsp': 'Java LSP (JDT LS)',
   gdls: 'GDScript LSP (gdls)',
   'rust-analyzer': 'Rust LSP (rust-analyzer)',
+  vtsls: 'TypeScript/JS LSP (vtsls)',
   kokoro: 'Kokoro TTS',
   whisper: 'Whisper STT',
 };
@@ -118,6 +120,7 @@ export const DEPENDENCY_DESCRIPTIONS: Record<DependencyId, string> = {
   'java-lsp': 'Eclipse JDT Language Server for Java diagnostics and navigation.',
   gdls: 'Standalone GDScript language server for Godot 4.6+. Needs no running Godot editor.',
   'rust-analyzer': 'Rust language server. Needs a Rust toolchain (cargo) on this computer.',
+  vtsls: 'TypeScript and JavaScript language server, with its own TypeScript 5.9. Runs on the Node built into Clara.',
   kokoro: 'Local neural TTS (CPU PyTorch + kokoro).',
   whisper: 'Local speech-to-text (faster-whisper, CPU CTranslate2).',
 };
@@ -127,6 +130,7 @@ export const DEPENDENCY_SIZE_HINTS: Record<DependencyId, string> = {
   'java-lsp': '~50–80 MB',
   gdls: '~12 MB (macOS: built from source with Rust)',
   'rust-analyzer': '~18 MB download',
+  vtsls: '~25 MB',
   kokoro: '~1–2 GB (CPU PyTorch + Kokoro)',
   whisper: '~80–500 MB (CTranslate2 + small model)',
 };
@@ -140,6 +144,7 @@ export const DEPENDENCY_COMPONENTS: Record<DependencyId, readonly string[]> = {
   'java-lsp': ['Eclipse JDT LS', 'Equinox launcher', 'JDT plugins'],
   gdls: ['gdls'],
   'rust-analyzer': ['rust-analyzer'],
+  vtsls: ['@vtsls/language-server', 'typescript'],
   kokoro: ['torch (CPU)', 'kokoro', 'misaki', 'spacy'],
   whisper: ['faster-whisper', 'CTranslate2', 'Whisper model weights'],
 };
@@ -207,6 +212,18 @@ export const DEPENDENCY_SOURCES: Record<DependencyId, readonly DependencySource[
       label: 'rust-analyzer',
       url: 'https://github.com/rust-lang/rust-analyzer',
       detail: 'Prebuilt binary from the pinned GitHub release, checksum verified.',
+    },
+  ],
+  vtsls: [
+    {
+      label: 'vtsls',
+      url: 'https://github.com/yioneko/vtsls',
+      detail: 'Pinned @vtsls/language-server package tree from registry.npmjs.org, each tarball sha512 verified.',
+    },
+    {
+      label: 'TypeScript',
+      url: 'https://github.com/microsoft/TypeScript',
+      detail: 'The TypeScript version vtsls pins, from registry.npmjs.org with the same checks.',
     },
   ],
   kokoro: [

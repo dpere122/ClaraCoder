@@ -13,7 +13,6 @@ import { summarizeManagedLlamaRuntime } from '../../llama-server-manager';
 import { getPythonSidecarToken, pythonControlFetch } from '../../python/http-client';
 import { isPythonHealthy } from '../../python/server';
 import { listDependencies } from '../../runtime/dependency-manager';
-import { getBundledVtslsEntry } from '../../paths';
 import { enumerateGpus, NVIDIA_VENDOR_ID, AMD_VENDOR_ID } from '../../utils/dxgi-gpu';
 import { getNvidiaStats, listNvidiaCudaGpus, shutdownNvml } from '../../utils/nvml-gpu';
 import { getAmdStats, shutdownAdl } from '../../utils/adl-gpu';
@@ -364,6 +363,7 @@ export async function collectRuntimeHealthSnapshot(): Promise<RuntimeHealthSnaps
     ? depsResult.dependencies
     : defaultDependencyCatalog();
   const javaDep = dependencies.find((d) => d.id === 'java-lsp');
+  const vtslsDep = dependencies.find((d) => d.id === 'vtsls');
   return {
     timestampMs,
     python: { healthy: pythonHealthy },
@@ -375,7 +375,7 @@ export async function collectRuntimeHealthSnapshot(): Promise<RuntimeHealthSnaps
     },
     lsp: {
       javaInstalled: javaDep?.state === 'installed',
-      vtslsInstalled: !!getBundledVtslsEntry(),
+      vtslsInstalled: vtslsDep?.state === 'installed',
       activeSessions,
     },
   };

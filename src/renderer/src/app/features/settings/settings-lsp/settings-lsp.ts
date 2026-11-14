@@ -80,6 +80,8 @@ export class SettingsLsp {
   ];
 
   protected readonly typescript = computed(() => this.s.lspServers().typescript);
+  /** The Dependencies row behind the TypeScript / JavaScript server, once the list has loaded. */
+  protected readonly vtsls = computed(() => this.s.lspDependencies().find((dep) => dep.id === 'vtsls') ?? null);
 
   protected readonly parameterNameHintOptions: ReadonlyArray<{ id: TypescriptParameterNameHints; label: string }> = [
     { id: 'none', label: 'Off' },

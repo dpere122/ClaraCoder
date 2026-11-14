@@ -237,21 +237,6 @@ export function readBundledRuntimeManifest(): BundledRuntimeManifest | null {
 }
 
 /**
- * Bundled vtsls (TypeScript/JavaScript LSP) entry script.
- *
- * Packaged: ``extraResources/vtsls`` (assembled by ``npm run bundle:vtsls``).
- * Dev: ``vtsls-bundle/`` at the repo root (run ``npm run bundle:vtsls`` once to populate).
- * Returns ``null`` when the bundle is absent, so the Python sidecar falls back to npx.
- */
-export function getBundledVtslsEntry(): string | null {
-  const base = app.isPackaged
-    ? path.join(process.resourcesPath, 'vtsls')
-    : path.join(__dirname, '..', '..', 'vtsls-bundle');
-  const entry = path.join(base, 'node_modules', '@vtsls', 'language-server', 'bin', 'vtsls.js');
-  return existsSync(entry) ? entry : null;
-}
-
-/**
  * Bundled ripgrep binary for the sidecar's workspace search.
  *
  * Packaged: ``extraResources/ripgrep`` (fetched by ``npm run bundle:rg``).

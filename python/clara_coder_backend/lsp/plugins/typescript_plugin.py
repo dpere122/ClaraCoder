@@ -7,13 +7,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from clara_coder_backend.lsp.server_plugin import LspServerPlugin, LspStartParams
+from clara_coder_backend.lsp.server_plugin import LspServerNotInstalledError, LspServerPlugin, LspStartParams
 from clara_coder_backend.lsp.typescript_init_options import (
     build_typescript_initialization_options,
     javascript_diagnostics_off_reason,
 )
 from clara_coder_backend.lsp.typescript_project_root import resolve_typescript_project_root
-from clara_coder_backend.lsp.typescript_server import resolve_typescript_lsp_spawn
+from clara_coder_backend.lsp.typescript_server import resolve_typescript_lsp_spawn, typescript_lsp_unavailable_message
 
 if TYPE_CHECKING:
     from clara_coder_backend.domain import SessionState
@@ -80,6 +80,8 @@ class TypescriptLspPlugin(LspServerPlugin):
             )
         st.project_root = root
         spawn = resolve_typescript_lsp_spawn(root)
+        if spawn is None:
+            raise LspServerNotInstalledError(typescript_lsp_unavailable_message())
         return LspStartParams(
             lsp_cwd=root,
             command=spawn.command,

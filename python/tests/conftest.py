@@ -58,12 +58,13 @@ def _reset_turns_and_subagents():
 def _no_real_typescript_language_server(monkeypatch):
     """Keep tests from starting a real TypeScript language server.
 
-    Outside the app there is no bundled vtsls, so the plugin falls back to ``npx``, which downloads
-    the server from npm on first use. An edit tool writing a ``.ts`` file would then wait on that
-    download, and on Windows a server killed after its startup timeout leaves a child process that
-    keeps the temp workspace open. The plugin gets a command that does not exist instead: starting
-    it fails at once, the edit tools report the LSP sync as failed and carry on, and tests that
-    inject a fake client never run the command.
+    A developer machine may have vtsls installed from Dependencies, or a workspace ``node_modules``
+    with vtsls in it; an edit tool writing a ``.ts`` file would then start it, and on Windows a server
+    killed after its startup timeout leaves a child process that keeps the temp workspace open. With
+    nothing installed the plugin would raise ``LspServerNotInstalledError`` instead, so tests would
+    depend on the machine. The plugin gets a command that does not exist: starting it fails at once,
+    the edit tools report the LSP sync as failed and carry on, and tests that inject a fake client
+    never run the command. ``test_typescript_lsp_command.py`` calls the real resolver directly.
     """
     from clara_coder_backend.lsp.typescript_server import TypescriptLspSpawn
 

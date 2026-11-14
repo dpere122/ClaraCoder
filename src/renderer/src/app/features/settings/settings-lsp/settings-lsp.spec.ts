@@ -162,6 +162,29 @@ describe('TypeScript / JavaScript settings', () => {
     expect(text).not.toContain('basedpyright');
     expect((fixture.nativeElement as HTMLElement).querySelector('textarea')).toBeNull();
   });
+
+  it('shows the vtsls download state with its path and a way to Dependencies', async () => {
+    const { fixture, deps, electron } = setup('typescript');
+    const root = fixture.nativeElement as HTMLElement;
+    const status = async (dep: Partial<DependencyInfo>): Promise<string> => {
+      deps.set([{ id: 'vtsls', version: null, path: null, ...dep } as DependencyInfo]);
+      await settle(fixture);
+      return root.querySelector('.settings-lsp-status .panel__copy')?.textContent?.trim() ?? '';
+    };
+
+    expect(await status({ state: 'missing' })).toBe('vtsls · Not installed');
+    expect(root.querySelector('.settings-lsp-status__path')).toBeNull();
+    const entry = 'C:/runtime/vtsls/0.3.0/node_modules/@vtsls/language-server/bin/vtsls.js';
+    expect(await status({ state: 'installed', version: '0.3.0', path: entry })).toBe('vtsls · Installed, 0.3.0');
+    expect(root.querySelector('.settings-lsp-status__path')?.textContent?.trim()).toBe(entry);
+    expect(root.textContent).not.toContain('ships with Clara');
+
+    const button = [...root.querySelectorAll('.settings-lsp-status button')].find(
+      (el) => el.textContent?.trim() === 'Open Dependencies',
+    ) as HTMLButtonElement;
+    button.click();
+    expect(electron.openDependenciesWindow).toHaveBeenCalledOnce();
+  });
 });
 
 describe('Java settings', () => {

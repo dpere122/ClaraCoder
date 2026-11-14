@@ -475,7 +475,7 @@ export const LSP_SERVER_CATALOG: readonly LspServerCatalogEntry[] = [
     label: 'TypeScript / JavaScript',
     server: 'vtsls',
     languages: 'TypeScript and JavaScript (.ts, .tsx, .js, .jsx, .mjs, .cjs)',
-    dependencyId: null,
+    dependencyId: 'vtsls',
   },
   {
     id: 'java',

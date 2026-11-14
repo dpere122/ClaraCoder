@@ -110,6 +110,11 @@ def get_runtime_rust_analyzer_dir() -> Path:
     return get_runtime_dir() / 'rust-analyzer'
 
 
+def get_runtime_vtsls_dir() -> Path:
+    """Root of the vtsls install: one ``<version>/node_modules/`` tree per version."""
+    return get_runtime_dir() / 'vtsls'
+
+
 def get_runtime_downloads_dir() -> Path:
     return get_runtime_dir() / 'downloads'
 

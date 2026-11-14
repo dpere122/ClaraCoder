@@ -78,6 +78,7 @@ describe('SettingsStore LSP settings', () => {
         dependencies: [
           { id: 'gdls', state: 'installed', version: 'v3.1.1' },
           { id: 'java-lsp', state: 'missing', version: null },
+          { id: 'vtsls', state: 'installed', version: '0.3.0' },
         ],
       }),
     );
@@ -86,7 +87,7 @@ describe('SettingsStore LSP settings', () => {
     expect(store.settingsSubTabSummary('lsp', 'gdscript')).toBe('Installed · v3.1.1');
     expect(store.settingsSubTabSummary('lsp', 'java')).toBe('Not installed');
     expect(store.settingsSubTabSummary('lsp', 'python')).toBe('Bundled');
-    expect(store.settingsSubTabSummary('lsp', 'typescript')).toBe('Bundled');
+    expect(store.settingsSubTabSummary('lsp', 'typescript')).toBe('Installed · 0.3.0');
   });
 
   it('keeps the last list when a refresh fails', async () => {

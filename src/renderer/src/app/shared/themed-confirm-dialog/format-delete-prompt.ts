@@ -73,6 +73,7 @@ export function dependencyDeletePrompt(args: {
     'java-lsp': 'Java diagnostics and navigation stop working until you download it again.',
     gdls: 'GDScript diagnostics and navigation stop working until you download it again.',
     'rust-analyzer': 'Rust diagnostics and navigation stop working until you download it again.',
+    vtsls: 'TypeScript and JavaScript diagnostics and navigation stop working until you download it again.',
   };
   const where = args.path ? ` Files under ${args.path} are removed.` : '';
   return {

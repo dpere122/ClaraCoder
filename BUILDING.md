@@ -106,7 +106,7 @@ The CI workflow (`.github/workflows/ci.yml`) runs all three suites, the theme re
 npm run pack:dir
 ```
 
-`pack` / `pack:dir` run three bundling steps first: `bundle:python` (downloads a portable CPython into `runtime-bundle/python/`, installs `python/requirements.txt` into that interpreter, and writes `.clara-runtime-manifest.json`), `bundle:vtsls` (the TypeScript/JavaScript language server), and `bundle:rg` (a pinned ripgrep for workspace search). They then compile and invoke electron-builder. After a successful pack, `scripts/verify-packed-runtime.mjs` checks the unpacked resources (interpreter, manifest, backend sources, vtsls). Packaged output lands under `release/` (or `release-pack-<timestamp>/` if the folder is locked on Windows).
+`pack` / `pack:dir` run two bundling steps first: `bundle:python` (downloads a portable CPython into `runtime-bundle/python/`, installs `python/requirements.txt` into that interpreter, and writes `.clara-runtime-manifest.json`) and `bundle:rg` (a pinned ripgrep for workspace search). They then compile and invoke electron-builder. After a successful pack, `scripts/verify-packed-runtime.mjs` checks the unpacked resources (interpreter, manifest, backend sources, ripgrep). Packaged output lands under `release/` (or `release-pack-<timestamp>/` if the folder is locked on Windows). The TypeScript/JavaScript language server is not in the installer: users download it from the Dependencies window.
 
 In packaged builds only the bundled runtime is used. `CLARA_PYTHON`, the repo-root `.venv`, and system Python apply to development only.
 
@@ -137,6 +137,7 @@ After install (or in dev), open **Dependencies** to download optional runtime pi
 | llama-server | Managed local llama.cpp binary (no system install required) |
 | Java LSP (JDT LS) | Eclipse JDT Language Server for Java |
 | Rust LSP (rust-analyzer) | rust-analyzer for Rust; needs a Rust toolchain (cargo) and runs only in a trusted workspace |
+| TypeScript/JS LSP (vtsls) | vtsls with its own TypeScript for `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`; pinned npm tarballs from registry.npmjs.org, each sha512 verified, run by Electron in Node mode (no Node.js install needed) |
 | Kokoro TTS | Local neural TTS (CPU PyTorch + kokoro) |
 | Whisper STT | Local speech-to-text (faster-whisper, CPU CTranslate2) |
 
@@ -200,7 +201,6 @@ A signed app only installs an update signed by the same publisher (name, organiz
 | `npm run pack`              | Bundle portable Python + core deps, verify unpacked runtime, build installer (`.exe`, `.dmg`, Linux `.deb`/AppImage) |
 | `npm run pack:dir`          | Same as `pack`, but stops at the unpacked app directory (no installer) |
 | `npm run bundle:python`     | Fetch portable CPython, install requirements into the bundle, write runtime manifest |
-| `npm run bundle:vtsls`      | Assemble the bundled TypeScript/JavaScript language server into `vtsls-bundle/` |
 | `npm run bundle:rg`         | Fetch the pinned ripgrep binary into `runtime-bundle/ripgrep/` |
 | `npm run rebuild:sqlite` / `rebuild:pty` | Force-rebuild `better-sqlite3` / `node-pty` for the pinned Electron |
 | `npm run setup:python`      | Create `.venv` if needed; install deps + GPU PyTorch + Kokoro |

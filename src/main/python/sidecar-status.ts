@@ -21,3 +21,32 @@ export function setSidecarStartupState(next: SidecarStartupState): void {
     /* window closing */
   }
 }
+
+/** Restarts asked for and not yet finished, the running one included. */
+let restartsPending = 0;
+let restartQueue: Promise<void> = Promise.resolve();
+
+/**
+ * Runs a sidecar restart with the state held at `starting`. Restarts run one at a time: a second
+ * one started mid-restart would kill the first one's new process, which then reported `failed`
+ * while the second was still booting. The state settles on the last restart's outcome.
+ */
+export function runSidecarRestart(restart: () => Promise<void>): Promise<void> {
+  restartsPending += 1;
+  setSidecarStartupState('starting');
+  const run = restartQueue.then(restart);
+  restartQueue = run.catch(() => undefined);
+  const settle = (outcome: SidecarStartupState): void => {
+    restartsPending -= 1;
+    if (restartsPending === 0) {
+      setSidecarStartupState(outcome);
+    }
+  };
+  return run.then(
+    () => settle('ready'),
+    (err: unknown) => {
+      settle('failed');
+      throw err;
+    },
+  );
+}

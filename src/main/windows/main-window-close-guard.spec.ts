@@ -1,8 +1,14 @@
 import { EventEmitter } from 'node:events';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+/** The part of Electron's `before-quit` event the guard reads. */
+interface QuitEvent {
+  defaultPrevented: boolean;
+  preventDefault(): void;
+}
 
 const mocks = vi.hoisted(() => ({
-  appHandlers: new Map<string, () => void>(),
+  appHandlers: new Map<string, (event: QuitEvent) => void>(),
   quit: vi.fn(),
   streams: 0,
   subagents: 0,
@@ -10,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('electron', () => ({
   app: {
-    on: (event: string, handler: () => void) => mocks.appHandlers.set(event, handler),
+    on: (event: string, handler: (event: QuitEvent) => void) => mocks.appHandlers.set(event, handler),
     quit: mocks.quit,
   },
 }));
@@ -54,10 +60,23 @@ function fakeWindow() {
   return { win, send, state };
 }
 
-/** `app.quit()` as Electron runs it: `before-quit`, then every window is asked to close. */
-function quitThrough(win: { close(): void }): void {
-  mocks.appHandlers.get('before-quit')?.();
-  win.close();
+/**
+ * `app.quit()` as Electron runs it: `before-quit`, then every window is asked to close unless a
+ * handler cancelled the quit. `heldElsewhere` is another handler having cancelled it first.
+ * Returns whether the quit was cancelled before it reached the windows.
+ */
+function quitThrough(win: { close(): void }, heldElsewhere = false): boolean {
+  const event: QuitEvent = {
+    defaultPrevented: heldElsewhere,
+    preventDefault() {
+      this.defaultPrevented = true;
+    },
+  };
+  mocks.appHandlers.get('before-quit')?.(event);
+  if (!event.defaultPrevented) {
+    win.close();
+  }
+  return event.defaultPrevented;
 }
 
 describe('guardMainWindowClose', () => {
@@ -65,6 +84,11 @@ describe('guardMainWindowClose', () => {
     mocks.quit.mockReset();
     mocks.streams = 0;
     mocks.subagents = 0;
+  });
+
+  // The held close is module state: a test that leaves one unanswered must not hand it to the next.
+  afterEach(() => {
+    answerMainWindowCloseConfirm(false);
   });
 
   it('closes at once when no agent is running', () => {
@@ -104,6 +128,26 @@ describe('guardMainWindowClose', () => {
     expect(mocks.quit).not.toHaveBeenCalled();
   });
 
+  it('holds a quit before any window is asked to close', () => {
+    mocks.streams = 1;
+    const { win, send, state } = fakeWindow();
+    const closeAsked = vi.fn();
+    win.on('close', closeAsked);
+
+    // Electron closes every window once a quit gets past `before-quit`, so it must stop there.
+    expect(quitThrough(win)).toBe(true);
+    expect(closeAsked).not.toHaveBeenCalled();
+    expect(state.closed).toBe(false);
+    expect(send).toHaveBeenCalledWith(APP_CLOSE_CONFIRM_REQUEST_CHANNEL, { runningAgents: 1 });
+  });
+
+  it('lets a quit through when no agent is running', () => {
+    const { win, send, state } = fakeWindow();
+    expect(quitThrough(win)).toBe(false);
+    expect(state.closed).toBe(true);
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it('resumes a held quit as a quit, and lets its close through', () => {
     mocks.streams = 1;
     const { win, send, state } = fakeWindow();
@@ -129,6 +173,28 @@ describe('guardMainWindowClose', () => {
     expect(mocks.quit).not.toHaveBeenCalled();
   });
 
+  it('keeps a held quit a quit when the window is closed again before the answer', () => {
+    mocks.streams = 1;
+    const { win, send } = fakeWindow();
+    quitThrough(win);
+    win.close();
+    expect(send).toHaveBeenCalledTimes(2);
+
+    answerMainWindowCloseConfirm(true);
+    expect(mocks.quit).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a quit another handler is holding, and asks when that handler quits for real', () => {
+    mocks.streams = 1;
+    const { win, send, state } = fakeWindow();
+    quitThrough(win, true);
+    expect(send).not.toHaveBeenCalled();
+
+    expect(quitThrough(win)).toBe(true);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(state.closed).toBe(false);
+  });
+
   it('never holds a window whose renderer cannot answer', () => {
     mocks.streams = 1;
     const crashed = fakeWindow();
@@ -145,6 +211,11 @@ describe('guardMainWindowClose', () => {
     hung.win.emit('unresponsive');
     hung.win.close();
     expect(hung.state.closed).toBe(true);
+
+    const quitting = fakeWindow();
+    quitting.state.crashed = true;
+    expect(quitThrough(quitting.win)).toBe(false);
+    expect(quitting.state.closed).toBe(true);
   });
 
   it('ignores an answer when no close is held', () => {

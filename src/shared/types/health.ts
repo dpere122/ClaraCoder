@@ -36,6 +36,12 @@ export interface HealthLogRecord {
 
 export type HealthLogLevel = 'debug' | 'info' | 'warning' | 'error';
 
+/**
+ * Python sidecar boot: `starting` while it is spawned or restarted and its config synced,
+ * `ready` once it answers, `failed` when it did not come up.
+ */
+export type SidecarStartupState = 'starting' | 'ready' | 'failed';
+
 /** Aggregated runtime + dependency status for the Health window strip. */
 export interface RuntimeHealthSnapshot {
   timestampMs: number;

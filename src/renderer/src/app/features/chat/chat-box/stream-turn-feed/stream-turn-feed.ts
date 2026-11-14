@@ -102,6 +102,8 @@ export class StreamTurnFeedComponent {
    * input is set (NG0950).
    */
   readonly spinnerKindChange = output<HostedSpinnerKind | null>();
+  /** The glyph drawn for that spinner: the running tool's own, or `think` (`null` with no host). */
+  readonly spinnerGlyphChange = output<PillGlyph | null>();
 
   private readonly destroyRef = inject(DestroyRef);
   private readonly previewBody = viewChild<ElementRef<HTMLElement>>('previewBody');
@@ -309,7 +311,11 @@ export class StreamTurnFeedComponent {
 
     effect(() => {
       const kind = this.hostedSpinnerKind();
-      untracked(() => this.spinnerKindChange.emit(kind));
+      const glyph = kind === null ? null : this.hostedSpinnerGlyph();
+      untracked(() => {
+        this.spinnerGlyphChange.emit(glyph);
+        this.spinnerKindChange.emit(kind);
+      });
     });
   }
 

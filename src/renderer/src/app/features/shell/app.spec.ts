@@ -316,6 +316,100 @@ describe('App', () => {
     expect(saved.chatExpandedToMainPanel).toBe(true);
   });
 
+  describe('while the sidecar starts', () => {
+    const workspaces = [
+      { id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'ws-b', name: 'B', path: 'C:/tmp/b', createdAt: '2026-01-01T00:00:00.000Z' },
+    ];
+    type GatedApp = {
+      currentWorkspaceId: { (): string | null };
+      onWorkspaceChanged(id: string | null): Promise<void>;
+    };
+
+    /** Reports `starting` until the returned function pushes another state, as the main process does. */
+    function stubSidecarStarting(): (state: string) => void {
+      let handler: ((event: unknown, state: string) => void) | null = null;
+      Object.assign(window.electronAPI as object, {
+        sidecarStartupState: async () => 'starting',
+        onSidecarStartupState: (cb: (event: unknown, state: string) => void) => {
+          handler = cb;
+        },
+        offSidecarStartupState: () => undefined,
+      });
+      return (state) => handler?.(null, state);
+    }
+
+    it('does not open a workspace until the sidecar is ready', async () => {
+      refs = stubElectronApi(undefined, { workspaces });
+      const push = stubSidecarStarting();
+      const fixture = TestBed.createComponent(App);
+      await fixture.whenStable();
+      const app = fixture.componentInstance as unknown as GatedApp;
+
+      await app.onWorkspaceChanged('ws-a');
+      expect(app.currentWorkspaceId()).toBeNull();
+
+      push('ready');
+      await app.onWorkspaceChanged('ws-a');
+      expect(app.currentWorkspaceId()).toBe('ws-a');
+    });
+
+    it('still closes the open workspace', async () => {
+      refs = stubElectronApi(undefined, { currentWorkspaceId: 'ws-b', workspaces });
+      stubSidecarStarting();
+      const fixture = TestBed.createComponent(App);
+      await fixture.whenStable();
+      const app = fixture.componentInstance as unknown as GatedApp;
+
+      await app.onWorkspaceChanged(null);
+      expect(app.currentWorkspaceId()).toBeNull();
+    });
+
+    it('does not start a conversation from File > New Agent until the sidecar is ready', async () => {
+      refs = stubElectronApi(undefined, { currentWorkspaceId: 'ws-b', workspaces });
+      const push = stubSidecarStarting();
+      const fixture = TestBed.createComponent(App);
+      await fixture.whenStable();
+      const onNewConversation = vi.fn();
+      const app = fixture.componentInstance as unknown as {
+        onMenuFileCommand(command: { action: string }): void;
+        onChromeNewAgent(): void;
+        onNewConversation: typeof onNewConversation;
+      };
+      app.onNewConversation = onNewConversation;
+
+      app.onMenuFileCommand({ action: 'new-agent' });
+      app.onChromeNewAgent();
+      expect(onNewConversation).not.toHaveBeenCalled();
+
+      push('ready');
+      app.onMenuFileCommand({ action: 'new-agent' });
+      app.onChromeNewAgent();
+      expect(onNewConversation).toHaveBeenCalledTimes(2);
+    });
+
+    it('covers the chat panel of an open workspace until the sidecar is ready', async () => {
+      refs = stubElectronApi(undefined, { currentWorkspaceId: 'ws-b', workspaces });
+      const push = stubSidecarStarting();
+      const fixture = TestBed.createComponent(App);
+      await fixture.whenStable();
+      const host = fixture.nativeElement as HTMLElement;
+
+      expect(host.querySelector('.chat-hub__body-wrap--loading')).toBeTruthy();
+      expect(host.querySelector('.chat-hub__loading-text')?.textContent).toContain('Starting backend');
+      expect(host.querySelector('.chat-hub__loading-overlay app-grid-spinner')).toBeTruthy();
+      expect(host.querySelector('.chat-hub__body')?.hasAttribute('inert')).toBe(true);
+      expect((host.querySelector('.chat-hub__new-conv') as HTMLButtonElement).disabled).toBe(true);
+
+      push('ready');
+      await fixture.whenStable();
+
+      expect(host.querySelector('.chat-hub__body-wrap--loading')).toBeNull();
+      expect(host.querySelector('.chat-hub__loading-overlay')).toBeNull();
+      expect(host.querySelector('.chat-hub__body')?.hasAttribute('inert')).toBe(false);
+    });
+  });
+
   describe('default expanded chat with no editor tab', () => {
     const workspaces = [
       { id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' },

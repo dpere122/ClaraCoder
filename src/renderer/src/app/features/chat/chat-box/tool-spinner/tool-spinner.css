@@ -5,22 +5,26 @@ app-tool-spinner {
 }
 
 app-tool-spinner .tool-spinner {
+  --ts-ease: cubic-bezier(0.4, 0, 0.2, 1);
   display: block;
   width: 100%;
   height: 100%;
   overflow: visible;
 }
 
+/* Two tones: the drawing in the primary colour, the part that moves in the secondary. */
 app-tool-spinner .ts-line {
   stroke: var(--t-primary);
 }
 
-app-tool-spinner .ts-hi {
-  stroke: var(--t-secondary);
+/* Quieter line work. Stroke opacity, so an element's own opacity stays free for its motion. */
+app-tool-spinner .ts-soft {
+  stroke: var(--t-primary);
+  stroke-opacity: 0.42;
 }
 
-app-tool-spinner .ts-third {
-  stroke: var(--t-hljs-number, var(--t-primary));
+app-tool-spinner .ts-hi {
+  stroke: var(--t-secondary);
 }
 
 app-tool-spinner .ts-dot {
@@ -31,75 +35,53 @@ app-tool-spinner .ts-dot-line {
   fill: var(--t-primary);
 }
 
-app-tool-spinner .ts-dot-third {
-  fill: var(--t-hljs-number, var(--t-primary));
-}
-
-/* Soft tints inside a tool glyph's shapes; `-bg` covers what sits behind an overlapping shape. */
-app-tool-spinner .ts-fill {
-  fill: color-mix(in srgb, var(--t-primary) 14%, transparent);
-}
-
-app-tool-spinner .ts-fill-hi {
-  fill: color-mix(in srgb, var(--t-secondary) 18%, transparent);
-}
-
-app-tool-spinner .ts-fill-bg {
-  fill: var(--t-bg);
-}
-
-app-tool-spinner .ts-bold {
-  stroke-width: 2.4;
-}
-
 app-tool-spinner .ts-thin {
-  stroke-width: 1.4;
-}
-
-app-tool-spinner .ts-mid {
-  transform-origin: 16px 16px;
+  stroke-width: 1.25;
 }
 
 app-tool-spinner .ts-d1 {
-  animation-delay: 0.3s !important;
+  animation-delay: 0.25s !important;
 }
 
 app-tool-spinner .ts-d2 {
-  animation-delay: 0.6s !important;
+  animation-delay: 0.5s !important;
 }
 
+/* Motion. Every glyph's resting frame is its icon, which `--still` and reduced motion show. */
 app-tool-spinner .ts-pulse {
-  animation: ts-pulse 1.5s ease-in-out infinite;
+  animation: ts-pulse 1.6s ease-in-out infinite;
 }
 
 app-tool-spinner .ts-wave {
   animation: ts-wave 1.6s ease-in-out infinite;
 }
 
-app-tool-spinner .ts-cw {
-  transform-origin: 16px 16px;
-  animation: ts-spin 6s linear infinite;
+app-tool-spinner .ts-hop {
+  animation: ts-hop 1.4s ease-in-out infinite;
 }
 
-app-tool-spinner .ts-scan {
-  animation: ts-scan 2.4s ease-in-out infinite;
-}
-
-app-tool-spinner .ts-node {
+app-tool-spinner .ts-pop,
+app-tool-spinner .ts-twinkle,
+app-tool-spinner .ts-lock,
+app-tool-spinner .ts-meridian,
+app-tool-spinner .ts-emerge,
+app-tool-spinner .ts-pf-ripple {
   transform-box: fill-box;
   transform-origin: center;
-  animation: ts-node 1.6s ease-out infinite;
 }
 
-/* Tool glyph motion. Every glyph's resting frame is its icon, which `--still` and reduced motion show. */
+app-tool-spinner .ts-pop {
+  animation: ts-pop 1.6s var(--ts-ease) infinite;
+}
+
 app-tool-spinner .ts-blink {
-  animation: ts-blink 1s step-end infinite;
+  animation: ts-blink 1.1s step-end infinite;
 }
 
 /* A whole `pathLength="1"` path is one dash, so at rest (offset 0) the stroke is fully drawn. */
 app-tool-spinner .ts-draw {
   stroke-dasharray: 1;
-  animation: ts-draw 2.4s ease-in-out infinite;
+  animation: ts-draw 2.4s var(--ts-ease) infinite;
 }
 
 app-tool-spinner .ts-drain {
@@ -107,21 +89,34 @@ app-tool-spinner .ts-drain {
   animation: ts-drain 2.4s linear infinite;
 }
 
+app-tool-spinner .ts-spin,
+app-tool-spinner .ts-orbit,
+app-tool-spinner .ts-turn,
+app-tool-spinner .ts-flip,
+app-tool-spinner .ts-halt,
+app-tool-spinner .ts-pf-dial,
+app-tool-spinner .ts-pf-dial-in {
+  transform-origin: 12px 12px;
+}
+
+app-tool-spinner .ts-spin {
+  animation: ts-spin 1.1s linear infinite;
+}
+
 app-tool-spinner .ts-orbit {
-  animation: ts-spin 2.4s linear infinite;
+  animation: ts-spin 3s linear infinite;
+}
+
+app-tool-spinner .ts-turn {
+  animation: ts-spin 9s linear infinite;
+}
+
+app-tool-spinner .ts-scan {
+  animation: ts-scan 2.2s ease-in-out infinite;
 }
 
 app-tool-spinner .ts-sweep {
-  animation: ts-sweep 2s ease-in-out infinite;
-}
-
-app-tool-spinner .ts-twinkle,
-app-tool-spinner .ts-lock,
-app-tool-spinner .ts-tip,
-app-tool-spinner .ts-meridian,
-app-tool-spinner .ts-emerge {
-  transform-box: fill-box;
-  transform-origin: center;
+  animation: ts-sweep 2.4s linear infinite;
 }
 
 app-tool-spinner .ts-twinkle {
@@ -129,47 +124,37 @@ app-tool-spinner .ts-twinkle {
 }
 
 app-tool-spinner .ts-lock {
-  animation: ts-lock 1.8s ease-out infinite;
+  animation: ts-lock 2s var(--ts-ease) infinite;
 }
 
 app-tool-spinner .ts-tip {
-  animation: ts-tip 2.2s ease-out infinite;
+  animation: ts-tip 2.2s var(--ts-ease) infinite;
 }
 
 app-tool-spinner .ts-meridian {
-  animation: ts-meridian 2.4s linear infinite;
+  animation: ts-meridian 2.6s ease-in-out infinite;
 }
 
 app-tool-spinner .ts-emerge {
-  animation: ts-emerge 2.4s ease-out infinite;
-}
-
-app-tool-spinner .ts-emerge-l {
-  --ts-tx: 7px;
-  --ts-ty: -13px;
-}
-
-app-tool-spinner .ts-emerge-r {
-  --ts-tx: -7px;
-  --ts-ty: -13px;
+  animation: ts-emerge 2.4s var(--ts-ease) infinite;
 }
 
 app-tool-spinner .ts-rows {
-  animation: ts-rows 2.4s ease-in-out infinite;
+  animation: ts-rows 2.4s var(--ts-ease) infinite;
 }
 
 app-tool-spinner .ts-scroll {
-  animation: ts-scroll 3s ease-in-out infinite;
+  animation: ts-scroll 2.8s ease-in-out infinite;
 }
 
 app-tool-spinner .ts-nudge-l {
-  animation: ts-nudge 1.4s ease-in-out infinite;
-  --ts-dx: -1.4px;
+  animation: ts-nudge 1.6s ease-in-out infinite;
+  --ts-dx: -1px;
 }
 
 app-tool-spinner .ts-nudge-r {
-  animation: ts-nudge 1.4s ease-in-out infinite;
-  --ts-dx: 1.4px;
+  animation: ts-nudge 1.6s ease-in-out infinite;
+  --ts-dx: 1px;
 }
 
 app-tool-spinner .ts-packet {
@@ -177,40 +162,44 @@ app-tool-spinner .ts-packet {
 }
 
 app-tool-spinner .ts-drop {
-  animation: ts-drop 2s ease-out infinite;
+  animation: ts-drop 2s var(--ts-ease) infinite;
 }
 
-app-tool-spinner .ts-scribble {
-  animation: ts-scribble 0.8s ease-in-out infinite;
+app-tool-spinner .ts-write {
+  animation: ts-write 1.2s ease-in-out infinite;
+}
+
+/* Timed with `ts-draw`: the caret reaches the end of the line as it finishes drawing. */
+app-tool-spinner .ts-caret {
+  animation: ts-caret 2.4s var(--ts-ease) infinite;
 }
 
 app-tool-spinner .ts-snap {
-  animation: ts-snap 2.4s cubic-bezier(0.5, 0, 0.2, 1.4) infinite;
+  animation: ts-snap 2.4s var(--ts-ease) infinite;
 }
 
 app-tool-spinner .ts-dx-a {
-  --ts-dx: -3px;
-}
-
-app-tool-spinner .ts-dx-b {
-  --ts-dx: 4px;
-}
-
-app-tool-spinner .ts-dx-c {
   --ts-dx: -2.5px;
 }
 
+app-tool-spinner .ts-dx-b {
+  --ts-dx: 2px;
+}
+
+app-tool-spinner .ts-dx-c {
+  --ts-dx: -2px;
+}
+
 app-tool-spinner .ts-dx-d {
-  --ts-dx: 3px;
+  --ts-dx: 2.5px;
 }
 
 app-tool-spinner .ts-peel {
-  animation: ts-peel 2.4s ease-in-out infinite;
+  animation: ts-peel 2.4s var(--ts-ease) infinite;
 }
 
 app-tool-spinner .ts-lid {
-  transform-origin: 25px 8px;
-  animation: ts-lid 1.6s ease-in-out infinite;
+  animation: ts-lid 1.8s ease-in-out infinite;
 }
 
 app-tool-spinner .ts-steam {
@@ -218,33 +207,29 @@ app-tool-spinner .ts-steam {
 }
 
 app-tool-spinner .ts-fetch {
-  animation: ts-fetch 1.6s ease-in infinite;
+  animation: ts-fetch 1.6s var(--ts-ease) infinite;
 }
 
 app-tool-spinner .ts-flip {
-  animation: ts-flip 2.4s ease-in-out infinite;
+  animation: ts-flip 2.6s ease-in-out infinite;
 }
 
 app-tool-spinner .ts-sand-top {
-  transform-origin: 16px 13px;
-  animation: ts-sand-top 2.4s linear infinite;
+  transform-origin: 12px 9.6px;
+  animation: ts-sand-top 2.6s linear infinite;
 }
 
 app-tool-spinner .ts-sand-bot {
-  transform-origin: 16px 25.5px;
-  animation: ts-sand-bot 2.4s linear infinite;
+  transform-origin: 12px 18.8px;
+  animation: ts-sand-bot 2.6s linear infinite;
 }
 
 app-tool-spinner .ts-halt {
   animation: ts-halt 2.4s cubic-bezier(0.2, 0.7, 0.3, 1) infinite;
 }
 
-app-tool-spinner .ts-tone {
-  animation: ts-tone 3s linear infinite;
-}
-
 app-tool-spinner .ts-plug {
-  animation: ts-plug 1.4s ease-in-out infinite;
+  animation: ts-plug 1.6s ease-in-out infinite;
 }
 
 @keyframes ts-spin {
@@ -256,19 +241,19 @@ app-tool-spinner .ts-plug {
 @keyframes ts-pulse {
   0%,
   100% {
-    opacity: 0.2;
+    opacity: 0.3;
   }
 
-  35% {
+  50% {
     opacity: 1;
   }
 }
 
 @keyframes ts-wave {
   0%,
-  60%,
+  55%,
   100% {
-    opacity: 0.15;
+    opacity: 0.28;
   }
 
   20% {
@@ -276,37 +261,31 @@ app-tool-spinner .ts-plug {
   }
 }
 
-/* Resting frame is mid-sweep, so the still beam sits on the middle line. */
-@keyframes ts-scan {
+@keyframes ts-hop {
   0%,
+  60%,
   100% {
+    opacity: 0.35;
     transform: translateY(0);
   }
 
   25% {
-    transform: translateY(-7px);
-  }
-
-  75% {
-    transform: translateY(7px);
+    opacity: 1;
+    transform: translateY(-2.5px);
   }
 }
 
-@keyframes ts-node {
+@keyframes ts-pop {
   0%,
+  60%,
   100% {
-    opacity: 0.2;
-    transform: scale(0.6);
+    opacity: 0.3;
+    transform: scale(0.7);
   }
 
   25% {
     opacity: 1;
-    transform: scale(1.2);
-  }
-
-  55% {
-    opacity: 0.2;
-    transform: scale(0.6);
+    transform: scale(1);
   }
 }
 
@@ -317,7 +296,7 @@ app-tool-spinner .ts-plug {
   }
 
   50% {
-    opacity: 0.1;
+    opacity: 0.15;
   }
 }
 
@@ -342,6 +321,22 @@ app-tool-spinner .ts-plug {
   }
 }
 
+/* Resting frame is mid-sweep, so the still beam sits on the middle of the frame. */
+@keyframes ts-scan {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  25% {
+    transform: translateY(-4.5px);
+  }
+
+  75% {
+    transform: translateY(4.5px);
+  }
+}
+
 @keyframes ts-sweep {
   0%,
   100% {
@@ -349,35 +344,35 @@ app-tool-spinner .ts-plug {
   }
 
   25% {
-    transform: translate(-1.6px, -1.4px);
+    transform: translate(-1.2px, -1px);
   }
 
   50% {
-    transform: translate(0, -2.6px);
+    transform: translate(0, -1.8px);
   }
 
   75% {
-    transform: translate(1.6px, -1.4px);
+    transform: translate(1.2px, -1px);
   }
 }
 
 @keyframes ts-twinkle {
   0%,
   100% {
-    opacity: 0.35;
-    transform: scale(0.55) rotate(0deg);
+    opacity: 0.4;
+    transform: scale(0.6);
   }
 
-  45% {
+  50% {
     opacity: 1;
-    transform: scale(1.1) rotate(45deg);
+    transform: scale(1);
   }
 }
 
 @keyframes ts-lock {
   0% {
-    opacity: 0.2;
-    transform: scale(1.35);
+    opacity: 0.25;
+    transform: scale(1.25);
   }
 
   45%,
@@ -387,7 +382,7 @@ app-tool-spinner .ts-plug {
   }
 
   100% {
-    opacity: 0.2;
+    opacity: 0.25;
     transform: scale(1);
   }
 }
@@ -396,18 +391,18 @@ app-tool-spinner .ts-plug {
   0%,
   15% {
     opacity: 0;
-    transform: translate(-2px, 3px) scale(0.85);
+    transform: translateY(2px);
   }
 
   35%,
   85% {
     opacity: 1;
-    transform: translate(0, 0) scale(1);
+    transform: translateY(0);
   }
 
   100% {
     opacity: 0;
-    transform: translate(0, 0) scale(1);
+    transform: translateY(0);
   }
 }
 
@@ -415,11 +410,6 @@ app-tool-spinner .ts-plug {
   0%,
   100% {
     transform: scaleX(1);
-  }
-
-  25%,
-  75% {
-    transform: scaleX(0.05);
   }
 
   50% {
@@ -430,22 +420,22 @@ app-tool-spinner .ts-plug {
 @keyframes ts-emerge {
   0% {
     opacity: 0;
-    transform: translate(var(--ts-tx, 0), var(--ts-ty, 0)) scale(0.5);
+    transform: scale(0.4);
   }
 
   40%,
   85% {
     opacity: 1;
-    transform: translate(0, 0) scale(1);
+    transform: scale(1);
   }
 
   100% {
     opacity: 0;
-    transform: translate(0, 0) scale(1);
+    transform: scale(1);
   }
 }
 
-/* Reading bar on the plan clipboard: three rows 5.5 units apart. */
+/* Marker on the plan clipboard: three rows 3.25 units apart. */
 @keyframes ts-rows {
   0%,
   20%,
@@ -455,12 +445,12 @@ app-tool-spinner .ts-plug {
 
   33%,
   53% {
-    transform: translateY(5.5px);
+    transform: translateY(3.25px);
   }
 
   66%,
   86% {
-    transform: translateY(11px);
+    transform: translateY(6.5px);
   }
 }
 
@@ -473,7 +463,7 @@ app-tool-spinner .ts-plug {
 
   50%,
   60% {
-    transform: translateY(10px);
+    transform: translateY(8.5px);
   }
 }
 
@@ -491,7 +481,7 @@ app-tool-spinner .ts-plug {
 @keyframes ts-packet {
   0% {
     opacity: 0;
-    transform: translateX(-5px);
+    transform: translateX(-3px);
   }
 
   20%,
@@ -501,14 +491,14 @@ app-tool-spinner .ts-plug {
 
   100% {
     opacity: 0;
-    transform: translateX(5px);
+    transform: translateX(3px);
   }
 }
 
 @keyframes ts-drop {
   0% {
     opacity: 0;
-    transform: translateY(-5px);
+    transform: translateY(-3.5px);
   }
 
   35%,
@@ -523,18 +513,25 @@ app-tool-spinner .ts-plug {
   }
 }
 
-@keyframes ts-scribble {
+@keyframes ts-write {
   0%,
   100% {
-    transform: translate(0, 0);
+    transform: translateX(0);
   }
 
-  25% {
-    transform: translate(-1px, -1px);
+  50% {
+    transform: translateX(-1.4px);
+  }
+}
+
+@keyframes ts-caret {
+  0% {
+    transform: translateX(-6.5px);
   }
 
-  75% {
-    transform: translate(1px, 0.6px);
+  40%,
+  100% {
+    transform: translateX(0);
   }
 }
 
@@ -542,7 +539,7 @@ app-tool-spinner .ts-plug {
   0%,
   10%,
   100% {
-    opacity: 0.45;
+    opacity: 0.5;
     transform: translateX(var(--ts-dx, 0));
   }
 
@@ -557,7 +554,7 @@ app-tool-spinner .ts-plug {
   0%,
   10% {
     opacity: 0;
-    transform: translate(-7px, -7px);
+    transform: translate(-4px, -4px);
   }
 
   45%,
@@ -575,19 +572,19 @@ app-tool-spinner .ts-plug {
 @keyframes ts-lid {
   0%,
   100% {
-    transform: rotate(0deg) translateY(0);
+    transform: translateY(0);
   }
 
-  40%,
+  45%,
   60% {
-    transform: rotate(16deg) translateY(-1.5px);
+    transform: translateY(-1.75px);
   }
 }
 
 @keyframes ts-steam {
   0% {
     opacity: 0;
-    transform: translateY(2px);
+    transform: translateY(1.5px);
   }
 
   35% {
@@ -596,28 +593,28 @@ app-tool-spinner .ts-plug {
 
   100% {
     opacity: 0;
-    transform: translateY(-3px);
+    transform: translateY(-2px);
   }
 }
 
 @keyframes ts-fetch {
   0% {
     opacity: 0;
-    transform: translateY(-6px);
+    transform: translateY(-4.5px);
   }
 
   30% {
     opacity: 1;
   }
 
-  75% {
+  70% {
     opacity: 1;
     transform: translateY(0);
   }
 
   100% {
     opacity: 0;
-    transform: translateY(1px);
+    transform: translateY(0);
   }
 }
 
@@ -674,21 +671,6 @@ app-tool-spinner .ts-plug {
   }
 }
 
-@keyframes ts-tone {
-  0%,
-  100% {
-    stroke: var(--t-primary);
-  }
-
-  33% {
-    stroke: var(--t-secondary);
-  }
-
-  66% {
-    stroke: var(--t-hljs-number, var(--t-primary));
-  }
-}
-
 @keyframes ts-plug {
   0%,
   100% {
@@ -696,7 +678,7 @@ app-tool-spinner .ts-plug {
   }
 
   50% {
-    transform: translateY(-1.6px);
+    transform: translateY(-1.4px);
   }
 }
 
@@ -705,48 +687,36 @@ app-tool-spinner .ts-pf-fall {
   animation: ts-pf-fall 2s ease-in infinite;
 }
 
-app-tool-spinner .ts-pf-ripple,
-app-tool-spinner .ts-pf-ripple-2 {
-  transform-box: fill-box;
-  transform-origin: center;
-}
-
 app-tool-spinner .ts-pf-ripple {
   animation: ts-pf-ripple 2s ease-out infinite;
 }
 
-app-tool-spinner .ts-pf-ripple-2 {
-  animation: ts-pf-ripple-2 2s ease-out infinite;
-}
-
 app-tool-spinner .ts-pf-flap-l {
-  transform-origin: 12px 16px;
+  transform-origin: 9.5px 12px;
   animation: ts-pf-flap 2.4s ease-in-out infinite;
 }
 
 app-tool-spinner .ts-pf-flap-r {
-  transform-origin: 20px 16px;
-  animation: ts-pf-flap 2.4s ease-in-out 0.25s infinite;
+  transform-origin: 14.5px 12px;
+  animation: ts-pf-flap 2.4s ease-in-out 0.2s infinite;
 }
 
 app-tool-spinner .ts-pf-dial {
-  transform-origin: 16px 16px;
   animation: ts-spin 3.2s steps(8) infinite;
 }
 
 app-tool-spinner .ts-pf-dial-in {
-  transform-origin: 16px 16px;
-  animation: ts-spin 2.4s steps(6) infinite reverse;
+  animation: ts-spin 2s linear infinite reverse;
 }
 
 app-tool-spinner .ts-pf-wave-a {
   animation: ts-pf-wave 2.6s ease-in-out infinite;
-  --ts-dx: -3px;
+  --ts-dx: -2.25px;
 }
 
 app-tool-spinner .ts-pf-wave-b {
   animation: ts-pf-wave 2.6s ease-in-out infinite;
-  --ts-dx: 3px;
+  --ts-dx: 2.25px;
 }
 
 app-tool-spinner .ts-pf-tuned {
@@ -756,7 +726,7 @@ app-tool-spinner .ts-pf-tuned {
 @keyframes ts-pf-fall {
   0% {
     opacity: 0;
-    transform: translateY(-2px);
+    transform: translateY(-1.5px);
   }
 
   10% {
@@ -766,13 +736,13 @@ app-tool-spinner .ts-pf-tuned {
 
   38% {
     opacity: 1;
-    transform: translateY(6.5px);
+    transform: translateY(8px);
   }
 
   46%,
   100% {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(9.5px);
   }
 }
 
@@ -790,25 +760,7 @@ app-tool-spinner .ts-pf-tuned {
 
   100% {
     opacity: 0;
-    transform: scale(3);
-  }
-}
-
-@keyframes ts-pf-ripple-2 {
-  0%,
-  54% {
-    opacity: 0;
-    transform: scale(0.5);
-  }
-
-  60% {
-    opacity: 0.8;
-    transform: scale(1);
-  }
-
-  100% {
-    opacity: 0;
-    transform: scale(2.2);
+    transform: scale(2.6);
   }
 }
 
@@ -821,7 +773,7 @@ app-tool-spinner .ts-pf-tuned {
 
   45%,
   60% {
-    transform: scaleX(0.1);
+    transform: scaleX(0.15);
   }
 }
 

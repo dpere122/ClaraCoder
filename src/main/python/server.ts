@@ -6,6 +6,7 @@ import { app, dialog } from 'electron';
 import { mainState } from '../state';
 import { PYTHON_PORT, PYTHON_URL } from '../constants';
 import { getPythonSidecarToken, pythonControlFetch, setPythonSidecarToken } from './http-client';
+import { runSidecarRestart } from './sidecar-status';
 import {
   consumePythonResolutionNotes,
   getBundledRuntimeDir,
@@ -183,7 +184,11 @@ async function resyncRuntimeConfigAfterSidecarRestart(): Promise<void> {
  * Kill the managed sidecar (if any) and start a fresh process using the current
  * ``getPythonExecutable()`` (so post-install runtime venv / Kokoro is picked up).
  */
-export async function restartPythonServer(): Promise<void> {
+export function restartPythonServer(): Promise<void> {
+  return runSidecarRestart(restartPythonServerNow);
+}
+
+async function restartPythonServerNow(): Promise<void> {
   if (mainState.pythonProcess) {
     console.log('[Python] Restarting sidecar to pick up runtime changes…');
     stopPythonSidecar();

@@ -74,6 +74,29 @@ describe('StreamTurnFeedComponent activity blocks', () => {
     expect(el.querySelector('.stream-turn-feed__activity .stream-tool-pill__meta')?.textContent).toContain('Read a.py');
   });
 
+  it('reports the glyph its pill animates, so the conversation list can draw the same one', () => {
+    const fixture = TestBed.createComponent(StreamTurnFeedComponent);
+    const kinds: (string | null)[] = [];
+    const glyphs: (string | null)[] = [];
+    fixture.componentInstance.spinnerKindChange.subscribe((kind) => kinds.push(kind));
+    fixture.componentInstance.spinnerGlyphChange.subscribe((glyph) => glyphs.push(glyph));
+    fixture.componentRef.setInput('items', [readStep, searching]);
+    fixture.componentRef.setInput('live', true);
+    fixture.componentRef.setInput('spinnerActive', true);
+    fixture.componentRef.setInput('thinkingDisplay', 'pill');
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('.stream-tool-pill__spinner .ts-sweep')).not.toBeNull();
+    expect(glyphs.at(-1)).toBe('search');
+    expect(kinds.at(-1)).toBe('read');
+
+    fixture.componentRef.setInput('spinnerActive', false);
+    fixture.detectChanges();
+    expect(glyphs.at(-1)).toBeNull();
+    expect(kinds.at(-1)).toBeNull();
+  });
+
   it('glows Running for an approved command while its card still reads as pending', () => {
     const fixture = TestBed.createComponent(StreamTurnFeedComponent);
     fixture.componentRef.setInput('items', [commandLane]);

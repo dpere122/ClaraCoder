@@ -172,6 +172,7 @@
             [spinnerActive]="liveSpinnerActive()"
             [thinkingDisplay]="thinkingDisplay()"
             (spinnerKindChange)="liveFeedSpinnerKind.set($event)"
+            (spinnerGlyphChange)="liveFeedSpinnerGlyph.set($event)"
           />
         }
         @if (liveSpinnerActive() && !liveFeedHostsSpinner()) {

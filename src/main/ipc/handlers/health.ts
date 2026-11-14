@@ -6,12 +6,14 @@ import type {
   HealthLogRecord,
   HealthMetricsSnapshot,
   RuntimeHealthSnapshot,
+  SidecarStartupState,
 } from '../../../shared';
 import { defaultDependencyCatalog } from '../../../shared';
 import { PYTHON_PORT } from '../../constants';
 import { summarizeManagedLlamaRuntime } from '../../llama-server-manager';
 import { getPythonSidecarToken, pythonControlFetch } from '../../python/http-client';
 import { isPythonHealthy } from '../../python/server';
+import { getSidecarStartupState } from '../../python/sidecar-status';
 import { listDependencies } from '../../runtime/dependency-manager';
 import { enumerateGpus, NVIDIA_VENDOR_ID, AMD_VENDOR_ID } from '../../utils/dxgi-gpu';
 import { getNvidiaStats, listNvidiaCudaGpus, shutdownNvml } from '../../utils/nvml-gpu';
@@ -413,6 +415,15 @@ export function registerHealthIpc(): void {
       };
     }
     return collectRuntimeHealthSnapshot();
+  });
+
+  ipcMain.handle('sidecar-startup-state', (event): SidecarStartupState => {
+    try {
+      assertTrustedAppRenderer(event);
+    } catch {
+      return 'failed';
+    }
+    return getSidecarStartupState();
   });
 
   ipcMain.handle('health-logs-recent', async (event, limit: number) => {

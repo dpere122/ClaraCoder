@@ -8,6 +8,7 @@ import {
   sortNonFavoriteWorkspaces,
 } from '@shared/index';
 import { LucideAngularModule } from 'lucide-angular';
+import { GridSpinnerComponent } from '../../../shared/grid-spinner/grid-spinner';
 import { LlamaStatusIndicator } from '../../status/llama-status-indicator/llama-status-indicator';
 import { ManagedLlamaControlsComponent } from '../../status/managed-llama-controls/managed-llama-controls';
 import { HomeSubagentsComponent } from './home-subagents/home-subagents';
@@ -22,6 +23,7 @@ import { HomeSubagentsComponent } from './home-subagents/home-subagents';
     ManagedLlamaControlsComponent,
     LlamaStatusIndicator,
     HomeSubagentsComponent,
+    GridSpinnerComponent,
   ],
   templateUrl: './main-panel-empty-state.html',
   styleUrl: './main-panel-empty-state.css',
@@ -37,6 +39,8 @@ export class MainPanelEmptyStateComponent {
   readonly joinMainWindow = output<void>();
   /** Names core dependencies that still need downloading; non-empty flags the Dependencies action. */
   readonly missingDependencies = input('');
+  /** The Python sidecar is still booting: workspaces can't be opened yet. */
+  readonly sidecarLoading = input(false);
   readonly addWorkspace = output<void>();
   readonly openWorkspace = output<string>();
   readonly toggleFavorite = output<string>();

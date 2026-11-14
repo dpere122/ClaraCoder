@@ -90,6 +90,7 @@
               type='button'
               class='chrome-dropdown-menu-item'
               role='menuitem'
+              [disabled]='sidecarLoading()'
               (mouseenter)='onChromeFileItemEnter()'
               (mousedown)='onChromeMenuItemMousedown($event); onChromeOpenFolder()'
             >
@@ -144,7 +145,7 @@
               type='button'
               class='chrome-dropdown-menu-item'
               role='menuitem'
-              [disabled]='!hasOpenWorkspace()'
+              [disabled]='!hasOpenWorkspace() || sidecarLoading()'
               (mouseenter)='onChromeFileItemEnter()'
               (mousedown)='onChromeMenuItemMousedown($event); onChromeNewAgent()'
             >
@@ -186,6 +187,7 @@
                 class='chrome-dropdown-menu-item'
                 role='menuitem'
                 [class.is-current]='ws.id === currentWorkspaceId()'
+                [disabled]='sidecarLoading()'
                 [attr.aria-current]='ws.id === currentWorkspaceId() ? "true" : null'
                 (mousedown)='onChromeMenuItemMousedown($event); onChromeOpenRecentWorkspace(ws.id)'
               >
@@ -290,6 +292,7 @@
               [mainWindowWorkspace]='mainWindowWorkspace()'
               (joinMainWindow)='onJoinMainWindow()'
               [missingDependencies]='coreDependenciesAlert()'
+              [sidecarLoading]='sidecarLoading()'
               (addWorkspace)='onAddWorkspace()'
               (openWorkspace)='onWorkspaceChanged($event)'
               (toggleFavorite)='onToggleWorkspaceFavorite($event)'
@@ -368,10 +371,11 @@
           @if (chatExpanded()) {
             <div
               class='chat-area__chat-expanded-overlay'
-              [class.chat-area__chat-expanded-overlay--loading]='creatingConversation()'
+              [class.chat-area__chat-expanded-overlay--loading]='chatBusy()'
             >
               <app-chat-active-stack
                 class='chat-area__panel-host'
+                [attr.inert]='sidecarLoading() ? "" : null'
                 layout='expanded'
                 [messages]='messages()'
                 [conversationId]='activeConversationId()'
@@ -423,23 +427,17 @@
                 (reasoningEffortChange)='onReasoningEffortChange($event)'
                 [composerThinking]='composerThinking()'
               />
-              @if (creatingConversation()) {
+              @if (chatBusy()) {
                 <div
                   class='chat-area__new-conv-loading-overlay'
                   role='status'
                   aria-live='polite'
-                  aria-label='Starting new conversation'
+                  [attr.aria-label]='sidecarLoading() ? "Starting backend" : "Starting new conversation"'
                 >
-                  <span class='chat-area__new-conv-loading-spinner-host' aria-hidden='true'>
-                    <ngx-spinner
-                      [name]='newConvExpandedSpinnerName'
-                      type='ball-atom'
-                      [fullScreen]='false'
-                      bdColor='rgba(0,0,0,0)'
-                      size='medium'
-                      color='var(--t-primary)'
-                    ></ngx-spinner>
-                  </span>
+                  <app-grid-spinner class='chat-area__new-conv-loading-spinner' />
+                  @if (sidecarLoading()) {
+                    <span class='chat-area__new-conv-loading-text' aria-hidden='true'>Starting backend…</span>
+                  }
                 </div>
               }
             </div>
@@ -482,6 +480,7 @@
         [activeConversationId]='activeConversationId()'
         [conversationActivity]='conversationActivity()'
         [creatingConversation]='creatingConversation()'
+        [sidecarLoading]='sidecarLoading()'
         (newConversation)='onNewConversation()'
         (selectConversation)='onSelectConversation($event)'
         (deleteConversation)='onDeleteConversation($event)'

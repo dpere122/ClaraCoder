@@ -50,6 +50,7 @@ import { StreamTurnFeedComponent } from './stream-turn-feed/stream-turn-feed';
 import { ToolSpinnerComponent } from './tool-spinner/tool-spinner';
 import { TurnEditsFooterComponent, type TurnDiffOpenRequest } from './turn-edits-footer/turn-edits-footer';
 import type { HostedSpinnerKind } from './stream-turn-feed/stream-turn-feed';
+import type { PillGlyph } from './tool-spinner-kind';
 import { LiveTurnActivityService } from './live-turn-activity';
 import { turnGenerationSummary } from './generation-rate';
 import {
@@ -72,6 +73,7 @@ import {
   isChatTranscriptScrollable,
   isLiveReplyStreaming,
   isProseLatestLiveFeedEvent,
+  inFlightToolGlyph,
   inFlightToolSpinnerKind,
   isStickFromSlack,
   isUserScrollUp,
@@ -86,16 +88,17 @@ import {
   resolveLiveAssistantTurn,
   resolvePrimaryStreamLiveText,
   resolveTurnActivity,
-  turnActivitySpinnerKind,
+  turnActivitySpinner,
   liveTurnPresentationSettled as computeLiveTurnPresentationSettled,
   mergeClaraBriefsFromChainIntoTimeline,
-  PREFILL_STYLES,
+  prefillStyleFor,
   TOOL_BUILDING_SYNONYMS,
   turnHasPendingHitlArtifacts,
   userMessageAttachedFiles,
   userMessageImageUrls,
   type ChatDisplayRow,
   type ChatMessage,
+  type TurnSpinner,
 } from './chat-box-display';
 
 export {
@@ -114,6 +117,7 @@ export {
   isLiveReplyStreaming,
   isPendingHitlArtifact,
   isProseLatestLiveFeedEvent,
+  inFlightToolGlyph,
   inFlightToolSpinnerKind,
   isScrollWorthyAppendMessage,
   isStickFromSlack,
@@ -133,9 +137,10 @@ export {
   resolveLiveAssistantTurn,
   resolvePrimaryStreamLiveText,
   resolveTurnActivity,
-  turnActivitySpinnerKind,
+  turnActivitySpinner,
   liveTurnPresentationSettled,
   mergeClaraBriefsFromChainIntoTimeline,
+  prefillStyleFor,
   turnHasPlanPanel,
   TOOL_BUILDING_SYNONYMS,
   turnHasPendingHitlArtifacts,
@@ -146,6 +151,8 @@ export {
   type ChatMessage,
   type ToolChainGroup,
   type TurnActivity,
+  type TurnActivityView,
+  type TurnSpinner,
 } from './chat-box-display';
 import type { AcceptCommandFinishedEvent, TurnEndedEarly } from '@shared/index';
 
@@ -244,6 +251,8 @@ export class ChatBox implements OnDestroy {
   readonly chatScroll = viewChild<ElementRef<HTMLElement>>('chatScroll');
   /** Latest `spinnerKindChange` from the live feed (`null` = spinner stays in the processing row). */
   readonly liveFeedSpinnerKind = signal<HostedSpinnerKind | null>(null);
+  /** The glyph the live feed draws for it: the running tool's own, or `think`. */
+  readonly liveFeedSpinnerGlyph = signal<PillGlyph | null>(null);
 
   /**
    * True while the live feed's open preview (thought header / running tool pill) hosts the turn
@@ -513,6 +522,11 @@ export class ChatBox implements OnDestroy {
     inFlightToolSpinnerKind(this.streamingParts(), this.processingToolsActive()),
   );
 
+  /** Glyph of the in-flight tool: the icon its pill shows. */
+  readonly liveToolGlyph = computed(() =>
+    inFlightToolGlyph(this.streamingParts(), this.processingToolsActive()),
+  );
+
   /** What the live turn is doing — same value the conversation list row shows. */
   readonly liveTurnActivity = computed(() =>
     resolveTurnActivity({
@@ -539,18 +553,31 @@ export class ChatBox implements OnDestroy {
     return this.liveTurnActivity();
   });
 
-  /** Spinner in the processing row (falls back to the think spinner). */
-  readonly processingSpinnerKind = computed(() => {
-    const activity = this.liveTurnActivity();
-    if (activity === 'prefill') return this.prefillStyle().spinner;
-    return turnActivitySpinnerKind(activity) ?? 'think';
+  /** Spinner for the live turn's activity: a running tool's own glyph, this turn's prefill spinner. */
+  private readonly liveTurnSpinner = computed(() =>
+    turnActivitySpinner(this.liveTurnActivity(), this.liveToolGlyph(), this.prefillStyle().spinner),
+  );
+
+  /**
+   * The spinner the user actually sees, reported with {@link shownTurnActivity} so the
+   * conversation list row draws the same icon: the glyph in the feed's pill or thought header
+   * while it hosts the spinner, otherwise the processing row's.
+   */
+  readonly shownTurnSpinner = computed<TurnSpinner | null>(() => {
+    if (!this.loading()) {
+      return null;
+    }
+    if (this.liveSpinnerActive() && this.liveFeedHostsSpinner()) {
+      return this.liveFeedSpinnerGlyph() ?? this.liveFeedSpinnerKind();
+    }
+    return this.liveTurnSpinner();
   });
 
+  /** Spinner in the processing row (falls back to the think spinner). */
+  readonly processingSpinnerKind = computed(() => this.liveTurnSpinner() ?? 'think');
+
   /** This turn's prefill word + spinner, keyed on the conversation and its message count. */
-  private readonly prefillStyle = computed(() => {
-    const key = `${this.conversationId() ?? ''}:${this.messages().length}`;
-    return PREFILL_STYLES[hashChatToolPhaseKey(key) % PREFILL_STYLES.length]!;
-  });
+  private readonly prefillStyle = computed(() => prefillStyleFor(this.conversationId(), this.messages().length));
 
   /** Persisted turn feed (timeline + final assistant markdown). */
   turnFeedForRow(row: Extract<ChatDisplayRow, { kind: 'assistant-turn' }>): TurnFeedItem[] {
@@ -653,7 +680,8 @@ export class ChatBox implements OnDestroy {
     effect(() => {
       const conversationId = this.conversationId();
       const activity = this.shownTurnActivity();
-      untracked(() => this.shownActivityReporter.report(this, conversationId, activity));
+      const spinner = this.shownTurnSpinner();
+      untracked(() => this.shownActivityReporter.report(this, conversationId, activity, spinner));
     });
 
     // Observe scrollport size so virtual window math stays correct when the pane is resized.

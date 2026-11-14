@@ -16,9 +16,11 @@ import {
   PLANNER_STREAM_TAG,
 } from '@shared/index';
 import {
+  toolGlyph,
   toolSpinnerKind,
   type PrefillSpinnerKind,
   type SpinnerKind,
+  type ToolGlyph,
   type ToolSpinnerKind,
 } from './tool-spinner-kind';
 
@@ -579,21 +581,51 @@ export function isLiveReplyStreaming(
  */
 export type TurnActivity = 'prefill' | 'think' | ToolSpinnerKind | 'reply' | 'review';
 
-/** Spinner kind of the latest in-flight tool part (`null` when no tool is running). */
-export function inFlightToolSpinnerKind(
-  parts: readonly StreamPart[],
-  toolsActive: boolean,
-): ToolSpinnerKind | null {
+/** Any spinner `app-tool-spinner` draws for a live turn: an activity spinner or a tool's glyph. */
+export type TurnSpinner = SpinnerKind | ToolGlyph;
+
+/**
+ * A live turn's state with the spinner drawn for it. The chat and the conversation list both take
+ * this, so a row never shows a different icon from the pill on screen.
+ */
+export interface TurnActivityView {
+  readonly activity: TurnActivity;
+  readonly spinner: TurnSpinner | null;
+}
+
+/** The latest in-flight tool part (`null` when no tool is running). */
+function latestInFlightToolPart(parts: readonly StreamPart[], toolsActive: boolean): StreamPart | null {
   if (!toolsActive) {
     return null;
   }
   for (let i = parts.length - 1; i >= 0; i--) {
     const part = parts[i]!;
     if (isInFlightToolPart(part)) {
-      return toolSpinnerKind(part.label, part.streamTag);
+      return part;
     }
   }
   return null;
+}
+
+/** Spinner kind of the latest in-flight tool part (`null` when no tool is running). */
+export function inFlightToolSpinnerKind(
+  parts: readonly StreamPart[],
+  toolsActive: boolean,
+): ToolSpinnerKind | null {
+  const part = latestInFlightToolPart(parts, toolsActive);
+  return part ? toolSpinnerKind(part.label, part.streamTag) : null;
+}
+
+/** Glyph of the latest in-flight tool part: the icon its pill shows (`null` when no tool is running). */
+export function inFlightToolGlyph(parts: readonly StreamPart[], toolsActive: boolean): ToolGlyph | null {
+  const part = latestInFlightToolPart(parts, toolsActive);
+  return part ? toolGlyph(part.label, part.streamTag) : null;
+}
+
+/** A turn's prefill word and spinner, keyed on the conversation and its message count. */
+export function prefillStyleFor(conversationId: string | null, messageCount: number): (typeof PREFILL_STYLES)[number] {
+  const key = `${conversationId ?? ''}:${messageCount}`;
+  return PREFILL_STYLES[hashChatToolPhaseKey(key) % PREFILL_STYLES.length]!;
 }
 
 export function resolveTurnActivity(state: {
@@ -619,9 +651,27 @@ export function resolveTurnActivity(state: {
   return 'think';
 }
 
-/** Spinner for a spinning activity (`null` for `reply` / `review`, which show none). */
-export function turnActivitySpinnerKind(activity: TurnActivity): SpinnerKind | null {
-  return activity === 'reply' || activity === 'review' ? null : activity;
+/**
+ * Spinner for a spinning activity (`null` for `reply` / `review`, which show none). A running
+ * tool is drawn with its own glyph, the icon its pill shows; the activity's spinner is the
+ * fallback when the tool is not known.
+ */
+export function turnActivitySpinner(
+  activity: TurnActivity,
+  runningToolGlyph: ToolGlyph | null = null,
+  prefillSpinner: PrefillSpinnerKind = 'prefill',
+): TurnSpinner | null {
+  switch (activity) {
+    case 'reply':
+    case 'review':
+      return null;
+    case 'prefill':
+      return prefillSpinner;
+    case 'think':
+      return 'think';
+    default:
+      return runningToolGlyph ?? activity;
+  }
 }
 
 /** Small stable hash for synonym index (FNV-1a 32-bit). */

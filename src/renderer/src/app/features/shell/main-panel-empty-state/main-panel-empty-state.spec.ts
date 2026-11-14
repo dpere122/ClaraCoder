@@ -120,6 +120,42 @@ describe('MainPanelEmptyStateComponent', () => {
     expect(opened).toEqual(['ws-a']);
   });
 
+  it('holds workspace entry back and shows the Backend spinner while the sidecar loads', () => {
+    const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
+    const opened: string[] = [];
+    fixture.componentInstance.openWorkspace.subscribe((id) => opened.push(id));
+    fixture.componentRef.setInput('hasWorkspace', false);
+    fixture.componentRef.setInput('recentWorkspaces', [
+      workspace({ id: 'ws-a', name: 'Alpha', path: 'C:/tmp/alpha', favorite: true }),
+      workspace({ id: 'ws-b', name: 'Beta', path: 'C:/tmp/beta' }),
+    ]);
+    fixture.componentRef.setInput('sidecarLoading', true);
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const disabledActions = () =>
+      Array.from(host.querySelectorAll<HTMLButtonElement>('.home__action'))
+        .filter((el) => el.disabled)
+        .map((el) => el.textContent?.trim());
+    const rows = () => Array.from(host.querySelectorAll<HTMLButtonElement>('.home__row-main'));
+
+    expect(disabledActions()).toEqual(['Add workspace…']);
+    expect(rows().map((el) => el.disabled)).toEqual([true, true]);
+    rows()[0].click();
+    expect(opened).toEqual([]);
+    const backend = host.querySelector('.home__runtime-backend');
+    expect(backend?.textContent).toContain('Starting');
+    expect(backend?.querySelector('app-grid-spinner')).toBeTruthy();
+
+    fixture.componentRef.setInput('sidecarLoading', false);
+    fixture.detectChanges();
+
+    expect(disabledActions()).toEqual([]);
+    expect(host.querySelector('.home__runtime-backend')).toBeNull();
+    rows()[0].click();
+    expect(opened).toEqual(['ws-a']);
+  });
+
   it('keeps last-opened labels stable when the clock crosses a minute during change detection', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-01T12:14:30.000Z'));

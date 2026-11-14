@@ -155,6 +155,24 @@ def test_installed_without_electron_names_the_missing_path(
         _start_params(workspace, monkeypatch)
 
 
+def test_an_update_in_progress_is_not_reported_as_missing(
+    tmp_path: Path, runtime: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _install_managed(runtime)
+    _fake_electron(tmp_path, monkeypatch)
+    workspace = tmp_path / 'ws'
+    workspace.mkdir()
+    monkeypatch.setattr(vtsls, '_stop_running_servers', lambda: None)
+
+    with vtsls._servers_held_off():
+        assert resolve_typescript_lsp_spawn(workspace) is None
+        with pytest.raises(LspServerNotInstalledError, match='being installed or removed') as raised:
+            _start_params(workspace, monkeypatch)
+        assert 'is not installed' not in str(raised.value)
+
+    assert resolve_typescript_lsp_spawn(workspace) is not None, 'the server starts again once the change is done'
+
+
 def test_no_npx_or_bundled_entry_left_in_the_resolver() -> None:
     source = Path(typescript_server.__file__).read_text(encoding='utf-8')
     assert 'npx' not in source

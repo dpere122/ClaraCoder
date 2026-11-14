@@ -187,12 +187,18 @@ def installed_version_dir() -> Path | None:
     return max(ready, key=lambda entry: _tag_key(entry.name)) if ready else None
 
 
+def is_changing() -> bool:
+    """True while an install or delete in this process is changing the files on disk."""
+
+    with _changing_install_lock:
+        return _changing_install > 0
+
+
 def installed_binary() -> Path | None:
     """Path of ``vtsls.js`` to run, or None when it is missing or being replaced."""
 
-    with _changing_install_lock:
-        if _changing_install:
-            return None
+    if is_changing():
+        return None
     version_dir = installed_version_dir()
     return _entry(version_dir) if version_dir is not None else None
 

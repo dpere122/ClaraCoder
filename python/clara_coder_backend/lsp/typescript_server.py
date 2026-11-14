@@ -151,6 +151,8 @@ def typescript_lsp_unavailable_message() -> str:
 
     from clara_coder_backend.runtime.deps.providers import vtsls
 
+    if vtsls.is_changing():
+        return f'{vtsls.LABEL} is being installed or removed in Dependencies. Retry once that has finished.'
     if _managed_vtsls_entry() is not None:
         raw = env_clara('CLARA_ELECTRON_EXEC_PATH', '').strip()
         where = f' ({raw} does not exist)' if raw else ' (CLARA_ELECTRON_EXEC_PATH is not set)'

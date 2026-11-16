@@ -17,6 +17,7 @@ class TestAppLoggingHttp(unittest.TestCase):
         app_logging._configured = False  # type: ignore[attr-defined]
         app_logging._ring.clear()  # type: ignore[attr-defined]
         self._td = tempfile.TemporaryDirectory()
+        self._prev_log_dir = os.environ.get('CLARA_LOG_DIR')
         os.environ['CLARA_LOG_DIR'] = self._td.name
         import clara_coder_backend.main as main_mod
 
@@ -32,7 +33,11 @@ class TestAppLoggingHttp(unittest.TestCase):
 
         reset_logging_handlers()
         self._td.cleanup()
-        os.environ.pop('CLARA_LOG_DIR', None)
+        # Restore rather than drop: ``conftest`` points it at the suite's temp dir for every later test.
+        if self._prev_log_dir is None:
+            os.environ.pop('CLARA_LOG_DIR', None)
+        else:
+            os.environ['CLARA_LOG_DIR'] = self._prev_log_dir
 
     def test_recent_after_info_log(self) -> None:
         logging.getLogger('clara.test').info('hello health')

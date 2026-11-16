@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -389,3 +390,13 @@ def test_agent_subprocess_env_drops_sidecar_wiring(monkeypatch, tmp_path: Path) 
         # Shared caches and tool paths still reach the command.
         assert env['CLARA_RUNTIME_DIR'] == str(tmp_path / 'runtime')
         assert env['FORCE_COLOR'] == '1'
+
+
+def test_suite_env_holds_no_sidecar_wiring() -> None:
+    """``conftest`` drops or redirects every key an agent command loses, so this run can't reach the live app."""
+    from clara_coder_backend.runtime.python_env import SIDECAR_PRIVATE_ENV_SUFFIXES
+
+    for suffix in SIDECAR_PRIVATE_ENV_SUFFIXES:
+        assert f'NEMO_{suffix}' not in os.environ
+        value = os.environ.get(f'CLARA_{suffix}')
+        assert value is None or Path(value).parent.name.startswith('clara-tests-'), f'CLARA_{suffix}={value}'

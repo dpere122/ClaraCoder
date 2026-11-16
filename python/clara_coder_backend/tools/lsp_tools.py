@@ -54,7 +54,7 @@ def _require_lsp_read_path(relative_path: str) -> tuple[str, LspServerKind]:
     server = lsp_server_for_path(rel)
     if not server:
         raise ValueError(
-            f'LSP read tools only support `.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.gd`, and `.java`. '
+            f'LSP read tools only support `.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.gd`, `.java`, and `.rs`. '
             f'Got `{rel}`.'
         )
     return rel, server
@@ -135,6 +135,10 @@ def _lsp_server_label(server: str) -> str:
     return display_label_for_server(server)
 
 
+#: The Rust plugin's own refusals (untrusted folder, rust-analyzer or cargo missing) already say what to do.
+_RUST_ACTIONABLE_MARKERS = ('trusted workspace', 'not installed')
+
+
 def _format_lsp_tool_error(
     action: str,
     exc: Exception,
@@ -150,6 +154,15 @@ def _format_lsp_tool_error(
         message += f' for `{rel}`'
     message += f' ({detail}).'
     lowered = detail.lower()
+    if server == 'rust':
+        if any(marker in lowered for marker in _RUST_ACTIONABLE_MARKERS):
+            return message
+        if 'lsp client closed' in lowered or 'initialize' in lowered or 'rust-analyzer' in lowered:
+            message += (
+                ' The backend could not start rust-analyzer (check it is installed from Dependencies, '
+                'that cargo is on PATH, and that this workspace is trusted in Settings → Workspaces).'
+            )
+        return message
     if (
         'lsp client closed' in lowered
         or 'initialize' in lowered
@@ -284,7 +297,7 @@ def _aggregate_cached_diagnostics(session_id: str, encoding: str = 'utf-8') -> s
     return '\n'.join(lines)
 
 
-_LSP_EXTENSIONS = '`.py`, `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`, `.gd`, `.java`'
+_LSP_EXTENSIONS = '`.py`, `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`, `.gd`, `.java`, `.rs`'
 _POSITION = f'1-based `line`/`character`; {_LSP_EXTENSIONS}'
 _NAMED_LOCATION_LIMIT = 50
 

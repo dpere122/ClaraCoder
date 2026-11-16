@@ -660,7 +660,7 @@ def _outer_agent_operational_block(session: SessionState, apply_mode: bool) -> s
         '  1. Unknown / fuzzy targets (you cannot name a needle) → `retrieve_workspace_semantic`, then verify hits with '
         '`search_workspace` / `read_workspace_file` / LSP.\n'
         + '  2. Any literal/regex needle → `search_workspace` (the default—see above).\n'
-        + '  3. Known `.py`/`.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs` paths → prefer LSP reads/diagnostics before heavy file reads; literal spans → `read_workspace_file`.\n'
+        + '  3. Known `.py`/`.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`/`.gd`/`.java`/`.rs` paths → prefer LSP reads/diagnostics before heavy file reads; literal spans → `read_workspace_file`.\n'
         + '  4. PDF / WSDL / XML / JSON workflow playbooks live in **context packs** (catalog below); they auto-load on first '
         'related tool use, or call `activate_context`.\n'
         + _context_packs_catalog_block()
@@ -686,7 +686,7 @@ def _outer_agent_operational_block(session: SessionState, apply_mode: bool) -> s
         'background jobs—then `wait_for_command` for more output and `kill_background_command` when finished. '
         'Commands may wait on the user\u2019s approval unless Auto Run is on.\n'
         + '- Use `copy_workspace_files` only to duplicate existing files to new paths.\n'
-        + '- **After** editing `.py`, TS/JS, `.gd` or `.java` paths, call `lsp_get_diagnostics` '
+        + '- **After** editing `.py`, TS/JS, `.gd`, `.java` or `.rs` paths, call `lsp_get_diagnostics` '
         '(`refresh_active_document=true`) before claiming the change is clean.\n'
         + '- Summarize outcomes clearly (paths touched, what changed). Do not paste raw tool dumps.\n'
         f'{routing_handoff_contract()}\n'

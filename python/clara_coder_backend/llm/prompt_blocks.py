@@ -87,6 +87,8 @@ def edit_semantics_block() -> str:
         'reading the existing file whole so headers and imports survive. Line numbers and anchors go stale after '
         'each edit—re-read before a partial edit of the same file in a later response. Parallel edits in one '
         'response may all use the same read: non-overlapping line ranges are shifted for each other. '
+        'To rename a code symbol (function, class, method, variable, field), call `lsp_rename_symbol` once instead '
+        'of searching and editing each use: the language server changes every reference, and only real ones. '
         '**Java builds:** before creating `.java` files in a folder where neither it nor any parent up to the '
         'workspace root has `pom.xml`, `build.gradle(.kts)` or `settings.gradle(.kts)`, call '
         '`java_bootstrap_project` (ask the user Gradle or Maven when nothing hints at one). Never hard-code jar '

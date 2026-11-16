@@ -74,6 +74,10 @@ class LspServerPlugin(ABC):
     #: Reads ``workspace_is_trusted`` when it starts, so it restarts when a workspace's trust changes.
     uses_workspace_trust: bool = False
 
+    #: The server says in a notification of its own when its project is loaded (see
+    #: ``server_ready_from_notification``); agent queries wait for that, since earlier answers are empty.
+    reports_readiness: bool = False
+
     #: For a server whose ``initializationOptions`` are the value of one ``workspace/configuration``
     #: section (rust-analyzer's ``rust-analyzer``): that section's name.
     configuration_section: str = ''
@@ -150,6 +154,14 @@ class LspServerPlugin(ABC):
         """The problem a server reports about itself in a notification of its own, ``''`` for none.
 
         ``None`` when ``method`` isn't that notification. The text goes in the status bar tooltip.
+        """
+
+        return None
+
+    def server_ready_from_notification(self, method: str, params: dict[str, Any]) -> bool | None:
+        """Whether the server's project is loaded, from its readiness notification (``reports_readiness``).
+
+        ``None`` when ``method`` isn't that notification.
         """
 
         return None

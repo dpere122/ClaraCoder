@@ -118,6 +118,7 @@ const TOOL_GLYPHS: Readonly<Record<string, ToolGlyph>> = {
   replace_workspace_snippet: 'edit-snippet',
   stage_snippet_edit: 'edit-snippet',
   format_workspace_file: 'format',
+  lsp_rename_symbol: 'edit-snippet',
   copy_workspace_files: 'copy',
   delete_workspace_entry: 'delete',
   delete_workspace_entries: 'delete',

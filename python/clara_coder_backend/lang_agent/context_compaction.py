@@ -103,6 +103,7 @@ _WRITE_FILE_TOOL = 'write_workspace_file'
 _REPLACE_LINES_TOOL = 'replace_workspace_lines'
 _REPLACE_SNIPPET_TOOL = 'replace_workspace_snippet'
 GUARDED_EDIT_TOOLS = frozenset({_WRITE_FILE_TOOL, _REPLACE_LINES_TOOL, _REPLACE_SNIPPET_TOOL})
+_RENAME_SYMBOL_TOOL = 'lsp_rename_symbol'
 _COMMAND_TOOLS = frozenset({'run_command', 'wait_for_command'})
 _REPORT_TOOLS = frozenset({'spawn_subagent', 'wait_for_subagents'})
 _MARK_STEPS_TOOL = 'mark_build_plan_steps_complete'
@@ -118,6 +119,8 @@ _COMMAND_TEXT = re.compile(r'^- Command: `(.*)`$', re.MULTILINE)
 _REFUSAL = re.compile(r'User (?:cancelled|declined|dismissed)\b.*')
 _NOT_APPROVED = 'Not approved:'
 _USER_RESET = re.compile(r'^User reset `.*$', re.MULTILINE)
+#: One file of a rename's result: ``- `pkg/a.py` (2 edit(s))`` (see ``tools/lsp_rename.py``).
+_RENAMED_FILE = re.compile(r'^- `([^`]+)` \(\d+ edit\(s\)\)$', re.MULTILINE)
 _PLAN_PROGRESS = re.compile(r'Completed steps: .*?Pending steps: [^\n]*')
 _FAILED_RESULT = ('tool error', 'tool note', 'interrupted:', 'not approved:', 'aborted by user')
 #: How review middlewares append the answer to a staged call's result (see accept-command review).
@@ -698,11 +701,14 @@ def _call_args(call: dict[str, Any]) -> dict[str, Any]:
     return args if isinstance(args, dict) else {}
 
 
-def _edited_paths(call: dict[str, Any]) -> list[str]:
+def _edited_paths(call: dict[str, Any], body: str = '') -> list[str]:
     name = call.get('name')
     args = _call_args(call)
     if name in GUARDED_EDIT_TOOLS or name == 'format_workspace_file':
         return [str(args.get('relative_path') or '')]
+    if name == _RENAME_SYMBOL_TOOL:
+        # The server picks the files, so only the result names them.
+        return _RENAMED_FILE.findall(body)
     if name == 'delete_workspace_entries':
         paths = args.get('relative_paths')
         return [str(path) for path in paths] if isinstance(paths, list) else [str(paths or '')]
@@ -862,7 +868,7 @@ def build_digest(
                     read_ranges.setdefault(key, []).extend(_read_ranges(body))
                     read_totals[key] = int(span.group(3))
             continue
-        paths = _edited_paths(call)
+        paths = _edited_paths(call, body)
         wrote = not failed and not body.startswith(NO_CHANGE_PREFIX)
         if paths and wrote and _staged_edit_ran(body, followed_by.get(id(result))):
             edit_count += 1

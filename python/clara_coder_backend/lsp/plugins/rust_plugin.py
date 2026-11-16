@@ -109,6 +109,9 @@ class RustLspPlugin(LspServerPlugin):
     uses_workspace_trust = True
     configuration_section = 'rust-analyzer'
 
+    #: ``experimental/serverStatus`` says ``quiescent`` once cargo metadata and the crate graph are loaded.
+    reports_readiness = True
+
     @property
     def checks_on_save(self) -> bool:  # type: ignore[override]
         """Without this an agent's edits would only ever get the diagnostics rust-analyzer finds itself."""
@@ -244,6 +247,11 @@ class RustLspPlugin(LspServerPlugin):
         if len(message) > _HEALTH_MESSAGE_MAX_CHARS:
             message = message[: _HEALTH_MESSAGE_MAX_CHARS - 1] + '…'
         return message
+
+    def server_ready_from_notification(self, method: str, params: dict[str, Any]) -> bool | None:
+        if method != _SERVER_STATUS_METHOD:
+            return None
+        return bool(params.get('quiescent'))
 
     def after_shutdown(self, session: SessionState, state: Any) -> None:
         if isinstance(state, RustPluginState):

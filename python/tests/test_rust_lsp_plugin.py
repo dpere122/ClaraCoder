@@ -468,6 +468,42 @@ def test_server_health_reaches_the_dashboard_and_clears(manager_for, tmp_path: P
     assert 'languageStatus' not in manager.dashboard_entry()
 
 
+# --- agent queries wait for the project to load
+
+
+def test_readiness_comes_from_the_status_notification() -> None:
+    plugin = RustLspPlugin()
+    status = 'experimental/serverStatus'
+    assert plugin.reports_readiness is True
+    assert plugin.server_ready_from_notification('window/logMessage', {'message': 'x'}) is None
+    assert plugin.server_ready_from_notification(status, {'health': 'ok', 'quiescent': False}) is False
+    assert plugin.server_ready_from_notification(status, {'health': 'warning', 'quiescent': True}) is True
+
+
+def test_an_agent_query_waits_until_the_project_is_loaded(manager_for, tmp_path: Path) -> None:  # noqa: ANN001
+    _crate(tmp_path)
+    manager = manager_for(_FakeClient())
+    manager.sync_document('src/lib.rs', 'pub fn f() {}\n', wait_for_diagnostics=False)
+    manager._handle_notification('experimental/serverStatus', {'health': 'ok', 'quiescent': False})
+    assert manager.wait_until_server_ready(timeout_s=0.05) is False, 'still loading: the wait times out'
+
+    loaded = ('experimental/serverStatus', {'health': 'ok', 'quiescent': True})
+    threading.Timer(0.1, manager._handle_notification, loaded).start()
+    started = time.monotonic()
+    assert manager.wait_until_server_ready(timeout_s=5.0) is True
+    assert time.monotonic() - started < 2.0, 'the status notification ends the wait'
+
+
+def test_a_server_that_never_reports_readiness_is_not_waited_for(manager_for, tmp_path: Path) -> None:  # noqa: ANN001
+    _crate(tmp_path)
+    manager = manager_for(_FakeClient())
+    manager.sync_document('src/lib.rs', 'pub fn f() {}\n', wait_for_diagnostics=False)
+    manager._client_started_at -= 10.0  # past the grace a server gets to send its first status
+    started = time.monotonic()
+    assert manager.wait_until_server_ready(timeout_s=5.0) is True
+    assert time.monotonic() - started < 1.0
+
+
 # --- an agent's edit waits for cargo check
 
 

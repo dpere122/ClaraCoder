@@ -727,6 +727,32 @@ def test_digest_pairs_results_by_position_when_call_ids_repeat() -> None:
     assert progress == [1, 0, 220, 0]
 
 
+def test_digest_counts_a_rename_as_an_edit_of_every_file_it_changed() -> None:
+    """The language server picks the files a rename touches, so only its result names them."""
+    args = {'relative_path': 'pkg/b.py', 'line': 3, 'symbol': 'foo', 'new_name': 'bar'}
+    renamed = '\n'.join(
+        [
+            'Renamed `foo` → `bar` with the Python language server: 3 edit(s) in 2 file(s), written to disk.',
+            '- `pkg/a.py` (1 edit(s))',
+            '- `pkg/b.py` (2 edit(s))',
+            '---',
+            'No errors in the renamed files.',
+        ]
+    )
+    nothing = 'Tool error: the Python language server found nothing to rename at `pkg/b.py` 3:1.'
+    messages = [
+        user('go'),
+        ai_call('c1', 'lsp_rename_symbol', args, 'a1'),
+        result('c1', renamed, 'lsp_rename_symbol', 't1'),
+        ai_call('c2', 'lsp_rename_symbol', args, 'a2'),
+        result('c2', nothing, 'lsp_rename_symbol', 't2'),
+    ]
+    digest, progress = _digest(messages)
+    assert 'Files edited: pkg/a.py, pkg/b.py' in digest
+    assert progress[0] == 1
+    assert 'lsp_rename_symbol' not in digest
+
+
 def test_digest_a_result_answers_the_ai_message_before_it_even_if_an_earlier_call_stayed_open() -> None:
     lost_write = ai_call('xml-tool-1', 'write_workspace_file', {'relative_path': 'lost.py', 'content': 'x'}, 'a1')
     read = ai_call('xml-tool-1', 'read_workspace_file', {'relative_path': 'found.py'}, 'a2')

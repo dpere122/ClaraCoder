@@ -17,8 +17,9 @@ discard that change.
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any
@@ -80,8 +81,11 @@ __all__ = [
     'REPLACE_WORKSPACE_LINES_NAME',
     'REPLACE_WORKSPACE_SNIPPET_NAME',
     'WRITE_WORKSPACE_FILE_NAME',
+    'EditTarget',
+    'commit_edit',
     'edit_tools',
     'format_workspace_file',
+    'locked_edit_targets',
     'replace_workspace_lines',
     'replace_workspace_snippet',
     'write_workspace_file',
@@ -114,6 +118,10 @@ class _EditTarget:
     newline: DiskNewline
     existed: bool
     path_key: str
+
+
+#: A locked, read file an edit is about to change (see :func:`locked_edit_targets` / :func:`commit_edit`).
+EditTarget = _EditTarget
 
 
 @contextmanager
@@ -211,12 +219,13 @@ def _lsp_footer(t: _EditTarget, text: str, formatter_note: str) -> str:
     return tool_output_cap(footer, _DIAGNOSTICS_FOOTER_MAX_CHARS)
 
 
-def _write_through(t: _EditTarget, merged: str, mode: str) -> str:
-    """Format, write, journal (first write of this path per turn), and LSP-sync one edit.
+def commit_edit(t: EditTarget, text: str, mode: str) -> str | None:
+    """Write ``text`` as is, journal it (first write of this path per turn) and record its diff for the UI.
 
-    The diff of what was written goes to the UI with the finished status (see :mod:`.edit_diffs`).
+    No formatter and no LSP sync: :func:`_write_through` adds those for one-file edits, and a tool that changes
+    several files in one call syncs the language server itself. Returns a ``Tool error:`` string when the write
+    failed, else None. Call with the file's lock held (inside :func:`_edit_target` / :func:`locked_edit_targets`).
     """
-    text, formatter_note = _format_in_memory(t.rel, merged, t.encoding)
     try:
         write_file_resolved(t.path, text, t.encoding, t.newline)
     except UnicodeEncodeError as exc:
@@ -233,11 +242,60 @@ def _write_through(t: _EditTarget, merged: str, mode: str) -> str:
         newline=t.newline,
     )
     record_edit_diff(current_tool_call_id.get(), edit_unified_diff(t.rel, t.old_text, text, existed=t.existed))
+    logger.info('edit written path=%s mode=%s', t.rel, mode)
+    return None
+
+
+def _write_through(t: _EditTarget, merged: str, mode: str) -> str:
+    """Format, write, journal (first write of this path per turn), and LSP-sync one edit.
+
+    The diff of what was written goes to the UI with the finished status (see :mod:`.edit_diffs`).
+    """
+    text, formatter_note = _format_in_memory(t.rel, merged, t.encoding)
+    error = commit_edit(t, text, mode)
+    if error:
+        return error
     before_lines = t.old_text.count('\n') + (1 if t.old_text and not t.old_text.endswith('\n') else 0)
     after_lines = text.count('\n') + (1 if text and not text.endswith('\n') else 0)
     verb = 'Updated' if t.existed else 'Created'
-    logger.info('edit written path=%s mode=%s', t.rel, mode)
     return f'{verb} `{t.rel}` ({mode}; {before_lines} → {after_lines} lines).' + _lsp_footer(t, text, formatter_note)
+
+
+@contextmanager
+def locked_edit_targets(relative_paths: list[str], encoding: str = '') -> Iterator[list[EditTarget] | str]:
+    """Lock and read every file of one multi-file edit; yields the targets (in path order) or a ``Tool error:`` string.
+
+    Locks are taken in one sorted order, so two multi-file edits cannot deadlock (one-file edits hold a single
+    lock). Line endings are preserved per file. All files stay locked until the ``with`` block ends.
+    """
+    blocked = mutation_tools_blocked_reason()
+    if blocked:
+        yield blocked
+        return
+    session_id = (current_session_id.get() or '').strip()
+    try:
+        enc = _tool_encoding_param(encoding)
+        nm = _tool_newline_param('preserve')
+        root = get_active_workspace_root()
+        by_key = {os.path.normcase(str(path)): path for path in (normalize_relative_path(root, p) for p in relative_paths)}
+    except ValueError as exc:
+        yield f'Tool error: {exc}'
+        return
+    paths = [by_key[key] for key in sorted(by_key)]
+    for path in paths:
+        if is_user_owned_meta_path(path.relative_to(root).as_posix()):
+            yield f'Tool error: {USER_OWNED_META_REASON}.'
+            return
+    with ExitStack() as stack:
+        targets: list[EditTarget] = []
+        for path in paths:
+            key = stack.enter_context(locked_path(path))
+            target = _read_target(session_id, path.relative_to(root).as_posix(), path, enc, nm, key)
+            if isinstance(target, str):
+                yield target
+                return
+            targets.append(target)
+        yield targets
 
 
 def _merge_error(t: _EditTarget, err: str) -> str:

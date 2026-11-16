@@ -5,8 +5,8 @@
 - LSP reads and diagnostics.
 - With Editor on: the write-through edit tools in :mod:`clara_coder_backend.tools.edit`
   (``write_workspace_file``, ``replace_workspace_lines``, optional ``replace_workspace_snippet`` and
-  ``format_workspace_file``), plus ``copy_workspace_files``, ``delete_workspace_entries`` and
-  ``java_bootstrap_project``.
+  ``format_workspace_file``), plus ``lsp_rename_symbol``, ``copy_workspace_files``, ``delete_workspace_entries``
+  and ``java_bootstrap_project``.
 - With Editor on: background ``run_command`` jobs and MCP tools.
 - Agent-mode chat turns of a main session: ``spawn_subagent``, ``wait_for_subagents``, ``stop_subagent``.
   Sub-agents get none of them, nor ``propose_theme``.
@@ -28,6 +28,7 @@ from typing import Any
 from clara_coder_backend.tools.copy import copy_workspace_files
 from clara_coder_backend.tools.delete import DELETE_WORKSPACE_ENTRIES_NAME, delete_workspace_entries
 from clara_coder_backend.tools.edit import edit_tools
+from clara_coder_backend.tools.lsp_rename import lsp_rename_symbol
 from clara_coder_backend.tools.lsp_tools import LSP_READ_TOOLS
 from clara_coder_backend.tools.java_bootstrap import java_bootstrap_project
 from clara_coder_backend.domain import SessionState
@@ -132,7 +133,7 @@ def worker_tools_and_map(
         from clara_coder_backend.tools.run_command import background_command_tools
 
         tools.extend(edit_tools(strict=strict))
-        tools.extend([copy_workspace_files, delete_workspace_entries, java_bootstrap_project])
+        tools.extend([lsp_rename_symbol, copy_workspace_files, delete_workspace_entries, java_bootstrap_project])
         tools.extend(background_command_tools())
         # MCP tools can have any side effect, and allow-all trust runs them without a card,
         # so read-only surfaces (Ask mode, plan discovery) never bind them.
@@ -206,6 +207,8 @@ TOOL_FAMILIES: list[tuple[str, tuple[str, ...]]] = [
             'replace_workspace_lines',
             'replace_workspace_snippet',
             'format_workspace_file',
+            # Named here so it is an edit, not an ``lsp_`` read: roles without the edit group never get it.
+            'lsp_rename_symbol',
             'copy_workspace_files',
             'delete_workspace_entries',
             'java_bootstrap_project',

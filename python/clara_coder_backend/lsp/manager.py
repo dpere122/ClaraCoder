@@ -79,6 +79,10 @@ _SAVE_CHECK_RESTART_GAP_S = 0.15
 #: take to begin its first analysis (basedpyright starts in about two seconds).
 _WORKSPACE_ANALYSIS_QUIET_S = 1.0
 _WORKSPACE_ANALYSIS_STARTUP_GRACE_S = 5.0
+#: ``wait_until_server_ready``: how long an agent query waits for a server that reports readiness to
+#: load its project, and how long after starting a server that has sent no report counts as ready.
+_SERVER_READY_TIMEOUT_S = 60.0
+_SERVER_READY_NO_STATUS_GRACE_S = 5.0
 
 # Who last supplied a document's text: the Monaco editor (may be unsaved) or the file on disk.
 DOC_ORIGIN_EDITOR = 'editor'
@@ -384,6 +388,11 @@ class SessionWorkspaceLspManager:
         self._language_status_message: str = ''
         # A problem the running server reports about itself (see ``server_health_from_notification``).
         self._server_health: str = ''
+        # Readiness the running server reports itself (see ``server_ready_from_notification``); None
+        # until its first report since the server started or its configuration last changed.
+        self._server_ready: bool | None = None
+        # Monotonic time ``_server_ready`` was last reset to None: the no-report grace counts from it.
+        self._server_ready_reset_at: float = 0.0
         # ``$/progress`` tokens between ``begin`` and ``end``: the server is still indexing.
         self._active_progress: dict[str, str] = {}
         # Latest ``$/progress`` report text, e.g. basedpyright's "12 files to analyze".
@@ -431,6 +440,7 @@ class SessionWorkspaceLspManager:
         self._language_status = ''
         self._language_status_message = ''
         self._server_health = ''
+        self._server_ready = None
         self._active_progress.clear()
         self._lifecycle_phase = 'crashed'
         if not (self._lifecycle_error or '').strip():
@@ -585,6 +595,8 @@ class SessionWorkspaceLspManager:
                 self._client_started_at = time.monotonic()
                 self._analysis_progress_ended = False
                 self._progress_report = ''
+                self._server_ready = None
+                self._server_ready_reset_at = self._client_started_at
                 self._diag_cond.notify_all()
             break
 
@@ -674,6 +686,7 @@ class SessionWorkspaceLspManager:
             self._language_status = ''
             self._language_status_message = ''
             self._server_health = ''
+            self._server_ready = None
             self._active_progress.clear()
             self._clear_document_state_locked()
             self._bump_sync_epoch_locked()
@@ -790,6 +803,13 @@ class SessionWorkspaceLspManager:
         updater = getattr(client, 'update_configuration', None)
         if not callable(updater):
             return
+        if self._plugin.reports_readiness:
+            # The new settings reload the project (rust-analyzer: a newly linked Cargo project), so its
+            # earlier "ready" no longer covers it. Reset before sending: the reload's reports may come
+            # back before ``updater`` returns.
+            with self._lock:
+                self._server_ready = None
+                self._server_ready_reset_at = time.monotonic()
         try:
             updater(options)
             logger.info(
@@ -995,7 +1015,9 @@ class SessionWorkspaceLspManager:
 
         rel = normalize_relative_posix_path(relative_path)
         self.reconcile_disk_documents(encoding=encoding, skip=frozenset({rel}))
-        return self.sync_workspace_document(rel, encoding=encoding, wait_for_diagnostics=wait_for_diagnostics)
+        diagnostics = self.sync_workspace_document(rel, encoding=encoding, wait_for_diagnostics=wait_for_diagnostics)
+        self.wait_until_server_ready()
+        return diagnostics
 
     def _expect_republish_except(self, changed: list[str]) -> None:
         """Files changed under the server: open documents' cached diagnostics may be outdated.
@@ -1354,6 +1376,8 @@ class SessionWorkspaceLspManager:
             'position': {'line': max(0, int(line) - 1), 'character': max(0, int(character) - 1)},
             'newName': str(new_name),
         }
+        # Before project import JDT LS answers from the one open file, and the rename misses every other use.
+        self._wait_for_java_workspace_ready()
         return self._require_client().request('textDocument/rename', params, timeout_s=25.0)
 
     def semantic_tokens_full(self, relative_path: str) -> Any:
@@ -1593,6 +1617,12 @@ class SessionWorkspaceLspManager:
     def has_provider(self, capability_name: str) -> bool:
         return self._has_provider(capability_name)
 
+    @property
+    def reports_readiness(self) -> bool:
+        """The server reports when its project is loaded, and agent syncs wait for it (``wait_until_server_ready``)."""
+
+        return self._plugin.reports_readiness
+
     def read_only_document_roots(self) -> list[Path]:
         return self._plugin.read_only_document_roots(self._plugin_state)
 
@@ -1703,6 +1733,36 @@ class SessionWorkspaceLspManager:
                 if wait_for <= 0:
                     continue
                 self._diag_cond.wait(timeout=wait_for)
+
+    def wait_until_server_ready(self, timeout_s: float = _SERVER_READY_TIMEOUT_S) -> bool:
+        """Block until a server that reports readiness (``reports_readiness``) has loaded its project.
+
+        Its answers before that are empty: rust-analyzer replies "No references found" while cargo
+        metadata runs. A server that has sent no report ``_SERVER_READY_NO_STATUS_GRACE_S`` after
+        starting or after a configuration change (an older build, a custom command) counts as ready,
+        as does one that is not running (the query then fails on its own). Returns False when the
+        wait timed out.
+        """
+
+        if not self._plugin.reports_readiness:
+            return True
+        deadline = time.monotonic() + max(0.0, timeout_s)
+        with self._lock:
+            while True:
+                if self._server_ready or self._client is None or not self._client_process_alive(self._client):
+                    return True
+                now = time.monotonic()
+                if self._server_ready is None and now - self._server_ready_reset_at >= _SERVER_READY_NO_STATUS_GRACE_S:
+                    return True
+                if now >= deadline:
+                    logger.warning(
+                        '%s LSP not ready after %.1fs session=%s; querying anyway',
+                        self.server_kind,
+                        timeout_s,
+                        self.session_id,
+                    )
+                    return False
+                self._diag_cond.wait(timeout=max(0.01, min(0.4, deadline - now)))
 
     def wait_for_workspace_analysis(
         self,
@@ -1815,9 +1875,14 @@ class SessionWorkspaceLspManager:
             return
         if method != 'textDocument/publishDiagnostics':
             health = self._plugin.server_health_from_notification(method, params)
-            if health is not None:
+            ready = self._plugin.server_ready_from_notification(method, params)
+            if health is not None or ready is not None:
                 with self._lock:
-                    self._server_health = health
+                    if health is not None:
+                        self._server_health = health
+                    if ready is not None:
+                        self._server_ready = ready
+                        self._diag_cond.notify_all()
             return
         uri = str(params.get('uri') or '')
         try:

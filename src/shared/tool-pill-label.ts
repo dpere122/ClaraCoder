@@ -51,6 +51,7 @@ const TOOL_SPECS: Readonly<Record<string, ToolSpec>> = {
   replace_workspace_snippet: { verb: 'Edit', category: 'edit' },
   apply_workspace_full_file: { verb: 'Write', category: 'edit' },
   format_workspace_file: { verb: 'Format', category: 'edit' },
+  lsp_rename_symbol: { verb: 'Rename', category: 'edit' },
   stage_create_file: { verb: 'Stage', category: 'edit' },
   stage_line_range_edit: { verb: 'Stage', category: 'edit' },
   stage_snippet_edit: { verb: 'Stage', category: 'edit' },

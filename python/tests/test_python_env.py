@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -361,3 +362,41 @@ def test_apply_extra_user_path_prefixes_and_keeps_venv_first(monkeypatch, tmp_pa
         assert parts.index(extra) < parts.index(usr_bin)
     finally:
         os.environ['PATH'] = orig_path
+
+
+def test_agent_subprocess_env_drops_sidecar_wiring(monkeypatch, tmp_path: Path) -> None:
+    """A command the agent runs (e.g. this suite) must not open the live app's checkpoint DB or logs."""
+    from clara_coder_backend.runtime.python_env import build_workspace_python_env, with_subprocess_color_env
+
+    monkeypatch.setenv('CLARA_CHECKPOINT_DB', str(tmp_path / 'live.sqlite'))
+    monkeypatch.setenv('NEMO_CHECKPOINT_DB', str(tmp_path / 'legacy.sqlite'))
+    monkeypatch.setenv('CLARA_LOG_DIR', str(tmp_path / 'logs'))
+    monkeypatch.setenv('CLARA_WORKSPACE_INDEX_DIR', str(tmp_path / 'idx'))
+    monkeypatch.setenv('CLARA_SIDECAR_TOKEN', 'secret')
+    monkeypatch.setenv('CLARA_SCREENSHOT_TOKEN', 'secret')
+    monkeypatch.setenv('CLARA_RUNTIME_DIR', str(tmp_path / 'runtime'))
+
+    venv = tmp_path / 'ws' / '.venv'
+    for env in (with_subprocess_color_env(), build_workspace_python_env(venv)):
+        for key in (
+            'CLARA_CHECKPOINT_DB',
+            'NEMO_CHECKPOINT_DB',
+            'CLARA_LOG_DIR',
+            'CLARA_WORKSPACE_INDEX_DIR',
+            'CLARA_SIDECAR_TOKEN',
+            'CLARA_SCREENSHOT_TOKEN',
+        ):
+            assert key not in env
+        # Shared caches and tool paths still reach the command.
+        assert env['CLARA_RUNTIME_DIR'] == str(tmp_path / 'runtime')
+        assert env['FORCE_COLOR'] == '1'
+
+
+def test_suite_env_holds_no_sidecar_wiring() -> None:
+    """``conftest`` drops or redirects every key an agent command loses, so this run can't reach the live app."""
+    from clara_coder_backend.runtime.python_env import SIDECAR_PRIVATE_ENV_SUFFIXES
+
+    for suffix in SIDECAR_PRIVATE_ENV_SUFFIXES:
+        assert f'NEMO_{suffix}' not in os.environ
+        value = os.environ.get(f'CLARA_{suffix}')
+        assert value is None or Path(value).parent.name.startswith('clara-tests-'), f'CLARA_{suffix}={value}'

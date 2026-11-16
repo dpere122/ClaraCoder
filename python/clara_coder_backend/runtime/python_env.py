@@ -465,9 +465,28 @@ def apply_extra_user_path(raw: str | None) -> None:
         os.environ['PATH'] = merged
 
 
+#: Sidecar wiring Electron hands to this process alone (``server.ts``): the running app's state files
+#: and its bearer tokens. A command the agent runs must not inherit them: the backend's own pytest suite
+#: would otherwise open the live checkpoint DB (its writes lock out the app's turns: "database is
+#: locked"), log into the app's log, and could call the sidecar or the screenshot broker.
+#: Both ``CLARA_*`` and the legacy ``NEMO_*`` spelling are dropped (see :func:`env_clara`).
+SIDECAR_PRIVATE_ENV_SUFFIXES: tuple[str, ...] = (
+    'SIDECAR_TOKEN',
+    'SCREENSHOT_URL',
+    'SCREENSHOT_TOKEN',
+    'CHECKPOINT_DB',
+    'LOG_DIR',
+    'STAGING_DIR',
+    'WORKSPACE_INDEX_DIR',
+)
+
+
 def with_subprocess_color_env(env: dict[str, str] | None = None) -> dict[str, str]:
-    """Ensure piped tool subprocesses still emit ANSI colors for the in-app terminal UI."""
+    """Environment for agent tool subprocesses: ANSI colors for the in-app terminal UI, no sidecar wiring."""
     out = dict(env or os.environ)
+    for suffix in SIDECAR_PRIVATE_ENV_SUFFIXES:
+        out.pop(f'CLARA_{suffix}', None)
+        out.pop(f'NEMO_{suffix}', None)
     out['FORCE_COLOR'] = '1'
     out['CLICOLOR_FORCE'] = '1'
     out['PY_COLORS'] = '1'

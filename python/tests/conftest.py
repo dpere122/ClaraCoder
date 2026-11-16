@@ -2,14 +2,39 @@
 
 from __future__ import annotations
 
+import atexit
+import os
+import shutil
 import tempfile
 from pathlib import Path
 
-import pytest
+# The suite never touches a running app's state, whoever starts it: a shell may export the sidecar's
+# env, and so did commands the app's agent ran before ``with_subprocess_color_env`` dropped it. On the
+# live checkpoint DB a test run's writes lock the app's turns out ("database is locked"). ``main``
+# configures logging at import, so this runs before any ``clara_coder_backend`` import. Tests that
+# need a path of their own still ``monkeypatch.setenv`` it.
+_TEST_STATE_DIR = Path(tempfile.mkdtemp(prefix='clara-tests-'))
+atexit.register(shutil.rmtree, _TEST_STATE_DIR, ignore_errors=True)
+for _suffix, _path in (
+    ('CHECKPOINT_DB', _TEST_STATE_DIR / 'checkpoints.sqlite'),
+    ('LOG_DIR', _TEST_STATE_DIR / 'logs'),
+    ('STAGING_DIR', _TEST_STATE_DIR / 'staging'),
+    ('WORKSPACE_INDEX_DIR', _TEST_STATE_DIR / 'workspace-index'),
+):
+    os.environ[f'CLARA_{_suffix}'] = str(_path)
+    os.environ.pop(f'NEMO_{_suffix}', None)
+# The running app's bearer tokens go too: with its sidecar token set, auth is enforced and every route
+# test gets a 401 (``CLARA_SIDECAR_AUTH_OPTIONAL`` only applies without a token), and a screenshot test
+# would post to the live broker. ``test_python_env`` checks this covers ``SIDECAR_PRIVATE_ENV_SUFFIXES``.
+for _suffix in ('SIDECAR_TOKEN', 'SCREENSHOT_URL', 'SCREENSHOT_TOKEN'):
+    os.environ.pop(f'CLARA_{_suffix}', None)
+    os.environ.pop(f'NEMO_{_suffix}', None)
 
-from clara_coder_backend.domain import RuntimeToolsConfig
-from clara_coder_backend.lsp.manager import shutdown_session_lsp
-from clara_coder_backend.session.state import current_session_id, get_session, runtime_config, sessions
+import pytest  # noqa: E402
+
+from clara_coder_backend.domain import RuntimeToolsConfig  # noqa: E402
+from clara_coder_backend.lsp.manager import shutdown_session_lsp  # noqa: E402
+from clara_coder_backend.session.state import current_session_id, get_session, runtime_config, sessions  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

@@ -7,8 +7,10 @@ The client advertises no resource operations, so a server never asks to create, 
 Every file in the answer is locked and read, and every edit is checked against that text, before anything is
 written: a file that can't take its edits leaves the whole rename unwritten. A replaced span must still contain
 the old name, which catches a server that answered from an unsaved editor buffer instead of the file on disk.
-Files are then written as they are (no formatter: a rename shouldn't restyle a file), journaled for the turn like
-every other edit, and synced back to the server, whose diagnostics end the result.
+A file another call of the same response already wrote is refused too, since the server's positions may predate
+that write. Files are then written as they are (no formatter: a rename shouldn't restyle a file), journaled for
+the turn like every other edit, and synced back to the server, whose diagnostics end the result. When a write
+fails part way, the files already written are put back, so a rename never leaves the code half-renamed.
 """
 
 from __future__ import annotations
@@ -23,8 +25,9 @@ from langchain_core.tools import tool
 from clara_coder_backend.lsp.file_policy import lsp_server_for_path, normalize_relative_posix_path
 from clara_coder_backend.lsp.manager import session_diagnostics_fresh, sync_session_document
 from clara_coder_backend.lsp.registry import display_label_for_server
-from clara_coder_backend.session.state import current_session_id, mutation_tools_blocked_reason
+from clara_coder_backend.session.state import current_session_id, current_tool_call_id, mutation_tools_blocked_reason
 from clara_coder_backend.tools.edit import EditTarget, commit_edit, locked_edit_targets
+from clara_coder_backend.tools.edit_diffs import discard_edit_diff
 from clara_coder_backend.tools.lsp_tools import (
     _LSP_EXTENSIONS,
     _agent_manager,
@@ -40,7 +43,8 @@ from clara_coder_backend.tools.tool_conventions import (
     tool_output_cap,
 )
 from clara_coder_backend.tools.workspace import get_active_workspace_root, normalize_relative_path
-from clara_coder_backend.workspace.workspace_text_io import read_file_for_tools
+from clara_coder_backend.workspace.path_locks import batch_line_map, note_batch_write
+from clara_coder_backend.workspace.workspace_text_io import read_file_for_tools, write_bytes_atomic
 
 logger = logging.getLogger('clara.tools.lsp_rename')
 
@@ -52,6 +56,13 @@ __all__ = ['LSP_RENAME_SYMBOL_NAME', 'apply_lsp_text_edits', 'lsp_rename_symbol'
 _ERROR_ROWS_SHOWN = 20
 #: How long a rename waits for the server's workspace analysis to settle before asking it.
 _ANALYSIS_WAIT_S = 60.0
+#: One identifier: ``$`` (JS), ``#`` (JS private fields, Rust ``r#raw``) and ``'`` (Rust lifetimes) included. A
+#: qualified name (``self.count``, ``Type::new``) would put the column on its first part and rename that.
+_IDENTIFIER = re.compile(r"[\w$#']+")
+#: A sigil a server may leave out of the span it replaces (``#count`` → ``count``, ``'a`` → ``a``, ``r#type``).
+_NAME_SIGIL = re.compile(r"^(?:r#|[#'])")
+#: Characters that open a string or a lifetime: a name right after one is usually not the code symbol.
+_QUOTES = frozenset('\'"`')
 
 
 class StaleEditError(ValueError):
@@ -59,13 +70,19 @@ class StaleEditError(ValueError):
 
 
 def symbol_column(line_text: str, symbol: str) -> int | None:
-    """1-based LSP column (UTF-16 code units) of ``symbol``'s first whole-word match on ``line_text``."""
+    """1-based LSP column (UTF-16 code units) of ``symbol``'s first whole-word match on ``line_text``.
+
+    A match right after a quote (``config['timeout'] = timeout``, Rust ``<'a>(a: &'a u8)``) is passed over for a
+    later unquoted one, since the server can't rename a string and would rename a lifetime instead of a variable.
+    """
 
     # ``$`` is part of identifiers in JS/TS; ``\w`` covers the rest, Unicode letters included.
-    match = re.search(rf'(?<![\w$]){re.escape(symbol)}(?![\w$])', line_text)
-    if match is None:
+    matches = list(re.finditer(rf'(?<![\w$]){re.escape(symbol)}(?![\w$])', line_text))
+    if not matches:
         return None
-    return len(line_text[: match.start()].encode('utf-16-le')) // 2 + 1
+    match = next((m for m in matches if line_text[m.start() - 1 : m.start()] not in _QUOTES), None)
+    start = (match or matches[0]).start()
+    return len(line_text[:start].encode('utf-16-le')) // 2 + 1
 
 
 def _line_starts(text: str) -> list[int]:
@@ -97,9 +114,11 @@ def apply_lsp_text_edits(text: str, edits: list[dict[str, Any]], old_name: str) 
     """Apply one file's LSP ``TextEdit`` list to ``text`` (``\\n``-normalized, as the edit tools read it).
 
     All ranges refer to the original text, so they're applied from the end. Raises :class:`StaleEditError` when a
-    replaced span doesn't contain ``old_name``, and ``ValueError`` for bad or overlapping ranges.
+    replaced span doesn't contain ``old_name`` (its sigil may be left out), and ``ValueError`` for bad or
+    overlapping ranges.
     """
 
+    bare_name = _NAME_SIGIL.sub('', old_name) or old_name
     starts = _line_starts(text)
     spans: list[tuple[int, int, str]] = []
     for edit in edits:
@@ -111,7 +130,7 @@ def apply_lsp_text_edits(text: str, edits: list[dict[str, Any]], old_name: str) 
         if end < start:
             raise ValueError('an edit range ends before it starts')
         replaced = text[start:end]
-        if replaced and old_name not in replaced:
+        if replaced and bare_name not in replaced:
             raise StaleEditError(f'expected `{old_name}` but found {clip_line(replaced, 80)!r}')
         spans.append((start, end, str(edit.get('newText') or '').replace('\r\n', '\n').replace('\r', '\n')))
     spans.sort(key=lambda span: (span[0], span[1]))
@@ -216,10 +235,59 @@ def _diagnostics_summary(server: str, written: list[tuple[EditTarget, str]]) -> 
     return lines
 
 
+def _decodes_strictly(t: EditTarget) -> bool:
+    """Whether ``t``'s bytes decode in its encoding without replacement characters."""
+
+    try:
+        t.path.read_bytes().decode(t.encoding)
+    except (OSError, UnicodeDecodeError):
+        return False
+    return True
+
+
+def _commit_all(planned: list[tuple[EditTarget, str, int]]) -> str | None:
+    """Write every planned file, or none: a failed write puts back the files written before it.
+
+    Returns a ``Tool error:`` string when a write failed, else None. Call with every file's lock held.
+    """
+
+    written: list[tuple[EditTarget, str, bytes]] = []
+    error: str | None = None
+    for t, renamed, _count in planned:
+        try:
+            original = t.path.read_bytes()
+        except OSError as exc:
+            error = f'Tool error: could not read `{t.rel}` ({exc}).'
+            break
+        error = commit_edit(t, renamed, 'rename')
+        if error:
+            break
+        written.append((t, renamed, original))
+    if error is None:
+        return None
+    not_restored: list[str] = []
+    for t, renamed, original in reversed(written):
+        try:
+            write_bytes_atomic(t.path, original)
+        except OSError as exc:
+            logger.warning('rename rollback failed path=%s err=%s', t.rel, exc)
+            not_restored.append(t.rel)
+            continue
+        note_batch_write(t.path_key, renamed, t.old_text)
+    if not_restored:
+        names = ', '.join(f'`{rel}`' for rel in reversed(not_restored))
+        return f'{error} The rename stopped there, and {names} could not be put back: re-read and fix them.'
+    # Every write was undone, so the UI has no diff to show for this call.
+    discard_edit_diff(current_tool_call_id.get() or '')
+    return f'{error} Nothing was written: the files renamed before it were put back.'
+
+
 def _rename_with_server(rel: str, server: str, line: int, old_name: str, new_name: str) -> str:
     encoding = _default_encoding()
     root = get_active_workspace_root()
-    source_lines = read_file_for_tools(normalize_relative_path(root, rel), encoding).split('\n')
+    primary = normalize_relative_path(root, rel)
+    source_text = read_file_for_tools(primary, encoding)
+    source_lines = source_text.split('\n')
     if not 1 <= line <= len(source_lines):
         return f'Tool error: `{rel}` has {len(source_lines)} lines; line {line} is out of range.'
     column = symbol_column(source_lines[line - 1], old_name)
@@ -274,6 +342,24 @@ def _rename_with_server(rel: str, server: str, line: int, old_name: str, new_nam
             edits = by_rel.get(t.rel, [])
             if not t.existed:
                 return f'Tool error: the rename edits `{t.rel}`, which is not on disk. Nothing was written.'
+            if batch_line_map(t.path_key) is not None:
+                # Parallel calls run in any order, so the server may have answered before that write.
+                return (
+                    f'Tool error: another tool call in this same response already changed `{t.rel}`, so the '
+                    f"{label} language server's positions may be from before that change. Nothing was written. "
+                    'Call `lsp_rename_symbol` again in your next response, on its own.'
+                )
+            if t.path == primary and t.old_text != source_text:
+                return (
+                    f'Tool error: `{t.rel}` changed while the {label} language server was renaming. Nothing was '
+                    'written. Re-read it and retry.'
+                )
+            if '\ufffd' in t.old_text and not _decodes_strictly(t):
+                # Read with replacement characters: writing it back would destroy those bytes.
+                return (
+                    f'Tool error: `{t.rel}` is not valid {t.encoding}, so renaming in it would corrupt it. Nothing '
+                    'was written. Rename with the edit tools, passing its `encoding`.'
+                )
             try:
                 renamed = apply_lsp_text_edits(t.old_text, edits, old_name)
             except StaleEditError as exc:
@@ -289,13 +375,10 @@ def _rename_with_server(rel: str, server: str, line: int, old_name: str, new_nam
         if not planned:
             return f'{NO_CHANGE_PREFIX} the rename left every file as it was.'
 
-        written: list[tuple[EditTarget, str]] = []
-        for t, renamed, _count in planned:
-            error = commit_edit(t, renamed, 'rename')
-            if error:
-                done = ', '.join(f'`{w.rel}`' for w, _ in written) or 'none'
-                return f'{error} The rename stopped there; already written: {done}.'
-            written.append((t, renamed))
+        error = _commit_all(planned)
+        if error:
+            return error
+        written = [(t, renamed) for t, renamed, _count in planned]
         warnings = _sync_written(server, written, encoding)
         total = sum(count for _t, _renamed, count in planned)
         lines = [
@@ -318,8 +401,10 @@ def _rename_with_server(rel: str, server: str, line: int, old_name: str, new_nam
         when='renaming a function, method, class, type, variable or field, in one file or across files',
         not_='renaming files; text that is not code (comments, strings, docs: use the edit tools)',
         shape=(
-            f'`line` is 1-based and must contain `symbol` as a whole word (its first match on that line is used); '
-            f'{_LSP_EXTENSIONS}; all files change or none do'
+            f'`line` is 1-based and must contain `symbol` as a whole word (its first match on that line outside '
+            'quotes is used); '
+            f'`symbol` and `new_name` are bare identifiers (`count`, not `self.count`); {_LSP_EXTENSIONS}; '
+            'all files change or none do'
         ),
         verify=VERIFY_LSP,
     ),
@@ -337,6 +422,12 @@ def lsp_rename_symbol(
     old_name, target_name = (symbol or '').strip(), (new_name or '').strip()
     if not old_name or not target_name:
         return 'Tool error: `symbol` and `new_name` are both required.'
+    for arg, value in (('symbol', old_name), ('new_name', target_name)):
+        if not _IDENTIFIER.fullmatch(value):
+            return (
+                f'Tool error: `{arg}` must be one identifier, got `{value}`. Pass the bare name '
+                '(`count`, not `self.count` or `Type::count`).'
+            )
     if old_name == target_name:
         return f'{NO_CHANGE_PREFIX} `{old_name}` already has that name.'
     server = lsp_server_for_path(rel)

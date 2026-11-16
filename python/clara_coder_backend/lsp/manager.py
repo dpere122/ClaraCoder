@@ -389,8 +389,10 @@ class SessionWorkspaceLspManager:
         # A problem the running server reports about itself (see ``server_health_from_notification``).
         self._server_health: str = ''
         # Readiness the running server reports itself (see ``server_ready_from_notification``); None
-        # until its first report.
+        # until its first report since the server started or its configuration last changed.
         self._server_ready: bool | None = None
+        # Monotonic time ``_server_ready`` was last reset to None: the no-report grace counts from it.
+        self._server_ready_reset_at: float = 0.0
         # ``$/progress`` tokens between ``begin`` and ``end``: the server is still indexing.
         self._active_progress: dict[str, str] = {}
         # Latest ``$/progress`` report text, e.g. basedpyright's "12 files to analyze".
@@ -594,6 +596,7 @@ class SessionWorkspaceLspManager:
                 self._analysis_progress_ended = False
                 self._progress_report = ''
                 self._server_ready = None
+                self._server_ready_reset_at = self._client_started_at
                 self._diag_cond.notify_all()
             break
 
@@ -683,6 +686,7 @@ class SessionWorkspaceLspManager:
             self._language_status = ''
             self._language_status_message = ''
             self._server_health = ''
+            self._server_ready = None
             self._active_progress.clear()
             self._clear_document_state_locked()
             self._bump_sync_epoch_locked()
@@ -799,6 +803,13 @@ class SessionWorkspaceLspManager:
         updater = getattr(client, 'update_configuration', None)
         if not callable(updater):
             return
+        if self._plugin.reports_readiness:
+            # The new settings reload the project (rust-analyzer: a newly linked Cargo project), so its
+            # earlier "ready" no longer covers it. Reset before sending: the reload's reports may come
+            # back before ``updater`` returns.
+            with self._lock:
+                self._server_ready = None
+                self._server_ready_reset_at = time.monotonic()
         try:
             updater(options)
             logger.info(
@@ -1365,6 +1376,8 @@ class SessionWorkspaceLspManager:
             'position': {'line': max(0, int(line) - 1), 'character': max(0, int(character) - 1)},
             'newName': str(new_name),
         }
+        # Before project import JDT LS answers from the one open file, and the rename misses every other use.
+        self._wait_for_java_workspace_ready()
         return self._require_client().request('textDocument/rename', params, timeout_s=25.0)
 
     def semantic_tokens_full(self, relative_path: str) -> Any:
@@ -1726,8 +1739,9 @@ class SessionWorkspaceLspManager:
 
         Its answers before that are empty: rust-analyzer replies "No references found" while cargo
         metadata runs. A server that has sent no report ``_SERVER_READY_NO_STATUS_GRACE_S`` after
-        starting (an older build, a custom command) counts as ready, as does one that is not running
-        (the query then fails on its own). Returns False when the wait timed out.
+        starting or after a configuration change (an older build, a custom command) counts as ready,
+        as does one that is not running (the query then fails on its own). Returns False when the
+        wait timed out.
         """
 
         if not self._plugin.reports_readiness:
@@ -1738,7 +1752,7 @@ class SessionWorkspaceLspManager:
                 if self._server_ready or self._client is None or not self._client_process_alive(self._client):
                     return True
                 now = time.monotonic()
-                if self._server_ready is None and now - self._client_started_at >= _SERVER_READY_NO_STATUS_GRACE_S:
+                if self._server_ready is None and now - self._server_ready_reset_at >= _SERVER_READY_NO_STATUS_GRACE_S:
                     return True
                 if now >= deadline:
                     logger.warning(

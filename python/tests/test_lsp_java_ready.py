@@ -89,6 +89,30 @@ def test_wait_for_java_ready_does_not_block_long_on_starting(
         shutdown_all_lsp_managers()
 
 
+def test_rename_waits_for_the_java_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A rename before project import would only change the open file."""
+
+    shutdown_all_lsp_managers()
+    mgr, token = _java_manager(tmp_path, 'java-rename-ready')
+    calls: list[str] = []
+
+    class _Client:
+        def request(self, method: str, params: dict, timeout_s: float) -> None:
+            del params, timeout_s
+            calls.append(method)
+
+    try:
+        (tmp_path / 'ws' / 'App.java').write_text('class App {}\n', encoding='utf-8')
+        monkeypatch.setattr(mgr, '_ensure_workspace_synced', lambda rel: rel)
+        monkeypatch.setattr(mgr, '_wait_for_java_workspace_ready', lambda: calls.append('wait'))
+        monkeypatch.setattr(mgr, '_require_client', lambda: _Client())
+        mgr.rename('App.java', 1, 7, 'Main')
+        assert calls == ['wait', 'textDocument/rename']
+    finally:
+        current_session_id.reset(token)
+        shutdown_all_lsp_managers()
+
+
 class _FakeJdtClient:
     def __init__(self, *, root: Path, command: list[str], notification_handler) -> None:
         self.root = root

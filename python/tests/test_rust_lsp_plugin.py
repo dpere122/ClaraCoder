@@ -498,10 +498,29 @@ def test_a_server_that_never_reports_readiness_is_not_waited_for(manager_for, tm
     _crate(tmp_path)
     manager = manager_for(_FakeClient())
     manager.sync_document('src/lib.rs', 'pub fn f() {}\n', wait_for_diagnostics=False)
-    manager._client_started_at -= 10.0  # past the grace a server gets to send its first status
+    manager._server_ready_reset_at -= 10.0  # past the grace a server gets to send its first status
     started = time.monotonic()
     assert manager.wait_until_server_ready(timeout_s=5.0) is True
     assert time.monotonic() - started < 1.0
+
+
+def test_a_newly_linked_project_is_waited_for_again(manager_for, tmp_path: Path) -> None:  # noqa: ANN001
+    _crate(tmp_path / 'one')
+    _crate(tmp_path / 'two')
+    client = _FakeClient()
+    manager = manager_for(client)
+    loaded = {'health': 'ok', 'quiescent': True}
+    manager.sync_document('one/src/lib.rs', 'pub fn f() {}\n', wait_for_diagnostics=False)
+    manager._handle_notification('experimental/serverStatus', loaded)
+    assert manager.wait_until_server_ready(timeout_s=0.05) is True
+
+    # rust-analyzer reloads for the second crate; the first crate's "ready" does not cover it.
+    manager.sync_document('two/src/lib.rs', 'pub fn f() {}\n', wait_for_diagnostics=False)
+    assert len(client.configurations) == 1
+    assert manager.wait_until_server_ready(timeout_s=0.05) is False, 'the reload is waited for'
+
+    manager._handle_notification('experimental/serverStatus', loaded)
+    assert manager.wait_until_server_ready(timeout_s=0.05) is True
 
 
 # --- an agent's edit waits for cargo check

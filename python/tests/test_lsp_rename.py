@@ -131,6 +131,17 @@ def test_symbol_column_counts_emoji_as_two_units() -> None:
     assert symbol_column('\U0001F600 x', 'x') == 4
 
 
+def test_symbol_column_passes_over_a_quoted_match() -> None:
+    assert symbol_column("config['timeout'] = timeout", 'timeout') == 21
+    # Not the lifetime `'a`, the parameter `a`; a lifetime is still found by its own name.
+    assert symbol_column("fn f<'a>(a: &'a u8)", 'a') == 10
+    assert symbol_column("fn f<'a>(a: &'a u8)", "'a") == 6
+
+
+def test_symbol_column_falls_back_to_a_quoted_match() -> None:
+    assert symbol_column("x = 'timeout'", 'timeout') == 6
+
+
 # --- apply_lsp_text_edits ---
 
 
@@ -160,6 +171,12 @@ def test_apply_edits_normalizes_crlf_in_new_text() -> None:
 def test_apply_edits_raises_when_the_span_lacks_the_old_name() -> None:
     with pytest.raises(StaleEditError):
         apply_lsp_text_edits('fn foo()\n', [_edit(0, 0, 0, 2, 'bar')], 'foo')
+
+
+def test_apply_edits_accepts_a_span_without_the_names_sigil() -> None:
+    # A server may replace only `count` of `#count` (or `a` of the lifetime `'a`).
+    assert apply_lsp_text_edits('this.#count = 1;\n', [_edit(0, 6, 0, 11, 'total')], '#count') == 'this.#total = 1;\n'
+    assert apply_lsp_text_edits("fn f<'a>() {}\n", [_edit(0, 6, 0, 7, 'b')], "'a") == "fn f<'b>() {}\n"
 
 
 def test_apply_edits_raises_for_overlapping_edits() -> None:
@@ -390,6 +407,112 @@ def test_crlf_line_endings_are_preserved(env: Any) -> None:
 
     assert 'Renamed `foo` → `bar`' in out, out
     assert (env.workspace / _A).read_bytes() == b'def bar():\r\n    pass\r\n'
+
+
+@pytest.mark.parametrize(
+    ('symbol', 'new_name'),
+    [('self.foo', 'bar'), ('Type::foo', 'bar'), ('foo', 'a.bar'), ('foo', 'two words')],
+)
+def test_a_name_that_is_not_one_identifier_is_refused(env: Any, symbol: str, new_name: str) -> None:
+    # `self.foo` would put the column on `self` and rename that.
+    _write_python_pair(env)
+
+    out = lsp_rename_symbol.invoke({'relative_path': _B, 'line': 3, 'symbol': symbol, 'new_name': new_name})
+
+    assert out.startswith('Tool error:'), out
+    assert 'must be one identifier' in out, out
+    assert env.servers == [], env.servers
+
+
+def test_a_failed_write_puts_back_the_files_already_renamed(env: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    _write_python_pair(env)
+    original_a = b'def foo():\r\n    return 1\r\n'
+    (env.workspace / _A).write_bytes(original_a)
+    env.manager._rename_result = {
+        'changes': {
+            _uri(env.workspace, _A): [_edit(0, 4, 0, 7, 'bar')],
+            _uri(env.workspace, _B): [_edit(0, 18, 0, 21, 'bar'), _edit(2, 0, 2, 3, 'bar')],
+        }
+    }
+    real_commit = rename_module.commit_edit
+
+    def _commit(t: Any, text: str, mode: str) -> str | None:
+        if t.rel == _B:
+            return f'Tool error: could not write `{_B}` (denied).'
+        return real_commit(t, text, mode)
+
+    monkeypatch.setattr(rename_module, 'commit_edit', _commit)
+
+    out = lsp_rename_symbol.invoke({'relative_path': _B, 'line': 3, 'symbol': 'foo', 'new_name': 'bar'})
+
+    assert out.startswith(f'Tool error: could not write `{_B}`'), out
+    assert 'Nothing was written' in out, out
+    assert (env.workspace / _A).read_bytes() == original_a, 'a.py was renamed first and is put back byte for byte'
+    assert (env.workspace / _B).read_text(encoding='utf-8') == _B_TEXT
+    assert env.sync_calls == [], env.sync_calls
+
+
+def test_a_file_another_call_of_the_response_wrote_is_refused(env: Any) -> None:
+    from clara_coder_backend.session.state import current_tool_batch_id
+
+    _write_python_pair(env)
+    uri_b = _uri(env.workspace, _B)
+    env.manager._rename_result = {
+        'changes': {
+            _uri(env.workspace, _A): [_edit(0, 4, 0, 7, 'bar')],
+            uri_b: [_edit(0, 18, 0, 21, 'bar'), _edit(2, 0, 2, 3, 'bar')],
+        }
+    }
+    token = current_tool_batch_id.set('batch-renames')
+    try:
+        first = lsp_rename_symbol.invoke({'relative_path': _B, 'line': 3, 'symbol': 'foo', 'new_name': 'bar'})
+        # A second rename in the same response: its server answer may predate the first one's writes.
+        env.manager._rename_result = {'changes': {uri_b: [_edit(0, 5, 0, 8, 'lib')]}}
+        second = lsp_rename_symbol.invoke({'relative_path': _B, 'line': 1, 'symbol': 'pkg', 'new_name': 'lib'})
+    finally:
+        current_tool_batch_id.reset(token)
+
+    assert first.startswith('Renamed'), first
+    assert second.startswith('Tool error:'), second
+    assert f'same response already changed `{_B}`' in second, second
+    assert (env.workspace / _B).read_text(encoding='utf-8') == 'from pkg.a import bar\n\nbar()\n'
+
+
+def test_a_file_that_changed_while_the_server_renamed_is_refused(env: Any) -> None:
+    _write_python_pair(env)
+    shifted = '# added\n' + _B_TEXT
+
+    def _rename(rel: str, line: int, character: int, new_name: str) -> Any:
+        # Something writes b.py while the server works: its answer is for the old lines.
+        (env.workspace / _B).write_text(shifted, encoding='utf-8')
+        return {'changes': {_uri(env.workspace, _B): [_edit(2, 0, 2, 3, 'bar')]}}
+
+    env.manager.rename = _rename
+
+    out = lsp_rename_symbol.invoke({'relative_path': _B, 'line': 3, 'symbol': 'foo', 'new_name': 'bar'})
+
+    assert out.startswith('Tool error:'), out
+    assert 'changed while' in out, out
+    assert (env.workspace / _B).read_text(encoding='utf-8') == shifted
+
+
+def test_a_file_that_is_not_valid_in_its_encoding_is_refused(env: Any) -> None:
+    # Read with replacement characters, a latin-1 `é` would be written back as U+FFFD.
+    _write_python_pair(env)
+    latin1 = b'def foo():  # caf\xe9\n    return 1\n'
+    (env.workspace / _A).write_bytes(latin1)
+    env.manager._rename_result = {
+        'changes': {
+            _uri(env.workspace, _A): [_edit(0, 4, 0, 7, 'bar')],
+            _uri(env.workspace, _B): [_edit(0, 18, 0, 21, 'bar'), _edit(2, 0, 2, 3, 'bar')],
+        }
+    }
+
+    out = lsp_rename_symbol.invoke({'relative_path': _B, 'line': 3, 'symbol': 'foo', 'new_name': 'bar'})
+
+    assert out.startswith(f'Tool error: `{_A}` is not valid'), out
+    assert (env.workspace / _A).read_bytes() == latin1
+    assert (env.workspace / _B).read_text(encoding='utf-8') == _B_TEXT
 
 
 def test_lsp_rename_symbol_is_registered_as_an_edit_tool() -> None:

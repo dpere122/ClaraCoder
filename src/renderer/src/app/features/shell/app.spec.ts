@@ -525,7 +525,7 @@ describe('App', () => {
     });
   });
 
-  describe('default expanded chat with no editor tab', () => {
+  describe('chat locked into the main panel with no editor tab', () => {
     const workspaces = [
       { id: 'ws-a', name: 'A', path: 'C:/tmp/a', createdAt: '2026-01-01T00:00:00.000Z' },
       { id: 'ws-b', name: 'B', path: 'C:/tmp/b', createdAt: '2026-01-01T00:00:00.000Z' },
@@ -538,17 +538,31 @@ describe('App', () => {
     };
     type ChatApp = {
       chatExpanded: { (): boolean; set: (value: boolean) => void };
+      chatShownExpanded: () => boolean;
+      chatExpandLocked: () => boolean;
+      mainStageShowsEmptyState: () => boolean;
       currentWorkspaceId: { (): string | null; set: (id: string | null) => void };
     };
+    const savedExpanded = () =>
+      refs.saveConfig.mock.calls.map(
+        (call) => (call[0] as { chatExpandedToMainPanel?: boolean }).chatExpandedToMainPanel,
+      );
 
-    it('expands the sidebar chat when the workspace opens with no tab', async () => {
+    it('fills the main panel with the chat and hides the expand toggle', async () => {
       refs = stubElectronApi(undefined, { currentWorkspaceId: 'ws-b', workspaces });
       const fixture = TestBed.createComponent(App);
       await fixture.whenStable();
-      expect((fixture.componentInstance as unknown as ChatApp).chatExpanded()).toBe(true);
+      fixture.detectChanges();
+      const app = fixture.componentInstance as unknown as ChatApp;
+      const host = fixture.nativeElement as HTMLElement;
+      expect(app.chatExpandLocked()).toBe(true);
+      expect(app.chatShownExpanded()).toBe(true);
+      expect(app.mainStageShowsEmptyState()).toBe(false);
+      expect(host.querySelector('.chat-area__chat-expanded-overlay')).toBeTruthy();
+      expect(host.querySelector('.chat-hub__expand')).toBeNull();
     });
 
-    it('leaves a collapsed chat collapsed', async () => {
+    it('keeps the chat in the main panel when the sidebar is collapsed', async () => {
       refs = stubElectronApi(undefined, {
         currentWorkspaceId: 'ws-b',
         workspaces,
@@ -556,10 +570,10 @@ describe('App', () => {
       });
       const fixture = TestBed.createComponent(App);
       await fixture.whenStable();
-      expect((fixture.componentInstance as unknown as ChatApp).chatExpanded()).toBe(false);
+      expect((fixture.componentInstance as unknown as ChatApp).chatShownExpanded()).toBe(true);
     });
 
-    it('keeps the chat in the sidebar when tabs are restored', async () => {
+    it('keeps the chat in the sidebar, with the toggle, when tabs are restored', async () => {
       refs = stubElectronApi(undefined, {
         currentWorkspaceId: 'ws-a',
         workspaces,
@@ -567,10 +581,14 @@ describe('App', () => {
       });
       const fixture = TestBed.createComponent(App);
       await fixture.whenStable();
-      expect((fixture.componentInstance as unknown as ChatApp).chatExpanded()).toBe(false);
+      fixture.detectChanges();
+      const app = fixture.componentInstance as unknown as ChatApp;
+      expect(app.chatExpandLocked()).toBe(false);
+      expect(app.chatShownExpanded()).toBe(false);
+      expect((fixture.nativeElement as HTMLElement).querySelector('.chat-hub__expand')).toBeTruthy();
     });
 
-    it('follows workspace switches and respects a manual un-expand', async () => {
+    it('follows workspace switches, and un-expanding can not take the chat out', async () => {
       refs = stubElectronApi(undefined, {
         currentWorkspaceId: 'ws-a',
         workspaces,
@@ -582,38 +600,27 @@ describe('App', () => {
 
       app.currentWorkspaceId.set('ws-b');
       await fixture.whenStable();
-      expect(app.chatExpanded()).toBe(true);
+      expect(app.chatShownExpanded()).toBe(true);
 
       app.chatExpanded.set(false);
       await fixture.whenStable();
-      expect(app.chatExpanded()).toBe(false);
+      expect(app.chatShownExpanded()).toBe(true);
 
       app.currentWorkspaceId.set('ws-a');
       await fixture.whenStable();
-      expect(app.chatExpanded()).toBe(false);
-
-      app.currentWorkspaceId.set('ws-b');
-      await fixture.whenStable();
-      app.currentWorkspaceId.set('ws-a');
-      await fixture.whenStable();
-      // Restored tabs drop the overlay so the file is visible.
-      expect(app.chatExpanded()).toBe(false);
+      // Restored tabs are visible: the chat goes back to the sidebar.
+      expect(app.chatShownExpanded()).toBe(false);
     });
 
-    it('does not save the automatic expand, but saves a later manual one', async () => {
+    it('never saves the forced expand, but saves a manual one', async () => {
       refs = stubElectronApi(undefined, { currentWorkspaceId: 'ws-b', workspaces });
       const fixture = TestBed.createComponent(App);
       await fixture.whenStable();
       const app = fixture.componentInstance as unknown as ChatApp;
-      expect(app.chatExpanded()).toBe(true);
-      const savedExpanded = () =>
-        refs.saveConfig.mock.calls.map(
-          (call) => (call[0] as { chatExpandedToMainPanel?: boolean }).chatExpandedToMainPanel,
-        );
+      expect(app.chatShownExpanded()).toBe(true);
+      expect(app.chatExpanded()).toBe(false);
       expect(savedExpanded()).not.toContain(true);
 
-      app.chatExpanded.set(false);
-      await fixture.whenStable();
       app.chatExpanded.set(true);
       await fixture.whenStable();
       expect(savedExpanded().at(-1)).toBe(true);
@@ -635,13 +642,10 @@ describe('App', () => {
       app.currentWorkspaceId.set('ws-b');
       await fixture.whenStable();
       expect(app.chatExpanded()).toBe(true);
-      const saved = refs.saveConfig.mock.calls.map(
-        (call) => (call[0] as { chatExpandedToMainPanel?: boolean }).chatExpandedToMainPanel,
-      );
-      expect(saved).not.toContain(false);
+      expect(savedExpanded()).not.toContain(false);
     });
 
-    it('drops the overlay when the workspace closes, so tabs opened from home are visible', async () => {
+    it('shows the home page once the workspace closes, then the tabs of the next one', async () => {
       refs = stubElectronApi(undefined, {
         currentWorkspaceId: 'ws-b',
         workspaces,
@@ -650,15 +654,16 @@ describe('App', () => {
       const fixture = TestBed.createComponent(App);
       await fixture.whenStable();
       const app = fixture.componentInstance as unknown as ChatApp;
-      expect(app.chatExpanded()).toBe(true);
+      expect(app.chatShownExpanded()).toBe(true);
 
       app.currentWorkspaceId.set(null);
       await fixture.whenStable();
-      expect(app.chatExpanded()).toBe(false);
+      expect(app.chatShownExpanded()).toBe(false);
+      expect(app.mainStageShowsEmptyState()).toBe(true);
 
       app.currentWorkspaceId.set('ws-a');
       await fixture.whenStable();
-      expect(app.chatExpanded()).toBe(false);
+      expect(app.chatShownExpanded()).toBe(false);
     });
   });
 

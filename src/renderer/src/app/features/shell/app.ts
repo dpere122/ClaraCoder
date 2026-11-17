@@ -501,18 +501,26 @@ export class App implements OnInit, OnDestroy {
     }
     return fileTabIdsToRight(this.fileTabContextMenuTabs(), tabId).length > 0;
   });
-  /** When true, active chat stack overlays the main editor stage. */
+  /**
+   * The user's expand choice (saved to config). What the main stage shows is
+   * `chatShownExpanded`, which also forces the chat in while no editor tab is open.
+   */
   protected readonly chatExpanded = model(false);
+  /**
+   * A workspace is open with no editor tab: the chat fills the main panel and can't be
+   * collapsed to the sidebar, so the main stage is never empty.
+   */
+  protected readonly chatExpandLocked = computed(
+    () => this.hasOpenWorkspace() && this.allFileTabs().length === 0,
+  );
+  /** When true, the active chat stack overlays the main editor stage. */
+  protected readonly chatShownExpanded = computed(
+    () => this.chatExpanded() || this.chatExpandLocked(),
+  );
   /** When true, the chat sidebar collapses to a thin bar holding only the un-collapse button. */
   protected readonly chatCollapsed = model(false);
   /** Skip persisting chat chrome until the first config load has hydrated the signals. */
   private chatLayoutHydrated = false;
-  /**
-   * The chat is expanded only because no editor tab was open. Not saved to config, so the
-   * next start (or a workspace opened from home) doesn't cover restored tabs with it.
-   * Cleared once the chat leaves the expanded view.
-   */
-  private chatAutoExpanded = false;
   /** Skip open-tab persist/restore until the first config load. */
   private openTabsHydrated = false;
   /** Workspace whose `fileTabs` currently belong to; used to persist before restore. */
@@ -572,9 +580,8 @@ export class App implements OnInit, OnDestroy {
     return tabId.slice(5) || null;
   });
 
-  protected readonly mainStageShowsEmptyState = computed(
-    () => !this.hasOpenWorkspace() || (this.allFileTabs().length === 0 && !this.chatExpanded()),
-  );
+  /** The home page: with a workspace open, the stage always holds a file or the chat. */
+  protected readonly mainStageShowsEmptyState = computed(() => !this.hasOpenWorkspace());
 
   protected readonly activeFileRelativePath = computed(() => {
     const key = this.activeModelKey();
@@ -934,37 +941,6 @@ export class App implements OnInit, OnDestroy {
       this.chatExpanded();
       untracked(() => {
         void this.persistChatWindowStateNow();
-      });
-    });
-
-    // With a workspace open but no editor tab, the main stage would be empty:
-    // move the sidebar chat into the expanded view. Only on the change into
-    // that state, so un-expanding by hand still sticks; and when tabs come
-    // back (closing the last one is undone, a workspace with tabs restores),
-    // drop the overlay so they're visible. Closing the workspace drops it too,
-    // or it would cover the tabs of the next workspace opened from home.
-    // An automatic expand isn't saved to config (see `chatAutoExpanded`).
-    let prevNoTabOpen: boolean | null = null;
-    effect(() => {
-      const hasWorkspace = this.hasOpenWorkspace();
-      const noTabOpen = hasWorkspace && this.allFileTabs().length === 0;
-      untracked(() => {
-        if (!this.chatLayoutHydrated) {
-          return;
-        }
-        const prev = prevNoTabOpen;
-        prevNoTabOpen = noTabOpen;
-        if (prev === noTabOpen) {
-          return;
-        }
-        if (noTabOpen) {
-          if (!this.chatCollapsed() && this.chatHubView() === 'activeChat' && !this.chatExpanded()) {
-            this.chatAutoExpanded = true;
-            this.chatExpanded.set(true);
-          }
-        } else if (prev) {
-          this.chatExpanded.set(false);
-        }
       });
     });
 
@@ -1450,10 +1426,8 @@ export class App implements OnInit, OnDestroy {
       return;
     }
     const collapsed = this.chatCollapsed();
-    if (!this.chatExpanded()) {
-      this.chatAutoExpanded = false;
-    }
-    const expanded = this.chatExpanded() && !this.chatAutoExpanded;
+    // The user's choice only: the forced expand with no tab open is never saved.
+    const expanded = this.chatExpanded();
     const current = resolveChatWindowState(config);
     if (current.collapsed === collapsed && current.expanded === expanded) {
       return;
@@ -3068,7 +3042,7 @@ export class App implements OnInit, OnDestroy {
   /** Main stole Ctrl/Cmd+F from Chromium — open Monaco find when a file editor is on stage. */
   private onEditorFindRequested(): void {
     const tabId = this.activeMainTabId();
-    if (!tabId?.startsWith('file:') || this.activeFileIsImage() || this.chatExpanded()) {
+    if (!tabId?.startsWith('file:') || this.activeFileIsImage() || this.chatShownExpanded()) {
       return;
     }
     this.focusedWorkspaceMonaco()?.openFindWidget();

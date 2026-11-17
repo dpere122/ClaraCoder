@@ -5,6 +5,7 @@ import {
   APP_UPDATE_REPO,
   appReleaseAction,
   compareAppVersions,
+  findAvailableAppUpdate,
   isPrereleaseVersion,
   versionFromReleaseTag,
   visibleAppReleases,
@@ -72,6 +73,36 @@ describe('visibleAppReleases', () => {
       '0.2.0-beta.2',
       '0.1.0',
     ]);
+  });
+});
+
+describe('findAvailableAppUpdate', () => {
+  /** A release with an installer for this platform. */
+  function installable(version: string): AppReleaseSummary {
+    return { ...release(version), installer: { fileName: `ClaraCoder-${version}.exe`, size: 1 } };
+  }
+
+  it('returns null without a newer release, releases, or a current version', () => {
+    expect(findAvailableAppUpdate([installable('0.1.0'), installable('0.2.0')], '0.2.0')).toBeNull();
+    expect(findAvailableAppUpdate([], '0.2.0')).toBeNull();
+    expect(findAvailableAppUpdate([installable('0.3.0')], '')).toBeNull();
+  });
+
+  it('ignores newer releases without an installer', () => {
+    expect(findAvailableAppUpdate([release('0.3.0'), installable('0.1.0')], '0.2.0')).toBeNull();
+  });
+
+  it('ignores newer betas when running a stable version', () => {
+    expect(findAvailableAppUpdate([installable('0.3.0-beta.1')], '0.2.0')).toBeNull();
+  });
+
+  it('offers newer betas when running a pre-release', () => {
+    expect(findAvailableAppUpdate([installable('0.2.0-beta.3')], '0.2.0-beta.2')?.version).toBe('0.2.0-beta.3');
+  });
+
+  it('returns the newest of several newer releases', () => {
+    const releases = [installable('0.3.0'), installable('0.5.0'), release('0.6.0'), installable('0.4.0')];
+    expect(findAvailableAppUpdate(releases, '0.2.0')?.version).toBe('0.5.0');
   });
 });
 

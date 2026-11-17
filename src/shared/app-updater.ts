@@ -146,3 +146,19 @@ export function visibleAppReleases(
     .filter((r) => includeBeta || !r.prerelease)
     .sort((a, b) => compareAppVersions(b.version, a.version));
 }
+
+/**
+ * Newest installable release above `currentVersion` that the Updates window would list
+ * (pre-releases only when running one), or null when there is none.
+ */
+export function findAvailableAppUpdate(
+  releases: readonly AppReleaseSummary[],
+  currentVersion: string,
+): AppReleaseSummary | null {
+  if (!currentVersion.trim()) return null;
+  return (
+    visibleAppReleases(releases, isPrereleaseVersion(currentVersion)).find(
+      (r) => r.installer != null && compareAppVersions(r.version, currentVersion) > 0,
+    ) ?? null
+  );
+}

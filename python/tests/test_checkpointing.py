@@ -353,7 +353,7 @@ async def test_load_without_keep_flag_still_deletes(monkeypatch: pytest.MonkeyPa
 def _plan_phase_thread_ids(session_id: str) -> list[str]:
     return [
         f'{session_id}:{kind}:{kind}:{mode}'
-        for kind in ('plan_exec', 'plan_discover', 'plan_discover_followup')
+        for kind in ('plan_exec', 'plan_discover', 'plan_answer_lookup', 'plan_discover_followup')
         for mode in ('apply', 'read')
     ]
 

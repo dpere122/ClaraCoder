@@ -1,8 +1,9 @@
 """Plan-and-execute orchestrator (LangGraph tutorial control flow, nemo streaming/HITL).
 
-Read-only discovery (:mod:`clara_coder_backend.plan.plan_discovery`) runs before planning; the planner
-proposes a structured build plan written to ``.clara/build-plans/``; user approves via
-:mod:`clara_coder_backend.plan.plan_confirm`; a single ReAct executor run implements the plan using
+Flow: read-only discovery (:mod:`clara_coder_backend.plan.plan_discovery`) → the planner drafts a
+structured build plan in ``.clara/build-plans/`` → the user answers the draft's open questions, if
+any → the planner rewrites the plan with those answers → the user approves via
+:mod:`clara_coder_backend.plan.plan_confirm` → a single ReAct executor run implements the plan using
 :mod:`clara_coder_backend.plan.build_plan_tools` to mark milestones.
 """
 
@@ -77,14 +78,9 @@ from clara_coder_backend.logging.llm_interaction_logging import log_llm_failure
 from clara_coder_backend.llm.messages import build_system_prompt, stringify_content
 from clara_coder_backend.session.state import get_active_connection
 from clara_coder_backend.plan.plan_confirm import plan_confirm_sse_payload, stage_plan_confirm_request
-from clara_coder_backend.plan.plan_path_check import (
-    apply_path_answers,
-    is_path_question,
-    verify_plan_paths,
-)
 from clara_coder_backend.plan.plan_discovery import (
     PLAN_DISCOVERY_EXECUTE_LABEL,
-    build_followup_discovery_prompt,
+    build_answer_lookup_prompt,
     build_freeform_discovery_prompt,
 )
 from clara_coder_backend.stream_tags import PLANNER_STREAM_TAG, REASONING_AUXILIARY_STREAM_TAG
@@ -101,13 +97,8 @@ REWRITE_PLAN_LABEL = 'Rewriting plan'
 # Planner questions asked per round; the rest default to their first option as written assumptions.
 MAX_OPEN_QUESTIONS = 3
 
-# "Does src/a.ts exist?" / "Where is router.ts?" — answered by the on-disk path check, never the user.
-_FILE_FACT_QUESTION_RE = re.compile(
-    r'\b(?:(?:does|do|did)\b[^?]*\bexist|located|where (?:is|are) (?:the )?(?:file|files)?|'
-    r'which file (?:is|contains|defines|holds)|what is the (?:file )?path)\b',
-    re.IGNORECASE,
-)
-_PATHISH_TOKEN_RE = re.compile(r'[\w./\\-]+\.[A-Za-z0-9]{1,6}\b|[\w-]+/[\w./-]+')
+# Read-only lookup for typed answers runs on a thread of its own (``{session_id}:{kind}``).
+ANSWER_LOOKUP_THREAD_KIND = 'plan_answer_lookup'
 
 # Plan mode always binds the full outer-agent tool surface (staging, transfer, deps, tests, …)
 # regardless of the toolbar Editor toggle for this HTTP request.
@@ -162,8 +153,8 @@ PLAN_AUTHORING_GUIDELINES = (
     'finding (a path, symbol, or pattern you observed). Create entries may use new paths, but the '
     'parent directory or related existing code must still be grounded in discovery.\n'
     '- Paths: write plain workspace-relative paths (src/app.ts) in files_to_change and Files — no '
-    'backticks, line numbers, or notes on the path itself. Paths are checked against the workspace '
-    'automatically after you write the plan, so never ask the user whether a file exists or where it is.\n'
+    'backticks, line numbers, or notes on the path itself. Discovery already found the files, so never '
+    'ask the user whether a file exists or where it is.\n'
     '- File operations: include creates, modifies, and deletes in files_to_change. Set operation to '
     'create, modify, or delete for each entry; do not omit deletes or new files.\n'
     '- Granularity: use coarse-grained milestones — roughly one major outcome per action step. '
@@ -307,18 +298,10 @@ def _prior_plan_preamble(prior_plan_md: str) -> str:
     if not text:
         return ''
     return (
-        '\n\nPrevious build-plan draft (rewrite the whole document; incorporate resolved answers '
-        'and new discovery; do not copy or emit an Open Questions section):\n'
+        '\n\nPrevious build-plan draft (rewrite the whole document; incorporate resolved answers; '
+        'do not copy or emit an Open Questions section):\n'
         f'{text}\n'
     )
-
-
-def _combine_discovery_summaries(original: str, followup: str) -> str:
-    orig = (original or '').strip()
-    extra = (followup or '').strip()
-    if orig and extra:
-        return f'{orig}\n\nFollow-up discovery (after user answers):\n{extra}'
-    return orig or extra
 
 
 def _resolved_answers_as_assumptions(resolved_answers: str) -> list[str]:
@@ -349,15 +332,6 @@ def _bind_answers_into_prior_plan(plan: BuildPlanModel, resolved_answers: str) -
             assumptions.append(line)
     plan.assumptions = assumptions
     plan.open_questions = []
-    return plan
-
-
-def _finalize_rewritten_plan(plan: BuildPlanModel, workspace_root: str) -> BuildPlanModel:
-    """Never ask again after answers: fix paths on disk; anything still unresolved becomes an assumption."""
-    check = verify_plan_paths(plan, workspace_root)
-    plan.open_questions = []
-    if check.questions:
-        _add_plan_assumptions(plan, [f'Unverified path, proceeding anyway: {q.prompt}' for q in check.questions])
     return plan
 
 
@@ -480,16 +454,11 @@ def _gemma_planner_split_enabled(delta: str, *, already: bool) -> bool:
     return gemma_content_needs_parsing(delta)
 
 
-def _is_file_fact_question(question: OpenQuestion) -> bool:
-    prompt = str(question.prompt or '')
-    return bool(_FILE_FACT_QUESTION_RE.search(prompt) and _PATHISH_TOKEN_RE.search(prompt))
-
-
 def _triage_planner_questions(plan: BuildPlanModel) -> list[str]:
     """Keep only planner questions worth the user's time; returns assumption lines for the rest.
 
-    Drops blanks, duplicates, and file-fact questions (the path check answers those). Beyond
-    ``MAX_OPEN_QUESTIONS`` a question is not asked: its first option becomes a stated default.
+    Drops blanks and duplicates. Beyond ``MAX_OPEN_QUESTIONS`` a question is not asked: its first
+    option becomes a stated default.
     """
     kept: list[OpenQuestion] = []
     seen: set[str] = set()
@@ -497,7 +466,7 @@ def _triage_planner_questions(plan: BuildPlanModel) -> list[str]:
     for q in plan.open_questions or []:
         prompt = str(q.prompt or '').strip()
         key = re.sub(r'\W+', ' ', prompt.lower()).strip()
-        if not key or key in seen or _is_file_fact_question(q):
+        if not key or key in seen:
             continue
         seen.add(key)
         if len(kept) < MAX_OPEN_QUESTIONS:
@@ -506,25 +475,6 @@ def _triage_planner_questions(plan: BuildPlanModel) -> list[str]:
             defaults.append(f'{prompt} → {q.options[0]} (default; not asked)')
     plan.open_questions = kept
     return defaults
-
-
-def _answers_by_qid(answers: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    return {str(a.get('question_id') or '').strip(): a for a in answers}
-
-
-def _answer_texts(open_questions: list[OpenQuestion], answers: list[dict[str, Any]]) -> dict[str, str]:
-    by_qid = _answers_by_qid(answers)
-    out: dict[str, str] = {}
-    for q in open_questions:
-        answer = by_qid.get(q.id.strip())
-        if answer:
-            out[q.id] = _answer_text(q, answer)
-    return out
-
-
-def _planner_questions_answered(open_questions: list[OpenQuestion], answer_texts: dict[str, str]) -> bool:
-    """True when the user answered a planner question (not a path check): the plan must be rewritten."""
-    return any(answer_texts.get(q.id) for q in open_questions if not is_path_question(q))
 
 
 def _answer_text(question: OpenQuestion, answer: dict[str, Any]) -> str:
@@ -560,6 +510,26 @@ def _format_resolved_answers(
             continue
         lines.append(f'Q: {q.prompt}\nA: {text}')
     return '\n'.join(lines)
+
+
+def _format_typed_answers(open_questions: list[OpenQuestion], answers: list[dict[str, Any]]) -> str:
+    """Q&A block for the answers the user typed (Other); empty when every answer was an option."""
+    by_qid = {str(a.get('question_id') or '').strip(): a for a in answers}
+    lines: list[str] = []
+    for q in open_questions:
+        typed = str((by_qid.get(q.id.strip()) or {}).get('other_text') or '').strip()
+        if typed:
+            lines.append(f'Q: {q.prompt}\nA: {typed}')
+    return '\n'.join(lines)
+
+
+def _combine_findings(discovery_summary: str, lookup_summary: str) -> str:
+    """Discovery findings plus what the answer lookup added."""
+    orig = (discovery_summary or '').strip()
+    extra = (lookup_summary or '').strip()
+    if orig and extra:
+        return f'{orig}\n\nLookup for your typed answers:\n{extra}'
+    return orig or extra
 
 
 def _resolved_questions_for_confirm(
@@ -1158,15 +1128,10 @@ async def stream_plan_execute_langgraph(
         plan_model = _plan_from_planner_output(md_text) or parse_build_plan_md(md_text)
         if _plan_has_action_steps(plan_model) and not _markdown_looks_like_build_plan(md_text):
             md_text = render_build_plan_md(plan_model)
-        # Review the draft before asking anything: trim the planner's questions, then check planned
-        # paths on disk (obvious fixes applied silently; only real ambiguity becomes a question).
+        # Trim the planner's questions (duplicates, more than MAX_OPEN_QUESTIONS) before asking.
         question_defaults = _triage_planner_questions(plan_model)
         if question_defaults:
             _add_plan_assumptions(plan_model, question_defaults)
-        path_check = await asyncio.to_thread(verify_plan_paths, plan_model, session.workspace_path)
-        if path_check.questions:
-            plan_model.open_questions = list(plan_model.open_questions) + path_check.questions
-        if path_check.changed or question_defaults:
             md_text = render_build_plan_md(plan_model)
             write_build_plan_draft_content(session.workspace_path, record, md_text)
             yield sse_line(build_plan_chunk_event(relative_path=record.relative_path, content=md_text))
@@ -1188,8 +1153,9 @@ async def stream_plan_execute_langgraph(
 
     yield sse_line(build_plan_stream_end_event(relative_path=record.relative_path))
 
-    # Open-questions HITL: ask once, follow-up discovery, then stream a full rewrite (no more questions).
-    executor_findings = discovery_summary
+    # Open questions: ask once, then the planner rewrites the plan with the answers (no more questions).
+    # Typed answers first get a short read-only lookup, whose findings feed the rewrite and the executor.
+    findings = discovery_summary
     resolved_questions: list[dict[str, str]] = []
     if plan_model.open_questions:
         # Show the draft steps in the plan panel while the user answers questions.
@@ -1218,80 +1184,49 @@ async def stream_plan_execute_langgraph(
         session.question_answers = None
         resolved_questions = _resolved_questions_for_confirm(plan_model.open_questions, answers)
         resolved_answers_text = _format_resolved_answers(plan_model.open_questions, answers)
-        answer_texts = _answer_texts(plan_model.open_questions, answers)
-        path_outcome = apply_path_answers(plan_model, path_check, answer_texts, session.workspace_path)
         prior_plan = plan_model
-        prior_md = render_build_plan_md(plan_model) if path_check.checks else md_text
+        prior_md = md_text
 
-        if path_outcome.clarify:
-            cancel_build_plan(session, record.id)
-            asks = '\n'.join(f'- {path}' for path in path_outcome.clarify)
-            yield sse_line(
-                status_event(
-                    'plan-clarify',
-                    'Planning paused',
-                    detail='Waiting for you to clarify file paths.',
-                    state='complete',
-                    stream_tag=PLANNER_STREAM_TAG,
-                )
-            )
-            outcome.mark_completed(
-                final_text=(
-                    f'Planning stopped so you can clarify which files these should be:\n{asks}\n\n'
-                    'Reply with the right paths or more detail, then run plan mode again.'
-                ),
-            )
-            return
-
-        if not (_planner_questions_answered(plan_model.open_questions, answer_texts) or path_outcome.needs_replan):
-            # Only path checks were answered (already applied): nothing new to discover, so skip
-            # the second discovery pass and the full rewrite and bind the answers into the draft.
-            plan_model = _bind_answers_into_prior_plan(prior_plan, resolved_answers_text)
-            bound_md = render_build_plan_md(plan_model)
-            write_build_plan_draft_content(session.workspace_path, record, bound_md)
-            record = finalize_build_plan_draft(session.workspace_path, record, bound_md)
-            yield sse_line(build_plan_chunk_event(relative_path=record.relative_path, content=bound_md))
-            yield sse_line(build_plan_stream_end_event(relative_path=record.relative_path))
-        else:
-            followup_box: list[str] = ['']
-            try:
-                async with aclosing(
-                    _stream_plan_discovery_phase(
-                        session,
-                        user_input,
-                        session_id=session_id,
-                        summary_out=followup_box,
-                        prompt=build_followup_discovery_prompt(
+        rewritten: BuildPlanModel | None = None
+        if resolved_answers_text:
+            typed_answers = _format_typed_answers(plan_model.open_questions, answers)
+            if typed_answers:
+                lookup_box: list[str] = ['']
+                try:
+                    async with aclosing(
+                        _stream_plan_discovery_phase(
+                            session,
                             user_input,
-                            resolved_answers=resolved_answers_text,
-                            prior_summary=discovery_summary,
-                        ),
-                        checkpoint_session_key=f'{session_id}:plan_discover_followup',
-                        graph_name='plan_discover_followup',
-                        thread_kind='plan_discover_followup',
-                        status_detail='Follow-up discovery from your answers (read-only).',
-                        llm_event_prefix='discover_followup',
-                        event_id_prefix='plan-discover-followup',
-                    )
-                ) as lines:
-                    async for line in lines:
-                        if session.abort_event.is_set():
-                            outcome.mark_aborted()
-                            return
-                        yield line
-            except Exception:
-                logger.exception('Follow-up discovery failed; continuing with the original summary')
-                followup_box = ['']
+                            session_id=session_id,
+                            summary_out=lookup_box,
+                            prompt=build_answer_lookup_prompt(
+                                user_input,
+                                typed_answers=typed_answers,
+                                prior_summary=discovery_summary,
+                            ),
+                            checkpoint_session_key=f'{session_id}:{ANSWER_LOOKUP_THREAD_KIND}',
+                            graph_name=ANSWER_LOOKUP_THREAD_KIND,
+                            thread_kind=ANSWER_LOOKUP_THREAD_KIND,
+                            status_detail='Looking up what your answers mention (read-only).',
+                            llm_event_prefix='answer_lookup',
+                            event_id_prefix='plan-answer-lookup',
+                        )
+                    ) as lines:
+                        async for line in lines:
+                            if session.abort_event.is_set():
+                                cancel_build_plan(session, record.id)
+                                outcome.mark_aborted()
+                                return
+                            yield line
+                except Exception:
+                    logger.exception('Answer lookup failed; rewriting from the original findings')
+                    lookup_box = ['']
+                if session.abort_event.is_set():
+                    cancel_build_plan(session, record.id)
+                    outcome.mark_aborted()
+                    return
+                findings = _combine_findings(discovery_summary, lookup_box[0] if lookup_box else '')
 
-            if session.abort_event.is_set():
-                outcome.mark_aborted()
-                return
-
-            combined_summary = _combine_discovery_summaries(
-                discovery_summary,
-                followup_box[0] if followup_box else '',
-            )
-            executor_findings = combined_summary
             yield sse_line(
                 planner_progress_event(
                     _planner_progress_payload(phase='planning', steps=draft_step_rows, plan_ready=False),
@@ -1319,7 +1254,7 @@ async def stream_plan_execute_langgraph(
                         user_input,
                         session=session,
                         apply_mode=tool_apply_mode,
-                        discovery_summary=combined_summary,
+                        discovery_summary=findings,
                         record=record,
                         md_out=rewrite_box,
                         resolved_answers=resolved_answers_text,
@@ -1336,9 +1271,14 @@ async def stream_plan_execute_langgraph(
                 log_llm_failure(exc, context='plan:rewrite', agent_role=None)
                 rewrite_box = ['']
 
+            if session.abort_event.is_set():
+                outcome.mark_aborted()
+                return
+
             rewritten = _plan_from_planner_output(rewrite_box[0] if rewrite_box else '')
             if rewritten is not None and _plan_has_action_steps(rewritten):
-                rewritten = await asyncio.to_thread(_finalize_rewritten_plan, rewritten, session.workspace_path)
+                # Answers were asked once; the rewrite never asks again.
+                rewritten.open_questions = []
                 rewritten_md = render_build_plan_md(rewritten)
                 write_build_plan_draft_content(session.workspace_path, record, rewritten_md)
                 record = finalize_build_plan_draft(session.workspace_path, record, rewritten_md)
@@ -1356,14 +1296,11 @@ async def stream_plan_execute_langgraph(
                 yield sse_line(build_plan_chunk_event(relative_path=record.relative_path, content=rewritten_md))
                 yield sse_line(build_plan_stream_end_event(relative_path=record.relative_path))
             else:
+                rewritten = None
                 logger.warning(
                     'Plan rewrite produced no action steps; binding answers into prior draft at %s',
                     record.relative_path,
                 )
-                plan_model = _bind_answers_into_prior_plan(prior_plan, resolved_answers_text)
-                bound_md = render_build_plan_md(plan_model)
-                write_build_plan_draft_content(session.workspace_path, record, bound_md)
-                record = finalize_build_plan_draft(session.workspace_path, record, bound_md)
                 yield sse_line(
                     status_event(
                         rewrite_status_id,
@@ -1374,17 +1311,15 @@ async def stream_plan_execute_langgraph(
                         stream_tag=PLANNER_STREAM_TAG,
                     )
                 )
-                yield sse_line(
-                    status_event(
-                        'plan-rewrite-fallback',
-                        'Plan kept',
-                        detail='Could not rewrite the plan from your answers; keeping the draft with answers applied.',
-                        state='error',
-                        stream_tag=PLANNER_STREAM_TAG,
-                    )
-                )
-                yield sse_line(build_plan_chunk_event(relative_path=record.relative_path, content=bound_md))
-                yield sse_line(build_plan_stream_end_event(relative_path=record.relative_path))
+
+        if rewritten is None:
+            # No answers given, or the rewrite failed: keep the draft the user saw, answers bound in.
+            plan_model = _bind_answers_into_prior_plan(prior_plan, resolved_answers_text)
+            bound_md = render_build_plan_md(plan_model)
+            write_build_plan_draft_content(session.workspace_path, record, bound_md)
+            record = finalize_build_plan_draft(session.workspace_path, record, bound_md)
+            yield sse_line(build_plan_chunk_event(relative_path=record.relative_path, content=bound_md))
+            yield sse_line(build_plan_stream_end_event(relative_path=record.relative_path))
 
     action_step_goals = [s.goal.strip() for s in plan_model.action_steps if s.goal.strip()]
     if not action_step_goals:
@@ -1488,7 +1423,7 @@ async def stream_plan_execute_langgraph(
     exec_prompt = build_build_plan_executor_prompt(
         record.relative_path,
         plan_md=approved_md,
-        discovery_summary=executor_findings,
+        discovery_summary=findings,
     )
     exec_outcome = LangGraphWorkerOutcome()
     exec_cfg = AgentGraphConfig(

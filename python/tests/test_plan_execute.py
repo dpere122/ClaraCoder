@@ -49,13 +49,6 @@ async def _collect_lines(generator: Any) -> list[str]:
     return [line async for line in generator]
 
 
-@pytest.fixture(autouse=True)
-def _workspace_has_planned_file(tmp_path: Path) -> None:
-    """Sample plans modify ``src/app.ts``; it exists so the on-disk path check has nothing to ask."""
-    (tmp_path / 'src').mkdir(exist_ok=True)
-    (tmp_path / 'src' / 'app.ts').write_text('export {};\n', encoding='utf-8')
-
-
 def _sse_json_rows(lines: list[str]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for line in lines:
@@ -1032,6 +1025,108 @@ def test_stream_plan_execute_looks_up_typed_answers_before_rewriting(
     assert 'gRPC, through the client in src/grpc' in (planner_calls[1].get('resolved_answers') or '')
     assert any('Looking up what your answers mention' in line for line in lines)
     assert outcome.state == AgentLoopOutcome.COMPLETED
+
+
+def _typed_answer_planner(planner_calls: list[dict[str, Any]], *, abort_on_rewrite: bool = False):
+    """Fake planner: a draft with open questions first, then the rewrite."""
+
+    async def _fake_planner_md(*_args: Any, **kwargs: Any):
+        planner_calls.append(kwargs)
+        rewrite = len(planner_calls) > 1
+        if rewrite and abort_on_rewrite:
+            kwargs['session'].abort_event.set()
+        kwargs['md_out'].clear()
+        kwargs['md_out'].append(_sample_rewritten_plan_md() if rewrite else _sample_plan_with_open_questions_md())
+        yield 'data: {"type":"build_plan_chunk"}\n\n'
+
+    return _fake_planner_md
+
+
+_TYPED_ANSWER = [{'question_id': 'q-1', 'option_id': None, 'other_text': 'gRPC, through the client in src/grpc'}]
+
+
+@patch('clara_coder_backend.plan.plan_execute._stream_langgraph_tool_agent')
+@patch('clara_coder_backend.plan.plan_execute._stream_planner_md')
+@patch('clara_coder_backend.plan.plan_execute.await_diff_review_note')
+@patch('clara_coder_backend.plan.plan_execute.await_question_answers')
+def test_stream_plan_execute_failed_answer_lookup_adds_no_findings(
+    mock_question_pause: AsyncMock,
+    mock_pause: AsyncMock,
+    mock_planner: AsyncMock,
+    mock_exec: AsyncMock,
+    tmp_path: Path,
+) -> None:
+    """A lookup that fails ends with an error message as its text: that is not a finding."""
+    planner_calls: list[dict[str, Any]] = []
+    mock_planner.side_effect = _typed_answer_planner(planner_calls)
+    runs: list[tuple[str, str]] = []
+
+    async def _fake_exec(_session: Any, _apply_mode: bool, prompt: str, **kwargs: Any):
+        kind = kwargs['cfg'].thread_kind
+        runs.append((kind, prompt))
+        if kind == 'plan_answer_lookup':
+            kwargs['outcome'].mark_failed_runtime('boom', final_text='Discovery error: boom')
+        else:
+            kwargs['outcome'].mark_completed(final_text=f'{kind} finished.')
+        yield 'data: {"type":"chunk"}\n\n'
+
+    mock_exec.side_effect = _fake_exec
+    mock_question_pause.return_value = _TYPED_ANSWER
+    mock_pause.return_value = None
+
+    outcome = LangGraphWorkerOutcome()
+    _run_plan(SessionState(workspace_path=str(tmp_path)), 'sess-plan-lookup-fails', outcome)
+
+    assert [kind for kind, _ in runs] == ['plan_discover', 'plan_answer_lookup', 'plan_exec']
+    assert len(planner_calls) == 2
+    assert planner_calls[1]['discovery_summary'] == planner_calls[0]['discovery_summary']
+    assert 'Discovery error' not in planner_calls[1]['discovery_summary']
+    assert 'Discovery error' not in runs[2][1]
+    assert 'gRPC, through the client in src/grpc' in planner_calls[1]['resolved_answers']
+    assert outcome.state == AgentLoopOutcome.COMPLETED
+
+
+@patch('clara_coder_backend.plan.plan_execute._stream_langgraph_tool_agent')
+@patch('clara_coder_backend.plan.plan_execute._stream_planner_md')
+@patch('clara_coder_backend.plan.plan_execute.await_diff_review_note')
+@patch('clara_coder_backend.plan.plan_execute.await_question_answers')
+def test_stream_plan_execute_stop_during_rewrite_cancels_the_plan(
+    mock_question_pause: AsyncMock,
+    mock_pause: AsyncMock,
+    mock_planner: AsyncMock,
+    mock_exec: AsyncMock,
+    tmp_path: Path,
+) -> None:
+    """The file holds the rewrite stub by then; it must not stay behind as the session's plan."""
+    planner_calls: list[dict[str, Any]] = []
+    mock_planner.side_effect = _typed_answer_planner(planner_calls, abort_on_rewrite=True)
+    prompts: list[str] = []
+    mock_exec.side_effect = _two_run_exec(prompts)
+    mock_question_pause.return_value = [{'question_id': 'q-1', 'option_id': 'q-1-opt-1', 'other_text': None}]
+    mock_pause.return_value = None
+
+    session = SessionState(workspace_path=str(tmp_path))
+    outcome = LangGraphWorkerOutcome()
+    lines = _run_plan(session, 'sess-plan-stop-rewrite', outcome)
+
+    assert len(planner_calls) == 2
+    assert outcome.state == AgentLoopOutcome.ABORTED
+    assert not any('"type": "plan_confirm"' in line for line in lines)
+    assert list((tmp_path / '.clara' / 'build-plans').glob('plan-*.md')) == []
+    assert session.plans.active_build_plan_id == ''
+
+
+def test_build_build_plan_executor_prompt_keeps_the_answer_lookup_after_long_findings() -> None:
+    from clara_coder_backend.plan.plan_execute import EXECUTOR_DISCOVERY_INLINE_CHARS
+
+    prompt = build_build_plan_executor_prompt(
+        '.clara/build-plans/plan-abc.md',
+        discovery_summary='Relevant files: src/app.ts (request handler). ' + 'x' * (EXECUTOR_DISCOVERY_INLINE_CHARS * 2),
+        answer_lookup='Relevant files: src/grpc/client.ts (shared gRPC client).',
+    )
+    assert 'src/app.ts (request handler)' in prompt
+    assert '[truncated]' in prompt
+    assert 'src/grpc/client.ts (shared gRPC client)' in prompt
 
 
 def test_format_typed_answers_keeps_only_other_text() -> None:

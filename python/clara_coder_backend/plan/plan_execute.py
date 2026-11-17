@@ -214,6 +214,8 @@ PLAN_DRAFT_DISK_WRITE_INTERVAL_SEC = 0.5
 # Executor prompt budget for the inlined plan / findings (the full plan stays on disk).
 EXECUTOR_PLAN_INLINE_CHARS = 12_000
 EXECUTOR_DISCOVERY_INLINE_CHARS = 6_000
+# The answer lookup's share of the findings budget (it is short, and the newest thing the user asked for).
+EXECUTOR_LOOKUP_INLINE_CHARS = 2_000
 
 # Line-start heading only — inline CoT like "I'll write a # Build Plan next" must not count.
 # ``# Build Plan: Title`` (colon) or a bare ``# Build Plan`` line; last match is the real document.
@@ -528,7 +530,7 @@ def _combine_findings(discovery_summary: str, lookup_summary: str) -> str:
     orig = (discovery_summary or '').strip()
     extra = (lookup_summary or '').strip()
     if orig and extra:
-        return f'{orig}\n\nLookup for your typed answers:\n{extra}'
+        return f"{orig}\n\nLookup for the user's typed answers:\n{extra}"
     return orig or extra
 
 
@@ -637,16 +639,23 @@ def build_build_plan_executor_prompt(
     *,
     plan_md: str = '',
     discovery_summary: str = '',
+    answer_lookup: str = '',
 ) -> str:
     """User message for the single non-sequential plan executor run.
 
     The approved plan and the discovery findings are inlined so the executor starts editing
     instead of spending its first turns on ``read_build_plan`` and repeating discovery.
+    ``answer_lookup`` (findings for the user's typed answers) has its own share of the findings
+    budget, so a long discovery summary cannot cut it off.
     """
 
     path = (build_plan_path or '').strip() or f'{BUILD_PLANS_REL_DIR}/active-plan.md'
     plan_text = (plan_md or '').strip()
-    findings = (discovery_summary or '').strip()
+    lookup = truncate_text((answer_lookup or '').strip(), EXECUTOR_LOOKUP_INLINE_CHARS)
+    findings = _combine_findings(
+        truncate_text((discovery_summary or '').strip(), EXECUTOR_DISCOVERY_INLINE_CHARS - len(lookup)),
+        lookup,
+    )
     plan_block = (
         f'Approved plan (as of approval):\n\n{truncate_text(plan_text, EXECUTOR_PLAN_INLINE_CHARS)}\n\n'
         if plan_text
@@ -655,7 +664,7 @@ def build_build_plan_executor_prompt(
     findings_block = (
         'Discovery findings (already verified read-only; do not repeat this exploration — read a '
         'file again only right before you edit it):\n'
-        f'{truncate_text(findings, EXECUTOR_DISCOVERY_INLINE_CHARS)}\n\n'
+        f'{findings}\n\n'
         if findings
         else ''
     )
@@ -895,8 +904,13 @@ async def _stream_plan_discovery_phase(
     status_detail: str = 'Exploring the workspace (read-only).',
     llm_event_prefix: str = 'discover',
     event_id_prefix: str = 'plan-discover',
+    keep_failed_summary: bool = True,
 ) -> AsyncIterator[str]:
-    """Run a single free-form read-only discovery pass before planning."""
+    """Run a single free-form read-only discovery pass before planning.
+
+    A failed run does not raise: its outcome text is the error message. ``keep_failed_summary=False``
+    leaves ``summary_out`` empty then, so that text is never handed on as findings.
+    """
 
     yield sse_line(
         planner_progress_event(
@@ -977,7 +991,8 @@ async def _stream_plan_discovery_phase(
     )
 
     summary_out.clear()
-    summary_out.append(executor_summary.strip() if executor_summary else '')
+    keep_summary = exec_ok or keep_failed_summary
+    summary_out.append(executor_summary.strip() if executor_summary and keep_summary else '')
 
 
 async def stream_plan_execute_langgraph(
@@ -1155,7 +1170,8 @@ async def stream_plan_execute_langgraph(
 
     # Open questions: ask once, then the planner rewrites the plan with the answers (no more questions).
     # Typed answers first get a short read-only lookup, whose findings feed the rewrite and the executor.
-    findings = discovery_summary
+    # A lookup that fails adds nothing: the rewrite then works from the original findings.
+    lookup_findings = ''
     resolved_questions: list[dict[str, str]] = []
     if plan_model.open_questions:
         # Show the draft steps in the plan panel while the user answers questions.
@@ -1210,6 +1226,8 @@ async def stream_plan_execute_langgraph(
                             status_detail='Looking up what your answers mention (read-only).',
                             llm_event_prefix='answer_lookup',
                             event_id_prefix='plan-answer-lookup',
+                            # A failed lookup's text is an error message, not findings.
+                            keep_failed_summary=False,
                         )
                     ) as lines:
                         async for line in lines:
@@ -1225,7 +1243,7 @@ async def stream_plan_execute_langgraph(
                     cancel_build_plan(session, record.id)
                     outcome.mark_aborted()
                     return
-                findings = _combine_findings(discovery_summary, lookup_box[0] if lookup_box else '')
+                lookup_findings = lookup_box[0] if lookup_box else ''
 
             yield sse_line(
                 planner_progress_event(
@@ -1254,7 +1272,7 @@ async def stream_plan_execute_langgraph(
                         user_input,
                         session=session,
                         apply_mode=tool_apply_mode,
-                        discovery_summary=findings,
+                        discovery_summary=_combine_findings(discovery_summary, lookup_findings),
                         record=record,
                         md_out=rewrite_box,
                         resolved_answers=resolved_answers_text,
@@ -1263,6 +1281,8 @@ async def stream_plan_execute_langgraph(
                 ) as lines:
                     async for line in lines:
                         if session.abort_event.is_set():
+                            # The file holds the rewrite stub or half a rewrite: not a plan to keep.
+                            cancel_build_plan(session, record.id)
                             outcome.mark_aborted()
                             return
                         yield line
@@ -1272,6 +1292,7 @@ async def stream_plan_execute_langgraph(
                 rewrite_box = ['']
 
             if session.abort_event.is_set():
+                cancel_build_plan(session, record.id)
                 outcome.mark_aborted()
                 return
 
@@ -1423,7 +1444,8 @@ async def stream_plan_execute_langgraph(
     exec_prompt = build_build_plan_executor_prompt(
         record.relative_path,
         plan_md=approved_md,
-        discovery_summary=findings,
+        discovery_summary=discovery_summary,
+        answer_lookup=lookup_findings,
     )
     exec_outcome = LangGraphWorkerOutcome()
     exec_cfg = AgentGraphConfig(

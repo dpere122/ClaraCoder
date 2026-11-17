@@ -40,7 +40,17 @@
       }
     </div>
 
-    <button type='button' class='health-btn' (click)='closeWindow()'>Close</button>
+    <div class='health-header__actions'>
+      <button
+        type='button'
+        class='health-close'
+        (click)='closeWindow()'
+        aria-label='Close health'
+        title='Close'
+      >
+        ×
+      </button>
+    </div>
   </header>
 
   <!-- Console stays mounted (hidden) so log history, filters, and scroll survive tab switches. -->

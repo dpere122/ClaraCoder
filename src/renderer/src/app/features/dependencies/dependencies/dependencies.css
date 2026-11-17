@@ -127,6 +127,37 @@
   display: inline-flex;
 }
 
+/* Window close: an × like the Settings window's top bar close. */
+.deps-close {
+  -webkit-app-region: no-drag;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 24px;
+  margin-right: -8px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--t-text-muted, var(--t-muted));
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.deps-close:hover {
+  background: var(--t-danger);
+  border-color: var(--t-danger);
+  color: var(--t-on-primary, var(--t-bg));
+}
+
+.deps-close:focus-visible {
+  outline: 1px solid var(--t-primary);
+  outline-offset: 1px;
+}
+
 /* ---- Loading ------------------------------------------------------------- */
 
 .deps-list-loading {

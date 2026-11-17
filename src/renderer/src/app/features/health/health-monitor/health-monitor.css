@@ -50,7 +50,7 @@
 
 .health-verdict,
 .health-tabs,
-.health-btn,
+.health-close,
 .health-strip button {
   -webkit-app-region: no-drag;
 }
@@ -125,7 +125,7 @@
 }
 
 .health-tab:focus-visible,
-.health-btn:focus-visible,
+.health-close:focus-visible,
 .health-verdict:focus-visible,
 .health-strip button:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--t-primary) 55%, transparent);
@@ -144,26 +144,37 @@
 
 /* ---- Buttons ------------------------------------------------------------- */
 
-.health-btn {
-  flex: 0 0 auto;
-  margin-left: auto;
-  padding: 5px 14px;
-  border: 1px solid color-mix(in srgb, var(--t-border) 82%, transparent);
-  background: color-mix(in srgb, var(--t-bg-surface) 88%, transparent);
-  color: var(--t-fg);
-  font-family: inherit;
-  font-size: 12px;
+/* Keep the tab strip centred: brand and the close slot take equal flexible space. */
+.health-header__actions {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Window close: an × like the Settings window's top bar close. */
+.health-close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 24px;
+  margin-right: -8px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--t-text-muted, var(--t-muted));
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
   cursor: pointer;
 }
 
-.health-btn:hover {
-  background: var(--t-hover-bg);
-}
-
-/* Keep the tab strip centred: brand and Close take equal flexible space. */
-.health-header > .health-btn {
-  flex: 1 1 0;
-  max-width: max-content;
+.health-close:hover {
+  background: var(--t-danger);
+  border-color: var(--t-danger);
+  color: var(--t-on-primary, var(--t-bg));
 }
 
 /* ---- Panels -------------------------------------------------------------- */

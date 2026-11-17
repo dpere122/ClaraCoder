@@ -135,7 +135,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Dependencies manager window.",
     selector: "[data-theme-group=\"dependencies.window\"]",
     component: "app/features/dependencies/dependencies",
-    tokens: ["--t-bg", "--t-bg-deep", "--t-border", "--t-border-subtle", "--t-code-bg", "--t-code-inline-bg", "--t-code-text", "--t-danger", "--t-error", "--t-fg", "--t-font", "--t-hover-bg", "--t-log-level-info", "--t-mono", "--t-on-primary", "--t-primary", "--t-progress-fill", "--t-progress-track", "--t-success", "--t-text-muted", "--t-warn"],
+    tokens: ["--t-bg", "--t-bg-deep", "--t-border", "--t-border-subtle", "--t-code-bg", "--t-code-inline-bg", "--t-code-text", "--t-danger", "--t-error", "--t-fg", "--t-font", "--t-hover-bg", "--t-log-level-info", "--t-mono", "--t-muted", "--t-on-primary", "--t-primary", "--t-progress-fill", "--t-progress-track", "--t-success", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -224,7 +224,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Status strip and the live log console (level chips, search, rows).",
     selector: "[data-theme-group=\"health.console\"]",
     component: "app/features/health/health-monitor",
-    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-code-text", "--t-elev-shadow", "--t-error", "--t-fg", "--t-font", "--t-font-mono", "--t-hover-bg", "--t-input-bg", "--t-input-fg", "--t-log-level-debug", "--t-log-level-error", "--t-log-level-info", "--t-log-level-warning", "--t-primary", "--t-process-a", "--t-success", "--t-text-muted", "--t-warn"],
+    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-code-text", "--t-danger", "--t-elev-shadow", "--t-error", "--t-fg", "--t-font", "--t-font-mono", "--t-hover-bg", "--t-input-bg", "--t-input-fg", "--t-log-level-debug", "--t-log-level-error", "--t-log-level-info", "--t-log-level-warning", "--t-muted", "--t-on-primary", "--t-primary", "--t-process-a", "--t-success", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -235,7 +235,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Title, overall status pill, and the Console / Runtime / System tab switcher.",
     selector: "[data-theme-group=\"health.header\"]",
     component: "app/features/health/health-monitor",
-    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-error", "--t-fg", "--t-font", "--t-font-mono", "--t-hover-bg", "--t-log-level-debug", "--t-log-level-info", "--t-primary", "--t-success", "--t-text-muted", "--t-warn"],
+    tokens: ["--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-danger", "--t-error", "--t-fg", "--t-font", "--t-font-mono", "--t-hover-bg", "--t-log-level-debug", "--t-log-level-info", "--t-muted", "--t-on-primary", "--t-primary", "--t-success", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {
@@ -268,7 +268,7 @@ export const THEME_GROUPS: readonly ThemeGroupDef[] = [
     description: "Health window frame and background behind the header and tabs.",
     selector: "[data-theme-group=\"health.window\"]",
     component: "app/features/health/health-monitor",
-    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-code-text", "--t-elev-shadow", "--t-error", "--t-fg", "--t-font", "--t-font-mono", "--t-hover-bg", "--t-input-bg", "--t-input-fg", "--t-log-level-debug", "--t-log-level-error", "--t-log-level-info", "--t-log-level-warning", "--t-on-primary", "--t-primary", "--t-process-a", "--t-success", "--t-text-muted", "--t-warn"],
+    tokens: ["--t-active-bg", "--t-bg", "--t-bg-deep", "--t-bg-surface", "--t-border", "--t-border-subtle", "--t-code-text", "--t-danger", "--t-elev-shadow", "--t-error", "--t-fg", "--t-font", "--t-font-mono", "--t-hover-bg", "--t-input-bg", "--t-input-fg", "--t-log-level-debug", "--t-log-level-error", "--t-log-level-info", "--t-log-level-warning", "--t-muted", "--t-on-primary", "--t-primary", "--t-process-a", "--t-success", "--t-text-muted", "--t-warn"],
     supportsBackground: false,
   },
   {

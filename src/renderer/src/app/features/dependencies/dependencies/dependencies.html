@@ -29,7 +29,15 @@
     >
       Refresh
     </button>
-    <button type='button' class='deps-btn deps-close-btn' (click)='closeWindow()'>Close</button>
+    <button
+      type='button'
+      class='deps-close'
+      (click)='closeWindow()'
+      aria-label='Close dependencies'
+      title='Close'
+    >
+      ×
+    </button>
   </header>
 
   @if (isInstalling() && activeDep(); as dep) {

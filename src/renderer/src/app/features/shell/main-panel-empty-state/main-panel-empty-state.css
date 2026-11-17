@@ -9,7 +9,7 @@
   position: relative;
   display: flex;
   flex: 1 1 auto;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
   min-height: 0;
   min-width: 0;
@@ -17,86 +17,13 @@
   background: var(--t-bg);
 }
 
-.main-panel-empty__glow {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at 50% 28%, color-mix(in srgb, var(--t-primary) 12%, transparent), transparent 55%),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--t-bg) 92%, var(--t-primary)) 0%,
-      var(--t-bg) 100%
-    );
-  opacity: 0.9;
-}
-
-.main-panel-empty__welcome {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  width: min(100%, 22rem);
-  padding: 2rem 1.75rem;
-  gap: 1.35rem;
-}
-
-.main-panel-empty__etch {
-  position: relative;
-  flex: 0 0 auto;
-  width: min(34vmin, 12.5rem);
-  height: min(34vmin, 12.5rem);
-  pointer-events: none;
-}
-
-.main-panel-empty__etch-layer {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  -webkit-mask-image: var(--empty-etch-icon);
-  mask-image: var(--empty-etch-icon);
-  -webkit-mask-mode: alpha;
-  mask-mode: alpha;
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: center;
-  mask-position: center;
-  -webkit-mask-size: contain;
-  mask-size: contain;
-}
-
-.main-panel-empty__etch-layer--shadow {
-  transform: translate(1.5px, 1.5px);
-  background: color-mix(in srgb, #000 42%, transparent);
-}
-
-.main-panel-empty__etch-layer--fill {
-  background: color-mix(
-    in srgb,
-    color-mix(in srgb, var(--t-primary) 70%, var(--t-fg)) 58%,
-    transparent
-  );
-}
-
-.main-panel-empty__etch-layer--highlight {
-  transform: translate(-1px, -1px);
-  background: color-mix(in srgb, var(--t-edge-light, #fff) 22%, transparent);
-}
-
 /*
- * Home (no workspace, IDE flat): a start page instead of the centered logo card. Title row,
+ * Home (shown while no workspace is open, IDE flat): a start page. Title row,
  * then two columns: Start / Favorites / Recent lists on the left, Runtime on the right.
  * Rows are full-width with hover fills; section headings are small muted caps.
  * The page itself never scrolls: it fills the panel height, and the Favorites and Recent
  * lists share what is left of the main column, each scrolling on its own.
  */
-.main-panel-empty--home {
-  align-items: stretch;
-  justify-content: center;
-}
-
 .home {
   container: home / inline-size;
   display: flex;

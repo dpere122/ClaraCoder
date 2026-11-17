@@ -28,7 +28,6 @@ describe('MainPanelEmptyStateComponent', () => {
 
   it('shows the home page with Start actions, Runtime and no workspace lists when there are none', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
-    fixture.componentRef.setInput('hasWorkspace', false);
     fixture.componentRef.setInput('recentWorkspaces', []);
     fixture.detectChanges();
 
@@ -47,12 +46,10 @@ describe('MainPanelEmptyStateComponent', () => {
     const homeDefault = host.querySelector('.home__default input') as HTMLInputElement | null;
     expect(homeDefault?.checked).toBe(false);
     expect(host.querySelector('.home__default')?.textContent).toContain('Use as default Home page');
-    expect(host.querySelector('.main-panel-empty__etch')).toBeNull();
   });
 
   it('puts the source picker and model status in the Runtime panel', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
-    fixture.componentRef.setInput('hasWorkspace', false);
     fixture.detectChanges();
 
     const runtime = (fixture.nativeElement as HTMLElement).querySelector('.home__runtime');
@@ -68,7 +65,6 @@ describe('MainPanelEmptyStateComponent', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
     const events: string[] = [];
     fixture.componentInstance.openSources.subscribe(() => events.push('sources'));
-    fixture.componentRef.setInput('hasWorkspace', false);
     fixture.detectChanges();
 
     const link = (fixture.nativeElement as HTMLElement).querySelector('.home__runtime .home__link') as
@@ -83,7 +79,6 @@ describe('MainPanelEmptyStateComponent', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
     const events: string[] = [];
     fixture.componentInstance.openSources.subscribe(() => events.push('sources'));
-    fixture.componentRef.setInput('hasWorkspace', false);
     fixture.detectChanges();
 
     const cog = (fixture.nativeElement as HTMLElement).querySelector(
@@ -98,7 +93,6 @@ describe('MainPanelEmptyStateComponent', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
     const opened: string[] = [];
     fixture.componentInstance.openWorkspace.subscribe((id) => opened.push(id));
-    fixture.componentRef.setInput('hasWorkspace', false);
     fixture.componentRef.setInput('recentWorkspaces', [
       workspace({ id: 'ws-a', name: 'Alpha', path: 'C:/tmp/alpha' }),
       workspace({ id: 'ws-b', name: 'Beta', path: 'C:/tmp/beta' }),
@@ -124,7 +118,6 @@ describe('MainPanelEmptyStateComponent', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
     const opened: string[] = [];
     fixture.componentInstance.openWorkspace.subscribe((id) => opened.push(id));
-    fixture.componentRef.setInput('hasWorkspace', false);
     fixture.componentRef.setInput('recentWorkspaces', [
       workspace({ id: 'ws-a', name: 'Alpha', path: 'C:/tmp/alpha', favorite: true }),
       workspace({ id: 'ws-b', name: 'Beta', path: 'C:/tmp/beta' }),
@@ -160,7 +153,6 @@ describe('MainPanelEmptyStateComponent', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-01T12:14:30.000Z'));
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
-    fixture.componentRef.setInput('hasWorkspace', false);
     fixture.componentRef.setInput('recentWorkspaces', [
       workspace({
         id: 'ws-a',
@@ -184,7 +176,6 @@ describe('MainPanelEmptyStateComponent', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
     const toggled: string[] = [];
     fixture.componentInstance.toggleFavorite.subscribe((id) => toggled.push(id));
-    fixture.componentRef.setInput('hasWorkspace', false);
     fixture.componentRef.setInput('recentWorkspaces', [
       workspace({
         id: 'ws-recent',
@@ -236,7 +227,6 @@ describe('MainPanelEmptyStateComponent', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
     const reordered: string[][] = [];
     fixture.componentInstance.reorderFavorites.subscribe((ids) => reordered.push(ids));
-    fixture.componentRef.setInput('hasWorkspace', false);
     fixture.componentRef.setInput('recentWorkspaces', [
       workspace({ id: 'ws-a', name: 'A', path: 'C:/tmp/a', favorite: true, favoriteOrder: 0 }),
       workspace({ id: 'ws-b', name: 'B', path: 'C:/tmp/b', favorite: true, favoriteOrder: 1 }),
@@ -252,7 +242,6 @@ describe('MainPanelEmptyStateComponent', () => {
 
   it('renders all recent workspaces so the list can scroll past seven', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
-    fixture.componentRef.setInput('hasWorkspace', false);
     fixture.componentRef.setInput(
       'recentWorkspaces',
       Array.from({ length: 8 }, (_, i) =>
@@ -271,7 +260,6 @@ describe('MainPanelEmptyStateComponent', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
     const changes: boolean[] = [];
     fixture.componentInstance.defaultHomePageChange.subscribe((value) => changes.push(value));
-    fixture.componentRef.setInput('hasWorkspace', false);
     fixture.componentRef.setInput('defaultHomePage', true);
     fixture.detectChanges();
 
@@ -288,7 +276,6 @@ describe('MainPanelEmptyStateComponent', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
     const opened: string[] = [];
     fixture.componentInstance.openSubagents.subscribe(() => opened.push('subagents'));
-    fixture.componentRef.setInput('hasWorkspace', false);
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
 
@@ -305,7 +292,6 @@ describe('MainPanelEmptyStateComponent', () => {
     fixture.componentInstance.openSources.subscribe(() => events.push('sources'));
     fixture.componentInstance.openModelManager.subscribe(() => events.push('models'));
     fixture.componentInstance.openDependencies.subscribe(() => events.push('deps'));
-    fixture.componentRef.setInput('hasWorkspace', false);
     fixture.detectChanges();
 
     const actions = Array.from(
@@ -322,7 +308,6 @@ describe('MainPanelEmptyStateComponent', () => {
     fixture.componentInstance.openSources.subscribe(() => events.push('sources'));
     fixture.componentInstance.openModelManager.subscribe(() => events.push('models'));
     fixture.componentInstance.openDependencies.subscribe(() => events.push('dependencies'));
-    fixture.componentRef.setInput('hasWorkspace', false);
     fixture.detectChanges();
 
     const host = fixture.nativeElement as HTMLElement;
@@ -334,12 +319,10 @@ describe('MainPanelEmptyStateComponent', () => {
     (host.querySelector('[data-tutorial="home-model-manager"]') as HTMLButtonElement).click();
     (host.querySelector('[data-tutorial="home-dependencies"]') as HTMLButtonElement).click();
     expect(events).toEqual(['sources', 'models', 'dependencies']);
-    expect(fixture.componentInstance.hasWorkspace()).toBe(false);
   });
 
   it('flags the Dependencies action while core dependencies are missing', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
-    fixture.componentRef.setInput('hasWorkspace', false);
     fixture.detectChanges();
 
     const deps = () =>
@@ -362,7 +345,6 @@ describe('MainPanelEmptyStateComponent', () => {
     const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
     let joined = 0;
     fixture.componentInstance.joinMainWindow.subscribe(() => joined++);
-    fixture.componentRef.setInput('hasWorkspace', false);
     fixture.componentRef.setInput('mainWindowWorkspace', workspace({ id: 'ws-a', name: 'Alpha', path: 'C:/tmp/alpha' }));
     fixture.detectChanges();
 
@@ -379,22 +361,5 @@ describe('MainPanelEmptyStateComponent', () => {
     expect(actions[0].getAttribute('title')).toContain('C:/tmp/alpha');
     actions[0].click();
     expect(joined).toBe(1);
-  });
-
-  it('shows the etched Clara Coder brand when a workspace is open with no file', () => {
-    const fixture = TestBed.createComponent(MainPanelEmptyStateComponent);
-    fixture.componentRef.setInput('hasWorkspace', true);
-    fixture.componentRef.setInput('recentWorkspaces', [
-      workspace({ id: 'ws-a', name: 'Alpha', path: 'C:/tmp/alpha' }),
-    ]);
-    fixture.detectChanges();
-
-    const host = fixture.nativeElement as HTMLElement;
-    expect(host.querySelector('.main-panel-empty__welcome--workspace')).toBeTruthy();
-    expect(host.querySelector('.main-panel-empty__etch')).toBeTruthy();
-    expect(host.querySelector('.home')).toBeNull();
-    expect(host.textContent).not.toContain('Clara Coder');
-    expect(host.querySelector('app-managed-llama-controls')).toBeNull();
-    expect(host.querySelector('.home__default')).toBeNull();
   });
 });

@@ -32,7 +32,7 @@
         <lucide-icon name="square-pen" [size]="15" />
       </button>
 
-      @if (!expanded()) {
+      @if (!shownExpanded()) {
         <button
           type="button"
           class="chat-hub__conv-toggle"
@@ -45,17 +45,20 @@
         </button>
       }
 
-      <button
-        type="button"
-        class="chat-hub__expand"
-        [disabled]="view() !== 'activeChat'"
-        [attr.aria-pressed]="expanded()"
-        [attr.aria-label]="expanded() ? 'Collapse chat to sidebar' : 'Expand chat to main panel'"
-        [title]="expanded() ? 'Collapse chat' : 'Expand chat'"
-        (click)="toggleExpanded()"
-      >
-        <lucide-icon [name]="expanded() ? 'minimize-2' : 'maximize-2'" [size]="15" />
-      </button>
+      <!-- Only with a file open: without one the chat always fills the main panel. -->
+      @if (!expandLocked()) {
+        <button
+          type="button"
+          class="chat-hub__expand"
+          [disabled]="view() !== 'activeChat'"
+          [attr.aria-pressed]="expanded()"
+          [attr.aria-label]="expanded() ? 'Collapse chat to sidebar' : 'Expand chat to main panel'"
+          [title]="expanded() ? 'Collapse chat' : 'Expand chat'"
+          (click)="toggleExpanded()"
+        >
+          <lucide-icon [name]="expanded() ? 'minimize-2' : 'maximize-2'" [size]="15" />
+        </button>
+      }
 
       <button
         type="button"

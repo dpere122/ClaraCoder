@@ -285,7 +285,6 @@
           >
             <app-main-panel-empty-state
               class='chat-area__panel-host'
-              [hasWorkspace]='!!currentWorkspaceId()'
               [recentWorkspaces]='workspaces()'
               [defaultHomePage]='defaultHomePageOnStart()'
               [appConfig]='appConfig()'
@@ -308,7 +307,7 @@
           <app-editor-grid
             #editorGridRef
             class='chat-area__tab-panel chat-area__tab-panel--grid'
-            [class.chat-area__tab-panel--hidden]='mainStageShowsEmptyState() || chatExpanded()'
+            [class.chat-area__tab-panel--hidden]='mainStageShowsEmptyState() || chatShownExpanded()'
             [layout]='editorGrid()'
             [focusedSlotId]='focusedSlotId()'
             [unsavedKeys]='monacoUnsavedPaths()'
@@ -360,7 +359,7 @@
                     class='chat-area__panel-host'
                     [workspacePath]='currentWorkspacePath()'
                     [relativePath]='view.imageRelativePath'
-                    [active]='view.activeIsImage && focused && !chatExpanded()'
+                    [active]='view.activeIsImage && focused && !chatShownExpanded()'
                     (navigateTo)='onImageViewerNavigate($event)'
                   />
                 </div>
@@ -368,7 +367,7 @@
             </ng-template>
           </app-editor-grid>
 
-          @if (chatExpanded()) {
+          @if (chatShownExpanded()) {
             <div
               class='chat-area__chat-expanded-overlay'
               [class.chat-area__chat-expanded-overlay--loading]='chatBusy()'
@@ -476,6 +475,7 @@
         [view]="chatHubView()"
         (viewChange)="chatHubView.set($event)"
         [(expanded)]='chatExpanded'
+        [expandLocked]='chatExpandLocked()'
         [(collapsed)]='chatCollapsed'
         [conversations]='conversations()'
         [activeConversationId]='activeConversationId()'

@@ -29,7 +29,6 @@ import { HomeSubagentsComponent } from './home-subagents/home-subagents';
   styleUrl: './main-panel-empty-state.css',
 })
 export class MainPanelEmptyStateComponent {
-  readonly hasWorkspace = input(false);
   readonly recentWorkspaces = input<readonly Workspace[]>([]);
   readonly defaultHomePage = input(false);
   /** Drives the Runtime panel (source picker, Start/Stop, model and embeddings status). */

@@ -48,7 +48,13 @@ export function chatBusyReason(sidecarLoading: boolean, workspaceLoading: boolea
 })
 export class ChatConversationHubComponent {
   readonly view = model<ChatHubView>('activeChat');
+  /** The user's expand choice; see `shownExpanded` for what is on screen. */
   readonly expanded = model(false);
+  /**
+   * No editor tab is open, so the chat stays in the main panel whatever `expanded` says,
+   * and the expand/collapse toggle is hidden.
+   */
+  readonly expandLocked = input(false);
   /** When true, the entire chat sidebar collapses to a thin bar with only the un-collapse button. */
   readonly collapsed = model(false);
 
@@ -145,7 +151,12 @@ export class ChatConversationHubComponent {
   readonly composerThinking = input<ConversationThinking>({});
 
   /** The sidebar body shows the conversation list (always, while the chat is expanded into the main panel). */
-  protected readonly showingList = computed(() => this.expanded() || this.view() === 'conversations');
+  protected readonly showingList = computed(
+    () => this.shownExpanded() || this.view() === 'conversations',
+  );
+
+  /** The chat is in the main panel: chosen by the user, or forced with no editor tab open. */
+  protected readonly shownExpanded = computed(() => this.expanded() || this.expandLocked());
 
   protected readonly activeConversationTitle = computed(() => {
     if (this.workspaceLoading()) {
@@ -158,7 +169,7 @@ export class ChatConversationHubComponent {
   });
 
   protected toggleExpanded(): void {
-    if (this.view() !== 'activeChat') {
+    if (this.view() !== 'activeChat' || this.expandLocked()) {
       return;
     }
     this.expanded.update((v) => !v);

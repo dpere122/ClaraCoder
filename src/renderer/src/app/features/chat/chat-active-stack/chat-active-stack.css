@@ -42,15 +42,27 @@
   font-style: italic;
 }
 
+/* Only rendered while the transcript is empty, so it can sit above the (blank) transcript. */
 .chat-active-stack__etch {
   position: absolute;
   left: 50%;
   top: 28%;
-  z-index: 0;
+  z-index: 1;
   width: min(34vmin, 12.5rem);
   height: min(34vmin, 12.5rem);
   pointer-events: none;
   transform: translate(-50%, -50%);
+}
+
+/*
+ * Sidebar chat: the composer stays at the bottom, so the mark centers in the space above it
+ * and scales with the narrow panel.
+ */
+:host(:not(.chat-active-stack--layout-expanded)) .chat-active-stack__etch {
+  top: calc(50% - 3.5rem);
+  width: min(55%, 10rem);
+  height: auto;
+  aspect-ratio: 1;
 }
 
 .chat-active-stack__etch-layer {
@@ -114,10 +126,6 @@
  * anchors to the bottom edge, then the measured `translateY` lifts it to
  * center. The etch sits above the panel; the composer stays above the etch.
  */
-:host.chat-active-stack--empty .chat-active-stack__etch {
-  z-index: 1;
-}
-
 :host.chat-active-stack--empty .chat-active-stack__composer {
   position: absolute;
   left: 0;

@@ -66,7 +66,7 @@ export type ChatLayoutMode = 'sidebar' | 'expanded';
     '[class.chat-active-stack--container-full-width]':
       'layout() === "expanded" && resolvedContainerSize() === "full-width"',
     '[class.chat-active-stack--ready]': 'emptyStateReady()',
-    '[class.chat-active-stack--empty]': 'showBrandEtch()',
+    '[class.chat-active-stack--empty]': 'centerEmptyComposer()',
     // OPEN_CONVERSATION_DOM_EVENT, bubbling up from a sub-agent pill in the transcript.
     '(clara-open-conversation)': 'onOpenConversationRequested($event)',
   },
@@ -241,8 +241,11 @@ export class ChatActiveStackComponent implements OnDestroy {
     () => this.messages().length === 0 && !this.loading(),
   );
 
-  /** Etched mark in the expanded main-panel chat when the transcript is empty. */
-  protected readonly showBrandEtch = computed(
+  /** Etched mark behind an empty transcript, in both the main-panel and the sidebar chat. */
+  protected readonly showBrandEtch = this.isTranscriptEmpty;
+
+  /** Expanded layout with an empty transcript: the composer leaves the flow and centers. */
+  protected readonly centerEmptyComposer = computed(
     () => this.layout() === 'expanded' && this.isTranscriptEmpty(),
   );
 
@@ -265,7 +268,7 @@ export class ChatActiveStackComponent implements OnDestroy {
    * snap.
    */
   protected readonly composerTransform = computed(() =>
-    this.layout() === 'expanded' && this.isTranscriptEmpty()
+    this.centerEmptyComposer()
       ? `translateY(calc(-1 * ${this.composerEmptyOffsetPx()}px))`
       : 'translateY(0)',
   );

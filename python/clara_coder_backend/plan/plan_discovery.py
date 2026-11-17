@@ -58,43 +58,34 @@ def build_freeform_discovery_prompt(objective: str) -> str:
     )
 
 
-def build_followup_discovery_prompt(
-    objective: str,
-    *,
-    resolved_answers: str,
-    prior_summary: str = '',
-) -> str:
-    """Read-only discovery focused on gaps opened by the user's clarifying answers."""
-    answers = (resolved_answers or '').strip() or '(none)'
+def build_answer_lookup_prompt(objective: str, *, typed_answers: str, prior_summary: str = '') -> str:
+    """Short read-only lookup for what the user's typed answers mention.
+
+    Option answers come from the planner's own grounded choices; a typed answer can name code that
+    discovery never looked at, so only those answers get a lookup before the rewrite.
+    """
     prior = (prior_summary or '').strip()
-    prior_block = (
-        f'Prior discovery summary (already gathered — do not repeat this work):\n{prior}\n\n'
-        if prior
-        else ''
-    )
+    prior_block = f'Discovery already found (do not repeat this work):\n{prior}\n\n' if prior else ''
     return (
         f'User objective:\n{objective}\n\n'
         f'{prior_block}'
-        'The user answered clarifying questions. Those answers are authoritative:\n'
-        f'{answers}\n\n'
-        'You are in plan mode, follow-up discovery. Use read-only tools to fill gaps these '
-        'answers opened (paths, APIs, symbols, patterns). Do not re-explore the whole workspace '
-        'or draft a checklist of discovery actions.\n\n'
+        'The user typed these answers to the plan\'s questions. They are authoritative:\n'
+        f'{typed_answers.strip()}\n\n'
+        'You are in plan mode, answer lookup. Use read-only tools to find only what these answers '
+        'name or imply that the findings above do not cover (files, components, APIs, symbols, '
+        'patterns). Do not re-explore the workspace or draft a checklist of actions.\n\n'
         'Rules:\n'
         '- Use read-only / discovery tools only. Do not edit, create, delete, stage, transfer, or '
         'run mutating commands.\n'
-        '- Focus on facts that change the implementation plan given the answers above.\n'
         f'{_DISCOVERY_PACING_RULES}'
-        f'{_DISCOVERY_SUBAGENT_RULES}'
-        '- If the answers need no new facts, stop immediately and say so.\n'
-        '- Stop once you have enough context to rewrite the implementation plan.\n\n'
-        'When finished, output a concise factual summary of the NEW findings only. This summary '
-        'is appended to prior discovery for the planner.'
+        '- If the answers need no new facts, stop immediately and say so.\n\n'
+        'When finished, output a concise factual summary of the NEW findings only (paths with their '
+        'role, relevant symbols and patterns). It is added to the findings above for the planner.'
     )
 
 
 __all__ = [
     'PLAN_DISCOVERY_EXECUTE_LABEL',
-    'build_followup_discovery_prompt',
+    'build_answer_lookup_prompt',
     'build_freeform_discovery_prompt',
 ]

@@ -177,7 +177,8 @@ def reset_graph_checkpointing_for_tests() -> None:
 # Legacy thread kind ``moe`` (old outer graph id) is still cleared alongside ``single``.
 OUTER_AGENT_THREAD_KINDS: tuple[str, ...] = ('single', 'moe', 'plan')
 # Plan phases run on threads of their own under the checkpoint key ``{session_id}:{kind}``, so the id repeats the kind.
-PLAN_PHASE_THREAD_KINDS: tuple[str, ...] = ('plan_exec', 'plan_discover', 'plan_discover_followup')
+# ``plan_discover_followup`` (removed follow-up discovery pass) stays so old threads are still cleared.
+PLAN_PHASE_THREAD_KINDS: tuple[str, ...] = ('plan_exec', 'plan_discover', 'plan_answer_lookup', 'plan_discover_followup')
 
 
 def history_fingerprint(history: list[dict[str, Any]]) -> tuple[int, str]:

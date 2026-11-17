@@ -10,7 +10,7 @@ from clara_coder_backend.plan.build_plan_store import ActionStep, BuildPlanModel
 from clara_coder_backend.domain import SessionState
 from clara_coder_backend.plan.plan_discovery import (
     PLAN_DISCOVERY_EXECUTE_LABEL,
-    build_followup_discovery_prompt,
+    build_answer_lookup_prompt,
     build_freeform_discovery_prompt,
 )
 from clara_coder_backend.plan.plan_execute import (
@@ -27,31 +27,23 @@ def test_build_freeform_discovery_prompt_is_read_only_and_unplanned() -> None:
     assert 'checklist' in prompt.lower()
 
 
-def test_build_followup_discovery_prompt_uses_answers_and_stays_read_only() -> None:
-    prompt = build_followup_discovery_prompt(
+def test_build_answer_lookup_prompt_is_read_only_and_scoped_to_typed_answers() -> None:
+    prompt = build_answer_lookup_prompt(
         'Add an auth middleware',
-        resolved_answers='Q: Use REST or gRPC?\nA: REST',
-        prior_summary='Found src/auth.ts handler.',
+        typed_answers='Q: Where should tokens come from?\nA: the vault client in lib/secrets',
+        prior_summary='Relevant files: src/auth.ts (request handler).',
     )
     assert 'Add an auth middleware' in prompt
-    assert 'REST' in prompt
-    assert 'Found src/auth.ts handler.' in prompt
-    assert 'follow-up discovery' in prompt.lower()
+    assert 'the vault client in lib/secrets' in prompt
+    assert 'src/auth.ts (request handler)' in prompt
     assert 'read-only' in prompt.lower()
-    assert 'do not' in prompt.lower()
-    assert 'checklist' in prompt.lower()
+    assert 'do not re-explore' in prompt.lower()
+    assert 'stop immediately' in prompt.lower()
     assert 'NEW findings' in prompt
 
 
 async def _collect_lines(generator: Any) -> list[str]:
     return [line async for line in generator]
-
-
-@pytest.fixture(autouse=True)
-def _workspace_has_planned_file(tmp_path) -> None:
-    """The sample plan modifies ``src/a.ts``; it exists so the on-disk path check has nothing to ask."""
-    (tmp_path / 'src').mkdir(exist_ok=True)
-    (tmp_path / 'src' / 'a.ts').write_text('', encoding='utf-8')
 
 
 def _sample_plan() -> BuildPlanModel:
@@ -187,9 +179,6 @@ def test_plan_discovery_execute_label_is_stable() -> None:
 
 
 def test_discovery_prompts_offer_read_only_subagents() -> None:
-    for prompt in (
-        build_freeform_discovery_prompt('Add plane sounds'),
-        build_followup_discovery_prompt('Add plane sounds', resolved_answers='A: yes'),
-    ):
-        assert 'spawn_subagent' in prompt
-        assert 'read-only here' in prompt
+    prompt = build_freeform_discovery_prompt('Add plane sounds')
+    assert 'spawn_subagent' in prompt
+    assert 'read-only here' in prompt

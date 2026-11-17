@@ -1116,6 +1116,85 @@ def test_stream_plan_execute_stop_during_rewrite_cancels_the_plan(
     assert session.plans.active_build_plan_id == ''
 
 
+@pytest.mark.parametrize('stops_mid_stream', [True, False])
+@patch('clara_coder_backend.plan.plan_execute._stream_langgraph_tool_agent')
+@patch('clara_coder_backend.plan.plan_execute._stream_planner_md')
+def test_stream_plan_execute_stop_during_draft_cancels_the_plan(
+    mock_planner: AsyncMock,
+    mock_exec: AsyncMock,
+    stops_mid_stream: bool,
+    tmp_path: Path,
+) -> None:
+    """Half a draft is not a plan: a stop while it is written must not leave it as the session's plan."""
+    plan_dir = tmp_path / '.clara' / 'build-plans'
+    drafts_seen: list[int] = []
+
+    async def _fake_planner_md(*_args: Any, **kwargs: Any):
+        drafts_seen.append(len(list(plan_dir.glob('plan-*.md'))))
+        kwargs['session'].abort_event.set()
+        if stops_mid_stream:
+            yield 'data: {"type":"build_plan_chunk"}\n\n'
+
+    mock_planner.side_effect = _fake_planner_md
+    prompts: list[str] = []
+    mock_exec.side_effect = _two_run_exec(prompts)
+
+    session = SessionState(workspace_path=str(tmp_path))
+    outcome = LangGraphWorkerOutcome()
+    lines = _run_plan(session, f'sess-plan-stop-draft-{int(stops_mid_stream)}', outcome)
+
+    assert drafts_seen == [1]
+    assert len(prompts) == 1
+    assert outcome.state == AgentLoopOutcome.ABORTED
+    assert not any('"type": "plan_confirm"' in line for line in lines)
+    assert list(plan_dir.glob('plan-*.md')) == []
+    assert session.plans.active_build_plan_id == ''
+
+
+@pytest.mark.parametrize('config_error', [False, True])
+@patch('clara_coder_backend.plan.plan_execute._stream_langgraph_tool_agent')
+@patch('clara_coder_backend.plan.plan_execute._stream_planner_md')
+@patch('clara_coder_backend.plan.plan_execute.await_diff_review_note')
+def test_stream_plan_execute_failed_discovery_stops_before_planning(
+    mock_pause: AsyncMock,
+    mock_planner: AsyncMock,
+    mock_exec: AsyncMock,
+    config_error: bool,
+    tmp_path: Path,
+) -> None:
+    """A failed discovery ends with an error message as its text: no plan is drafted from that."""
+    mock_planner.side_effect = _fake_stream_planner_md
+    # Never reached; patched so a run that does plan fails the asserts instead of waiting for approval.
+    mock_pause.return_value = None
+    runs: list[str] = []
+
+    async def _fake_exec(*_args: Any, **kwargs: Any):
+        runs.append(kwargs['cfg'].thread_kind)
+        if config_error:
+            kwargs['outcome'].mark_failed_configuration('no model', final_text='Discovery failed: no model')
+        else:
+            kwargs['outcome'].mark_failed_runtime('boom', final_text='Discovery error: boom')
+        yield 'data: {"type":"chunk"}\n\n'
+
+    mock_exec.side_effect = _fake_exec
+
+    session = SessionState(workspace_path=str(tmp_path))
+    outcome = LangGraphWorkerOutcome()
+    lines = _run_plan(session, f'sess-plan-discovery-fails-{int(config_error)}', outcome)
+
+    assert runs == ['plan_discover']
+    assert mock_planner.call_count == 0
+    assert not any('"type": "build_plan_open"' in line for line in lines)
+    assert list((tmp_path / '.clara' / 'build-plans').glob('plan-*.md')) == []
+    assert session.plans.active_build_plan_id == ''
+    if config_error:
+        assert outcome.state == AgentLoopOutcome.FAILED_CONFIGURATION
+        assert outcome.final_text == 'Discovery failed: no model'
+    else:
+        assert outcome.state == AgentLoopOutcome.FAILED_RUNTIME
+        assert outcome.final_text == 'Discovery error: boom'
+
+
 def test_build_build_plan_executor_prompt_keeps_the_answer_lookup_after_long_findings() -> None:
     from clara_coder_backend.plan.plan_execute import EXECUTOR_DISCOVERY_INLINE_CHARS
 

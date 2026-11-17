@@ -217,6 +217,9 @@ EXECUTOR_DISCOVERY_INLINE_CHARS = 6_000
 # The answer lookup's share of the findings budget (it is short, and the newest thing the user asked for).
 EXECUTOR_LOOKUP_INLINE_CHARS = 2_000
 
+# A run in one of these states ended on an error, and its outcome text is that error's message.
+_FAILED_OUTCOMES = (AgentLoopOutcome.FAILED_CONFIGURATION, AgentLoopOutcome.FAILED_RUNTIME)
+
 # Line-start heading only — inline CoT like "I'll write a # Build Plan next" must not count.
 # ``# Build Plan: Title`` (colon) or a bare ``# Build Plan`` line; last match is the real document.
 _BUILD_PLAN_HEADING_RE = re.compile(r'^#\s*Build\s+Plan(?:\s*:|\s*$)', re.IGNORECASE | re.MULTILINE)
@@ -904,12 +907,12 @@ async def _stream_plan_discovery_phase(
     status_detail: str = 'Exploring the workspace (read-only).',
     llm_event_prefix: str = 'discover',
     event_id_prefix: str = 'plan-discover',
-    keep_failed_summary: bool = True,
+    run_outcome: LangGraphWorkerOutcome | None = None,
 ) -> AsyncIterator[str]:
     """Run a single free-form read-only discovery pass before planning.
 
-    A failed run does not raise: its outcome text is the error message. ``keep_failed_summary=False``
-    leaves ``summary_out`` empty then, so that text is never handed on as findings.
+    A failed run does not raise: its outcome text is the error message. ``summary_out`` is left
+    empty then, so that text is never handed on as findings; pass ``run_outcome`` to see the failure.
     """
 
     yield sse_line(
@@ -937,7 +940,7 @@ async def _stream_plan_discovery_phase(
 
     discovery_prompt = prompt or build_freeform_discovery_prompt(user_input)
     thread_key = checkpoint_session_key or f'{session_id}:plan_discover'
-    discover_outcome = LangGraphWorkerOutcome()
+    discover_outcome = run_outcome if run_outcome is not None else LangGraphWorkerOutcome()
     discover_cfg = AgentGraphConfig(
         session_id=session_id,
         checkpoint_session_key=thread_key,
@@ -991,8 +994,8 @@ async def _stream_plan_discovery_phase(
     )
 
     summary_out.clear()
-    keep_summary = exec_ok or keep_failed_summary
-    summary_out.append(executor_summary.strip() if executor_summary and keep_summary else '')
+    failed = discover_outcome.state in _FAILED_OUTCOMES
+    summary_out.append(executor_summary.strip() if executor_summary and not failed else '')
 
 
 async def stream_plan_execute_langgraph(
@@ -1027,6 +1030,7 @@ async def stream_plan_execute_langgraph(
         done_detail='Complete',
     )
 
+    discovery_outcome = LangGraphWorkerOutcome()
     try:
         discovery_summary_box: list[str] = ['']
         async with aclosing(
@@ -1035,6 +1039,7 @@ async def stream_plan_execute_langgraph(
                 user_input,
                 session_id=session_id,
                 summary_out=discovery_summary_box,
+                run_outcome=discovery_outcome,
             )
         ) as lines:
             async for line in lines:
@@ -1056,6 +1061,16 @@ async def stream_plan_execute_langgraph(
             )
         )
         outcome.mark_failed_runtime(str(exc), final_text=cfg.failed_run_message.format(exc=exc))
+        return
+
+    if discovery_outcome.state in _FAILED_OUTCOMES:
+        # The run already showed its error status. A plan drafted without findings would only guess at
+        # the code, so stop here with the discovery error as the turn's text.
+        final_text = discovery_outcome.final_text.strip() or 'Discovery failed.'
+        if discovery_outcome.state == AgentLoopOutcome.FAILED_CONFIGURATION:
+            outcome.mark_failed_configuration(discovery_outcome.error_detail, final_text=final_text)
+        else:
+            outcome.mark_failed_runtime(discovery_outcome.error_detail, final_text=final_text)
         return
 
     if not (session.workspace_path or '').strip():
@@ -1115,6 +1130,8 @@ async def stream_plan_execute_langgraph(
         ) as lines:
             async for line in lines:
                 if session.abort_event.is_set():
+                    # Not a plan yet: do not leave half a draft behind as the session's plan.
+                    cancel_build_plan(session, record.id)
                     outcome.mark_aborted()
                     return
                 yield line
@@ -1135,6 +1152,7 @@ async def stream_plan_execute_langgraph(
         return
 
     if session.abort_event.is_set():
+        cancel_build_plan(session, record.id)
         outcome.mark_aborted()
         return
 
@@ -1226,8 +1244,6 @@ async def stream_plan_execute_langgraph(
                             status_detail='Looking up what your answers mention (read-only).',
                             llm_event_prefix='answer_lookup',
                             event_id_prefix='plan-answer-lookup',
-                            # A failed lookup's text is an error message, not findings.
-                            keep_failed_summary=False,
                         )
                     ) as lines:
                         async for line in lines:
@@ -1243,6 +1259,7 @@ async def stream_plan_execute_langgraph(
                     cancel_build_plan(session, record.id)
                     outcome.mark_aborted()
                     return
+                # Empty after a failed lookup: the rewrite then uses the original findings.
                 lookup_findings = lookup_box[0] if lookup_box else ''
 
             yield sse_line(

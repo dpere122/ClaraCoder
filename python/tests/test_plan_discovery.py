@@ -12,6 +12,7 @@ from clara_coder_backend.plan.plan_discovery import (
     PLAN_DISCOVERY_EXECUTE_LABEL,
     build_answer_lookup_prompt,
     build_freeform_discovery_prompt,
+    parse_discovery_unknowns,
 )
 from clara_coder_backend.plan.plan_execute import (
     _planner_markdown_chain,
@@ -182,3 +183,123 @@ def test_discovery_prompts_offer_read_only_subagents() -> None:
     prompt = build_freeform_discovery_prompt('Add plane sounds')
     assert 'spawn_subagent' in prompt
     assert 'read-only here' in prompt
+
+
+def test_discovery_prompt_asks_for_unknowns_as_questions_with_answers() -> None:
+    prompt = build_freeform_discovery_prompt('Add plane sounds')
+    assert 'Unknowns' in prompt
+    assert 'phrased as a question' in prompt
+    assert 'sub-bullets' in prompt
+
+
+def test_parse_discovery_unknowns_reads_a_numbered_section_under_a_markdown_heading() -> None:
+    summary = (
+        '## Discovery summary\n\n'
+        '### Constraints\n'
+        '- **No regressions:** the label still renders.\n\n'
+        '### Unknowns (questions for you)\n'
+        '1. **Remove the Update button entirely?** Or keep it next to the label? "Actually" suggests removing it.\n'
+        '2. **What should the "!" look like?** Options: plain text, or the `triangle-alert` icon.\n'
+        '3. **How often should it check?** Once at startup, or also on focus?\n'
+    )
+    questions = parse_discovery_unknowns(summary)
+    assert [q.id for q in questions] == ['q-1', 'q-2', 'q-3']
+    assert questions[0].prompt.startswith('Remove the Update button entirely? Or keep it')
+    assert '**' not in questions[1].prompt
+    assert all(q.options == [] for q in questions)
+
+
+def test_parse_discovery_unknowns_reads_nested_answers_and_stops_at_the_next_section() -> None:
+    summary = (
+        '- Relevant files:\n'
+        '  - src/app.ts: the handler.\n'
+        '- **Unknowns:**\n'
+        '  - Should the old button stay?\n'
+        '    - Remove it\n'
+        '    - Keep it beside the label\n'
+        '  - Which colour for the badge?\n'
+        '    1. Warning\n'
+        '    2. Accent\n'
+        '- Constraints: tests must pass.\n'
+    )
+    questions = parse_discovery_unknowns(summary)
+    assert [(q.prompt, q.options) for q in questions] == [
+        ('Should the old button stay?', ['Remove it', 'Keep it beside the label']),
+        ('Which colour for the badge?', ['Warning', 'Accent']),
+    ]
+
+
+@pytest.mark.parametrize(
+    'summary',
+    [
+        '',
+        'Relevant files:\n- src/app.ts: the handler.',
+        'Unknowns: none.',
+        '**Unknowns**\n- None; the objective is fully specified.',
+        'Constraints:\n- Unknowns in the API are documented in docs/api.md.',
+        '### Unknowns\n- No blocking unknowns; the objective is fully specified.',
+        '### Unknowns\n- There are no decisions left for the user.',
+        '**Unknowns:** No user decisions are needed.',
+        # The bullets after a bulleted heading are the next sections, not questions.
+        '- **Relevant files:** src/app.ts\n- **Unknowns:** None.\n- **Suggested approach:** Add a handler.',
+    ],
+)
+def test_parse_discovery_unknowns_is_empty_without_real_unknowns(summary: str) -> None:
+    assert parse_discovery_unknowns(summary) == []
+
+
+def test_parse_discovery_unknowns_takes_a_question_written_on_the_heading_line() -> None:
+    questions = parse_discovery_unknowns('Unknowns: should the cache survive a restart?\n\nThat is all.')
+    assert [q.prompt for q in questions] == ['should the cache survive a restart?']
+
+
+def test_parse_discovery_unknowns_stops_at_the_bullet_after_a_bulleted_heading() -> None:
+    summary = (
+        '- Relevant files: src/app.ts\n'
+        '- Unknowns: Should the cache survive a restart?\n'
+        '- Constraints: tests must pass.\n'
+    )
+    assert [q.prompt for q in parse_discovery_unknowns(summary)] == ['Should the cache survive a restart?']
+
+
+def test_parse_discovery_unknowns_keeps_code_names_as_written() -> None:
+    summary = (
+        'Unknowns:\n'
+        '- **Should `__init__.py` re-export the helper?**\n'
+        '  - Yes, add it to `__all__`\n'
+        '  - No, import it from __future__ callers only\n'
+        '- **Should the watcher cover `src/**/*.ts` only?**\n'
+    )
+    questions = parse_discovery_unknowns(summary)
+    assert [(q.prompt, q.options) for q in questions] == [
+        (
+            'Should `__init__.py` re-export the helper?',
+            ['Yes, add it to `__all__`', 'No, import it from __future__ callers only'],
+        ),
+        ('Should the watcher cover `src/**/*.ts` only?', []),
+    ]
+
+
+def test_parse_discovery_unknowns_joins_wrapped_lines_and_leaves_out_notes_and_labels() -> None:
+    summary = (
+        '### 4. Unknowns for you\n'
+        '1. Should the old button stay, or\n'
+        '   should it go when the label is clickable?\n'
+        '   Options:\n'
+        '   - Remove it\n'
+        '     - simplest; matches the request\n'
+        '   - Keep it beside\n'
+        '     the label\n'
+        '2. Which colour for the badge?\n'
+        '   a) Warning\n'
+        '   b) Accent\n'
+    )
+    questions = parse_discovery_unknowns(summary)
+    assert [(q.id, q.prompt, q.options) for q in questions] == [
+        (
+            'q-1',
+            'Should the old button stay, or should it go when the label is clickable?',
+            ['Remove it', 'Keep it beside the label'],
+        ),
+        ('q-2', 'Which colour for the badge?', ['Warning', 'Accent']),
+    ]

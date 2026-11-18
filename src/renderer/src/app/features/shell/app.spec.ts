@@ -366,7 +366,9 @@ describe('App', () => {
       expect(version?.classList.contains('chrome-menu-btn--attention')).toBe(true);
       expect(version?.querySelector('.chrome-version-alert')?.textContent).toBe('!');
       expect(version?.getAttribute('title')).toBe('Update available: v0.3.0 — open Updates');
-      expect(version?.getAttribute('aria-label')).toBe('Update available: v0.3.0 — open Updates');
+      // The visible version stays the accessible name; the tooltip is its description.
+      expect(version?.hasAttribute('aria-label')).toBe(false);
+      expect(version?.querySelector('.chrome-version-alert')?.getAttribute('aria-hidden')).toBe('true');
 
       version?.click();
       expect(openUpdaterWindow).toHaveBeenCalledTimes(1);

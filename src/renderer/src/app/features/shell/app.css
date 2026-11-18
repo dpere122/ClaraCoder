@@ -234,8 +234,11 @@
   margin-left: auto;
 }
 
-/* A newer release is available: the warning highlight beats the muted version color. */
-.chrome-version.chrome-menu-btn--attention {
+/*
+ * A newer release is available: the warning highlight beats the muted version color. Hover is
+ * left to .chrome-menu-btn:hover, so text, border and background change together.
+ */
+.chrome-version.chrome-menu-btn--attention:not(:hover) {
   color: var(--t-warn);
 }
 

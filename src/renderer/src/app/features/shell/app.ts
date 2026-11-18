@@ -681,7 +681,7 @@ export class App implements OnInit, OnDestroy {
   private readonly appUpdateStatus = inject(AppUpdateStatusService);
   /** Flags the title-bar version button with "!" while an update is available. */
   protected readonly updateAvailable = this.appUpdateStatus.updateAvailable;
-  /** Version button tooltip / aria label: the available update, else "Open Updates". */
+  /** Version button tooltip: the available update, else "Open Updates". The version stays its name. */
   protected readonly updateTooltip = this.appUpdateStatus.tooltip;
   private readonly llamaServerNctxByModel = toSignal(inject(ElectronService).llamaServerNctx$, {
     initialValue: {} as Readonly<Record<string, number>>,

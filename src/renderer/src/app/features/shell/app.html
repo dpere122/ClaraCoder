@@ -33,7 +33,6 @@
             class='chrome-menu-btn chrome-version'
             [class.chrome-menu-btn--attention]='updateAvailable()'
             [attr.title]='updateTooltip()'
-            [attr.aria-label]='updateTooltip()'
             (click)='onChromeUpdates()'
           >
             v{{ appVersion() }}

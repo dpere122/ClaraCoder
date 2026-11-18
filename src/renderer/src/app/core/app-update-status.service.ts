@@ -15,7 +15,7 @@ export class AppUpdateStatusService {
   /** Newest release the Updates window would offer as an update, or null. */
   readonly latestUpdate = signal<AppReleaseSummary | null>(null);
   readonly updateAvailable = computed(() => this.latestUpdate() !== null);
-  /** Tooltip / aria text for the version button. */
+  /** Tooltip (accessible description) for the version button. */
   readonly tooltip = computed(() => {
     const update = this.latestUpdate();
     return update ? `Update available: v${update.version} — open Updates` : 'Open Updates';

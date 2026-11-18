@@ -42,21 +42,65 @@ _DISCOVERY_SUMMARY_SHAPE = (
     'as indented sub-bullets, the one you recommend first.'
 )
 
-# The summary's ``Unknowns`` heading: plain, ``#``, bold or a bullet, with an optional note in brackets.
+# The summary's ``Unknowns`` heading: plain, ``#`` (numbered or with more words after it), bold or a
+# list item, with an optional note in brackets.
 _UNKNOWNS_HEADING_RE = re.compile(
-    r'^\s*(?:#{1,6}\s*|[-*+]\s+|\d+[.)]\s+)?unknowns\s*(?:\([^)]*\))?\s*(?::\s*(?P<inline>.*))?$',
+    r'^(?P<marker>#{1,6}\s*(?:\d+[.)]\s+)?|[-*+]\s+|\d+[.)]\s+)?(?P<underscores>__)?unknowns\b(?P<rest>.*)$',
     re.IGNORECASE,
 )
+_HEADING_NOTE_RE = re.compile(r'^\s*\([^)]*\)')
 _SUMMARY_HEADING_RE = re.compile(r'^\s*(?:#{1,6}\s+\S|(?:\*\*|__).+(?:\*\*|__)\s*:?\s*$)')
-_SUMMARY_ITEM_RE = re.compile(r'^(?P<indent>\s*)(?:[-*+]|\d+[.)])\s+(?P<body>.+)$')
+_SUMMARY_ITEM_RE = re.compile(r'^\s*(?:[-*+]|\d+[.)]|[A-Za-z]\))\s+(?P<body>.+)$')
+# A line that only introduces the answers ("Options:"), not an answer or part of the question.
+_ANSWERS_LABEL_RE = re.compile(r'^(?:suggested\s+)?(?:options|answers|choices)\s*:?$', re.IGNORECASE)
 _NO_UNKNOWNS_RE = re.compile(
-    r'^\W*(?:none|n/?a|nothing|no\s+(?:unknowns|open|outstanding|decisions|questions))\b',
+    r'^\W*(?:none|n/?a|nothing|(?:there\s+(?:are|is)\s+)?no\s+(?:\w+\s+){0,2}'
+    r'(?:unknowns|open|outstanding|decisions|questions))\b',
     re.IGNORECASE,
 )
+_CODE_SPAN_RE = re.compile(r'`[^`\n]+`')
+_BOLD_RE = re.compile(r'\*\*(?=\S)(.+?)(?<=\S)\*\*')
+_MASKED_SPAN_RE = re.compile(r'\x00(\d+)\x00')
 
 
 def _plain(text: str) -> str:
-    return text.replace('**', '').replace('__', '').strip()
+    """Drop bold markers, which the question card would show as written.
+
+    Code spans are left alone (``src/**/*.ts``), and ``__`` is not read as bold: in a summary about
+    code it is far more often ``__init__``.
+    """
+    spans: list[str] = []
+
+    def _mask(match: re.Match[str]) -> str:
+        spans.append(match.group(0))
+        return f'\x00{len(spans) - 1}\x00'
+
+    stripped = _BOLD_RE.sub(r'\1', _CODE_SPAN_RE.sub(_mask, text))
+    return _MASKED_SPAN_RE.sub(lambda m: spans[int(m.group(1))], stripped).strip()
+
+
+def _indent(line: str) -> int:
+    expanded = line.expandtabs(4)
+    return len(expanded) - len(expanded.lstrip())
+
+
+def _unknowns_heading(line: str) -> tuple[int | None, str] | None:
+    """For the Unknowns heading: its indent when it is a list item (else None), and text after ``:``."""
+    match = _UNKNOWNS_HEADING_RE.match(_plain(line))
+    if match is None:
+        return None
+    marker = match.group('marker') or ''
+    rest = match.group('rest')
+    if match.group('underscores'):
+        rest = rest.replace('__', '', 1)
+    rest = _HEADING_NOTE_RE.sub('', rest).strip()
+    if rest.startswith(':'):
+        inline = rest[1:].strip()
+    elif not rest or marker.startswith('#'):
+        inline = ''  # a ``#`` heading may say more: "Unknowns for the user"
+    else:
+        return None  # a sentence that starts with the word
+    return (_indent(line) if marker and not marker.startswith('#') else None), inline
 
 
 def parse_discovery_unknowns(summary: str) -> list[OpenQuestion]:
@@ -64,49 +108,56 @@ def parse_discovery_unknowns(summary: str) -> list[OpenQuestion]:
 
     Discovery lists there what only the user can decide. The planner has nothing more to go on than
     discovery had, so an Unknown it does not ask about can only have been guessed.
+
+    Every question returned must be answered before the user can submit the card, so a line that is
+    not clearly one (the next section, a note under an answer) is left out.
     """
     lines = (summary or '').splitlines()
-    start = next((i for i, line in enumerate(lines) if _UNKNOWNS_HEADING_RE.match(_plain(line))), None)
-    if start is None:
+    found = next(((i, h) for i, h in enumerate(map(_unknowns_heading, lines)) if h is not None), None)
+    if found is None:
         return []
+    start, (list_indent, inline) = found
 
-    prompts: list[str] = []
-    options: list[list[str]] = []
-    heading = _UNKNOWNS_HEADING_RE.match(_plain(lines[start]))
-    inline = (heading.group('inline') or '').strip() if heading else ''
-    if inline:
-        prompts.append(inline)
-        options.append([])
-
-    item_indent: int | None = None
+    entries: list[list[str]] = [[inline]] if inline else []  # each: the question, then its answers
+    item_indent: int | None = None  # indent of the questions
+    answer_indent: int | None = None  # indent of the current question's answers
+    wrap_indent: int | None = None  # indent of the item a wrapped line would continue
     for line in lines[start + 1 :]:
         if not line.strip():
             continue
+        indent = _indent(line)
+        if list_indent is not None and indent <= list_indent:
+            break  # back out to the list the heading itself was an item of: the next section
         item = _SUMMARY_ITEM_RE.match(line)
         if item is None:
-            if _SUMMARY_HEADING_RE.match(line) or (prompts and not line[:1].isspace()):
+            if _SUMMARY_HEADING_RE.match(line) or (entries and indent == 0):
                 break  # the next section, or a closing paragraph
+            text = _plain(line)
+            if wrap_indent is not None and indent > wrap_indent and not _ANSWERS_LABEL_RE.match(text):
+                entries[-1][-1] = f'{entries[-1][-1]} {text}'
             continue
-        indent = len(item.group('indent').expandtabs(4))
         body = _plain(item.group('body'))
+        if not body or _ANSWERS_LABEL_RE.match(body):
+            continue
         if item_indent is None:
             item_indent = indent
         if indent < item_indent:
-            break  # back out to the list the heading itself was an item of
-        if not body:
-            continue
-        if indent > item_indent and prompts:
-            options[-1].append(body)
+            break  # a list further out than the questions
+        if indent == item_indent or not entries:
+            entries.append([body])
+            answer_indent = None
+        elif answer_indent is None or indent <= answer_indent:
+            entries[-1].append(body)
+            answer_indent = indent
         else:
-            prompts.append(body)
-            options.append([])
+            wrap_indent = None
+            continue  # a note under an answer
+        wrap_indent = indent
 
+    asked = [entry for entry in entries if not _NO_UNKNOWNS_RE.match(entry[0])]
     return [
-        OpenQuestion(id=f'q-{n}', prompt=prompt, options=opts)
-        for n, (prompt, opts) in enumerate(
-            ((p, o) for p, o in zip(prompts, options) if not _NO_UNKNOWNS_RE.match(p)),
-            start=1,
-        )
+        OpenQuestion(id=f'q-{n}', prompt=entry[0], options=entry[1:])
+        for n, entry in enumerate(asked, start=1)
     ]
 
 

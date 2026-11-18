@@ -237,6 +237,11 @@ def test_parse_discovery_unknowns_reads_nested_answers_and_stops_at_the_next_sec
         'Unknowns: none.',
         '**Unknowns**\n- None; the objective is fully specified.',
         'Constraints:\n- Unknowns in the API are documented in docs/api.md.',
+        '### Unknowns\n- No blocking unknowns; the objective is fully specified.',
+        '### Unknowns\n- There are no decisions left for the user.',
+        '**Unknowns:** No user decisions are needed.',
+        # The bullets after a bulleted heading are the next sections, not questions.
+        '- **Relevant files:** src/app.ts\n- **Unknowns:** None.\n- **Suggested approach:** Add a handler.',
     ],
 )
 def test_parse_discovery_unknowns_is_empty_without_real_unknowns(summary: str) -> None:
@@ -246,3 +251,55 @@ def test_parse_discovery_unknowns_is_empty_without_real_unknowns(summary: str) -
 def test_parse_discovery_unknowns_takes_a_question_written_on_the_heading_line() -> None:
     questions = parse_discovery_unknowns('Unknowns: should the cache survive a restart?\n\nThat is all.')
     assert [q.prompt for q in questions] == ['should the cache survive a restart?']
+
+
+def test_parse_discovery_unknowns_stops_at_the_bullet_after_a_bulleted_heading() -> None:
+    summary = (
+        '- Relevant files: src/app.ts\n'
+        '- Unknowns: Should the cache survive a restart?\n'
+        '- Constraints: tests must pass.\n'
+    )
+    assert [q.prompt for q in parse_discovery_unknowns(summary)] == ['Should the cache survive a restart?']
+
+
+def test_parse_discovery_unknowns_keeps_code_names_as_written() -> None:
+    summary = (
+        'Unknowns:\n'
+        '- **Should `__init__.py` re-export the helper?**\n'
+        '  - Yes, add it to `__all__`\n'
+        '  - No, import it from __future__ callers only\n'
+        '- **Should the watcher cover `src/**/*.ts` only?**\n'
+    )
+    questions = parse_discovery_unknowns(summary)
+    assert [(q.prompt, q.options) for q in questions] == [
+        (
+            'Should `__init__.py` re-export the helper?',
+            ['Yes, add it to `__all__`', 'No, import it from __future__ callers only'],
+        ),
+        ('Should the watcher cover `src/**/*.ts` only?', []),
+    ]
+
+
+def test_parse_discovery_unknowns_joins_wrapped_lines_and_leaves_out_notes_and_labels() -> None:
+    summary = (
+        '### 4. Unknowns for you\n'
+        '1. Should the old button stay, or\n'
+        '   should it go when the label is clickable?\n'
+        '   Options:\n'
+        '   - Remove it\n'
+        '     - simplest; matches the request\n'
+        '   - Keep it beside\n'
+        '     the label\n'
+        '2. Which colour for the badge?\n'
+        '   a) Warning\n'
+        '   b) Accent\n'
+    )
+    questions = parse_discovery_unknowns(summary)
+    assert [(q.id, q.prompt, q.options) for q in questions] == [
+        (
+            'q-1',
+            'Should the old button stay, or should it go when the label is clickable?',
+            ['Remove it', 'Keep it beside the label'],
+        ),
+        ('q-2', 'Which colour for the badge?', ['Warning', 'Accent']),
+    ]

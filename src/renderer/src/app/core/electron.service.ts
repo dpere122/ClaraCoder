@@ -2654,7 +2654,7 @@ export class ElectronService {
 
   updaterListReleases(force = false): Promise<import('@shared/app-updater').AppReleaseListResult> {
     return (
-      this.api?.updaterListReleases(force) ??
+      this.api?.updaterListReleases?.(force) ??
       Promise.resolve({ ok: false, currentVersion: '', releases: [], error: 'No Electron API' })
     );
   }

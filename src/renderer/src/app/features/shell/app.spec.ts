@@ -245,6 +245,8 @@ function stubElectronApi(
     openDocumentation: () => {},
     openHealthWindow: () => {},
     openDependenciesWindow: noop,
+    openUpdaterWindow: noop,
+    updaterListReleases: async () => ({ ok: true, currentVersion: '', releases: [] }),
     windowMinimize: noop,
     windowToggleMaximize: noop,
     windowClose: noop,
@@ -314,6 +316,63 @@ describe('App', () => {
     };
     expect(saved.chatSidebarCollapsed).toBe(false);
     expect(saved.chatExpandedToMainPanel).toBe(true);
+  });
+
+  describe('title-bar version button', () => {
+    /** An installable release as main lists it. */
+    function release(version: string) {
+      return {
+        version,
+        tag: `v${version}`,
+        name: `v${version}`,
+        notes: '',
+        prerelease: false,
+        publishedAt: null,
+        htmlUrl: '',
+        installer: { fileName: `ClaraCoder-${version}.exe`, size: 1 },
+      };
+    }
+
+    /** Runs the app at v0.2.0 against a release feed listing `versions`. */
+    async function renderWithReleases(versions: string[]) {
+      const openUpdaterWindow = vi.fn();
+      Object.assign(window.electronAPI as object, {
+        appVersion: async () => '0.2.0',
+        openUpdaterWindow,
+        updaterListReleases: async () => ({ ok: true, currentVersion: '0.2.0', releases: versions.map(release) }),
+      });
+      const fixture = TestBed.createComponent(App);
+      await fixture.whenStable();
+      await new Promise<void>((resolve) => setTimeout(resolve));
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+      return { host, openUpdaterWindow, version: host.querySelector<HTMLButtonElement>('button.chrome-version') };
+    }
+
+    it('replaces the Update button and opens the Updates window', async () => {
+      const { host, openUpdaterWindow, version } = await renderWithReleases(['0.1.0', '0.2.0']);
+      expect(host.querySelector('.chrome-update-btn')).toBeNull();
+      expect(version?.textContent?.trim()).toBe('v0.2.0');
+      expect(version?.classList.contains('chrome-menu-btn--attention')).toBe(false);
+      expect(version?.querySelector('.chrome-version-alert')).toBeNull();
+      expect(version?.getAttribute('title')).toBe('Open Updates');
+
+      version?.click();
+      expect(openUpdaterWindow).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows "!" when a newer installable release exists', async () => {
+      const { openUpdaterWindow, version } = await renderWithReleases(['0.2.0', '0.3.0']);
+      expect(version?.classList.contains('chrome-menu-btn--attention')).toBe(true);
+      expect(version?.querySelector('.chrome-version-alert')?.textContent).toBe('!');
+      expect(version?.getAttribute('title')).toBe('Update available: v0.3.0 — open Updates');
+      // The visible version stays the accessible name; the tooltip is its description.
+      expect(version?.hasAttribute('aria-label')).toBe(false);
+      expect(version?.querySelector('.chrome-version-alert')?.getAttribute('aria-hidden')).toBe('true');
+
+      version?.click();
+      expect(openUpdaterWindow).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('while the sidecar starts', () => {

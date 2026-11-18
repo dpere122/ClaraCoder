@@ -148,6 +148,7 @@ import { isViewableImagePath } from '../workspace/image-viewer/image-viewer-form
 import { planOpenWorkspaceImageTab } from './app-image-file-tabs';
 import { WorkspaceTerminalDockComponent } from '../workspace-terminal/workspace-terminal-dock';
 import { isBrowserBridgeTab } from '../../core/dev-bridge/bridge-tab';
+import { AppUpdateStatusService } from '../../core/app-update-status.service';
 import { CoreDependenciesStatusService, coreDependenciesNeeded } from '../../core/core-dependencies-status.service';
 import { SidecarStatusService } from '../../core/sidecar-status.service';
 import { ElectronService, type MainWindowView } from '../../core/electron.service';
@@ -676,6 +677,12 @@ export class App implements OnInit, OnDestroy {
   );
   /** Running app version, shown at the right of the title bar. */
   protected readonly appVersion = signal('');
+  /** Watches GitHub Releases for a newer installable Clara build. */
+  private readonly appUpdateStatus = inject(AppUpdateStatusService);
+  /** Flags the title-bar version button with "!" while an update is available. */
+  protected readonly updateAvailable = this.appUpdateStatus.updateAvailable;
+  /** Version button tooltip: the available update, else "Open Updates". The version stays its name. */
+  protected readonly updateTooltip = this.appUpdateStatus.tooltip;
   private readonly llamaServerNctxByModel = toSignal(inject(ElectronService).llamaServerNctx$, {
     initialValue: {} as Readonly<Record<string, number>>,
   });
@@ -1117,6 +1124,7 @@ export class App implements OnInit, OnDestroy {
     if (this.electron.isElectron) {
       this.windowMaximized.set(await this.electron.windowIsMaximized());
       void this.electron.appVersion().then((v) => this.appVersion.set(v));
+      this.appUpdateStatus.start();
     }
 
     this.syncSidebarWidthFromEffectivePercent();

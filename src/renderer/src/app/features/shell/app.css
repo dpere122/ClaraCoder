@@ -216,27 +216,35 @@
   color: #fff;
 }
 
-/* Update button + version sit at the right, just before the window controls. */
-.chrome-update-btn {
+/* Version button (opens Updates) sits at the right, just before the window controls. */
+.chrome-version {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.2rem;
   margin-left: auto;
-}
-
-.chrome-update-icon {
-  display: inline-flex;
-}
-
-.chrome-version {
-  flex-shrink: 0;
-  padding: 0 0.45rem 0 0.2rem;
   color: color-mix(in srgb, var(--t-titlebar-text) 70%, transparent);
   font-family: var(--t-font-mono, inherit);
   font-size: 0.66rem;
   letter-spacing: 0.02em;
   white-space: nowrap;
-  cursor: default;
+}
+
+/* Keep the window controls right-aligned before the version is known. */
+.chrome-menu-btn:not(.chrome-version) + .chrome-pin-btn {
+  margin-left: auto;
+}
+
+/*
+ * A newer release is available: the warning highlight beats the muted version color. Hover is
+ * left to .chrome-menu-btn:hover, so text, border and background change together.
+ */
+.chrome-version.chrome-menu-btn--attention:not(:hover) {
+  color: var(--t-warn);
+}
+
+.chrome-version-alert {
+  color: var(--t-warn);
+  font-weight: 700;
 }
 
 .chrome-pin-btn {

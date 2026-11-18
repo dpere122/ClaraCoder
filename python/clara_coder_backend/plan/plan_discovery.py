@@ -9,6 +9,10 @@ implementation planner.
 
 from __future__ import annotations
 
+import re
+
+from clara_coder_backend.plan.build_plan_store import OpenQuestion
+
 PLAN_DISCOVERY_EXECUTE_LABEL = 'plan_discovery'
 
 # Discovery is the slowest phase on local models; most of its cost is one-read-per-turn round trips.
@@ -33,8 +37,77 @@ _DISCOVERY_SUMMARY_SHAPE = (
     '- Relevant files: workspace-relative paths, each with one line on its role.\n'
     '- Patterns and conventions: how similar features are built here.\n'
     '- Constraints: tests, build, dependencies, or APIs the change must respect.\n'
-    '- Unknowns: decisions only the user can make (these become clarifying questions).'
+    '- Unknowns: decisions only the user can make (these become clarifying questions), never facts '
+    'you could look up. One bullet per decision, phrased as a question, with 2-4 suggested answers '
+    'as indented sub-bullets, the one you recommend first.'
 )
+
+# The summary's ``Unknowns`` heading: plain, ``#``, bold or a bullet, with an optional note in brackets.
+_UNKNOWNS_HEADING_RE = re.compile(
+    r'^\s*(?:#{1,6}\s*|[-*+]\s+|\d+[.)]\s+)?unknowns\s*(?:\([^)]*\))?\s*(?::\s*(?P<inline>.*))?$',
+    re.IGNORECASE,
+)
+_SUMMARY_HEADING_RE = re.compile(r'^\s*(?:#{1,6}\s+\S|(?:\*\*|__).+(?:\*\*|__)\s*:?\s*$)')
+_SUMMARY_ITEM_RE = re.compile(r'^(?P<indent>\s*)(?:[-*+]|\d+[.)])\s+(?P<body>.+)$')
+_NO_UNKNOWNS_RE = re.compile(
+    r'^\W*(?:none|n/?a|nothing|no\s+(?:unknowns|open|outstanding|decisions|questions))\b',
+    re.IGNORECASE,
+)
+
+
+def _plain(text: str) -> str:
+    return text.replace('**', '').replace('__', '').strip()
+
+
+def parse_discovery_unknowns(summary: str) -> list[OpenQuestion]:
+    """The summary's Unknowns as questions: one per list item, its sub-bullets as suggested answers.
+
+    Discovery lists there what only the user can decide. The planner has nothing more to go on than
+    discovery had, so an Unknown it does not ask about can only have been guessed.
+    """
+    lines = (summary or '').splitlines()
+    start = next((i for i, line in enumerate(lines) if _UNKNOWNS_HEADING_RE.match(_plain(line))), None)
+    if start is None:
+        return []
+
+    prompts: list[str] = []
+    options: list[list[str]] = []
+    heading = _UNKNOWNS_HEADING_RE.match(_plain(lines[start]))
+    inline = (heading.group('inline') or '').strip() if heading else ''
+    if inline:
+        prompts.append(inline)
+        options.append([])
+
+    item_indent: int | None = None
+    for line in lines[start + 1 :]:
+        if not line.strip():
+            continue
+        item = _SUMMARY_ITEM_RE.match(line)
+        if item is None:
+            if _SUMMARY_HEADING_RE.match(line) or (prompts and not line[:1].isspace()):
+                break  # the next section, or a closing paragraph
+            continue
+        indent = len(item.group('indent').expandtabs(4))
+        body = _plain(item.group('body'))
+        if item_indent is None:
+            item_indent = indent
+        if indent < item_indent:
+            break  # back out to the list the heading itself was an item of
+        if not body:
+            continue
+        if indent > item_indent and prompts:
+            options[-1].append(body)
+        else:
+            prompts.append(body)
+            options.append([])
+
+    return [
+        OpenQuestion(id=f'q-{n}', prompt=prompt, options=opts)
+        for n, (prompt, opts) in enumerate(
+            ((p, o) for p, o in zip(prompts, options) if not _NO_UNKNOWNS_RE.match(p)),
+            start=1,
+        )
+    ]
 
 
 def build_freeform_discovery_prompt(objective: str) -> str:
@@ -88,4 +161,5 @@ __all__ = [
     'PLAN_DISCOVERY_EXECUTE_LABEL',
     'build_answer_lookup_prompt',
     'build_freeform_discovery_prompt',
+    'parse_discovery_unknowns',
 ]

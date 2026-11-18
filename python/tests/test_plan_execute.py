@@ -1660,6 +1660,120 @@ def test_triage_drops_duplicate_questions_and_caps_the_rest() -> None:
     assert defaults == [f'Design choice {MAX_OPEN_QUESTIONS}? → A{MAX_OPEN_QUESTIONS} (default; not asked)']
 
 
+def test_triage_records_an_over_limit_question_without_options_as_not_asked() -> None:
+    from clara_coder_backend.plan.plan_execute import MAX_OPEN_QUESTIONS, _triage_planner_questions
+
+    plan = BuildPlanModel(
+        title='T',
+        task='T',
+        current_implementation='',
+        open_questions=[OpenQuestion(id=f'q-{i}', prompt=f'Decision {i}?') for i in range(MAX_OPEN_QUESTIONS + 1)],
+        action_steps=[ActionStep(id='step-1', goal='Work')],
+    )
+    defaults = _triage_planner_questions(plan)
+    assert len(plan.open_questions) == MAX_OPEN_QUESTIONS
+    assert defaults == [f'Not asked (limit of {MAX_OPEN_QUESTIONS} questions): Decision {MAX_OPEN_QUESTIONS}?']
+
+
+def test_planner_guidelines_turn_discovery_unknowns_into_open_questions() -> None:
+    assert 'Every item under Unknowns' in PLAN_AUTHORING_GUIDELINES
+    assert 'do not settle it yourself' in PLAN_AUTHORING_GUIDELINES
+    assert 'sensible default' not in PLAN_AUTHORING_GUIDELINES
+    assert 'Unknowns still go to the user' in _build_discovery_preamble('Found src/app.ts.')
+
+
+_DISCOVERY_WITH_UNKNOWNS = (
+    'Relevant files:\n'
+    '- src/router.ts: mounts the routes.\n\n'
+    'Unknowns:\n'
+    '- Should unauthenticated requests get a 401 or a redirect?\n'
+    '  - 401\n'
+    '  - Redirect to /login\n'
+)
+
+
+def _exec_with_discovery(summary: str, prompts: list[str]):
+    """Fake agent runs: discovery (returning ``summary``) first, then the executor."""
+
+    async def _fake_exec(*args: Any, **kwargs: Any):
+        prompts.append(str(args[2] if len(args) > 2 else kwargs.get('user_message', '')))
+        outcome: LangGraphWorkerOutcome = kwargs['outcome']
+        outcome.mark_completed(final_text=summary if len(prompts) == 1 else 'Plan execution finished.')
+        yield 'data: {"type":"chunk"}\n\n'
+
+    return _fake_exec
+
+
+@patch('clara_coder_backend.plan.plan_execute._stream_langgraph_tool_agent')
+@patch('clara_coder_backend.plan.plan_execute._stream_planner_md')
+@patch('clara_coder_backend.plan.plan_execute.await_diff_review_note')
+@patch('clara_coder_backend.plan.plan_execute.await_question_answers')
+def test_stream_plan_execute_asks_discovery_unknowns_the_planner_left_out(
+    mock_question_pause: AsyncMock,
+    mock_pause: AsyncMock,
+    mock_planner: AsyncMock,
+    mock_exec: AsyncMock,
+    tmp_path: Path,
+) -> None:
+    """A draft with no Open Questions still asks what discovery left for the user to decide."""
+    planner_calls: list[dict[str, Any]] = []
+    draft = _planner_md_for('src/router.ts')
+
+    async def _fake_planner_md(*args: Any, **kwargs: Any):
+        planner_calls.append(kwargs)
+        async for line in draft(*args, **kwargs):
+            yield line
+
+    mock_planner.side_effect = _fake_planner_md
+    mock_exec.side_effect = _exec_with_discovery(_DISCOVERY_WITH_UNKNOWNS, [])
+    mock_question_pause.return_value = [{'question_id': 'q-1', 'option_id': 'q-1-opt-2', 'other_text': None}]
+    mock_pause.return_value = None
+
+    outcome = LangGraphWorkerOutcome()
+    lines = _run_plan(SessionState(workspace_path=str(tmp_path)), 'sess-unknowns-asked', outcome)
+
+    asked = [row['agentQuestion'] for row in _sse_json_rows(lines) if row.get('type') == 'agent_question']
+    assert len(asked) == 1
+    assert [q['prompt'] for q in asked[0]['questions']] == ['Should unauthenticated requests get a 401 or a redirect?']
+    assert [o['label'] for o in asked[0]['questions'][0]['options']] == ['401', 'Redirect to /login']
+    # The answer reaches the rewrite and the confirm card.
+    assert len(planner_calls) == 2
+    assert 'Redirect to /login' in (planner_calls[1].get('resolved_answers') or '')
+    confirm_line = next(line for line in lines if '"type": "plan_confirm"' in line)
+    assert 'Redirect to /login' in confirm_line
+    assert outcome.state == AgentLoopOutcome.COMPLETED
+
+
+@patch('clara_coder_backend.plan.plan_execute._stream_langgraph_tool_agent')
+@patch('clara_coder_backend.plan.plan_execute._stream_planner_md')
+@patch('clara_coder_backend.plan.plan_execute.await_diff_review_note')
+@patch('clara_coder_backend.plan.plan_execute.await_question_answers')
+def test_stream_plan_execute_keeps_the_planner_questions_over_discovery_unknowns(
+    mock_question_pause: AsyncMock,
+    mock_pause: AsyncMock,
+    mock_planner: AsyncMock,
+    mock_exec: AsyncMock,
+    tmp_path: Path,
+) -> None:
+    async def _fake_planner_md(*_args: Any, **kwargs: Any):
+        kwargs['md_out'].clear()
+        kwargs['md_out'].append(_sample_plan_with_open_questions_md())
+        yield 'data: {"type":"build_plan_chunk"}\n\n'
+
+    mock_planner.side_effect = _fake_planner_md
+    mock_exec.side_effect = _exec_with_discovery(_DISCOVERY_WITH_UNKNOWNS, [])
+    mock_question_pause.return_value = []
+    mock_pause.return_value = None
+
+    outcome = LangGraphWorkerOutcome()
+    lines = _run_plan(SessionState(workspace_path=str(tmp_path)), 'sess-planner-questions-win', outcome)
+
+    asked = [row['agentQuestion'] for row in _sse_json_rows(lines) if row.get('type') == 'agent_question']
+    assert len(asked) == 1
+    assert not any('401' in q['prompt'] for q in asked[0]['questions'])
+    assert outcome.state == AgentLoopOutcome.COMPLETED
+
+
 def test_planner_guidelines_forbid_file_existence_questions() -> None:
     from clara_coder_backend.plan.plan_execute import PLAN_AUTHORING_GUIDELINES
 

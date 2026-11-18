@@ -1,8 +1,8 @@
 """Plan-and-execute orchestrator (LangGraph tutorial control flow, nemo streaming/HITL).
 
 Flow: read-only discovery (:mod:`clara_coder_backend.plan.plan_discovery`) → the planner drafts a
-structured build plan in ``.clara/build-plans/`` → the user answers the draft's open questions, if
-any → the planner rewrites the plan with those answers → the user approves via
+structured build plan in ``.clara/build-plans/`` → the user answers the draft's open questions (or,
+when the draft asks nothing, the Unknowns discovery listed), if any → the planner rewrites the plan with those answers → the user approves via
 :mod:`clara_coder_backend.plan.plan_confirm` → a single ReAct executor run implements the plan using
 :mod:`clara_coder_backend.plan.build_plan_tools` to mark milestones.
 """
@@ -82,6 +82,7 @@ from clara_coder_backend.plan.plan_discovery import (
     PLAN_DISCOVERY_EXECUTE_LABEL,
     build_answer_lookup_prompt,
     build_freeform_discovery_prompt,
+    parse_discovery_unknowns,
 )
 from clara_coder_backend.stream_tags import PLANNER_STREAM_TAG, REASONING_AUXILIARY_STREAM_TAG
 from clara_coder_backend.hitl.tool_registry import format_tools_catalog
@@ -95,7 +96,7 @@ EXECUTE_BUILD_PLAN_LABEL = 'execute_build_plan'
 REWRITE_PLAN_LABEL = 'Rewriting plan'
 
 # Planner questions asked per round; the rest default to their first option as written assumptions.
-MAX_OPEN_QUESTIONS = 3
+MAX_OPEN_QUESTIONS = 5
 
 # Read-only lookup for typed answers runs on a thread of its own (``{session_id}:{kind}``).
 ANSWER_LOOKUP_THREAD_KIND = 'plan_answer_lookup'
@@ -169,11 +170,13 @@ PLAN_AUTHORING_GUIDELINES = (
     '- Risks: call out per-step risks (shared code, migrations, dep changes, breaking changes). At the '
     'plan level, set rollback_notes describing how to revert.\n'
     '- Assumptions: record assumptions explicitly in the assumptions section so the user can challenge them.\n'
-    '- Open questions: only product or design decisions that genuinely block the plan and that only the '
-    'user can answer (behavior, scope, trade-offs) — never facts you could look up in the code. At most '
-    f'{MAX_OPEN_QUESTIONS} questions, each with 2-4 concrete suggested options. When a sensible default '
-    'exists, take it and record it under assumptions instead of asking. If you have enough context to '
-    'proceed, omit open_questions entirely.\n'
+    '- Open questions: product or design decisions only the user can make (behavior, scope, look, '
+    'trade-offs) — never facts you could look up in the code. Every item under Unknowns in the '
+    'discovery findings is one: ask it as an open question, do not settle it yourself as an '
+    f'assumption. At most {MAX_OPEN_QUESTIONS} questions, each with 2-4 concrete suggested options, '
+    'the one you recommend first. Take a default without asking only for implementation details the '
+    'user would not care about, and record it under assumptions. If nothing needs the user\'s '
+    'decision, omit open_questions entirely.\n'
     '- Definition of done: list plan-level outcomes that prove the whole objective is met.\n'
     '- Sub-agents: the executor can hand a step to a sub-agent (an independent copy of itself with '
     'the same editing tools, running in parallel with it). Assign one with a `Sub-agent:` detail '
@@ -277,7 +280,8 @@ def _build_discovery_preamble(discovery_summary: str) -> str:
         f'\n\n{findings}\n\n'
         'Do not add action steps whose only purpose is read-only discovery (search, explore, inspect, '
         'locate, read files, semantic lookup, or "understand the codebase"). '
-        'Assume sufficient context exists to start implementation.'
+        'Assume the code context is sufficient to start implementation; decisions the findings list '
+        'under Unknowns still go to the user as open questions.'
     )
 
 
@@ -292,7 +296,8 @@ def _resolved_answers_preamble(resolved_answers: str) -> str:
     if not text:
         return ''
     return (
-        f'\n\nResolved clarifying questions (authoritative — incorporate into the plan):\n'
+        '\n\nResolved clarifying questions (authoritative — incorporate into the plan; they override '
+        'any assumption in the previous draft that says otherwise):\n'
         f'{text}\n'
     )
 
@@ -463,7 +468,7 @@ def _triage_planner_questions(plan: BuildPlanModel) -> list[str]:
     """Keep only planner questions worth the user's time; returns assumption lines for the rest.
 
     Drops blanks and duplicates. Beyond ``MAX_OPEN_QUESTIONS`` a question is not asked: its first
-    option becomes a stated default.
+    option becomes a stated default, and one without options is recorded as not asked.
     """
     kept: list[OpenQuestion] = []
     seen: set[str] = set()
@@ -478,6 +483,8 @@ def _triage_planner_questions(plan: BuildPlanModel) -> list[str]:
             kept.append(q)
         elif q.options:
             defaults.append(f'{prompt} → {q.options[0]} (default; not asked)')
+        else:
+            defaults.append(f'Not asked (limit of {MAX_OPEN_QUESTIONS} questions): {prompt}')
     plan.open_questions = kept
     return defaults
 
@@ -1163,6 +1170,11 @@ async def stream_plan_execute_langgraph(
             md_text = render_build_plan_md(plan_model)
         # Trim the planner's questions (duplicates, more than MAX_OPEN_QUESTIONS) before asking.
         question_defaults = _triage_planner_questions(plan_model)
+        if not plan_model.open_questions and _plan_has_action_steps(plan_model):
+            # The planner asked nothing. What discovery left for the user to decide is still asked:
+            # the planner knows no more than discovery did, so it can only have guessed those.
+            plan_model.open_questions = parse_discovery_unknowns(discovery_summary)
+            question_defaults += _triage_planner_questions(plan_model)
         if question_defaults:
             _add_plan_assumptions(plan_model, question_defaults)
             md_text = render_build_plan_md(plan_model)

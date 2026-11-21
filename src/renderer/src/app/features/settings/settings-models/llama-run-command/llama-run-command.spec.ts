@@ -71,8 +71,15 @@ async function render(fixture: ComponentFixture<LlamaRunCommandComponent>): Prom
   return fixture.nativeElement as HTMLElement;
 }
 
-const placementLabels = (el: HTMLElement): string[] =>
-  [...el.querySelectorAll('.run-placement [role="radio"]')].map((b) => (b.textContent ?? '').trim());
+const placementTrigger = (el: HTMLElement): HTMLButtonElement =>
+  el.querySelector('.run-placement__field .pill-select__trigger') as HTMLButtonElement;
+/** Opens the placement picker and returns its options. */
+async function placementOptions(fixture: ComponentFixture<LlamaRunCommandComponent>): Promise<HTMLButtonElement[]> {
+  placementTrigger(await render(fixture)).click();
+  await render(fixture);
+  return [...document.querySelectorAll<HTMLButtonElement>('.pill-select__option')];
+}
+const optionLabels = (options: HTMLButtonElement[]): string[] => options.map((o) => (o.textContent ?? '').trim());
 const offerButton = (el: HTMLElement): HTMLButtonElement | null =>
   el.querySelector('.run-command__notice--offer button');
 
@@ -81,35 +88,82 @@ beforeEach(() => TestBed.resetTestingModule());
 describe('GPU placement', () => {
   it('lists every card by name, then the split and all GPUs', async () => {
     const { fixture } = setup({});
-    expect(placementLabels(await render(fixture))).toEqual([
-      'CUDA0 · RTX 5090 (recommended)',
-      'CUDA1 · RTX 5070 Ti',
-      'Split by VRAM',
-      'All GPUs',
+    expect(optionLabels(await placementOptions(fixture))).toEqual([
+      'RTX 5090 only (recommended)',
+      'RTX 5070 Ti only',
+      'Split across RTX 5090 + RTX 5070 Ti',
+      'All GPUs, llama-server decides',
     ]);
   });
 
-  it('marks the card the command pins, and only that one', async () => {
+  it('shows the card the command pins', async () => {
     const { fixture } = setup({ command: `${BASE} -dev CUDA1` });
-    const el = await render(fixture);
-    const active = [...el.querySelectorAll('.run-placement [role="radio"].is-active')].map((b) => b.textContent?.trim());
-    expect(active).toEqual(['CUDA1 · RTX 5070 Ti']);
+    expect(placementTrigger(await render(fixture)).textContent?.trim()).toBe('RTX 5070 Ti only');
   });
 
-  it('writes the card that was clicked', async () => {
+  it('writes the card that was picked', async () => {
     const { fixture, store } = setup({});
-    const el = await render(fixture);
-    (el.querySelectorAll('.run-placement [role="radio"]')[1] as HTMLButtonElement).click();
-    expect(store.onManagedGpuOffloadChange).toHaveBeenCalledWith('single', 1);
-    (el.querySelectorAll('.run-placement [role="radio"]')[3] as HTMLButtonElement).click();
+    (await placementOptions(fixture))[0]?.click();
+    expect(store.onManagedGpuOffloadChange).toHaveBeenCalledWith('single', 0);
+    (await placementOptions(fixture))[3]?.click();
     expect(store.onManagedGpuOffloadChange).toHaveBeenLastCalledWith('auto', undefined);
   });
 
   it('does not offer a split with one card', async () => {
     const { fixture } = setup({ gpus: [RTX5070TI] });
-    const split = (await render(fixture)).querySelectorAll('.run-placement [role="radio"]')[1] as HTMLButtonElement;
-    expect(split.textContent).toContain('Split by VRAM');
-    expect(split.disabled).toBe(true);
+    expect(optionLabels(await placementOptions(fixture))).toEqual(['RTX 5070 Ti only', 'All GPUs, llama-server decides']);
+  });
+
+  it('names cards that share a model by their CUDA index', async () => {
+    const twin: CudaGpuDevice = { ...RTX5070TI, cudaIndex: 2 };
+    const { fixture } = setup({ gpus: [RTX5070TI, twin] });
+    expect(optionLabels(await placementOptions(fixture))).toContain('Split across RTX 5070 Ti (CUDA1) + RTX 5070 Ti (CUDA2)');
+  });
+
+  it('shows the flags the placement writes', async () => {
+    const split = setup({ command: `${BASE} -dev CUDA0,CUDA1 --tensor-split 27,21 --main-gpu 0` });
+    const flags = (el: HTMLElement) => el.querySelector('.run-placement__flags')?.textContent?.trim();
+    expect(flags(await render(split.fixture))).toBe('Sets-dev CUDA0,CUDA1  --tensor-split 27,21  --main-gpu 0');
+    TestBed.resetTestingModule();
+    const all = setup({ command: BASE });
+    expect(flags(await render(all.fixture))).toContain('No GPU flags');
+  });
+});
+
+describe('the model strip', () => {
+  const SPLIT = `${BASE} -dev CUDA0,CUDA1 --tensor-split 27,21`;
+  const handle = (el: HTMLElement) => el.querySelector('.run-strip__handle') as HTMLInputElement | null;
+
+  it('shows a split as shares when the model size is unknown, with a handle on the boundary', async () => {
+    const { fixture } = setup({ command: SPLIT });
+    const el = await render(fixture);
+    const labels = [...el.querySelectorAll('.run-strip__labels span')].map((s) => s.textContent?.trim());
+    expect(labels).toEqual(['RTX 5090 56%', 'RTX 5070 Ti 44%']);
+    expect(handle(el)?.value).toBe('27');
+    expect(handle(el)?.max).toBe('47');
+  });
+
+  it('writes the split the handle is dragged to', async () => {
+    const { fixture, command } = setup({ command: SPLIT });
+    const input = handle(await render(fixture)) as HTMLInputElement;
+    input.value = '30';
+    input.dispatchEvent(new Event('input'));
+    expect(command()).toContain('--tensor-split 30,18');
+  });
+
+  it('offers a reset only when the split is off the VRAM ratio', async () => {
+    const off = setup({ command: SPLIT });
+    const reset = (el: HTMLElement) => el.querySelector('.run-strip__reset') as HTMLButtonElement | null;
+    reset(await render(off.fixture))?.click();
+    expect(off.store.onManagedGpuOffloadChange).toHaveBeenCalledWith('split');
+    TestBed.resetTestingModule();
+    const even = setup({ command: `${BASE} -dev CUDA0,CUDA1 --tensor-split 32,16` });
+    expect(reset(await render(even.fixture))).toBeNull();
+  });
+
+  it('is not shown on one card with no model size', async () => {
+    const { fixture } = setup({ command: `${BASE} -dev CUDA1` });
+    expect((await render(fixture)).querySelector('.run-strip')).toBeNull();
   });
 });
 
@@ -167,8 +221,27 @@ describe('the checks that need the header', () => {
   it('sizes each card from the header, with no file size to go on', async () => {
     const { fixture, store } = setup({});
     expect((await render(fixture)).querySelector('.run-vram')).toBeNull();
-    store.managedGgufProfile.set({ ...NO_HEAD_PROFILE, contextTrain: 4096, tensorBytes: 4 * 1024 ** 3 } as GgufProfile);
-    expect((await render(fixture)).querySelector('.run-vram')?.textContent).toContain('RTX 5070 Ti: about');
+    store.managedGgufProfile.set({
+      contextTrain: 4096,
+      embeddingOut: 4096,
+      nextnLayers: 0,
+      tensorBytes: 4 * 1024 ** 3,
+      hostBytes: 0,
+      headBytes: 0,
+      recurrentStateBytes: 0,
+      fullKeys: 8192,
+      fullValues: 8192,
+      maxFullKey: 1024,
+      swaKeys: 0,
+      swaValues: 0,
+      slidingWindow: 0,
+      cacheLengths: [256],
+    });
+    const gauges = [...(await render(fixture)).querySelectorAll('.run-gauge')].map((g) => g.textContent ?? '');
+    expect(gauges).toHaveLength(2);
+    expect(gauges[0]).toContain('Not used');
+    expect(gauges[1]).toMatch(/RTX 5070 Ti.*About [\d.]+ of 15\.9 GB/);
+    expect((await render(fixture)).querySelector('.run-strip__labels')?.textContent).toMatch(/RTX 5070 Ti [\d.]+ GB/);
   });
 
   it('marks draft-mtp invalid on a model with no head once the header is read', async () => {

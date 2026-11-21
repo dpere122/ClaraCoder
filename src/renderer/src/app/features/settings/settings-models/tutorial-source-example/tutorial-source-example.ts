@@ -19,6 +19,7 @@ import { PillSelectComponent } from '../../../../shared/pill-select/pill-select'
 export class TutorialSourceExampleComponent {
   protected readonly modelOptions = [{ id: 'example', label: 'EXAMPLE-model-7B-Q4_K_M.gguf (not real)' }];
   protected readonly templateOptions = [{ id: 'example', label: 'Example template' }];
+  protected readonly placementOptions = [{ id: 'example', label: 'Example Graphics Card only (recommended)' }];
   protected readonly flags = [
     { flag: '-m', longName: '--model', value: 'C:\\example\\EXAMPLE-model-7B-Q4_K_M.gguf' },
     { flag: '-c', longName: '--ctx-size', value: '8192' },

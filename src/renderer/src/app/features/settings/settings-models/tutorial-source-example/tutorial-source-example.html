@@ -84,12 +84,34 @@
 
       <div class='run-placement' data-tutorial='sources-vram'>
         <span class='run-placement__label'>GPU placement</span>
-        <div class='run-command__views' role='radiogroup' aria-label='GPU placement (example)'>
-          <button type='button' role='radio' aria-checked='true' class='is-active' disabled>Example Graphics Card (recommended)</button>
-          <button type='button' role='radio' aria-checked='false' disabled>CPU only</button>
+        <div class='run-placement__field'>
+          <span class='run-placement__field-label'>Run on</span>
+          <app-pill-select [options]='placementOptions' value='example' [disabled]='true' ariaLabel='GPU placement (example)' />
+        </div>
+        <div class='run-strip'>
+          <div class='run-strip__head'>
+            <span class='run-strip__title'>Where the model goes</span>
+            <span class='run-strip__hint'>About 4.3 GB (made-up numbers)</span>
+          </div>
+          <div class='run-strip__labels' aria-hidden='true'>
+            <span style='width: 100%'><strong>Example Graphics Card</strong> 4.3 GB</span>
+          </div>
+          <div class='run-strip__bar'>
+            <span class='run-strip__segment' data-slot='0' style='width: 100%'></span>
+          </div>
         </div>
         <ul class='run-vram' aria-label='Estimated VRAM (example)'>
-          <li data-level='ok'>Example Graphics Card: about 5.1 of 8 GB (made-up numbers)</li>
+          <li class='run-gauge' data-level='ok' data-slot='0'>
+            <span class='run-gauge__head'>
+              <span class='run-gauge__name'><span class='run-gauge__swatch' aria-hidden='true'></span>Example Graphics Card</span>
+              <span class='run-gauge__free'>2.9 GB free</span>
+            </span>
+            <span class='run-gauge__bar' aria-hidden='true'>
+              <span class='run-gauge__other' style='width: 10%'></span>
+              <span class='run-gauge__model' style='width: 54%'></span>
+            </span>
+            <span class='run-gauge__detail'>About 5.1 of 8.0 GB · 0.8 GB desktop and apps</span>
+          </li>
         </ul>
       </div>
     </section>

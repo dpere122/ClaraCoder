@@ -277,7 +277,7 @@ export const TUTORIAL_STEPS: readonly TutorialStepDescriptor[] = [
     phaseId: 'local-source', stepId: 'sources-vram', window: 'settings',
     title: 'Graphics card memory',
     body: "Your graphics card has its own memory, called VRAM, and a model runs best when it fits there. Choose which card to use here, and Clara estimates how much it will need. If it warns you things are tight, try a smaller model so your other apps don't slow down.",
-    details: "GPU placement sets where the model loads. Split by VRAM shares it across two cards, and its slider sets each card's share (the tensor split). The estimate includes what the desktop and other apps are already using. If a card is over, lower -c or give it less of the split.",
+    details: "GPU placement sets where the model loads. Splitting shares it across two cards: drag the handle on the model strip to set each card's share (the tensor split). Each card's gauge includes what the desktop and other apps are already using. If a card is over, lower -c or give it less of the split.",
     targets: ['sources-vram'],
     openDetails: 'sources-advanced-section',
     scrollToTarget: true,

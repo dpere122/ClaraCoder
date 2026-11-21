@@ -23,14 +23,17 @@ import {
   shortCudaGpuName,
   syncMtpDraftInManagedChatCommand,
   syncTensorSplitSliderInManagedChatCommand,
+  tensorSplitForGpus,
   tensorSplitSliderForCommand,
   type CudaGpuDevice,
   type GpuVramCardEstimate,
+  type GpuVramLevel,
   type LlamaCommandEntry,
   type LlamaFlagCatalog,
   type LlamaFlagSpec,
   type LlamaFlagStatus,
   type ManagedMtpHead,
+  type TensorSplitSlider,
 } from '@shared/index';
 import { LucideAngularModule } from 'lucide-angular';
 import { ElectronService } from '../../../../core/electron.service';
@@ -46,6 +49,40 @@ interface GpuPlacement {
   gpu?: CudaGpuDevice;
   label: string;
 }
+
+/** One card's part of the model strip. `share` and `overPct` are percentages. */
+interface ModelStripSegment {
+  key: string;
+  slot: number;
+  name: string;
+  /** GB on the card, or its share of the split when the model size isn't known. */
+  size: string;
+  share: number;
+  /** How much of this segment doesn't fit on the card and runs from system RAM. */
+  overPct: number;
+}
+
+interface ModelStrip {
+  /** `null` when the model size isn't known and the strip only shows the split. */
+  totalMb: number | null;
+  segments: ModelStripSegment[];
+}
+
+interface GpuGauge {
+  key: string;
+  slot: number;
+  name: string;
+  level: GpuVramLevel | 'idle';
+  otherPct: number;
+  modelPct: number;
+  freeText: string;
+  detail: string;
+}
+
+/** Each card's colour in the strip and its gauge; CSS has one per slot. */
+const GPU_COLOR_SLOTS = 4;
+/** Width of the strip's drag handle; the range input is offset by half of it. */
+const SPLIT_HANDLE_PX = 14;
 
 const STATUS_LABELS: Readonly<Record<LlamaFlagStatus, string>> = {
   used: 'Used',
@@ -185,19 +222,58 @@ export class LlamaRunCommandComponent {
     return COMMON_FLAGS.filter((flag) => !used.has(flag.name) && !flag.aliases.some((alias) => used.has(alias)));
   });
 
-  protected readonly gpuPlacements = computed((): GpuPlacement[] => [
-    ...this.s.cudaGpus().map((gpu): GpuPlacement => ({
+  protected readonly placementOptions = computed((): GpuPlacement[] => {
+    const gpus = this.s.cudaGpus();
+    const options: GpuPlacement[] = gpus.map((gpu) => ({
       id: `single:${gpu.cudaIndex}`,
       mode: 'single',
       gpu,
-      label: this.gpuName(gpu),
-    })),
-    { id: 'split', mode: 'split', label: 'Split by VRAM' },
-    { id: 'auto', mode: 'auto', label: 'All GPUs' },
-  ]);
+      label: `${this.cardName(gpu)} only`,
+    }));
+    if (gpus.length >= 2) {
+      const label = gpus.length === 2 ? `Split across ${gpus.map((g) => this.cardName(g)).join(' + ')}` : `Split across ${gpus.length} GPUs`;
+      options.push({ id: 'split', mode: 'split', label });
+    }
+    options.push({ id: 'auto', mode: 'auto', label: 'All GPUs, llama-server decides' });
+    return options.map((p) => (this.isRecommendedPlacement(p) ? { ...p, label: `${p.label} (recommended)` } : p));
+  });
 
-  /** Shown while Split by VRAM is active across two cards. */
+  /** Empty for a `-dev` list none of the options describe, so the picker shows its placeholder. */
+  protected readonly activePlacementId = computed(() => {
+    const { mode, cudaIndexes } = parseManagedLlamaGpuOffload(this.command());
+    const id = mode === 'single' ? `single:${cudaIndexes[0]}` : mode;
+    return this.placementOptions().some((p) => p.id === id) ? id : '';
+  });
+
+  /** Shown while a split is active across two cards. */
   protected readonly tensorSplit = computed(() => tensorSplitSliderForCommand(this.command(), this.s.cudaGpus()));
+
+  /** The split differs from the VRAM ratio a fresh split across every card would write. */
+  protected readonly splitResettable = computed(() => {
+    const { mode, cudaIndexes, tensorSplit } = parseManagedLlamaGpuOffload(this.command());
+    const ordered = [...this.s.cudaGpus()].sort((a, b) => a.cudaIndex - b.cudaIndex);
+    return (
+      mode === 'split' &&
+      cudaIndexes.join(',') === ordered.map((g) => g.cudaIndex).join(',') &&
+      tensorSplit !== tensorSplitForGpus(ordered)
+    );
+  });
+
+  /** The flags the placement writes, as the command has them now. Empty when it sets none. */
+  protected readonly gpuFlags = computed(() => {
+    const { cudaIndexes, tensorSplit, mainGpu } = parseManagedLlamaGpuOffload(this.command());
+    const parts: string[] = [];
+    if (cudaIndexes.length) {
+      parts.push(`-dev ${cudaIndexes.map((i) => `CUDA${i}`).join(',')}`);
+    }
+    if (tensorSplit !== null && cudaIndexes.length >= 2) {
+      parts.push(`--tensor-split ${tensorSplit}`);
+    }
+    if (mainGpu !== null) {
+      parts.push(`--main-gpu ${mainGpu}`);
+    }
+    return parts.join('  ');
+  });
 
   /** What this command would put on each card, for the settings as edited. */
   protected readonly vramEstimate = computed(() =>
@@ -215,6 +291,83 @@ export class LlamaRunCommandComponent {
     const cards = this.vramEstimate();
     return cards?.find((c) => c.level === 'over') ?? cards?.find((c) => c.level === 'tight') ?? null;
   });
+  /**
+   * The model laid out across the cards it runs on, sized from the estimate. Without one, a split
+   * still shows as shares so it can be dragged.
+   */
+  protected readonly modelStrip = computed((): ModelStrip | null => {
+    const cards = this.vramEstimate();
+    const totalMb = cards?.reduce((sum, c) => sum + c.modelMb, 0) ?? 0;
+    if (cards?.length && totalMb > 0) {
+      return {
+        totalMb,
+        segments: cards.map((c) => {
+          const overMb = Math.max(0, c.totalMb - c.gpu.memoryTotalMb);
+          return {
+            key: String(c.gpu.cudaIndex),
+            slot: this.slot(c.gpu),
+            name: this.cardName(c.gpu),
+            size: `${this.gb(c.modelMb)} GB`,
+            share: (c.modelMb / totalMb) * 100,
+            overPct: c.modelMb > 0 ? Math.min(100, (overMb / c.modelMb) * 100) : 0,
+          };
+        }),
+      };
+    }
+    const split = this.tensorSplit();
+    if (!split) {
+      return null;
+    }
+    const firstShare = (split.value / split.total) * 100;
+    const segment = (gpu: CudaGpuDevice, share: number): ModelStripSegment => ({
+      key: String(gpu.cudaIndex),
+      slot: this.slot(gpu),
+      name: this.cardName(gpu),
+      size: `${Math.round(share)}%`,
+      share,
+      overPct: 0,
+    });
+    return { totalMb: null, segments: [segment(split.first, firstShare), segment(split.second, 100 - firstShare)] };
+  });
+
+  /** Every card's VRAM with this command, including cards it leaves unused. */
+  protected readonly gpuGauges = computed((): GpuGauge[] | null => {
+    const cards = this.vramEstimate();
+    if (!cards) {
+      return null;
+    }
+    const usage = this.s.managedVramUsage();
+    return this.s.cudaGpus().map((gpu): GpuGauge => {
+      const capacityMb = gpu.memoryTotalMb;
+      const pct = (mb: number): number => Math.max(0, Math.min(100, (mb / capacityMb) * 100));
+      const base = { key: String(gpu.cudaIndex), slot: this.slot(gpu), name: this.cardName(gpu) };
+      const card = cards.find((c) => c.gpu.cudaIndex === gpu.cudaIndex);
+      if (!card) {
+        const otherMb = usage.find((u) => u.cudaIndex === gpu.cudaIndex)?.otherMb ?? 0;
+        return {
+          ...base,
+          level: 'idle',
+          otherPct: pct(otherMb),
+          modelPct: 0,
+          freeText: 'Not used',
+          detail: `${this.gb(Math.max(0, capacityMb - otherMb))} of ${this.gb(capacityMb)} GB free`,
+        };
+      }
+      const freeMb = capacityMb - card.totalMb;
+      const otherPct = pct(card.otherMb);
+      // Under 0.1 GB would read as "0.0 GB".
+      const others = card.otherMb >= 0.05 * 1024 ? ` · ${this.gb(card.otherMb)} GB desktop and apps` : '';
+      return {
+        ...base,
+        level: card.level,
+        otherPct,
+        modelPct: Math.min(100 - otherPct, pct(card.modelMb)),
+        freeText: freeMb >= 0 ? `${this.gb(freeMb)} GB free` : `${this.gb(-freeMb)} GB over`,
+        detail: `About ${this.gb(card.totalMb)} of ${this.gb(capacityMb)} GB${others}`,
+      };
+    });
+  });
+
   /** Cards past their physical memory right now, whatever the settings say. */
   protected readonly vramOvercommitted = computed(() => overcommittedCards(this.s.cudaGpus(), this.s.managedVramUsage()));
 
@@ -378,12 +531,6 @@ export class LlamaRunCommandComponent {
     return (mb / 1024).toFixed(1);
   }
 
-  protected vramLine(card: GpuVramCardEstimate): string {
-    const name = shortCudaGpuName(card.gpu.model);
-    const breakdown = card.otherMb > 0 ? ` (${this.gb(card.modelMb)} model + ${this.gb(card.otherMb)} desktop and apps)` : '';
-    return `${name}: about ${this.gb(card.totalMb)} of ${this.gb(card.gpu.memoryTotalMb)} GB${breakdown}`;
-  }
-
   protected vramAdvice(card: GpuVramCardEstimate): string {
     const name = shortCudaGpuName(card.gpu.model);
     return card.level === 'over'
@@ -395,8 +542,34 @@ export class LlamaRunCommandComponent {
     return shortCudaGpuName(gpu.model);
   }
 
-  protected gpuName(gpu: CudaGpuDevice): string {
-    return `CUDA${gpu.cudaIndex} · ${shortCudaGpuName(gpu.model)}`;
+  /** The card's short name, with its CUDA index when another card has the same name. */
+  protected cardName(gpu: CudaGpuDevice): string {
+    const name = shortCudaGpuName(gpu.model);
+    const twin = this.s.cudaGpus().some((g) => g.cudaIndex !== gpu.cudaIndex && shortCudaGpuName(g.model) === name);
+    return twin ? `${name} (CUDA${gpu.cudaIndex})` : name;
+  }
+
+  private slot(gpu: CudaGpuDevice): number {
+    return Math.max(0, this.s.cudaGpus().findIndex((g) => g.cudaIndex === gpu.cudaIndex)) % GPU_COLOR_SLOTS;
+  }
+
+  /**
+   * The range input sits over the strip so its thumb lands on the boundary between the cards:
+   * value v of total is at v / total of the strip's width, for every v from 1 to total - 1.
+   */
+  protected splitHandleLeft(split: TensorSplitSlider): string {
+    return `calc(${100 / split.total}% - ${SPLIT_HANDLE_PX / 2}px)`;
+  }
+
+  protected splitHandleWidth(split: TensorSplitSlider): string {
+    return `calc(${(100 * (split.total - 2)) / split.total}% + ${SPLIT_HANDLE_PX}px)`;
+  }
+
+  protected splitValueText(split: TensorSplitSlider): string {
+    const [a, b] = this.modelStrip()?.segments ?? [];
+    return a && b
+      ? `${a.size} on ${a.name}, ${b.size} on ${b.name}`
+      : `${split.value} on ${this.cardName(split.first)}, ${split.total - split.value} on ${this.cardName(split.second)}`;
   }
 
   protected onTensorSplitInput(raw: string, total: number): void {
@@ -406,30 +579,22 @@ export class LlamaRunCommandComponent {
     }
   }
 
-  protected choosePlacement(placement: GpuPlacement): void {
-    this.s.onManagedGpuOffloadChange(placement.mode, placement.gpu?.cudaIndex);
+  protected resetSplit(): void {
+    this.s.onManagedGpuOffloadChange('split');
   }
 
-  protected isActivePlacement(placement: GpuPlacement): boolean {
-    const { mode, cudaIndexes } = parseManagedLlamaGpuOffload(this.command());
-    return mode === placement.mode && (mode !== 'single' || cudaIndexes[0] === placement.gpu?.cudaIndex);
+  protected choosePlacementId(id: string): void {
+    const placement = this.placementOptions().find((p) => p.id === id);
+    if (placement) {
+      this.s.onManagedGpuOffloadChange(placement.mode, placement.gpu?.cudaIndex);
+    }
   }
 
-  protected isRecommendedPlacement(placement: GpuPlacement): boolean {
+  private isRecommendedPlacement(placement: GpuPlacement): boolean {
     const advice = this.s.managedGpuAdvice();
     return (
       advice?.mode === placement.mode && (placement.mode !== 'single' || advice.primaryCudaIndex === placement.gpu?.cudaIndex)
     );
-  }
-
-  protected placementDetail(placement: GpuPlacement): string {
-    if (placement.gpu) {
-      return `CUDA${placement.gpu.cudaIndex} · ${this.s.cudaGpuLabel(placement.gpu)}`;
-    }
-    if (placement.mode === 'split') {
-      return this.s.managedGpuSplitRatioLabel();
-    }
-    return 'llama.cpp default. Can overflow into RAM on mixed cards.';
   }
 
   protected mtpOfferText(head: ManagedMtpHead): string {

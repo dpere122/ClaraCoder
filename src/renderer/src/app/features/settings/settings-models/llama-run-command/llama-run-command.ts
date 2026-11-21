@@ -10,6 +10,7 @@ import {
   estimateManagedLlamaVram,
   HF_FLAG_NAMES,
   llamaCommandUsesDraftMtp,
+  managedLlamaDeviceList,
   MANAGED_LLAMA_CACHE_TYPES,
   MANAGED_LLAMA_FLASH_ATTN_MODES,
   type ManagedGpuOffloadMode,
@@ -240,7 +241,18 @@ export class LlamaRunCommandComponent {
 
   /** Empty for a `-dev` list none of the options describe, so the picker shows its placeholder. */
   protected readonly activePlacementId = computed(() => {
-    const { mode, cudaIndexes } = parseManagedLlamaGpuOffload(this.command());
+    const command = this.command();
+    const { mode, cudaIndexes } = parseManagedLlamaGpuOffload(command);
+    // `none`, another backend's device or a card listed twice: not a list the options write.
+    const listed = (managedLlamaDeviceList(command) ?? '').split(',').filter((device) => device.trim());
+    if (listed.length !== cudaIndexes.length) {
+      return '';
+    }
+    if (mode === 'split') {
+      // The split option is every card: a list that leaves one out, or names one that isn't here, is custom.
+      const gpus = this.s.cudaGpus();
+      return cudaIndexes.length === gpus.length && gpus.every((g) => cudaIndexes.includes(g.cudaIndex)) ? 'split' : '';
+    }
     const id = mode === 'single' ? `single:${cudaIndexes[0]}` : mode;
     return this.placementOptions().some((p) => p.id === id) ? id : '';
   });
@@ -261,12 +273,16 @@ export class LlamaRunCommandComponent {
 
   /** The flags the placement writes, as the command has them now. Empty when it sets none. */
   protected readonly gpuFlags = computed(() => {
-    const { cudaIndexes, tensorSplit, mainGpu } = parseManagedLlamaGpuOffload(this.command());
+    const command = this.command();
+    const { cudaIndexes, tensorSplit, mainGpu } = parseManagedLlamaGpuOffload(command);
+    const device = managedLlamaDeviceList(command);
     const parts: string[] = [];
-    if (cudaIndexes.length) {
-      parts.push(`-dev ${cudaIndexes.map((i) => `CUDA${i}`).join(',')}`);
+    // As written: `-dev none` or another backend's device is a GPU flag too.
+    if (device) {
+      parts.push(`-dev ${device}`);
     }
-    if (tensorSplit !== null && cudaIndexes.length >= 2) {
+    // With no `-dev` it applies across every card. Beside one pinned card there is nothing to split.
+    if (tensorSplit !== null && cudaIndexes.length !== 1) {
       parts.push(`--tensor-split ${tensorSplit}`);
     }
     if (mainGpu !== null) {
@@ -319,15 +335,20 @@ export class LlamaRunCommandComponent {
       return null;
     }
     const firstShare = (split.value / split.total) * 100;
-    const segment = (gpu: CudaGpuDevice, share: number): ModelStripSegment => ({
+    // Rounded once, so the two labels always add up to 100%.
+    const firstPct = Math.round(firstShare);
+    const segment = (gpu: CudaGpuDevice, share: number, pct: number): ModelStripSegment => ({
       key: String(gpu.cudaIndex),
       slot: this.slot(gpu),
       name: this.cardName(gpu),
-      size: `${Math.round(share)}%`,
+      size: `${pct}%`,
       share,
       overPct: 0,
     });
-    return { totalMb: null, segments: [segment(split.first, firstShare), segment(split.second, 100 - firstShare)] };
+    return {
+      totalMb: null,
+      segments: [segment(split.first, firstShare, firstPct), segment(split.second, 100 - firstShare, 100 - firstPct)],
+    };
   });
 
   /** Every card's VRAM with this command, including cards it leaves unused. */

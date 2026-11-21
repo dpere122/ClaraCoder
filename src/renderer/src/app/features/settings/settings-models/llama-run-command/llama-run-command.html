@@ -261,7 +261,7 @@
                 step='1'
                 [style.left]='splitHandleLeft(split)'
                 [style.width]='splitHandleWidth(split)'
-                [attr.aria-label]='"Share of the model on the " + shortGpuName(split.first)'
+                [attr.aria-label]='"Share of the model on the " + cardName(split.first)'
                 [attr.aria-valuetext]='splitValueText(split)'
                 [value]='split.value'
                 (input)='onTensorSplitInput($any($event.target).value, split.total)'

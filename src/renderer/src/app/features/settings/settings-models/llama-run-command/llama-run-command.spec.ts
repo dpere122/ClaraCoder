@@ -128,6 +128,35 @@ describe('GPU placement', () => {
     const all = setup({ command: BASE });
     expect(flags(await render(all.fixture))).toContain('No GPU flags');
   });
+
+  it('shows a device list no option writes as custom, with its flags as written', async () => {
+    const flags = (el: HTMLElement) => el.querySelector('.run-placement__flags')?.textContent?.trim();
+    for (const device of ['none', 'Vulkan0', 'CUDA0,Vulkan1', 'CUDA0,CUDA5']) {
+      TestBed.resetTestingModule();
+      const { fixture } = setup({ command: `${BASE} --device ${device}` });
+      const el = await render(fixture);
+      expect(placementTrigger(el).textContent?.trim(), device).toBe('Custom device list');
+      expect(flags(el), device).toBe(`Sets-dev ${device}`);
+    }
+  });
+
+  it('shows a split that leaves a card out as custom', async () => {
+    const third: CudaGpuDevice = { cudaIndex: 2, model: 'NVIDIA GeForce RTX 4060', memoryTotalMb: 8188 };
+    const some = setup({ command: `${BASE} -dev CUDA0,CUDA2`, gpus: [RTX5090, RTX5070TI, third] });
+    expect(placementTrigger(await render(some.fixture)).textContent?.trim()).toBe('Custom device list');
+    TestBed.resetTestingModule();
+    const every = setup({ command: `${BASE} -dev CUDA2,CUDA0,CUDA1`, gpus: [RTX5090, RTX5070TI, third] });
+    expect(placementTrigger(await render(every.fixture)).textContent?.trim()).toBe('Split across 3 GPUs');
+  });
+
+  it('shows a tensor split that applies with no device list', async () => {
+    const flags = (el: HTMLElement) => el.querySelector('.run-placement__flags')?.textContent?.trim();
+    const all = setup({ command: `${BASE} --tensor-split 3,1` });
+    expect(flags(await render(all.fixture))).toBe('Sets--tensor-split 3,1');
+    TestBed.resetTestingModule();
+    const pinned = setup({ command: `${BASE} -dev CUDA1 --tensor-split 3,1` });
+    expect(flags(await render(pinned.fixture))).toBe('Sets-dev CUDA1');
+  });
 });
 
 describe('the model strip', () => {
@@ -141,6 +170,15 @@ describe('the model strip', () => {
     expect(labels).toEqual(['RTX 5090 56%', 'RTX 5070 Ti 44%']);
     expect(handle(el)?.value).toBe('27');
     expect(handle(el)?.max).toBe('47');
+  });
+
+  it('keeps the two shares adding up to 100%', async () => {
+    const small: CudaGpuDevice = { cudaIndex: 0, model: 'NVIDIA GeForce GTX 1650', memoryTotalMb: 4096 };
+    const { fixture } = setup({ command: `${BASE} -dev CUDA0,CUDA1 --tensor-split 1,7`, gpus: [small, { ...small, cudaIndex: 1 }] });
+    const el = await render(fixture);
+    const labels = [...el.querySelectorAll('.run-strip__labels span')].map((s) => s.textContent?.trim());
+    expect(labels).toEqual(['GTX 1650 (CUDA0) 13%', 'GTX 1650 (CUDA1) 87%']);
+    expect(handle(el)?.getAttribute('aria-label')).toBe('Share of the model on the GTX 1650 (CUDA0)');
   });
 
   it('writes the split the handle is dragged to', async () => {

@@ -167,6 +167,7 @@ export {
   planManagedLlamaTuning,
   recommendGpuOffload,
   estimateManagedLlamaVram,
+  managedLlamaDeviceList,
   managedLlamaKvCacheWeight,
   overcommittedCards,
   shortCudaGpuName,

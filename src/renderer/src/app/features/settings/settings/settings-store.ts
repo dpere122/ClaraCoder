@@ -136,8 +136,6 @@ import {
   resolveMtpPathForManagedGguf,
   promoteManagedSentinelNglToAuto,
   recommendGpuOffload,
-  formatGpuVramGb,
-  shortCudaGpuName,
   syncBatchSizeInManagedChatCommand,
   syncCacheTypeKInManagedChatCommand,
   syncCacheTypeVInManagedChatCommand,
@@ -740,9 +738,6 @@ export class SettingsStore {
   });
   /** NVIDIA cards in CUDA index order (empty until NVML inventory returns). */
   readonly cudaGpus = signal<CudaGpuDevice[]>([]);
-  readonly managedGpuOffloadMode = computed((): ManagedGpuOffloadMode =>
-    parseManagedLlamaGpuOffload(this.selectedLlamaCppManaged().chatRunCommand).mode,
-  );
   /** Path of the GGUF the chat command loads, when it names a local file. */
   readonly managedGgufPath = computed((): string | null => {
     const sel = parseManagedLlamaModelSelection(this.selectedLlamaCppManaged().chatRunCommand);
@@ -799,14 +794,6 @@ export class SettingsStore {
       profile ? { profile, command: cmd, companionHeadBytes: this.managedDraftModelBytes() } : null,
     );
   });
-  readonly managedGpuSplitRatioLabel = computed(() => {
-    const gpus = this.cudaGpus();
-    if (gpus.length < 2) {
-      return '';
-    }
-    return gpus.map((g) => formatGpuVramGb(g.memoryTotalMb)).join(' : ');
-  });
-
   readonly managedSelectedFamilyLabel = computed(() => {
     const sel = parseManagedLlamaModelSelection(this.selectedLlamaCppManaged().chatRunCommand);
     const hint =
@@ -2096,10 +2083,6 @@ export class SettingsStore {
         detectShellQuotingPlatform(),
       ),
     });
-  }
-
-  cudaGpuLabel(gpu: CudaGpuDevice): string {
-    return `${shortCudaGpuName(gpu.model)} (${formatGpuVramGb(gpu.memoryTotalMb)})`;
   }
 
   resetManagedToRecommended(): void {

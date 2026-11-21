@@ -296,75 +296,300 @@
 
 .run-placement {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 10px;
-  margin-top: 4px;
-}
-
-.run-placement .run-command__views {
-  flex-wrap: wrap;
-}
-
-.run-placement .run-command__views button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.run-split {
-  padding-right: 8px;
-  display: flex;
-  flex-basis: 100%;
-  align-items: center;
+  flex-direction: column;
   gap: 10px;
+  margin-top: 8px;
   min-width: 0;
 }
 
-.run-split input[type='range'] {
-  flex: 1;
-  min-width: 4rem;
-  accent-color: var(--t-primary);
+.run-placement [data-slot='0'] {
+  --gpu-color: var(--t-primary);
 }
 
-.run-split__card {
-  flex-shrink: 0;
+.run-placement [data-slot='1'] {
+  --gpu-color: #e08a2e;
+}
+
+.run-placement [data-slot='2'] {
+  --gpu-color: #a78bfa;
+}
+
+.run-placement [data-slot='3'] {
+  --gpu-color: #2dd4bf;
+}
+
+.run-placement__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.run-placement__field-label {
   font-size: 12px;
   color: var(--t-muted);
 }
 
-.run-split__card strong {
-  color: var(--t-fg);
-  font-family: var(--t-font-mono, monospace);
-  font-weight: 500;
-}
-
-.run-vram {
-  flex-basis: 100%;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--t-muted);
-}
-
-.run-vram li[data-level='tight'] {
-  color: var(--t-warn, #e8b931);
-}
-
-.run-vram li[data-level='over'] {
-  color: var(--t-danger, #ff6b6b);
-}
-
-.run-placement .run-command__notice {
-  flex-basis: 100%;
-}
-
-.run-placement__reason {
-  flex-basis: 100%;
+.run-placement__reason,
+.run-placement__flags {
   margin: 0;
   font-size: 12px;
   line-height: 1.35;
+  color: var(--t-muted);
+}
+
+.run-placement__flags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--t-border-subtle);
+}
+
+.run-placement__flags code {
+  color: var(--t-fg);
+  overflow-wrap: anywhere;
+}
+
+/* The model strip: the model across its cards, with a handle on the boundary of a two-card split. */
+
+.run-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--t-border-subtle);
+  background: var(--t-bg-deep);
+  min-width: 0;
+}
+
+.run-strip__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 12px;
+}
+
+.run-strip__title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t-fg);
+}
+
+.run-strip__hint {
+  font-size: 12px;
+  color: var(--t-muted);
+}
+
+.run-strip__labels {
+  display: flex;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--t-muted);
+}
+
+.run-strip__labels span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-strip__labels span + span {
+  padding-left: 10px;
+  box-sizing: border-box;
+}
+
+.run-strip__labels strong {
+  font-weight: 500;
+  color: var(--t-fg);
+}
+
+.run-strip__bar {
+  position: relative;
+  display: flex;
+  height: 22px;
+  margin: 4px 0;
+}
+
+.run-strip__segment {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+  overflow: hidden;
+  background: var(--gpu-color);
+}
+
+.run-strip__segment:first-child {
+  border-radius: 4px 0 0 4px;
+}
+
+.run-strip__segment:last-of-type {
+  border-radius: 0 4px 4px 0;
+}
+
+.run-strip__segment:only-of-type {
+  border-radius: 4px;
+}
+
+.run-strip__segment + .run-strip__segment {
+  border-left: 2px solid var(--t-bg-deep);
+}
+
+.run-strip__over {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--t-danger, #ff6b6b) 0 5px,
+    color-mix(in srgb, var(--t-danger, #ff6b6b) 55%, transparent) 5px 10px
+  );
+}
+
+/* A range input over the bar: no track, and a thumb drawn as the handle. */
+.run-strip__handle {
+  position: absolute;
+  top: -6px;
+  height: calc(100% + 12px);
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  cursor: ew-resize;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.run-strip__handle::-webkit-slider-runnable-track {
+  height: 100%;
+  background: transparent;
+}
+
+.run-strip__handle::-webkit-slider-thumb {
+  width: 14px;
+  height: 34px;
+  border: 2px solid var(--t-bg-deep);
+  border-radius: 4px;
+  background: var(--t-fg);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 40%);
+  cursor: ew-resize;
+  -webkit-appearance: none;
+}
+
+.run-strip__handle:focus {
+  outline: none;
+}
+
+.run-strip__handle:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--t-primary);
+  outline-offset: 1px;
+}
+
+.run-strip__reset {
+  align-self: flex-end;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--t-primary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.run-strip__reset:hover {
+  text-decoration: underline;
+}
+
+/* One gauge per card: desktop and apps, then this model, then free. */
+
+.run-vram {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.run-gauge {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--t-border-subtle);
+  min-width: 0;
+}
+
+.run-gauge__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.run-gauge__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t-fg);
+}
+
+.run-gauge__swatch {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--gpu-color);
+}
+
+.run-gauge__free {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--t-success, #3ddc97);
+}
+
+.run-gauge[data-level='tight'] .run-gauge__free {
+  color: var(--t-warn, #e8b931);
+}
+
+.run-gauge[data-level='over'] .run-gauge__free {
+  color: var(--t-danger, #ff6b6b);
+}
+
+.run-gauge[data-level='idle'] .run-gauge__free {
+  color: var(--t-muted);
+}
+
+.run-gauge__bar {
+  display: flex;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--t-hover-bg);
+}
+
+.run-gauge__other {
+  background: var(--t-muted);
+  opacity: 0.6;
+}
+
+.run-gauge__model {
+  background: var(--gpu-color);
+}
+
+.run-gauge[data-level='over'] .run-gauge__model {
+  background: var(--t-danger, #ff6b6b);
+}
+
+.run-gauge__detail {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--t-muted);
+}
+
+.run-gauge[data-level='idle'] .run-gauge__name {
   color: var(--t-muted);
 }
 

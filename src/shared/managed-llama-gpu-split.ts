@@ -373,6 +373,11 @@ export function parseManagedLlamaGpuOffload(cmd: string): ParsedGpuOffload {
   return { mode: 'auto', cudaIndexes, tensorSplit, mainGpu };
 }
 
+/** The `-dev` list as written, or `null` without one. It can name `none` or another backend's devices. */
+export function managedLlamaDeviceList(cmd: string): string | null {
+  return readLlamaFlagValue((cmd || '').trim(), DEV_FLAG_NAMES);
+}
+
 function stripFlag(cmd: string, names: readonly string[]): string {
   return spliceOutLlamaSpans(cmd, findLlamaFlag(cmd, names));
 }

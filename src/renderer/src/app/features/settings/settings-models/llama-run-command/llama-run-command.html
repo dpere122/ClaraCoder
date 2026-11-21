@@ -217,44 +217,76 @@
   @if (s.cudaGpus().length) {
     <div class='run-placement' data-tutorial='sources-vram'>
       <span class='run-placement__label'>GPU placement</span>
-      <div class='run-command__views' role='radiogroup' aria-label='GPU placement'>
-        @for (placement of gpuPlacements(); track placement.id) {
-          <button
-            type='button'
-            role='radio'
-            [attr.aria-checked]='isActivePlacement(placement)'
-            [class.is-active]='isActivePlacement(placement)'
-            [disabled]='placement.mode === "split" && s.cudaGpus().length < 2'
-            [title]='placementDetail(placement)'
-            (click)='choosePlacement(placement)'
-          >
-            {{ placement.label }}{{ isRecommendedPlacement(placement) ? ' (recommended)' : '' }}
-          </button>
-        }
+      <div class='run-placement__field'>
+        <span class='run-placement__field-label'>Run on</span>
+        <app-pill-select
+          [options]='placementOptions()'
+          [value]='activePlacementId()'
+          placeholder='Custom device list'
+          ariaLabel='GPU placement'
+          [menuFitContent]='true'
+          (valueChange)='choosePlacementId($event)'
+        />
       </div>
-      @if (tensorSplit(); as split) {
-        <div class='run-split'>
-          <span class='run-split__card'>{{ gpuName(split.first) }} <strong>{{ split.value }}</strong></span>
-          <input
-            type='range'
-            min='1'
-            [max]='split.total - 1'
-            step='1'
-            aria-label='Tensor split: share of the model on the first card'
-            [attr.aria-valuetext]='split.value + " on " + gpuName(split.first) + ", " + (split.total - split.value) + " on " + gpuName(split.second)'
-            [value]='split.value'
-            (input)='onTensorSplitInput($any($event.target).value, split.total)'
-          />
-          <span class='run-split__card run-split__card--end'><strong>{{ split.total - split.value }}</strong> {{ gpuName(split.second) }}</span>
-        </div>
-      }
       @if (s.managedGpuAdvice()?.reason; as reason) {
         <p class='run-placement__reason'>{{ reason }}</p>
       }
-      @if (vramEstimate(); as cards) {
+      @if (modelStrip(); as strip) {
+        <div class='run-strip'>
+          <div class='run-strip__head'>
+            <span class='run-strip__title'>Where the model goes</span>
+            <span class='run-strip__hint'>
+              {{ strip.totalMb !== null ? 'About ' + gb(strip.totalMb) + ' GB' : '' }}{{ strip.totalMb !== null && tensorSplit() ? ' · ' : '' }}{{ tensorSplit() ? 'Drag to move layers' : '' }}
+            </span>
+          </div>
+          <div class='run-strip__labels' aria-hidden='true'>
+            @for (seg of strip.segments; track seg.key) {
+              <span [style.width.%]='seg.share'><strong>{{ seg.name }}</strong> {{ seg.size }}</span>
+            }
+          </div>
+          <div class='run-strip__bar'>
+            @for (seg of strip.segments; track seg.key) {
+              <span class='run-strip__segment' [attr.data-slot]='seg.slot' [style.width.%]='seg.share'>
+                @if (seg.overPct > 0) {
+                  <span class='run-strip__over' [style.width.%]='seg.overPct' title='Does not fit: runs from system RAM'></span>
+                }
+              </span>
+            }
+            @if (tensorSplit(); as split) {
+              <input
+                type='range'
+                class='run-strip__handle'
+                min='1'
+                [max]='split.total - 1'
+                step='1'
+                [style.left]='splitHandleLeft(split)'
+                [style.width]='splitHandleWidth(split)'
+                [attr.aria-label]='"Share of the model on the " + cardName(split.first)'
+                [attr.aria-valuetext]='splitValueText(split)'
+                [value]='split.value'
+                (input)='onTensorSplitInput($any($event.target).value, split.total)'
+              />
+            }
+          </div>
+          @if (splitResettable()) {
+            <button type='button' class='run-strip__reset' (click)='resetSplit()'>Reset to VRAM ratio</button>
+          }
+        </div>
+      }
+      @if (gpuGauges(); as gauges) {
         <ul class='run-vram' aria-label='Estimated VRAM per card'>
-          @for (card of cards; track card.gpu.cudaIndex) {
-            <li [attr.data-level]='card.level'>{{ vramLine(card) }}</li>
+          @for (g of gauges; track g.key) {
+            <li class='run-gauge' [attr.data-level]='g.level' [attr.data-slot]='g.slot'>
+              <span class='run-gauge__head'>
+                <span class='run-gauge__name'><span class='run-gauge__swatch' aria-hidden='true'></span>{{ g.name }}</span>
+                <span class='run-gauge__free'>{{ g.freeText }}</span>
+              </span>
+              <span class='run-gauge__bar' aria-hidden='true'>
+                <span class='run-gauge__other' [style.width.%]='g.otherPct'></span>
+                <span class='run-gauge__model' [style.width.%]='g.modelPct'></span>
+              </span>
+              <span class='run-gauge__detail'>{{ g.detail }}</span>
+            </li>
           }
         </ul>
       }
@@ -270,6 +302,13 @@
           <span>Right now the {{ shortGpuName(card.gpu) }} has {{ gb(card.dedicatedMb) }} GB allocated, more than its {{ gb(card.gpu.memoryTotalMb) }} GB. Task Manager and nvidia-smi can under-report this.</span>
         </p>
       }
+      <p class='run-placement__flags'>
+        @if (gpuFlags(); as flags) {
+          <span>Sets</span><code>{{ flags }}</code>
+        } @else {
+          <span>No GPU flags: llama-server uses every CUDA card.</span>
+        }
+      </p>
     </div>
   }
 
